@@ -102,15 +102,7 @@ patchelf = "*"
 [feature.dev.target.linux-aarch64.dependencies]
 patchelf = "*"
 
-[feature.dev.target.linux-64.pypi-dependencies]
-xponge = "*"
-ase = "*"
-
-[feature.dev.target.win-64.pypi-dependencies]
-xponge = "*"
-ase = "*"
-
-[feature.dev.target.osx-arm64.pypi-dependencies]
+[feature.dev.pypi-dependencies]
 xponge = "*"
 ase = "*"
 
