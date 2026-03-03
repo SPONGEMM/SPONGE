@@ -11,15 +11,39 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        feature: [cpu, cuda12, cuda13]
-        target: [linux-64, win-64, osx-arm64]
         include:
-          - target: linux-64
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
             runner: ubuntu-22.04
-          - target: win-64
+          - feature: cuda126
+            env_name: dev-cuda126
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda128
+            env_name: dev-cuda128
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda130
+            env_name: dev-cuda130
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
             runner: windows-2022
-          - target: osx-arm64
-            runner: macos-14
+          - feature: cuda126
+            env_name: dev-cuda126
+            target: win-64
+            runner: windows-2022
+          - feature: cuda128
+            env_name: dev-cuda128
+            target: win-64
+            runner: windows-2022
+          - feature: cuda130
+            env_name: dev-cuda130
+            target: win-64
+            runner: windows-2022
 
     steps:
       - name: Checkout repository
@@ -32,14 +56,14 @@ jobs:
 
       - name: Build conda package(s)
         run: |
-          pixi install -e dev-${{ matrix.feature }}
-          pixi run -e dev-${{ matrix.feature }} configure
-          pixi run -e dev-${{ matrix.feature }} compile
-          pixi run -e dev-${{ matrix.feature }} package
+          pixi install -e ${{ matrix.env_name }}
+          pixi run -e ${{ matrix.env_name }} configure
+          pixi run -e ${{ matrix.env_name }} compile
+          pixi run -e ${{ matrix.env_name }} package
 
       - name: Upload conda artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: conda-packages-${{ matrix.target }}-${{ matrix.feature }}-${{ github.run_id }}
+          name: sponge-${{ matrix.feature }}-${{ matrix.target }}-${{ github.run_id }}
           path: conda/outputs/*.conda
           if-no-files-found: error

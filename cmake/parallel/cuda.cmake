@@ -1,10 +1,3 @@
-if(WIN32)
-  # Conda CUDA 12.x nvcc may reject newer VS 2022 toolset patch versions.
-  set(CMAKE_CUDA_FLAGS
-      "${CMAKE_CUDA_FLAGS} -allow-unsupported-compiler -D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH"
-  )
-endif()
-
 enable_language(CUDA)
 set(CPP_DIALECT "CUDA")
 find_package(CUDAToolkit REQUIRED)

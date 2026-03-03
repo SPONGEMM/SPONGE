@@ -9,11 +9,13 @@ conda-pypi-map = { conda-forge = "scripts/conda-pypi-map.json" }
 
 [environments]
 cpu = ["cpu"]
-cuda12 = ["cuda", "cuda12"]
-cuda13 = ["cuda", "cuda13"]
+cuda126 = ["cuda", "cuda126"]
+cuda128 = ["cuda", "cuda128"]
+cuda130 = ["cuda", "cuda130"]
 dev-cpu = ["dev", "cpu"]
-dev-cuda12 = ["dev", "cuda", "cuda12"]
-dev-cuda13 = ["dev", "cuda", "cuda13"]
+dev-cuda126 = ["dev", "cuda", "cuda126"]
+dev-cuda128 = ["dev", "cuda", "cuda128"]
+dev-cuda130 = ["dev", "cuda", "cuda130"]
 ref-gen = ["ref-gen"]
 
 [feature.cuda.target.linux-64.dependencies]
@@ -39,16 +41,22 @@ cuda-nvrtc-dev = "*"
 vs2022_win-64 = "*"
 tomlplusplus = "*"
 
-[feature.cuda12.target.linux-64.dependencies]
-cuda-nvcc = "12.0.*"
+[feature.cuda126.target.linux-64.dependencies]
+cuda-nvcc = "12.6.*"
 
-[feature.cuda12.target.win-64.dependencies]
-cuda-nvcc = "12.0.*"
+[feature.cuda126.target.win-64.dependencies]
+cuda-nvcc = "12.6.*"
 
-[feature.cuda13.target.linux-64.dependencies]
+[feature.cuda128.target.linux-64.dependencies]
+cuda-nvcc = "12.8.*"
+
+[feature.cuda128.target.win-64.dependencies]
+cuda-nvcc = "12.8.*"
+
+[feature.cuda130.target.linux-64.dependencies]
 cuda-nvcc = "13.0.*"
 
-[feature.cuda13.target.win-64.dependencies]
+[feature.cuda130.target.win-64.dependencies]
 cuda-nvcc = "13.0.*"
 
 [feature.cpu.target.linux-64.dependencies]
