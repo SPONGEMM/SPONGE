@@ -3,7 +3,7 @@ name = "SPONGE"
 version = "2.0.0-alpha"
 description = "Simulation Package Toward Next GEneration of molecular modelling"
 channels = ["conda-forge"]
-platforms = ["linux-64", "win-64", "osx-arm64"]
+platforms = ["linux-64", "linux-aarch64", "win-64", "osx-arm64"]
 preview = ["pixi-build"]
 conda-pypi-map = { conda-forge = "scripts/conda-pypi-map.json" }
 
@@ -57,6 +57,16 @@ ninja = "*"
 mkl-devel = "*"
 gcc_linux-64 = "11.*"
 gxx_linux-64 = "11.*"
+tomlplusplus = "*"
+
+[feature.cpu.target.linux-aarch64.dependencies]
+cmake = ">=3.24"
+ninja = "*"
+openblas = "*"
+fftw = "*"
+liblapacke = "*"
+gcc_linux-aarch64 = "11.*"
+gxx_linux-aarch64 = "11.*"
 tomlplusplus = "*"
 
 [feature.cpu.target.win-64.dependencies]
@@ -142,6 +152,10 @@ install-msvc = "powershell -ExecutionPolicy Bypass -File scripts/install-msvc.ps
 
 [feature.cpu.target.linux-64.tasks]
 configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='none' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_CXX_COMPILER=\"$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++\""
+compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
+
+[feature.cpu.target.linux-aarch64.tasks]
+configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='none' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
 
 [feature.cpu.target.win-64.tasks]

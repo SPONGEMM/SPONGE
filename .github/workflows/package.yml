@@ -14,6 +14,10 @@ jobs:
         include:
           - feature: cpu
             env_name: dev-cpu
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu
+            env_name: dev-cpu
             target: linux-64
             runner: ubuntu-22.04
           - feature: cuda12

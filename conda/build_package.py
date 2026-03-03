@@ -44,6 +44,14 @@ RUNTIME_DEPENDENCIES = {
             "libstdcxx-ng",
             "libgcc-ng",
         ],
+        "linux-aarch64": [
+            "openblas >=0.3",
+            "fftw >=3.3",
+            "liblapacke >=3.11",
+            "libgomp",
+            "libstdcxx-ng",
+            "libgcc-ng",
+        ],
         "win-64": [
             "mkl >=2025",
             "vc14_runtime",
