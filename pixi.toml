@@ -86,7 +86,7 @@ c-compiler = "*"
 cxx-compiler = "*"
 tomlplusplus = "*"
 
-[feature.dev.target.linux-64.dependencies]
+[feature.dev.dependencies]
 git = "*"
 clang-format = "*"
 cmake-format = "*"
@@ -95,38 +95,12 @@ python = ">=3.9"
 zstandard = "*"
 numpy = "*"
 pytest = "*"
+
+[feature.dev.target.linux-64.dependencies]
 patchelf = "*"
 
 [feature.dev.target.linux-aarch64.dependencies]
-git = "*"
-clang-format = "*"
-cmake-format = "*"
-ruff = "*"
-python = ">=3.9"
-zstandard = "*"
-numpy = "*"
-pytest = "*"
 patchelf = "*"
-
-[feature.dev.target.win-64.dependencies]
-git = "*"
-clang-format = "*"
-cmake-format = "*"
-ruff = "*"
-python = ">=3.9"
-zstandard = "*"
-numpy = "*"
-pytest = "*"
-
-[feature.dev.target.osx-arm64.dependencies]
-git = "*"
-clang-format = "*"
-cmake-format = "*"
-ruff = "*"
-python = ">=3.9"
-zstandard = "*"
-numpy = "*"
-pytest = "*"
 
 [feature.dev.target.linux-64.pypi-dependencies]
 xponge = "*"
