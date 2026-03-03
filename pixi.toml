@@ -152,6 +152,19 @@ pyscf = ">=2.12.1,<3"
 xponge = "*"
 ase = "*"
 
+[feature.dev.tasks]
+comp-lammps = "pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
+comp-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
+comp-amber = "python -X utf8 -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
+comp-gromacs = "python -X utf8 -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
+vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
+vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
+vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
+perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
+format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"
+format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"
+package = "python -X utf8 conda/build_package.py --env $PIXI_ENVIRONMENT_NAME --output-dir conda/outputs"
+
 [target.linux-64.tasks]
 configure = "cmake -S . -B build -G Ninja"
 compile = "cmake --build build --config Release --target install"
@@ -184,58 +197,6 @@ compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target 
 [feature.cuda.target.win-64.tasks]
 configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='cuda' -DCUDA_ARCH='all-major' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
-
-[feature.dev.target.linux-64.tasks]
-comp-lammps = "pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-comp-amber = "python -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
-comp-gromacs = "python -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
-vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
-vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
-vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
-perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
-format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-package = "python conda/build_package.py --env $PIXI_ENVIRONMENT_NAME --output-dir conda/outputs"
-
-[feature.dev.target.linux-aarch64.tasks]
-comp-lammps = "pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-comp-amber = "python -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
-comp-gromacs = "python -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
-vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
-vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
-vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
-perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
-format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-package = "python conda/build_package.py --env $PIXI_ENVIRONMENT_NAME --output-dir conda/outputs"
-
-[feature.dev.target.win-64.tasks]
-comp-lammps = "pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-comp-amber = "python -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
-comp-gromacs = "python -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
-vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
-vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
-vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
-perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
-format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"
-format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"
-package = "python conda/build_package.py --env $PIXI_ENVIRONMENT_NAME --output-dir conda/outputs"
-
-[feature.dev.target.osx-arm64.tasks]
-comp-lammps = "pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-comp-amber = "python -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
-comp-gromacs = "python -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
-vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
-vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
-vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
-perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
-format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= scripts/pre-commit"
-package = "python conda/build_package.py --env $PIXI_ENVIRONMENT_NAME --output-dir conda/outputs"
 
 [feature.ref-gen.target.linux-64.tasks]
 ref-gen-pyscf = "python benchmarks/comparison/reference/pyscf/generate.py"
