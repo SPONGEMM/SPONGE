@@ -29,7 +29,12 @@ ENVS_DIR = PROJECT_ROOT / ".pixi" / "envs"
 PACKAGE_FILES = [
     "bin/SPONGE",
 ]
-PORTABLE_RPATH = "$ORIGIN/../lib"
+PORTABLE_RPATH_LINUX = "$ORIGIN/../lib"
+PORTABLE_RPATH_MACOS = "@loader_path/../lib"
+PATCH_TOOL_BY_SYSTEM = {
+    "linux": "patchelf",
+    "darwin": "install_name_tool",
+}
 
 RUNTIME_DEPENDENCIES = {
     "cpu": {
@@ -187,29 +192,44 @@ def collect_files(env_name: str) -> list[tuple[Path, str]]:
 def patch_binary_rpath(files: list[tuple[Path, str]]) -> None:
     """Patch packaged binaries to use a portable relative RPATH."""
     system = platform.system().lower()
-    if system != "linux":
+    if system not in {"linux", "darwin"}:
         return
+
+    if system == "linux":
+        tool = PATCH_TOOL_BY_SYSTEM[system]
+        rpath_arg = PORTABLE_RPATH_LINUX
+        args = ["--set-rpath", rpath_arg]
+    else:
+        tool = PATCH_TOOL_BY_SYSTEM[system]
+        rpath_arg = PORTABLE_RPATH_MACOS
+        args = ["-add_rpath", rpath_arg]
+
+    patch_cmd = [tool, *args, ""]
 
     for src_path, arc_path in files:
         if not arc_path.startswith("bin/"):
             continue
+        patch_cmd[-1] = str(src_path)
         try:
-            subprocess.run(
-                ["patchelf", "--set-rpath", PORTABLE_RPATH, str(src_path)],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-            print(f"Patched RPATH: {src_path} -> {PORTABLE_RPATH}")
+            subprocess.run(patch_cmd, check=True, capture_output=True, text=True)
+            print(f"Patched RPATH: {src_path} -> {rpath_arg}")
         except FileNotFoundError:
+            if system == "linux":
+                sys.exit(
+                    "Error: patchelf not found in PATH. "
+                    "Install patchelf in the packaging environment."
+                )
             sys.exit(
-                "Error: patchelf not found in PATH. "
-                "Install patchelf in the packaging environment."
+                "Error: install_name_tool not found in PATH. "
+                "Run packaging on macOS with Xcode command line tools."
             )
         except subprocess.CalledProcessError as exc:
             details = (exc.stderr or exc.stdout or "").strip()
+            if system == "darwin" and "would duplicate path" in details:
+                print(f"RPATH already set: {src_path} -> {rpath_arg}")
+                continue
             sys.exit(
-                f"Error: Failed to patch RPATH for '{src_path}' with patchelf. "
+                f"Error: Failed to patch RPATH for '{src_path}' with {tool}. "
                 f"{details}"
             )
 
