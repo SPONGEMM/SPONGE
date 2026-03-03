@@ -25,6 +25,10 @@ add_library(common_libraries INTERFACE)
 
 set(CMAKE_MODULE_PATH "${PROJECT_ROOT_DIR}/cmake/modules")
 
+if(UNIX)
+  target_link_libraries(common_libraries INTERFACE ${CMAKE_DL_LIBS})
+endif()
+
 function(SearchOptions SEARCH_PATH OUTPUT_VAR)
   file(GLOB OPTION_FILES ${SEARCH_PATH})
   set(OPTION_LIST "")
