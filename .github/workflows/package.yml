@@ -28,6 +28,10 @@ jobs:
             env_name: dev-cpu
             target: win-64
             runner: windows-2022
+          - feature: cpu
+            env_name: dev-cpu
+            target: osx-arm64
+            runner: macos-14
           - feature: cuda12
             env_name: dev-cuda12
             target: win-64

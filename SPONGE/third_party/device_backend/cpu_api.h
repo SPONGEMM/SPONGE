@@ -71,10 +71,10 @@ struct dim3
 #include "fftw3_mkl.h"
 #endif
 
-#ifdef USE_ARMPL
-#define FFT_LIBRARY_NAME "ARMPL-FFT"
-#elif defined(USE_MKL)
+#ifdef USE_MKL
 #define FFT_LIBRARY_NAME "MKL-FFT"
+#elif defined(USE_OPENBLAS)
+#define FFT_LIBRARY_NAME "FFTW"
 #else
 #define FFT_LIBRARY_NAME "FFTW"
 #endif
@@ -106,6 +106,10 @@ enum FFT_TYPE
 #ifdef USE_MKL
 #include <mkl.h>
 #define BLAS_LIBRARY_NAME "MKL-BLAS"
+#elif defined(USE_OPENBLAS)
+#include <cblas.h>
+#include <lapacke.h>
+#define BLAS_LIBRARY_NAME "OpenBLAS"
 #else
 // Placeholder for other BLAS implementations
 #endif
@@ -123,7 +127,7 @@ enum deviceBlasOperation_t
 #define deviceBlasCreate(handle)
 #define deviceBlasDestroy(handle)
 
-#ifdef USE_MKL
+#if defined(USE_MKL) || defined(USE_OPENBLAS)
 #define deviceBlasSgeam(handle, transa, transb, m, n, alpha, A, lda, beta, B, \
                         ldb, C, ldc)                                          \
     do                                                                        \
@@ -148,6 +152,9 @@ enum deviceBlasOperation_t
 #ifdef USE_MKL
 #include <mkl.h>
 #define SOLVER_LIBRARY_NAME "MKL-SOLVER"
+#elif defined(USE_OPENBLAS)
+#include <lapacke.h>
+#define SOLVER_LIBRARY_NAME "LAPACKE"
 #endif
 
 #define SOLVER_HANDLE int

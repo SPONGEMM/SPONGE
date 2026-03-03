@@ -45,6 +45,13 @@ RUNTIME_DEPENDENCIES = {
             "ucrt",
             "llvm-openmp",
         ],
+        "osx-arm64": [
+            "openblas >=0.3",
+            "fftw >=3.3",
+            "liblapacke >=3.11",
+            "llvm-openmp",
+            "libcxx",
+        ],
     },
     "cuda12": {
         "linux-64": [

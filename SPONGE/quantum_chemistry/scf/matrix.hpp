@@ -31,7 +31,7 @@ static inline int QC_Diagonalize_Workspace_Size(SOLVER_HANDLE solver_handle,
         *iwork_ptr = NULL;
     }
     return 0;
-#elif defined(USE_MKL)
+#elif defined(USE_MKL) || defined(USE_OPENBLAS)
     (void)solver_handle;
     if (work_ptr == NULL || iwork_ptr == NULL || lwork == NULL ||
         liwork == NULL || mat == NULL || w == NULL)
@@ -104,7 +104,7 @@ static inline void QC_Diagonalize(SOLVER_HANDLE solver_handle, int n,
 #ifdef USE_CUDA
     cusolverDnSsyevd(solver_handle, CUSOLVER_EIG_MODE_VECTOR,
                      CUBLAS_FILL_MODE_UPPER, n, mat, n, w, work, lwork, info);
-#elif defined(USE_MKL)
+#elif defined(USE_MKL) || defined(USE_OPENBLAS)
     *info = (int)LAPACKE_ssyevd_work(
         LAPACK_COL_MAJOR, 'V', 'U', (lapack_int)n, mat, (lapack_int)n, w, work,
         (lapack_int)lwork, (lapack_int*)iwork, (lapack_int)liwork);
