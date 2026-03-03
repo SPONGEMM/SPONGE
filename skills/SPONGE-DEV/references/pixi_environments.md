@@ -6,14 +6,11 @@ SPONGE 内 pixi 环境名及其作用为：
 - cpu
   由pixi管理依赖的无SIMD优化的CPU版本
 
-- cuda126
-  由pixi管理依赖的cuda12.6 GPU版本
+- cuda12
+  由pixi管理依赖的cuda12 GPU版本（默认12.8）
 
-- cuda128
-  由pixi管理依赖的cuda12.8 GPU版本
-
-- cuda130
-  由pixi管理依赖的cuda13.0 GPU版本
+- cuda13
+  由pixi管理依赖的cuda13 GPU版本（默认13.0）
 
 - dev-xxx
   上述的xxx的开发者模式版本

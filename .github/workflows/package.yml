@@ -16,32 +16,24 @@ jobs:
             env_name: dev-cpu
             target: linux-64
             runner: ubuntu-22.04
-          - feature: cuda126
-            env_name: dev-cuda126
+          - feature: cuda12
+            env_name: dev-cuda12
             target: linux-64
             runner: ubuntu-22.04
-          - feature: cuda128
-            env_name: dev-cuda128
-            target: linux-64
-            runner: ubuntu-22.04
-          - feature: cuda130
-            env_name: dev-cuda130
+          - feature: cuda13
+            env_name: dev-cuda13
             target: linux-64
             runner: ubuntu-22.04
           - feature: cpu
             env_name: dev-cpu
             target: win-64
             runner: windows-2022
-          - feature: cuda126
-            env_name: dev-cuda126
+          - feature: cuda12
+            env_name: dev-cuda12
             target: win-64
             runner: windows-2022
-          - feature: cuda128
-            env_name: dev-cuda128
-            target: win-64
-            runner: windows-2022
-          - feature: cuda130
-            env_name: dev-cuda130
+          - feature: cuda13
+            env_name: dev-cuda13
             target: win-64
             runner: windows-2022
 

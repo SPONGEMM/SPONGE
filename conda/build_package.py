@@ -46,7 +46,7 @@ RUNTIME_DEPENDENCIES = {
             "llvm-openmp",
         ],
     },
-    "cuda126": {
+    "cuda12": {
         "linux-64": [
             "cuda-version >=12,<13",
             "cuda-nvrtc >=12,<13",
@@ -72,33 +72,7 @@ RUNTIME_DEPENDENCIES = {
             "llvm-openmp",
         ],
     },
-    "cuda128": {
-        "linux-64": [
-            "cuda-version >=12,<13",
-            "cuda-nvrtc >=12,<13",
-            "libcublas >=12,<13",
-            "libcufft >=11,<12",
-            "libcurand >=10,<11",
-            "libcusolver >=11,<12",
-            "libnvjitlink >=12,<13",
-            "libgomp",
-            "libstdcxx-ng",
-            "libgcc-ng",
-        ],
-        "win-64": [
-            "cuda-version >=12,<13",
-            "cuda-nvrtc >=12,<13",
-            "libcublas >=12,<13",
-            "libcufft >=11,<12",
-            "libcurand >=10,<11",
-            "libcusolver >=11,<12",
-            "libnvjitlink >=12,<13",
-            "vc14_runtime",
-            "ucrt",
-            "llvm-openmp",
-        ],
-    },
-    "cuda130": {
+    "cuda13": {
         "linux-64": [
             "cuda-version >=13,<14",
             "cuda-nvrtc >=13,<14",
