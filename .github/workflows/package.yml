@@ -27,6 +27,8 @@ jobs:
 
       - name: Setup Pixi
         uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
 
       - name: Build conda package(s)
         run: |
