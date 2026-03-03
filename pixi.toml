@@ -40,10 +40,10 @@ vs2022_win-64 = "*"
 tomlplusplus = "*"
 
 [feature.cuda12.target.linux-64.dependencies]
-cuda-nvcc = "12.0.*"
+cuda-nvcc = "12.8.*"
 
 [feature.cuda12.target.win-64.dependencies]
-cuda-nvcc = "12.0.*"
+cuda-nvcc = "12.8.*"
 
 [feature.cuda13.target.linux-64.dependencies]
 cuda-nvcc = "13.0.*"

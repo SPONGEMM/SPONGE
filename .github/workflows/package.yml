@@ -1,0 +1,61 @@
+name: Package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda12
+            env_name: dev-cuda12
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda13
+            env_name: dev-cuda13
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+          - feature: cuda12
+            env_name: dev-cuda12
+            target: win-64
+            runner: windows-2022
+          - feature: cuda13
+            env_name: dev-cuda13
+            target: win-64
+            runner: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+
+      - name: Build conda package(s)
+        run: |
+          pixi install -e ${{ matrix.env_name }}
+          pixi run -e ${{ matrix.env_name }} configure
+          pixi run -e ${{ matrix.env_name }} compile
+          pixi run -e ${{ matrix.env_name }} package
+
+      - name: Upload conda artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sponge-${{ matrix.feature }}-${{ matrix.target }}-${{ github.run_id }}
+          path: conda/outputs/*.conda
+          if-no-files-found: error
