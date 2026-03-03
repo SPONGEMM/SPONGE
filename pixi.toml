@@ -97,6 +97,17 @@ numpy = "*"
 pytest = "*"
 patchelf = "*"
 
+[feature.dev.target.linux-aarch64.dependencies]
+git = "*"
+clang-format = "*"
+cmake-format = "*"
+ruff = "*"
+python = ">=3.9"
+zstandard = "*"
+numpy = "*"
+pytest = "*"
+patchelf = "*"
+
 [feature.dev.target.win-64.dependencies]
 git = "*"
 clang-format = "*"
