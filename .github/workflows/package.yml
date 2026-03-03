@@ -1,0 +1,43 @@
+name: Package
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        feature: [cpu, cuda12, cuda13]
+        target: [linux-64, win-64, osx-arm64]
+        include:
+          - target: linux-64
+            runner: ubuntu-22.04
+          - target: win-64
+            runner: windows-2022
+          - target: osx-arm64
+            runner: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+
+      - name: Build conda package(s)
+        run: |
+          pixi install -e dev-${{ matrix.feature }}
+          pixi run -e dev-${{ matrix.feature }} configure
+          pixi run -e dev-${{ matrix.feature }} compile
+          pixi run -e dev-${{ matrix.feature }} package
+
+      - name: Upload conda artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: conda-packages-${{ matrix.target }}-${{ matrix.feature }}-${{ github.run_id }}
+          path: conda/outputs/*.conda
+          if-no-files-found: error
