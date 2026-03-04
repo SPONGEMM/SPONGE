@@ -1,0 +1,40 @@
+name: Benchmark
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark-cpu:
+    name: SPONGE-CPU Benchmark (linux-64)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 240
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+
+      - name: Build SPONGE-CPU
+        run: |
+          pixi install -e dev-cpu
+          pixi run -e dev-cpu configure
+          pixi run -e dev-cpu compile
+
+      - name: Run comparison benchmarks
+        run: |
+          pixi run -e dev-cpu comp-lammps
+          pixi run -e dev-cpu comp-pyscf
+          pixi run -e dev-cpu comp-amber
+          pixi run -e dev-cpu comp-gromacs
+
+      - name: Run validation benchmarks
+        run: |
+          pixi run -e dev-cpu vali-thermostat
+          pixi run -e dev-cpu vali-barostat
+          pixi run -e dev-cpu vali-misc
