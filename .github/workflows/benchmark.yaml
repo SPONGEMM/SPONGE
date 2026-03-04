@@ -5,11 +5,31 @@ on:
 
 jobs:
   benchmark-cpu:
-    name: SPONGE-CPU Benchmark (linux-64)
-    runs-on: ubuntu-22.04
+    name: SPONGE-CPU Benchmark (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 240
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+          - feature: cpu
+            env_name: dev-cpu
+            target: osx-arm64
+            runner: macos-14
 
     steps:
       - name: Checkout repository
@@ -20,21 +40,32 @@ jobs:
         with:
           run-install: false
 
-      - name: Build SPONGE-CPU
-        run: |
-          pixi install -e dev-cpu
-          pixi run -e dev-cpu configure
-          pixi run -e dev-cpu compile
+      - name: Install dev-cpu environment
+        run: pixi install -e ${{ matrix.env_name }}
 
-      - name: Run comparison benchmarks
-        run: |
-          pixi run -e dev-cpu comp-lammps
-          pixi run -e dev-cpu comp-pyscf
-          pixi run -e dev-cpu comp-amber
-          pixi run -e dev-cpu comp-gromacs
+      - name: Configure SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} configure
 
-      - name: Run validation benchmarks
-        run: |
-          pixi run -e dev-cpu vali-thermostat
-          pixi run -e dev-cpu vali-barostat
-          pixi run -e dev-cpu vali-misc
+      - name: Compile SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Benchmark comparison/lammps
+        run: pixi run -e ${{ matrix.env_name }} comp-lammps
+
+      - name: Benchmark comparison/pyscf
+        run: pixi run -e ${{ matrix.env_name }} comp-pyscf
+
+      - name: Benchmark comparison/amber
+        run: pixi run -e ${{ matrix.env_name }} comp-amber
+
+      - name: Benchmark comparison/gromacs
+        run: pixi run -e ${{ matrix.env_name }} comp-gromacs
+
+      - name: Benchmark validation/thermostat
+        run: pixi run -e ${{ matrix.env_name }} vali-thermostat
+
+      - name: Benchmark validation/barostat
+        run: pixi run -e ${{ matrix.env_name }} vali-barostat
+
+      - name: Benchmark validation/misc
+        run: pixi run -e ${{ matrix.env_name }} vali-misc
