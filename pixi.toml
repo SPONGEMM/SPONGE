@@ -58,6 +58,8 @@ mkl-devel = "*"
 gcc_linux-64 = "11.*"
 gxx_linux-64 = "11.*"
 tomlplusplus = "*"
+llvmdev = ">=22.1.0,<23"
+clangdev = "22.1.*"
 
 [feature.cpu.target.linux-aarch64.dependencies]
 cmake = ">=3.24"
@@ -68,6 +70,8 @@ liblapacke = "*"
 gcc_linux-aarch64 = "11.*"
 gxx_linux-aarch64 = "11.*"
 tomlplusplus = "*"
+llvmdev = ">=22.1.0,<23"
+clangdev = "22.1.*"
 
 [feature.cpu.target.win-64.dependencies]
 cmake = ">=3.24"
@@ -75,6 +79,8 @@ ninja = "*"
 mkl-devel = "*"
 vs2022_win-64 = "*"
 tomlplusplus = "*"
+llvmdev = ">=22.1.0,<23"
+clangdev = "22.1.*"
 
 [feature.cpu.target.osx-arm64.dependencies]
 cmake = ">=3.24"
@@ -82,9 +88,11 @@ ninja = "*"
 openblas = "*"
 fftw = "*"
 liblapacke = "*"
-c-compiler = "*"
-cxx-compiler = "*"
+clang = "22.1.*"
+clangxx = "22.1.*"
 tomlplusplus = "*"
+llvmdev = ">=22.1.0,<23"
+clangdev = "22.1.*"
 
 [feature.dev.dependencies]
 git = "*"
