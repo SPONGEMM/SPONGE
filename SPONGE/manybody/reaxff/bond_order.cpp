@@ -182,98 +182,25 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
                 float v13cor_val = v13cor[pair_idx];
 
                 SADfloat<5> f1(1.0f);
-                float deltap_i_val = 0.0f;
-                float deltap_j_val = 0.0f;
                 if (ovc_val >= 0.001f)
                 {
-                    deltap_i_val = Delta_i.val - valency[type_i];
-                    deltap_j_val = Delta_j.val - valency[type_j];
+                    SADfloat<5> Deltap_i = Delta_i - valency[type_i];
+                    SADfloat<5> Deltap_j = Delta_j - valency[type_j];
 
-                    // f3 uses a stable log-sum-exp form and explicit derivatives.
-                    float exp_arg_i = -gp_boc2 * deltap_i_val;
-                    float exp_arg_j = -gp_boc2 * deltap_j_val;
-                    if (!isfinite(exp_arg_i))
-                    {
-                        exp_arg_i = (exp_arg_i > 0.0f ? 1.0e30f : -1.0e30f);
-                    }
-                    if (!isfinite(exp_arg_j))
-                    {
-                        exp_arg_j = (exp_arg_j > 0.0f ? 1.0e30f : -1.0e30f);
-                    }
-                    float max_exp_arg = fmaxf(exp_arg_i, exp_arg_j);
-                    float exp_shift_i = expf(exp_arg_i - max_exp_arg);
-                    float exp_shift_j = expf(exp_arg_j - max_exp_arg);
-                    float exp_shift_sum = exp_shift_i + exp_shift_j;
-                    float inv_shift_sum =
-                        (exp_shift_sum > 0.0f ? 1.0f / exp_shift_sum : 0.5f);
-                    float w_i = exp_shift_i * inv_shift_sum;
-                    float w_j = exp_shift_j * inv_shift_sum;
-                    float safe_shift_sum = fmaxf(exp_shift_sum, 1.0e-30f);
-                    float f3_val = -(max_exp_arg + logf(safe_shift_sum) -
-                                     0.6931471805599453f) /
-                                   gp_boc2;
+                    SADfloat<5> exp_p1i = expf(-gp_boc1 * Deltap_i);
+                    SADfloat<5> exp_p1j = expf(-gp_boc1 * Deltap_j);
+                    SADfloat<5> f2 = exp_p1i + exp_p1j;
 
-                    // f2/f1 is evaluated with explicit derivatives to avoid
-                    // overflow-induced inf-inf cancellation in SAD arithmetic.
-                    float exp_p1_arg_i = -gp_boc1 * deltap_i_val;
-                    float exp_p1_arg_j = -gp_boc1 * deltap_j_val;
-                    float max_p1_arg = fmaxf(exp_p1_arg_i, exp_p1_arg_j);
-                    if (isfinite(max_p1_arg) && max_p1_arg <= 80.0f)
-                    {
-                        float exp_p1_i = expf(exp_p1_arg_i);
-                        float exp_p1_j = expf(exp_p1_arg_j);
-                        float f2_val = exp_p1_i + exp_p1_j;
-                        float df2_i = -gp_boc1 * exp_p1_i;
-                        float df2_j = -gp_boc1 * exp_p1_j;
-                        float df3_i = w_i;
-                        float df3_j = w_j;
+                    SADfloat<5> f3 =
+                        -1.0f / gp_boc2 *
+                        (Log_Sum_Exp(-gp_boc2 * Deltap_i, -gp_boc2 * Deltap_j) -
+                         0.6931471805599453f);
 
-                        float val_i = valency[type_i];
-                        float val_j = valency[type_j];
+                    float val_i = valency[type_i];
+                    float val_j = valency[type_j];
 
-                        float Ni = val_i + f2_val;
-                        float Nj = val_j + f2_val;
-                        float Di = Ni + f3_val;
-                        float Dj = Nj + f3_val;
-
-                        float safe_Di = (fabsf(Di) > 1.0e-20f
-                                             ? Di
-                                             : copysignf(1.0e-20f, Di));
-                        float safe_Dj = (fabsf(Dj) > 1.0e-20f
-                                             ? Dj
-                                             : copysignf(1.0e-20f, Dj));
-                        float inv_Di2 = 1.0f / (safe_Di * safe_Di);
-                        float inv_Dj2 = 1.0f / (safe_Dj * safe_Dj);
-
-                        float Ai = Ni / safe_Di;
-                        float Aj = Nj / safe_Dj;
-                        float dAi_i =
-                            (df2_i * f3_val - Ni * df3_i) * inv_Di2;
-                        float dAi_j =
-                            (df2_j * f3_val - Ni * df3_j) * inv_Di2;
-                        float dAj_i =
-                            (df2_i * f3_val - Nj * df3_i) * inv_Dj2;
-                        float dAj_j =
-                            (df2_j * f3_val - Nj * df3_j) * inv_Dj2;
-
-                        f1 = SADfloat<5>(0.5f * (Ai + Aj), 0);
-                        f1.dval[0] = 0.0f;
-                        f1.dval[1] = 0.0f;
-                        f1.dval[2] = 0.0f;
-                        f1.dval[3] = 0.5f * (dAi_i + dAj_i);
-                        f1.dval[4] = 0.5f * (dAi_j + dAj_j);
-                    }
-                    else
-                    {
-                        // In the saturated exp region, f1->1 and derivatives
-                        // become numerically negligible.
-                        f1 = SADfloat<5>(1.0f, 0);
-                        f1.dval[0] = 0.0f;
-                        f1.dval[1] = 0.0f;
-                        f1.dval[2] = 0.0f;
-                        f1.dval[3] = 0.0f;
-                        f1.dval[4] = 0.0f;
-                    }
+                    f1 = 0.5f * ((val_i + f2) / (val_i + f2 + f3) +
+                                 (val_j + f2) / (val_j + f2 + f3));
                 }
 
                 SADfloat<5> f4(1.0f), f5(1.0f);
@@ -286,36 +213,19 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
                     float p_boc4_val = p_boc4[pair_idx];
                     float p_boc5_val = p_boc5[pair_idx];
 
-                    SADfloat<5> arg4 =
-                        -(p_boc4_val * total_bo_orig * total_bo_orig -
-                          Deltap_boc_i) *
-                            p_boc3_val +
-                        p_boc5_val;
-                    SADfloat<5> arg5 =
-                        -(p_boc4_val * total_bo_orig * total_bo_orig -
-                          Deltap_boc_j) *
-                            p_boc3_val +
-                        p_boc5_val;
+                    SADfloat<5> exp_f4 =
+                        expf(-(p_boc4_val * total_bo_orig * total_bo_orig -
+                               Deltap_boc_i) *
+                                 p_boc3_val +
+                             p_boc5_val);
+                    SADfloat<5> exp_f5 =
+                        expf(-(p_boc4_val * total_bo_orig * total_bo_orig -
+                               Deltap_boc_j) *
+                                 p_boc3_val +
+                             p_boc5_val);
 
-                    if (arg4.val > 0.0f)
-                    {
-                        SADfloat<5> exp_minus = expf(-arg4);
-                        f4 = exp_minus / (1.0f + exp_minus);
-                    }
-                    else
-                    {
-                        f4 = 1.0f / (1.0f + expf(arg4));
-                    }
-
-                    if (arg5.val > 0.0f)
-                    {
-                        SADfloat<5> exp_minus = expf(-arg5);
-                        f5 = exp_minus / (1.0f + exp_minus);
-                    }
-                    else
-                    {
-                        f5 = 1.0f / (1.0f + expf(arg5));
-                    }
+                    f4 = 1.0f / (1.0f + exp_f4);
+                    f5 = 1.0f / (1.0f + exp_f5);
                 }
 
                 SADfloat<5> A0 = f1 * f4 * f5;
