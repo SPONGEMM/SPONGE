@@ -126,6 +126,8 @@ comp-gromacs = "python -X utf8 -m pytest benchmarks/comparison/tests/gromacs/tes
 vali-thermostat = "pytest benchmarks/validation/thermostat/tests -s --tb=short"
 vali-barostat = "pytest benchmarks/validation/barostat/tests -s --tb=short"
 vali-misc = "pytest benchmarks/validation/misc/tests -s --tb=short"
+vali-reaxff = "pytest benchmarks/validation/reaxff/tests -s --tb=short"
+vali-point-energy = "pytest benchmarks/validation/point_energy/tests -s --tb=short"
 perf-sits = "pytest benchmarks/performance/sits/tests -s --tb=short"
 format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"
 format-check = "GITHOOK_MODIFY=0 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"

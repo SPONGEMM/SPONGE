@@ -1,0 +1,25 @@
+{
+  "case": "softcore",
+  "energies": {
+    "LJ_soft": 57368.4,
+    "LJ_soft_long": -3844.02,
+    "LJ_soft_short": 61212.43,
+    "PM": -499099.12,
+    "PM_correction": 2852826.5,
+    "PM_direct": -422143.03,
+    "PM_reciprocal": 4300.4,
+    "PM_self": -2934083.0,
+    "angle": 3200.47,
+    "bond": 1102.29,
+    "dihedral": 4679.84,
+    "nb14_EE": 15793.01,
+    "nb14_LJ": 1360.45,
+    "potential": -415594.66,
+    "step": 1,
+    "temperature": NaN,
+    "time": 300.0
+  },
+  "mdin": "mdin.spg.in",
+  "source_binary": "/home/ylj/SPONGE_GITHUB/SPONGE2.0/build/SPONGE",
+  "source_mode": "single_process_np1"
+}
