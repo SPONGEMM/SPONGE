@@ -1,6 +1,7 @@
 set(CPP_DIALECT "CXX")
 
 add_definitions(-DUSE_CPU)
+find_package(ZLIB REQUIRED)
 find_package(LLVM CONFIG REQUIRED)
 target_include_directories(common_libraries INTERFACE ${LLVM_INCLUDE_DIRS})
 if(WIN32)

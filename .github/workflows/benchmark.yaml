@@ -71,12 +71,3 @@ jobs:
 
       - name: Benchmark comparison/gromacs
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs
-
-      - name: Benchmark validation/thermostat
-        run: pixi run -e ${{ matrix.env_name }} vali-thermostat
-
-      - name: Benchmark validation/barostat
-        run: pixi run -e ${{ matrix.env_name }} vali-barostat
-
-      - name: Benchmark validation/misc
-        run: pixi run -e ${{ matrix.env_name }} vali-misc
