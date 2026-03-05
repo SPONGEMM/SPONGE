@@ -14,14 +14,8 @@ inline const std::string& Embedded_Common_Header()
     static const std::string header = []()
     {
         std::string value;
-#if defined(_MSC_VER)
         value.reserve(65536);
-#include "jit_msvc_chunks.inc"
-#else
-        value =
 #include "jit.h"
-            ;
-#endif
         return value;
     }();
     return header;
