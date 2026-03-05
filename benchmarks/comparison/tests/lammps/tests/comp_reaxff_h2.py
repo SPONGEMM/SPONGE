@@ -1,6 +1,5 @@
 import pytest
 import shutil
-import subprocess
 import numpy as np
 from utils import (
     load_lammps_reference_entry,
@@ -15,6 +14,7 @@ from utils import (
     write_sponge_mass,
     write_sponge_types,
     print_validation_table,
+    run_sponge_command,
 )
 
 
@@ -92,7 +92,7 @@ def test_reaxff_h2(
     write_sponge_types(sponge_dir / "type.txt", ["H", "H"])
 
     # 运行SPONGE
-    subprocess.run(["SPONGE"], cwd=sponge_dir, check=True, capture_output=True)
+    run_sponge_command(sponge_dir)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_h2", iteration

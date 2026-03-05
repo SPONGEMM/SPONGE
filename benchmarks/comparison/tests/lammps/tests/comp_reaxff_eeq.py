@@ -1,11 +1,11 @@
 import pytest
 import shutil
-import subprocess
 from utils import (
     generate_perturbed_water_system,
     load_lammps_reference_charges,
     load_lammps_reference_entry,
     print_validation_table,
+    run_sponge_command,
     write_lammps_charge_data,
     write_sponge_coords,
 )
@@ -91,8 +91,7 @@ def test_reaxff_eeq(
 
     write_sponge_coords(sponge_dir / "coordinate.txt", coords, box_size)
 
-    cmd_sponge = ["SPONGE"]
-    subprocess.run(cmd_sponge, cwd=sponge_dir, check=True, capture_output=True)
+    run_sponge_command(sponge_dir)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_eeq", iteration

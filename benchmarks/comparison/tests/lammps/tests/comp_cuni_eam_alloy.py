@@ -1,6 +1,5 @@
 import pytest
 import shutil
-import subprocess
 import numpy as np
 from ase.build import bulk
 from utils import (
@@ -16,6 +15,7 @@ from utils import (
     write_lammps_data,
     EV_TO_KCAL_MOL,
     print_validation_table,
+    run_sponge_command,
 )
 
 
@@ -98,8 +98,7 @@ def test_cuni_eam_alloy(
     )
 
     # Run SPONGE
-    cmd_sponge = ["SPONGE"]
-    subprocess.run(cmd_sponge, cwd=sponge_dir, check=True, capture_output=True)
+    run_sponge_command(sponge_dir)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "cuni_eam_alloy", iteration

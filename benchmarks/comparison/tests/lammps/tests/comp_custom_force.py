@@ -1,5 +1,4 @@
 import shutil
-import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -14,6 +13,7 @@ from utils import (
     extract_sponge_pressure,
     extract_sponge_stress,
     print_validation_table,
+    run_sponge_command,
     write_lammps_data,
     write_sponge_coords,
     write_sponge_mass,
@@ -21,12 +21,7 @@ from utils import (
 
 
 def _run_sponge(sponge_dir: Path):
-    subprocess.run(
-        ["SPONGE", "-mdin", "mdin.spg.toml"],
-        cwd=sponge_dir,
-        check=True,
-        capture_output=True,
-    )
+    run_sponge_command(sponge_dir, mdin_file="mdin.spg.toml")
 
 
 def _validate_lammps_vs_sponge(

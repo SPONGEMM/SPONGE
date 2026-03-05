@@ -1,5 +1,4 @@
 import pytest
-import subprocess
 import numpy as np
 import shutil
 from utils import (
@@ -15,6 +14,7 @@ from utils import (
     write_lammps_data,
     EV_TO_KCAL_MOL,
     print_validation_table,
+    run_sponge_command,
 )
 
 
@@ -62,8 +62,7 @@ def test_tersoff(
             f.write(f"{masses[atom_type - 1]}\n")
 
     write_sponge_coords(coord_file, coords, box)
-    cmd_sponge = ["SPONGE"]
-    subprocess.run(cmd_sponge, cwd=sponge_dir, check=True, capture_output=True)
+    run_sponge_command(sponge_dir)
 
     ref_entry = load_lammps_reference_entry(statics_path, "tersoff", iteration)
     assert abs(float(ref_entry["perturbation"]) - curr_perturbation) <= 1.0e-12

@@ -2,6 +2,7 @@ import json
 from functools import lru_cache
 import numpy as np
 import pathlib
+import subprocess
 from Xponge.analysis import MdoutReader
 
 EV_TO_KCAL_MOL = 23.060548
@@ -9,6 +10,31 @@ ATM_PER_KCAL_MOL_A3 = 68568.415
 BAR_TO_ATM = 1.0 / 1.01325
 LAMMPS_REFERENCE_JSON_REL_PATH = "reference/lammps/reference.json"
 LAMMPS_REFERENCE_ROOT_REL_DIR = "reference/lammps"
+
+
+def run_sponge_command(work_dir, mdin_file=None):
+    cmd = ["SPONGE"]
+    if mdin_file is not None:
+        cmd.extend(["-mdin", mdin_file])
+    result = subprocess.run(
+        cmd,
+        cwd=work_dir,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        print("\n[SPONGE stdout]\n")
+        print(result.stdout)
+        print("\n[SPONGE stderr]\n")
+        print(result.stderr)
+        raise subprocess.CalledProcessError(
+            result.returncode,
+            cmd,
+            output=result.stdout,
+            stderr=result.stderr,
+        )
+    return result
 
 
 def _detect_lammps_units_from_case(work_dir):

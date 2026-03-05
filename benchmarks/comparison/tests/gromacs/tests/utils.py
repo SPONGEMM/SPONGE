@@ -293,6 +293,12 @@ def _run_command(cmd, cwd, env=None, input_text=None):
     )
     output = result.stdout + "\n" + result.stderr
     if result.returncode != 0:
+        cmd0 = Path(str(cmd[0])).name.lower() if cmd else ""
+        if cmd0 in {"sponge", "sponge.exe"}:
+            print("\n[SPONGE stdout]\n")
+            print(result.stdout)
+            print("\n[SPONGE stderr]\n")
+            print(result.stderr)
         raise RuntimeError(
             f"Command failed in {cwd} with code {result.returncode}\n"
             f"Command: {' '.join(cmd)}\n"

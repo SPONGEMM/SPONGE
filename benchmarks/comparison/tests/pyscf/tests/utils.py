@@ -157,6 +157,10 @@ def run_sponge_scf_energy_ha(
     )
     output = result.stdout + "\n" + result.stderr
     if result.returncode != 0:
+        print("\n[SPONGE stdout]\n")
+        print(result.stdout)
+        print("\n[SPONGE stderr]\n")
+        print(result.stderr)
         raise RuntimeError(
             f"SPONGE failed with code {result.returncode} in {sponge_dir}\n"
             f"Command: {' '.join(cmd)}\n"
