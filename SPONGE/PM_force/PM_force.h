@@ -112,6 +112,7 @@ struct Particle_Mesh
     // 非中性时的能量额外项处理
     float neutralizing_factor = 0;  // 系数
     float* charge_sum = NULL;       // 电荷量
+    float* charge_square = NULL;    // 电荷平方，用于确定性 self 能量求和
 
     // 能量参数
     float* d_direct_atom_energy = NULL;      // 每个原子的直接的能量数组
