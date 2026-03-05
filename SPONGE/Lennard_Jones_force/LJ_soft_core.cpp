@@ -849,7 +849,8 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
 
 void LJ_SOFT_CORE::Step_Print(CONTROLLER* controller)
 {
-    if (!is_initialized) return;
+    if (!is_initialized || CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
+        return;
     Sum_Of_List(d_LJ_energy_atom, d_LJ_energy_sum, atom_numbers);
     deviceMemcpy(&h_LJ_energy_sum, d_LJ_energy_sum, sizeof(float),
                  deviceMemcpyDeviceToHost);

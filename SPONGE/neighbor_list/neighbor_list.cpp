@@ -597,50 +597,68 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
     {
         int atom_i = atom_local[atom_i_local];
         int excluded_number = excluded_atom_numbers[atom_i];
-        if (excluded_number > 0)
-        {
-            int list_start = excluded_list_start[atom_i];
-            int atom_min = excluded_list[list_start];
-            int list_end = list_start + excluded_number;
-            int atom_max = excluded_list[list_end - 1];
-            ATOM_GROUP nl_i = nl[atom_i_local];
-            int atomnumbers_in_nl_lin = nl_i.atom_numbers;
-            int atom_j_local, atom_j;
-            int excluded_atom_numbers_lin = list_end - list_start;
-            int excluded_atom_numbers_count = 0;
-            for (int i = 0; i < atomnumbers_in_nl_lin; ++i)
-            {
-                atom_j_local = nl_i.atom_serial[i];
-                atom_j = atom_local[atom_j_local];
+        int list_start_i = excluded_number > 0 ? excluded_list_start[atom_i] : 0;
+        int list_end_i = list_start_i + excluded_number;
+        int atom_min_i = excluded_number > 0 ? excluded_list[list_start_i] : 0;
+        int atom_max_i =
+            excluded_number > 0 ? excluded_list[list_end_i - 1] : -1;
 
-                if (atom_j < atom_min || atom_j > atom_max)
+        ATOM_GROUP nl_i = nl[atom_i_local];
+        int atomnumbers_in_nl_lin = nl_i.atom_numbers;
+        int atom_j_local, atom_j;
+        for (int i = 0; i < atomnumbers_in_nl_lin; ++i)
+        {
+            atom_j_local = nl_i.atom_serial[i];
+            atom_j = atom_local[atom_j_local];
+            bool is_excluded = false;
+
+            // Check i -> j in the original excluded list.
+            if (excluded_number > 0 && atom_j >= atom_min_i && atom_j <= atom_max_i)
+            {
+                for (int j = list_start_i; j < list_end_i; ++j)
                 {
-                    continue;
-                }
-                else
-                {
-                    for (int j = list_start; j < list_end; ++j)
+                    if (atom_j == excluded_list[j])
                     {
-                        if (atom_j == excluded_list[j])
-                        {
-                            atomnumbers_in_nl_lin = atomnumbers_in_nl_lin - 1;
-                            nl_i.atom_serial[i] =
-                                nl_i.atom_serial[atomnumbers_in_nl_lin];
-                            excluded_atom_numbers_count++;
-                            i--;
-                        }
-                    }
-                    if (excluded_atom_numbers_count < excluded_atom_numbers_lin)
-                    {
-                    }
-                    else
-                    {
+                        is_excluded = true;
                         break;
                     }
                 }
             }
-            nl[atom_i_local].atom_numbers = atomnumbers_in_nl_lin;
+
+            // In DD mode, only ghost neighbors can violate the global-id ordering
+            // implied by half-excluded lists. Limit reverse lookup to ghost entries
+            // to avoid extra overhead on pure local pairs.
+            if (!is_excluded && atom_j_local >= local_atom_numbers)
+            {
+                int excluded_number_j = excluded_atom_numbers[atom_j];
+                if (excluded_number_j > 0)
+                {
+                    int list_start_j = excluded_list_start[atom_j];
+                    int list_end_j = list_start_j + excluded_number_j;
+                    int atom_min_j = excluded_list[list_start_j];
+                    int atom_max_j = excluded_list[list_end_j - 1];
+                    if (atom_i >= atom_min_j && atom_i <= atom_max_j)
+                    {
+                        for (int j = list_start_j; j < list_end_j; ++j)
+                        {
+                            if (atom_i == excluded_list[j])
+                            {
+                                is_excluded = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (is_excluded)
+            {
+                atomnumbers_in_nl_lin = atomnumbers_in_nl_lin - 1;
+                nl_i.atom_serial[i] = nl_i.atom_serial[atomnumbers_in_nl_lin];
+                i--;
+            }
         }
+        nl[atom_i_local].atom_numbers = atomnumbers_in_nl_lin;
     }
 }
 
