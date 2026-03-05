@@ -96,9 +96,9 @@ clangdev = "22.1.*"
 
 [feature.dev.dependencies]
 git = "*"
-clang-format = "*"
-cmake-format = "*"
-ruff = "*"
+clang-format = "==22.1.0"
+cmake-format = "==0.6.13"
+ruff = "==0.15.1"
 python = ">=3.9"
 zstandard = "*"
 numpy = "*"

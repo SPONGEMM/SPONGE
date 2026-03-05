@@ -12,8 +12,8 @@ find_library(
   NAMES "lapacke" "liblapacke"
   HINTS "$ENV{CONDA_PREFIX}"
   PATH_SUFFIXES "lib")
-find_package_handle_standard_args(
-  LAPACKE DEFAULT_MSG LAPACKE_INCLUDE_DIR LAPACKE_LIBRARY)
+find_package_handle_standard_args(LAPACKE DEFAULT_MSG LAPACKE_INCLUDE_DIR
+                                  LAPACKE_LIBRARY)
 
 find_path(
   FFTW3_INCLUDE_DIR
@@ -25,8 +25,8 @@ find_library(
   NAMES "fftw3f" "libfftw3f"
   HINTS "$ENV{CONDA_PREFIX}"
   PATH_SUFFIXES "lib")
-find_package_handle_standard_args(
-  FFTW3F DEFAULT_MSG FFTW3_INCLUDE_DIR FFTW3F_LIBRARY)
+find_package_handle_standard_args(FFTW3F DEFAULT_MSG FFTW3_INCLUDE_DIR
+                                  FFTW3F_LIBRARY)
 
 add_definitions(-DUSE_OPENBLAS)
 
@@ -41,11 +41,13 @@ else()
 endif()
 
 if(DEFINED OpenBLAS_INCLUDE_DIRS)
-  target_include_directories(common_libraries INTERFACE ${OpenBLAS_INCLUDE_DIRS})
+  target_include_directories(common_libraries
+                             INTERFACE ${OpenBLAS_INCLUDE_DIRS})
 elseif(DEFINED OpenBLAS_INCLUDE_DIR)
   target_include_directories(common_libraries INTERFACE ${OpenBLAS_INCLUDE_DIR})
 endif()
 
-target_include_directories(common_libraries INTERFACE ${LAPACKE_INCLUDE_DIR} ${FFTW3_INCLUDE_DIR})
+target_include_directories(common_libraries INTERFACE ${LAPACKE_INCLUDE_DIR}
+                                                      ${FFTW3_INCLUDE_DIR})
 target_link_libraries(common_libraries INTERFACE ${LAPACKE_LIBRARY}
                                                  ${FFTW3F_LIBRARY})

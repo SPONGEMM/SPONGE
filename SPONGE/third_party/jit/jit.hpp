@@ -119,12 +119,13 @@ struct JIT_Function
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
-#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/Error.h>
-#include <llvm/Support/raw_ostream.h>
+#include <llvm/Support/MemoryBuffer.h>
 #include <llvm/Support/TargetSelect.h>
-#include <llvm/TargetParser/Triple.h>
+#include <llvm/Support/raw_ostream.h>
 #include <llvm/TargetParser/Host.h>
+#include <llvm/TargetParser/Triple.h>
+
 #include <mutex>
 
 struct JIT_Function
@@ -136,7 +137,8 @@ struct JIT_Function
     static void Initialize_ORC_Runtime()
     {
         static std::once_flag init_once;
-        std::call_once(init_once, []()
+        std::call_once(init_once,
+                       []()
                        {
                            llvm::InitializeNativeTarget();
                            llvm::InitializeNativeTargetAsmPrinter();
@@ -202,7 +204,7 @@ extern "C" float floorf(float x);
 )CPRE";
             value +=
 #include "jit.h"
-            ;
+                ;
             return value;
         }();
         return header;
@@ -223,19 +225,13 @@ extern "C" float floorf(float x);
         }
         else
         {
-            source_with_header.replace(include_pos,
-                                       std::string(kCommonHeader).size(),
-                                       common_header);
+            source_with_header.replace(
+                include_pos, std::string(kCommonHeader).size(), common_header);
         }
 
         std::vector<std::string> arg_storage = {
-            "-xc++",
-            "-std=c++17",
-            "-fopenmp",
-            "-O3",
-            "-w",
-            "-fno-fast-math",
-            "-DUSE_CPU"};
+            "-xc++", "-std=c++17",     "-fopenmp", "-O3",
+            "-w",    "-fno-fast-math", "-DUSE_CPU"};
         arg_storage.push_back(kInputFile);
 
         std::vector<const char*> arg_ptrs;
@@ -254,7 +250,8 @@ extern "C" float floorf(float x);
         compiler.createDiagnostics(diag_client.release(), true);
         if (!compiler.hasDiagnostics())
         {
-            error_reason = "Fail to initialize Clang diagnostics for JIT source";
+            error_reason =
+                "Fail to initialize Clang diagnostics for JIT source";
             return false;
         }
 
@@ -321,8 +318,8 @@ extern "C" float floorf(float x);
         auto jit = llvm::orc::LLJITBuilder().create();
         if (!jit)
         {
-            error_reason = "Fail to create LLJIT: " +
-                           llvm::toString(jit.takeError());
+            error_reason =
+                "Fail to create LLJIT: " + llvm::toString(jit.takeError());
             return false;
         }
         jit_engine = std::move(*jit);
@@ -357,9 +354,8 @@ extern "C" float floorf(float x);
                 llvm::Triple(llvm::sys::getDefaultTargetTriple()));
         }
 
-        if (auto err = jit_engine->addIRModule(
-                llvm::orc::ThreadSafeModule(std::move(module),
-                                            std::move(llvm_context))))
+        if (auto err = jit_engine->addIRModule(llvm::orc::ThreadSafeModule(
+                std::move(module), std::move(llvm_context))))
         {
             error_reason = "Fail to add LLVM IR module into ORC JIT: " +
                            llvm::toString(std::move(err));
@@ -376,8 +372,8 @@ extern "C" float floorf(float x);
         function = symbol->toPtr<void (*)(void**)>();
         if (function == nullptr)
         {
-            error_reason = "Resolved JIT symbol " + func_name +
-                           " has null address";
+            error_reason =
+                "Resolved JIT symbol " + func_name + " has null address";
             return false;
         }
         return true;

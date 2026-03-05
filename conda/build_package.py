@@ -227,7 +227,9 @@ def patch_binary_rpath(files: list[tuple[Path, str]]) -> None:
             continue
         patch_cmd[-1] = str(src_path)
         try:
-            subprocess.run(patch_cmd, check=True, capture_output=True, text=True)
+            subprocess.run(
+                patch_cmd, check=True, capture_output=True, text=True
+            )
             print(f"Patched RPATH: {src_path} -> {rpath_arg}")
         except FileNotFoundError:
             if system == "linux":
