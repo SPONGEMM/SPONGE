@@ -126,6 +126,10 @@ struct JIT_Function
 #include <llvm/TargetParser/Host.h>
 #include <llvm/TargetParser/Triple.h>
 
+#if defined(__linux__)
+#include <dlfcn.h>
+#endif
+
 #include <mutex>
 
 struct JIT_Function
@@ -143,6 +147,43 @@ struct JIT_Function
                            llvm::InitializeNativeTarget();
                            llvm::InitializeNativeTargetAsmPrinter();
                        });
+    }
+
+    static bool Ensure_OpenMP_Runtime_Loaded(std::string& load_error)
+    {
+#if defined(__linux__)
+        static std::once_flag load_once;
+        static bool load_success = false;
+        static std::string load_failure_reason;
+        static void* gomp_handle = nullptr;
+        std::call_once(load_once,
+                       []()
+                       {
+                           dlerror();
+                           gomp_handle =
+                               dlopen("libgomp.so.1", RTLD_LAZY | RTLD_GLOBAL);
+                           if (gomp_handle == nullptr)
+                           {
+                               const char* err = dlerror();
+                               load_failure_reason =
+                                   "Fail to load OpenMP runtime "
+                                   "libgomp.so.1: ";
+                               load_failure_reason +=
+                                   (err != nullptr) ? err : "unknown error";
+                               return;
+                           }
+                           load_success = true;
+                       });
+        if (!load_success)
+        {
+            load_error = load_failure_reason;
+            return false;
+        }
+#else
+        (void)load_error;
+#endif
+        load_error.clear();
+        return true;
     }
 
     static const std::string& InMemory_Common_Header()
@@ -230,8 +271,8 @@ extern "C" float floorf(float x);
         }
 
         std::vector<std::string> arg_storage = {
-            "-xc++", "-std=c++17",     "-fopenmp", "-O3",
-            "-w",    "-fno-fast-math", "-DUSE_CPU"};
+            "-xc++", "-std=c++17",  "-fopenmp", "-O3",
+            "-w",    "-ffast-math", "-DUSE_CPU"};
         arg_storage.push_back(kInputFile);
 
         std::vector<const char*> arg_ptrs;
@@ -315,6 +356,12 @@ extern "C" float floorf(float x);
                           const std::string& func_name)
     {
         Initialize_ORC_Runtime();
+        std::string openmp_load_error;
+        if (!Ensure_OpenMP_Runtime_Loaded(openmp_load_error))
+        {
+            error_reason = openmp_load_error;
+            return false;
+        }
         auto jit = llvm::orc::LLJITBuilder().create();
         if (!jit)
         {
