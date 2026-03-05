@@ -7,6 +7,27 @@ directly compiling for CPU backend
 #include "../../common.h"
 #include "../../control.h"
 
+namespace sponge_jit_detail
+{
+inline const std::string& Embedded_Common_Header()
+{
+    static const std::string header = []()
+    {
+        std::string value;
+#if defined(_MSC_VER)
+        value.reserve(65536);
+#include "jit_msvc_chunks.inc"
+#else
+        value =
+#include "jit.h"
+            ;
+#endif
+        return value;
+    }();
+    return header;
+}
+}  // namespace sponge_jit_detail
+
 #ifdef USE_CUDA
 struct JIT_Function
 {
@@ -18,9 +39,8 @@ struct JIT_Function
 
     void Compile(std::string source)
     {
-        std::string common_h =
-#include "jit.h"
-            const char* headers[1] = {common_h.c_str()};
+        std::string common_h = sponge_jit_detail::Embedded_Common_Header();
+        const char* headers[1] = {common_h.c_str()};
         const char* header_names[1] = {"common.h"};
         nvrtcProgram prog;
         nvrtcCreateProgram(&prog, source.c_str(), NULL, 1, headers,
@@ -243,9 +263,7 @@ extern "C" float floorf(float x);
 #endif
 #endif
 )CPRE";
-            value +=
-#include "jit.h"
-                ;
+            value += sponge_jit_detail::Embedded_Common_Header();
             return value;
         }();
         return header;
@@ -370,6 +388,20 @@ extern "C" float floorf(float x);
             return false;
         }
         jit_engine = std::move(*jit);
+
+#if defined(__linux__)
+        auto gomp_generator = llvm::orc::DynamicLibrarySearchGenerator::Load(
+            "libgomp.so.1", jit_engine->getDataLayout().getGlobalPrefix());
+        if (!gomp_generator)
+        {
+            error_reason =
+                "Fail to create ORC symbol resolver for "
+                "libgomp.so.1: " +
+                llvm::toString(gomp_generator.takeError());
+            return false;
+        }
+        jit_engine->getMainJITDylib().addGenerator(std::move(*gomp_generator));
+#endif
 
         auto generator =
             llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess(

@@ -4,6 +4,7 @@
 *.cpp text eol=lf
 *.h text eol=lf
 *.hpp text eol=lf
+*.inc text eol=lf
 *.cmake text eol=lf
 *.txt text eol=lf
 scripts/pre-commit text eol=lf
