@@ -1,0 +1,5 @@
+*.py text eol=lf
+*.pyi text eol=lf
+*.ipynb text eol=lf
+scripts/pre-commit text eol=lf
+scripts/pre-push text eol=lf
