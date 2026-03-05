@@ -4,4 +4,4 @@ target-version = "py39"
 [format]
 quote-style = "double"
 indent-style = "space"
-line-ending = "lf"
+line-ending = "auto"

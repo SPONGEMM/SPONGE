@@ -1,5 +1,10 @@
 *.py text eol=lf
 *.pyi text eol=lf
 *.ipynb text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.hpp text eol=lf
+*.cmake text eol=lf
+*.txt text eol=lf
 scripts/pre-commit text eol=lf
 scripts/pre-push text eol=lf
