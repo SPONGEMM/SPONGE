@@ -1,6 +1,14 @@
 name: Package
 
 on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   workflow_dispatch:
 
 jobs:
@@ -18,6 +26,14 @@ jobs:
             runner: ubuntu-24.04-arm
           - feature: cpu
             env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
             target: linux-64
             runner: ubuntu-22.04
           - feature: cuda12

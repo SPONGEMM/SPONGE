@@ -9,9 +9,11 @@ conda-pypi-map = { conda-forge = "scripts/conda-pypi-map.json" }
 
 [environments]
 cpu = ["cpu"]
+cpu-mpi = ["cpu-mpi", "cpu"]
 cuda12 = ["cuda", "cuda12"]
 cuda13 = ["cuda", "cuda13"]
 dev-cpu = ["dev", "cpu"]
+dev-cpu-mpi = ["dev", "cpu-mpi", "cpu"]
 dev-cuda12 = ["dev", "cuda", "cuda12"]
 dev-cuda13 = ["dev", "cuda", "cuda13"]
 ref-gen = ["ref-gen"]
@@ -97,6 +99,12 @@ tomlplusplus = "*"
 llvmdev = ">=22.1.0,<23"
 clangdev = "22.1.*"
 
+[feature.cpu-mpi.target.linux-64.dependencies]
+openmpi = "5.*"
+
+[feature.cpu-mpi.target.linux-aarch64.dependencies]
+openmpi = "5.*"
+
 [feature.dev.dependencies]
 git = "*"
 clang-format = "==22.1.0"
@@ -165,6 +173,14 @@ compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target 
 
 [feature.cpu.target.osx-arm64.tasks]
 configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='none' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
+compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
+
+[feature.cpu-mpi.target.linux-64.tasks]
+configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='none' -DMPI=ON -DMPI_CXX_COMPILER=\"$CONDA_PREFIX/bin/mpicxx\" -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_CXX_COMPILER=\"$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++\""
+compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
+
+[feature.cpu-mpi.target.linux-aarch64.tasks]
+configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='none' -DMPI=ON -DMPI_CXX_COMPILER=\"$CONDA_PREFIX/bin/mpicxx\" -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
 
 [feature.cuda.target.linux-64.tasks]

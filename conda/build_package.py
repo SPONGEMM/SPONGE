@@ -74,6 +74,28 @@ RUNTIME_DEPENDENCIES = {
             "libcxx",
         ],
     },
+    "cpu-mpi": {
+        "linux-64": [
+            "mkl >=2025",
+            "openmpi >=5,<6",
+            "libllvm22 >=22.1,<23",
+            "libclang-cpp >=22.1,<23",
+            "libgomp",
+            "libstdcxx-ng",
+            "libgcc-ng",
+        ],
+        "linux-aarch64": [
+            "openblas >=0.3",
+            "fftw >=3.3",
+            "liblapacke >=3.11",
+            "openmpi >=5,<6",
+            "libllvm22 >=22.1,<23",
+            "libclang-cpp >=22.1,<23",
+            "libgomp",
+            "libstdcxx-ng",
+            "libgcc-ng",
+        ],
+    },
     "cuda12": {
         "linux-64": [
             "cuda-version >=12,<13",
