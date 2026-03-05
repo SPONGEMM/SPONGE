@@ -84,12 +84,12 @@ struct SADfloat
     }
     __device__ __host__ __forceinline__ void operator/=(const SADfloat<N>& f1)
     {
+        float quotient = this->val / f1.val;
         for (int i = 0; i < N; i++)
         {
-            this->dval[i] = dval[i] * f1.val - f1.dval[i] * this->val;
-            this->dval[i] /= f1.val * f1.val;
+            this->dval[i] = (this->dval[i] - quotient * f1.dval[i]) / f1.val;
         }
-        this->val /= f1.val;
+        this->val = quotient;
     }
     friend __device__ __host__ __forceinline__ bool operator==(
         const SADfloat<N>& f1, const SADfloat<N>& f2)
@@ -256,8 +256,7 @@ struct SADfloat
         f.val = f1.val / f2.val;
         for (int i = 0; i < N; i++)
         {
-            f.dval[i] = f1.dval[i] * f2.val - f2.dval[i] * f1.val;
-            f.dval[i] /= f2.val * f2.val;
+            f.dval[i] = (f1.dval[i] - f.val * f2.dval[i]) / f2.val;
         }
         return f;
     }
@@ -268,7 +267,7 @@ struct SADfloat
         f.val = f1 / f2.val;
         for (int i = 0; i < N; i++)
         {
-            f.dval[i] = -f1 * f2.dval[i] / (f2.val * f2.val);
+            f.dval[i] = -f.val * f2.dval[i] / f2.val;
         }
         return f;
     }
@@ -320,6 +319,24 @@ struct SADfloat
         for (int i = 0; i < N; i++)
         {
             f.dval[i] = x.dval[i] / x.val;
+        }
+        return f;
+    }
+    friend __device__ __host__ __forceinline__ SADfloat<N> Log_Sum_Exp(
+        const SADfloat<N>& x, const SADfloat<N>& y)
+    {
+        SADfloat<N> f;
+        float max_xy = fmaxf(x.val, y.val);
+        float ex = expf(x.val - max_xy);
+        float ey = expf(y.val - max_xy);
+        float sum = ex + ey;
+        float inv_sum = 1.0f / sum;
+        float wx = ex * inv_sum;
+        float wy = ey * inv_sum;
+        f.val = max_xy + logf(sum);
+        for (int i = 0; i < N; i++)
+        {
+            f.dval[i] = wx * x.dval[i] + wy * y.dval[i];
         }
         return f;
     }

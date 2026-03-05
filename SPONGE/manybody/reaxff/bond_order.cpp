@@ -189,12 +189,13 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
 
                     SADfloat<5> exp_p1i = expf(-gp_boc1 * Deltap_i);
                     SADfloat<5> exp_p1j = expf(-gp_boc1 * Deltap_j);
-                    SADfloat<5> exp_p2i = expf(-gp_boc2 * Deltap_i);
-                    SADfloat<5> exp_p2j = expf(-gp_boc2 * Deltap_j);
-
                     SADfloat<5> f2 = exp_p1i + exp_p1j;
+
                     SADfloat<5> f3 =
-                        -1.0f / gp_boc2 * logf(0.5f * (exp_p2i + exp_p2j));
+                        -1.0f / gp_boc2 *
+                        (Log_Sum_Exp(-gp_boc2 * Deltap_i, -gp_boc2 * Deltap_j) -
+                         0.6931471805599453f);
+
                     float val_i = valency[type_i];
                     float val_j = valency[type_j];
 
