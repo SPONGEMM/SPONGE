@@ -144,7 +144,10 @@ struct JIT_Function
 #include <dlfcn.h>
 #endif
 
+#include <algorithm>
+#include <cstdlib>
 #include <mutex>
+#include <vector>
 
 struct JIT_Function
 {
@@ -163,31 +166,159 @@ struct JIT_Function
                        });
     }
 
+#if defined(__linux__)
+    static void Push_Unique_Candidate(std::vector<std::string>& candidates,
+                                      const std::string& candidate)
+    {
+        if (candidate.empty())
+        {
+            return;
+        }
+        if (std::find(candidates.begin(), candidates.end(), candidate) ==
+            candidates.end())
+        {
+            candidates.push_back(candidate);
+        }
+    }
+
+    static std::vector<std::string> Build_Runtime_Candidates(
+        std::initializer_list<const char*> lib_names)
+    {
+        std::vector<std::string> candidates;
+        const char* conda_prefix = std::getenv("CONDA_PREFIX");
+        if (conda_prefix != nullptr && conda_prefix[0] != '\0')
+        {
+            std::string lib_dir = std::string(conda_prefix) + "/lib/";
+            for (const char* lib_name : lib_names)
+            {
+                Push_Unique_Candidate(candidates, lib_dir + lib_name);
+            }
+        }
+        for (const char* lib_name : lib_names)
+        {
+            Push_Unique_Candidate(candidates, lib_name);
+        }
+        return candidates;
+    }
+
+    static std::vector<std::string> Build_OpenMP_Runtime_Candidates()
+    {
+        return Build_Runtime_Candidates(
+            {"libomp.so", "libomp.so.5", "libiomp5.so", "libgomp.so.1"});
+    }
+
+    static std::vector<std::string> Build_Libatomic_Candidates()
+    {
+        return Build_Runtime_Candidates({"libatomic.so.1"});
+    }
+
+    static std::string Join_Candidates(
+        const std::vector<std::string>& candidates)
+    {
+        std::string joined;
+        for (const auto& candidate : candidates)
+        {
+            if (!joined.empty())
+            {
+                joined += ", ";
+            }
+            joined += candidate;
+        }
+        return joined;
+    }
+
+    static bool Try_Load_Runtime_Library(
+        const std::vector<std::string>& candidates, void** loaded_handle,
+        std::string* loaded_path, std::string* load_error,
+        const char* required_symbol = nullptr)
+    {
+        if (loaded_handle != nullptr)
+        {
+            *loaded_handle = nullptr;
+        }
+        if (loaded_path != nullptr)
+        {
+            loaded_path->clear();
+        }
+        for (const auto& candidate : candidates)
+        {
+            dlerror();
+            void* handle = dlopen(candidate.c_str(), RTLD_LAZY | RTLD_GLOBAL);
+            if (handle == nullptr)
+            {
+                continue;
+            }
+            if (required_symbol != nullptr &&
+                dlsym(handle, required_symbol) == nullptr)
+            {
+                dlclose(handle);
+                continue;
+            }
+            if (loaded_handle != nullptr)
+            {
+                *loaded_handle = handle;
+            }
+            if (loaded_path != nullptr)
+            {
+                *loaded_path = candidate;
+            }
+            if (load_error != nullptr)
+            {
+                load_error->clear();
+            }
+            return true;
+        }
+        if (load_error != nullptr)
+        {
+            const char* err = dlerror();
+            *load_error = "Fail to load runtime library (tried: " +
+                          Join_Candidates(candidates) + ")";
+            if (required_symbol != nullptr)
+            {
+                *load_error += ", required symbol: ";
+                *load_error += required_symbol;
+            }
+            *load_error += ": ";
+            *load_error += (err != nullptr) ? err : "unknown error";
+        }
+        return false;
+    }
+#endif
+
     static bool Ensure_OpenMP_Runtime_Loaded(std::string& load_error)
     {
 #if defined(__linux__)
         static std::once_flag load_once;
         static bool load_success = false;
         static std::string load_failure_reason;
-        static void* gomp_handle = nullptr;
-        std::call_once(load_once,
-                       []()
-                       {
-                           dlerror();
-                           gomp_handle =
-                               dlopen("libgomp.so.1", RTLD_LAZY | RTLD_GLOBAL);
-                           if (gomp_handle == nullptr)
-                           {
-                               const char* err = dlerror();
-                               load_failure_reason =
-                                   "Fail to load OpenMP runtime "
-                                   "libgomp.so.1: ";
-                               load_failure_reason +=
-                                   (err != nullptr) ? err : "unknown error";
-                               return;
-                           }
-                           load_success = true;
-                       });
+        static void* openmp_handle = nullptr;
+        static std::string openmp_runtime_path;
+        std::call_once(
+            load_once,
+            []()
+            {
+                const auto openmp_candidates =
+                    Build_OpenMP_Runtime_Candidates();
+                if (!Try_Load_Runtime_Library(
+                        openmp_candidates, &openmp_handle, &openmp_runtime_path,
+                        &load_failure_reason, "__kmpc_fork_call"))
+                {
+                    return;
+                }
+                load_success = true;
+
+                const auto libatomic_candidates = Build_Libatomic_Candidates();
+                void* libatomic_handle = nullptr;
+                std::string libatomic_path;
+                std::string ignored_error;
+                Try_Load_Runtime_Library(libatomic_candidates,
+                                         &libatomic_handle, &libatomic_path,
+                                         &ignored_error);
+                if (libatomic_handle != nullptr)
+                {
+                    (void)libatomic_handle;
+                }
+            });
         if (!load_success)
         {
             load_error = load_failure_reason;
@@ -384,17 +515,31 @@ extern "C" float floorf(float x);
         jit_engine = std::move(*jit);
 
 #if defined(__linux__)
-        auto gomp_generator = llvm::orc::DynamicLibrarySearchGenerator::Load(
-            "libgomp.so.1", jit_engine->getDataLayout().getGlobalPrefix());
-        if (!gomp_generator)
+        const auto openmp_runtime_candidates =
+            Build_OpenMP_Runtime_Candidates();
+        bool openmp_generator_added = false;
+        for (const auto& candidate : openmp_runtime_candidates)
+        {
+            auto openmp_generator =
+                llvm::orc::DynamicLibrarySearchGenerator::Load(
+                    candidate.c_str(),
+                    jit_engine->getDataLayout().getGlobalPrefix());
+            if (!openmp_generator)
+            {
+                continue;
+            }
+            jit_engine->getMainJITDylib().addGenerator(
+                std::move(*openmp_generator));
+            openmp_generator_added = true;
+        }
+        if (!openmp_generator_added)
         {
             error_reason =
-                "Fail to create ORC symbol resolver for "
-                "libgomp.so.1: " +
-                llvm::toString(gomp_generator.takeError());
+                "Fail to create ORC symbol resolver for OpenMP runtime "
+                "(tried: " +
+                Join_Candidates(openmp_runtime_candidates) + ")";
             return false;
         }
-        jit_engine->getMainJITDylib().addGenerator(std::move(*gomp_generator));
 #endif
 
         auto generator =
