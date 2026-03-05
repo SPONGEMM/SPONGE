@@ -1030,13 +1030,6 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
     }
     h_atom_end[molecule_numbers - 1] = md_info->atom_numbers;
 
-    controller->printf("    Molecule atom counts (index: count)\n");
-    for (int i = 0; i < molecule_numbers; ++i)
-    {
-        int atom_count = h_atom_end[i] - h_atom_start[i];
-        controller->printf("        %d: %d\n", i, atom_count);
-    }
-
     molecule_j = 0;
     h_residue_start[0] = 0;
     // 该判断基于一个分子的所有残基一定在列表里是连续的，且原子在残基里也是连续的

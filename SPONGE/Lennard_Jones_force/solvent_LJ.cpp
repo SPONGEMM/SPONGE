@@ -431,9 +431,10 @@ static __global__ void get_local_device(const int local_res_numbers,
     int cnt = 0;
     for (int i = local_res_numbers - 1; i >= 0; i -= 1)
     {
-        float atom_O = d_mass[atom_numbers - 4 - (cnt * water_points)];
-        float atom_H1 = d_mass[atom_numbers - 3 - (cnt * water_points)];
-        float atom_H2 = d_mass[atom_numbers - 2 - (cnt * water_points)];
+        int res_start = atom_numbers - water_points * (cnt + 1);
+        float atom_O = d_mass[res_start];
+        float atom_H1 = d_mass[res_start + 1];
+        float atom_H2 = d_mass[res_start + 2];
         if (d_res_len[i] == water_points &&
             (atom_O > 15.8f && atom_O < 16.2f) &&
             (atom_H1 > 1.007f && atom_H1 < 1.009f) &&

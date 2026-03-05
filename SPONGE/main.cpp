@@ -89,10 +89,12 @@ int main(int argc, char* argv[])
 
 void Main_Initial(int argc, char* argv[])
 {
+/*
 #ifdef USE_CUDA
     // 强制开启全近邻表，以便ReaxFF等模块使用
     neighbor_list.is_needed_full = true;
 #endif
+*/
 
 #ifdef USE_CPU
     max_omp_threads = omp_get_max_threads();
@@ -440,6 +442,7 @@ void Main_Initial(int argc, char* argv[])
                                 dd.atom_local_id);
         }
     }
+
     deviceMemset(md_info.crd, 0, sizeof(VECTOR) * md_info.atom_numbers);
     pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge, dd.atom_numbers,
                  dd.crd, dd.d_charge, dd.atom_local, true, true, true, true);
@@ -494,9 +497,7 @@ void Main_Calculate_Force()
             dd.d_energy, dd.frc, md_info.need_pressure, dd.d_virial);
         if (CONTROLLER::PP_MPI_size == 1 && dd.d_charge != md_info.d_charge)
         {
-            deviceMemcpy(dd.d_charge, md_info.d_charge,
-                         sizeof(float) * dd.atom_numbers,
-                         deviceMemcpyDeviceToDevice);
+            dd.Sync_Local_Charge_From_Global(md_info.d_charge);
         }
         reaxff_bond_order.Calculate_Bond_Order(
             dd.atom_numbers, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,

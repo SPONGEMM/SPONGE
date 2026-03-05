@@ -67,7 +67,8 @@ inline int Get_Built_Arch()
     Device_Malloc_Safely((void**)&d_answer, sizeof(int));
     device_get_built_arch<<<1, 1>>>(d_answer);
     deviceMemcpy(&answer, d_answer, sizeof(int), deviceMemcpyDeviceToHost);
-    deviceFree((void**)&d_answer);
+    deviceFree(d_answer);
+    d_answer = NULL;
     return answer;
 }
 #endif  // USE_CUDA

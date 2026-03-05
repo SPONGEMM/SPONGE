@@ -83,6 +83,7 @@ struct DOMAIN_INFORMATION
     void Update_Ghost_Tensor(
         CONTROLLER* controller, float* atom_tensor,
         int dim_feature);  // 使用AI力场时，对ghost粒子进行通信
+    void Sync_Local_Charge_From_Global(const float* global_charge);
     void Distribute_Ghost_Information(
         CONTROLLER* controller, VECTOR* frc_);  // 传递Ghost粒子信息，用于力计算
     void Reset_Force_and_Virial(MD_INFORMATION* md_info);

@@ -182,6 +182,7 @@ static __global__ void Check_Refresh(int h_need_update, int atom_numbers,
 void NEIGHBOR_LIST::UPDATOR::Check(int atom_numbers, float skin, VECTOR* crd,
                                    LTMatrix3 cell, LTMatrix3 rcell)
 {
+    if (atom_numbers <= 0) return;
     Launch_Device_Kernel(Check_Refresh,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
@@ -349,18 +350,21 @@ static __global__ void Find_Neighbors_Gridly(
                 int j = j_base + lane_index;
                 bool active = j < atom_numbers_in_grid_j;
                 int atom_j = 0;
+                int global_j = 0;
                 VECTOR crd_j = {0, 0, 0};
                 if (active)
                 {
                     atom_j = bucket_j[j];
+                    global_j = atom_local[atom_j];
                     crd_j = grid_crd_j[j];
                 }
 
                 for (int i = 0; i < atom_numbers_in_grid_i; ++i)
                 {
                     int atom_i = sh_atoms[i];
+                    int global_i = atom_local[atom_i];
                     bool is_neighbor = false;
-                    if (active && atom_j > atom_i)
+                    if (active && global_j > global_i)
                     {
                         VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
                                                               cell, rcell);
@@ -435,7 +439,7 @@ static __global__ void Find_Neighbors_Gridly(
                 {
                     int atom_i = sh_atoms[i];
                     bool is_neighbor = false;
-                    if (active && atom_j > atom_i)
+                    if (active)
                     {
                         VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
                                                               cell, rcell);
@@ -511,6 +515,7 @@ static __global__ void Find_Neighbors_Gridly(
             for (int i = 0; i < atom_numbers_in_grid_i; i++)
             {
                 int atom_i = bucket_i[i];
+                int global_i = atom_local[atom_i];
                 VECTOR crd_i = grid_crd_i[i];
 
                 int* nl_atom_numbers_ptr = &nl[atom_i].atom_numbers;
@@ -518,7 +523,7 @@ static __global__ void Find_Neighbors_Gridly(
                 for (int j = 0; j < atom_numbers_in_grid_j; ++j)
                 {
                     int atom_j = bucket_j[j];
-                    if (atom_j <= atom_i) continue;
+                    if (atom_local[atom_j] <= global_i) continue;
                     VECTOR crd_j = grid_crd_j[j];
                     VECTOR dr =
                         Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
@@ -558,7 +563,6 @@ static __global__ void Find_Neighbors_Gridly(
                 for (int j = 0; j < ghost_numbers_in_grid_j; ++j)
                 {
                     int atom_j = bucket_j[j];
-                    if (atom_j <= atom_i) continue;
                     VECTOR crd_j = grid_ghost_crd_j[j];
                     VECTOR dr =
                         Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
@@ -650,6 +654,7 @@ void NEIGHBOR_LIST::UPDATOR::Update(
     int* excluded_numbers)
 {
     int total_atom_numbers = local_atom_numbers + ghost_numbers;
+    if (total_atom_numbers <= 0) return;
     Launch_Device_Kernel(
         Clear_Bucket,
         (grids->grid_numbers + CONTROLLER::device_max_thread - 1) /
@@ -813,6 +818,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
                            int* excluded_numbers)
 {
     if (!is_initialized) return;
+    if (local_atom_numbers <= 0 && ghost_numbers <= 0) return;
     updator.time_recorder->Start();
     if (update == NEIGHBOR_LIST_UPDATE_PARAMETER::FORCED_UPDATE)
     {
