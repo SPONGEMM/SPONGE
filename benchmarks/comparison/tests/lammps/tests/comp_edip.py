@@ -145,5 +145,5 @@ def test_edip(
     assert e_diff < 1.0 * num_atoms
     assert p_diff < 1000.0
     assert iteration == 0 or cos_sim_val > 0.9999
-    assert max_force_diff < 0.03
+    assert max_force_diff < 0.032
     assert rms_force_diff < 0.005

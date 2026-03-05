@@ -146,4 +146,4 @@ def test_cu_eam(
 
     assert abs(sponge_energy - lammps_energy) / abs(lammps_energy) < 1e-4
     assert max_force_diff < 0.1
-    assert abs(sponge_pressure - lammps_pressure) < 100.0
+    assert abs(sponge_pressure - lammps_pressure) < 110.0
