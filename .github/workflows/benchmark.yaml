@@ -1,6 +1,14 @@
 name: Benchmark
 
 on:
+  pull_request:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
   workflow_dispatch:
 
 jobs:
@@ -42,6 +50,9 @@ jobs:
 
       - name: Install dev-cpu environment
         run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Format check
+        run: pixi run -e ${{ matrix.env_name }} format-check
 
       - name: Configure SPONGE-CPU
         run: pixi run -e ${{ matrix.env_name }} configure
