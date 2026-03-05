@@ -169,7 +169,7 @@ def ruff_format_fix(path):
 
 def cmake_format_ok(path):
     result = subprocess.run(
-        ["cmake-format", "--check", str(path)],
+        ["cmake-format", "--check", "--line-ending", "auto", str(path)],
         check=False,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
