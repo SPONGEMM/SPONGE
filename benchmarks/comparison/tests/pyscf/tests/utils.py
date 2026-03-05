@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -133,7 +134,20 @@ def prepare_output_case(
     if run_dir.exists():
         shutil.rmtree(run_dir)
     shutil.copytree(static_case, sponge_dir)
+    _normalize_sponge_input_files_for_platform(sponge_dir)
     return run_dir, sponge_dir
+
+
+def _normalize_sponge_input_files_for_platform(sponge_dir: Path):
+    # Windows SPONGE rejects LF-only text inputs from Linux checkouts.
+    if os.name != "nt":
+        return
+
+    for input_file in sponge_dir.rglob("*.txt"):
+        with open(input_file, "r", encoding="utf-8", newline=None) as f:
+            content = f.read()
+        with open(input_file, "w", encoding="utf-8", newline="\r\n") as f:
+            f.write(content)
 
 
 def run_sponge_scf_energy_ha(
