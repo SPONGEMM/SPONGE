@@ -167,23 +167,14 @@ def ruff_format_fix(path):
     return result.returncode == 0
 
 
-def normalize_newlines(text):
-    return text.replace("\r\n", "\n").replace("\r", "\n")
-
-
 def cmake_format_ok(path):
-    original_text = path.read_text(encoding="utf-8", errors="replace")
     result = subprocess.run(
-        ["cmake-format", str(path)],
+        ["cmake-format", "--check", str(path)],
         check=False,
-        capture_output=True,
-        text=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
-    if result.returncode != 0:
-        return False
-    return normalize_newlines(original_text) == normalize_newlines(
-        result.stdout
-    )
+    return result.returncode == 0
 
 
 def cmake_format_fix(path):
