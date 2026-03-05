@@ -51,6 +51,9 @@ cuda-nvcc = "13.0.*"
 [feature.cuda13.target.win-64.dependencies]
 cuda-nvcc = "13.0.*"
 
+[feature.cpu.dependencies]
+zlib = "*"
+
 [feature.cpu.target.linux-64.dependencies]
 cmake = ">=3.24"
 ninja = "*"
@@ -81,7 +84,6 @@ vs2022_win-64 = "*"
 tomlplusplus = "*"
 llvmdev = ">=22.1.0,<23"
 clangdev = "22.1.*"
-libzlib = "*"
 
 [feature.cpu.target.osx-arm64.dependencies]
 cmake = ">=3.24"
