@@ -1776,10 +1776,6 @@ static __global__ void MPI_PME_Excluded_Force_With_Atom_Energy_Correction(
             for (int i = list_start; i < list_end; i = i + 1)
             {
                 global_j = excluded_list[i];
-
-                // if(global_j<global_i)
-                //     continue;
-                //     //排除表重整化后，引入这一步用于排除一些重复计算
                 local_j = global_j;
                 r2 = crd[local_j];
                 charge_j = charge[local_j];

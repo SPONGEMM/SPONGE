@@ -101,12 +101,6 @@ void Main_Initial(int argc, char* argv[])
     cv_controller.atom_numbers = md_info.atom_numbers;
     plugin.Initial(&md_info, &controller, &cv_controller, &neighbor_list);
 
-    // 仅在区域分解时重建全排除表
-    if (CONTROLLER::PP_MPI_size > 1)
-    {
-        md_info.nb.Excluded_List_Reform(md_info.atom_numbers);
-    }
-
     if (controller.Command_Exist("REAXFF", "in_file"))
     {
         reaxff_eeq.Initial(&controller, md_info.atom_numbers,
@@ -354,6 +348,11 @@ void Main_Initial(int argc, char* argv[])
                            md_info.mode >= md_info.NVT);
     }
     Main_Process_Management();
+    if (CONTROLLER::PP_MPI_size > 1)
+    {
+        md_info.nb.Excluded_List_Reform(md_info.atom_numbers);
+    }
+    pm.exclude_factor = CONTROLLER::PP_MPI_size == 1 ? 1.0f : 0.5f;
 
     // ---------------end process partition---------------
     deviceStreamCreate(&main_stream);
