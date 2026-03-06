@@ -1,106 +1,14 @@
 import math
-import os
-import shlex
-import shutil
-import statistics
-import subprocess
 from pathlib import Path
 
-from benchmarks.launcher import build_sponge_command
+from benchmarks.utils import (
+    Outputer,
+    Runner,
+)
 
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
 AMU_PER_A3_TO_G_PER_CM3 = 1.66053906660
 BAR_A3_TO_KJ_PER_MOL = 6.02214076e-5
 BOLTZMANN_KJ_PER_MOL_K = 0.00831446261815324
-
-
-def print_validation_table(headers, rows, title=None):
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)
-
-
-def prepare_output_case(statics_path, outputs_path, case_name, run_tag=None):
-    static_case = statics_path / case_name
-    if not static_case.exists():
-        raise FileNotFoundError(f"Static case not found: {static_case}")
-
-    case_dir = outputs_path / (run_tag or case_name)
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(static_case, case_dir)
-    return case_dir
-
-
-def _run_command(cmd, cwd, timeout=1200):
-    result = subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
-    output = result.stdout + "\n" + result.stderr
-    Path(cwd, "run.log").write_text(output)
-    if result.returncode != 0:
-        cmd0 = Path(str(cmd[0])).name.lower() if cmd else ""
-        if cmd0 in {"sponge", "sponge.exe"}:
-            print("\n[SPONGE stdout]\n")
-            print(result.stdout)
-            print("\n[SPONGE stderr]\n")
-            print(result.stderr)
-        raise RuntimeError(
-            f"Command failed in {cwd} with code {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-3000:]}"
-        )
-    return output
-
-
-def resolve_sponge_command():
-    env_bin = os.environ.get("SPONGE_BIN")
-    if env_bin:
-        return shlex.split(env_bin)
-
-    local_bin = REPO_ROOT / "build-cpu/SPONGE"
-    if local_bin.exists():
-        return [str(local_bin)]
-
-    sponge_in_path = shutil.which("SPONGE")
-    if sponge_in_path:
-        return [sponge_in_path]
-
-    raise FileNotFoundError(
-        "Cannot find SPONGE binary. Build it first or set SPONGE_BIN."
-    )
-
-
-def is_cuda_init_failure(error_text):
-    lowered = error_text.lower()
-    return (
-        "fail to initialize cuda" in lowered
-        or "spongeerrormallocfailed raised by controller::init_device"
-        in lowered
-    )
 
 
 def write_barostat_mdin(
@@ -163,11 +71,11 @@ def write_barostat_mdin(
 
 
 def run_sponge_barostat(case_dir, timeout=1200, mpi_np=None):
-    cmd = build_sponge_command(
-        resolve_sponge_command() + ["-mdin", "mdin.spg.toml"],
+    return Runner.run_sponge(
+        case_dir,
         mpi_np=mpi_np,
+        timeout=timeout,
     )
-    return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 
 def rescale_coordinate_box(
@@ -332,22 +240,6 @@ def parse_density_series_from_mdbox(mdbox_path, total_mass_amu):
         total_mass_amu * AMU_PER_A3_TO_G_PER_CM3 / volume for volume in volumes
     ]
     return densities, volumes
-
-
-def summarize_series(series, burn_in=0):
-    if burn_in >= len(series) - 1:
-        raise ValueError(
-            f"burn_in={burn_in} is too large for sample count {len(series)}"
-        )
-    sample = series[burn_in:]
-    std = statistics.stdev(sample) if len(sample) > 1 else 0.0
-    return {
-        "sample_count": len(sample),
-        "mean": statistics.fmean(sample),
-        "std": std,
-        "min": min(sample),
-        "max": max(sample),
-    }
 
 
 def boltzmann_reweight_mean(

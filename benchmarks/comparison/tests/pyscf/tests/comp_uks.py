@@ -3,9 +3,9 @@ import pytest
 from benchmarks.comparison.tests.pyscf.tests.utils import (
     HARTREE_TO_KCAL_MOL,
     SUPPORTED_DFT_METHODS,
-    print_validation_table,
     run_sponge_vs_pyscf,
 )
+from benchmarks.utils import Outputer
 
 DFT_TOL_HA = {
     "LDA": 5.0e-3,
@@ -41,7 +41,6 @@ def test_uks(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     result = run_sponge_vs_pyscf(
         statics_path=statics_path,
@@ -52,7 +51,6 @@ def test_uks(
         restricted=False,
         run_prefix="uks",
         mpi_np=mpi_np,
-        launcher_tag=mpi_run_tag,
     )
 
     tol_ha = DFT_TOL_HA[method_name]
@@ -77,6 +75,6 @@ def test_uks(
             "PASS" if result["abs_diff_ha"] <= tol_ha else "FAIL",
         ]
     ]
-    print_validation_table(headers, rows, title="UKS vs PySCF")
+    Outputer.print_table(headers, rows, title="UKS vs PySCF")
 
     assert result["abs_diff_ha"] <= tol_ha

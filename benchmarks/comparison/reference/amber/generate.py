@@ -4,11 +4,16 @@ import argparse
 import json
 import re
 import shutil
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
+
+from benchmarks.utils import Outputer, Runner
+from benchmarks.comparison.utils import (
+    extract_sander_epot,
+    extract_sander_forces_mdfrc,
+)
 
 TIP4P_CASE_NAME = "alanine_dipeptide_tip4pew"
 GB1_CASE_NAME = "alanine_dipeptide_gb1"
@@ -57,20 +62,271 @@ def _extract_sander_banner(sander_out_path: Path):
     return "unknown"
 
 
-def _load_amber_utils():
-    tests_dir = (
-        get_repo_root()
-        / "benchmarks"
-        / "comparison"
-        / "tests"
-        / "amber"
-        / "tests"
-    )
-    sys.path.insert(0, str(tests_dir))
+def require_ambertools():
+    for exe in ("tleap", "sander"):
+        if shutil.which(exe) is None:
+            raise RuntimeError(
+                f"Required executable '{exe}' is not available in PATH."
+            )
 
-    import utils as amber_utils
 
-    return amber_utils
+def run_tleap(case_dir):
+    return Runner.run_command(["tleap", "-f", "tleap.in"], cwd=case_dir)
+
+
+def run_sander_run0(case_dir):
+    cmd = [
+        "sander",
+        "-O",
+        "-i",
+        "sander.in",
+        "-o",
+        "sander.out",
+        "-p",
+        "system.parm7",
+        "-c",
+        "system.rst7",
+        "-r",
+        "system_out.rst7",
+        "-x",
+        "system.nc",
+        "-frc",
+        "mdfrc",
+        "-inf",
+        "system.mdinfo",
+    ]
+    return Runner.run_command(cmd, cwd=case_dir)
+
+
+def _read_parm7_flag_items(parm7_path, flag_name):
+    target = f"%FLAG {flag_name}"
+    items = []
+    in_target_flag = False
+    in_data = False
+
+    for line in Path(parm7_path).read_text().splitlines():
+        if line.startswith("%FLAG"):
+            if in_target_flag:
+                break
+            in_target_flag = line.strip() == target
+            in_data = False
+            continue
+
+        if not in_target_flag:
+            continue
+
+        if line.startswith("%FORMAT"):
+            in_data = True
+            continue
+
+        if in_data:
+            items.extend(line.split())
+
+    if not items:
+        raise ValueError(f"Failed to read %FLAG {flag_name} from {parm7_path}")
+    return items
+
+
+def _read_parm7_flag_values(parm7_path, flag_name):
+    return [
+        float(v.replace("D", "E"))
+        for v in _read_parm7_flag_items(parm7_path, flag_name)
+    ]
+
+
+def _read_parm7_flag_strings(parm7_path, flag_name):
+    return _read_parm7_flag_items(parm7_path, flag_name)
+
+
+def write_gb_in_file_from_parm7(parm7_path, gb_out_path):
+    radii = _read_parm7_flag_values(parm7_path, "RADII")
+    screen = _read_parm7_flag_values(parm7_path, "SCREEN")
+    if len(radii) != len(screen):
+        raise ValueError(
+            f"RADII/SCREEN length mismatch in {parm7_path}: "
+            f"{len(radii)} vs {len(screen)}"
+        )
+
+    with open(gb_out_path, "w") as f:
+        f.write(f"{len(radii)}\n")
+        for r, s in zip(radii, screen):
+            f.write(f"{r:.6f} {s:.6f}\n")
+
+
+def write_tip4p_virtual_atom_from_parm7(
+    parm7_path, virtual_atom_out_path, a=0.12797, b=0.12797
+):
+    atom_names = _read_parm7_flag_strings(parm7_path, "ATOM_NAME")
+    atom_types = _read_parm7_flag_strings(parm7_path, "AMBER_ATOM_TYPE")
+    residue_labels = _read_parm7_flag_strings(parm7_path, "RESIDUE_LABEL")
+    residue_pointer = [
+        int(v) for v in _read_parm7_flag_values(parm7_path, "RESIDUE_POINTER")
+    ]
+
+    if len(atom_names) != len(atom_types):
+        raise ValueError(
+            f"ATOM_NAME/AMBER_ATOM_TYPE length mismatch in {parm7_path}: "
+            f"{len(atom_names)} vs {len(atom_types)}"
+        )
+    if len(residue_labels) != len(residue_pointer):
+        raise ValueError(
+            f"RESIDUE_LABEL/RESIDUE_POINTER length mismatch in {parm7_path}: "
+            f"{len(residue_labels)} vs {len(residue_pointer)}"
+        )
+
+    residue_pointer.append(len(atom_names) + 1)
+    lines = []
+    for i, resname in enumerate(residue_labels):
+        if resname not in {"WAT", "HOH"}:
+            continue
+
+        start = residue_pointer[i] - 1
+        end = residue_pointer[i + 1] - 1  # exclusive
+        if end <= start:
+            continue
+
+        local_names = atom_names[start:end]
+        local_types = atom_types[start:end]
+
+        o_candidates = [
+            start + j
+            for j, (name, atype) in enumerate(zip(local_names, local_types))
+            if atype == "OW" or name == "O"
+        ]
+        h_candidates = [
+            start + j
+            for j, (name, atype) in enumerate(zip(local_names, local_types))
+            if atype == "HW" or name in {"H1", "H2"} or name.startswith("H")
+        ]
+        ep_candidates = [
+            start + j
+            for j, (name, atype) in enumerate(zip(local_names, local_types))
+            if atype == "EP" or name.startswith("EP") or name == "M"
+        ]
+
+        if (
+            len(o_candidates) != 1
+            or len(ep_candidates) != 1
+            or len(h_candidates) < 2
+        ):
+            raise ValueError(
+                f"Unexpected TIP4P water residue layout at residue {i + 1} "
+                f"({resname}) in {parm7_path}: names={local_names}, types={local_types}"
+            )
+
+        h1, h2 = sorted(h_candidates)[:2]
+        o = o_candidates[0]
+        ep = ep_candidates[0]
+        lines.append(f"2 {ep} {o} {h1} {h2} {a:.6f} {b:.6f}")
+
+    if not lines:
+        raise ValueError(
+            f"No TIP4P water residues found in {parm7_path}. "
+            "Cannot generate virtual_atom_in_file."
+        )
+
+    Path(virtual_atom_out_path).write_text("\n".join(lines) + "\n")
+
+
+def read_rst7_coords(rst7_path):
+    lines = Path(rst7_path).read_text().splitlines()
+    if len(lines) < 2:
+        raise ValueError(f"Invalid rst7 (too short): {rst7_path}")
+
+    title = lines[0]
+    count_line = lines[1]
+    head = count_line.split()
+    if not head:
+        raise ValueError(f"Invalid rst7 count line: {rst7_path}")
+    natom = int(head[0])
+
+    target = natom * 3
+    coords_vals = []
+    idx = 2
+    while idx < len(lines) and len(coords_vals) < target:
+        line = lines[idx]
+        for j in range(0, len(line), 12):
+            chunk = line[j : j + 12]
+            if chunk.strip():
+                coords_vals.append(float(chunk))
+                if len(coords_vals) == target:
+                    break
+        idx += 1
+
+    if len(coords_vals) != target:
+        raise ValueError(
+            f"Failed to parse rst7 coordinates: {rst7_path}, "
+            f"expected {target}, got {len(coords_vals)}"
+        )
+
+    coords = np.array(coords_vals, dtype=np.float64).reshape(natom, 3)
+    tail_lines = lines[idx:]
+    return title, count_line, coords, tail_lines
+
+
+def write_rst7_coords(rst7_path, title, count_line, coords, tail_lines):
+    coords = np.asarray(coords, dtype=np.float64)
+    natom = coords.shape[0]
+    flat = coords.reshape(-1)
+
+    out_lines = [title, count_line]
+    for i in range(0, len(flat), 6):
+        block = flat[i : i + 6]
+        out_lines.append("".join(f"{v:12.7f}" for v in block))
+    out_lines.extend(tail_lines)
+    Path(rst7_path).write_text("\n".join(out_lines) + "\n")
+
+    if int(count_line.split()[0]) != natom:
+        raise ValueError("rst7 atom count mismatch after writing.")
+
+
+def perturb_rst7_inplace(rst7_path, perturbation, seed):
+    title, count_line, coords, tail_lines = read_rst7_coords(rst7_path)
+    if perturbation > 0:
+        rng = np.random.RandomState(seed)
+        noise = (rng.rand(*coords.shape) - 0.5) * 2.0 * perturbation
+        coords = coords + noise
+    write_rst7_coords(rst7_path, title, count_line, coords, tail_lines)
+    return coords
+
+
+def perturb_rst7_with_rigid_water_inplace(
+    rst7_path, parm7_path, perturbation, seed, water_resnames=("WAT", "HOH")
+):
+    title, count_line, coords, tail_lines = read_rst7_coords(rst7_path)
+    if perturbation <= 0:
+        return coords
+
+    residue_labels = _read_parm7_flag_strings(parm7_path, "RESIDUE_LABEL")
+    residue_pointer = [
+        int(v) for v in _read_parm7_flag_values(parm7_path, "RESIDUE_POINTER")
+    ]
+    residue_pointer.append(coords.shape[0] + 1)
+
+    if len(residue_labels) + 1 != len(residue_pointer):
+        raise ValueError(
+            f"RESIDUE_LABEL/RESIDUE_POINTER mismatch in {parm7_path}: "
+            f"{len(residue_labels)} labels vs {len(residue_pointer) - 1} ranges"
+        )
+
+    rng = np.random.RandomState(seed)
+    water_resname_set = set(water_resnames)
+    for i, resname in enumerate(residue_labels):
+        start = residue_pointer[i] - 1
+        end = residue_pointer[i + 1] - 1
+        if end <= start:
+            continue
+
+        if resname in water_resname_set:
+            # Keep water internal geometry unchanged: one random translation per water residue.
+            delta = (rng.rand(3) - 0.5) * 2.0 * perturbation
+            coords[start:end] = coords[start:end] + delta
+        else:
+            delta = (rng.rand(end - start, 3) - 0.5) * 2.0 * perturbation
+            coords[start:end] = coords[start:end] + delta
+
+    write_rst7_coords(rst7_path, title, count_line, coords, tail_lines)
+    return coords
 
 
 def _require_case_templates(case_template_dir: Path, case_name: str):
@@ -86,7 +342,6 @@ def _require_case_templates(case_template_dir: Path, case_name: str):
 
 
 def _prepare_case_system_files(
-    amber_utils,
     statics_path: Path,
     outputs_path: Path,
     case_statics_root: Path,
@@ -96,7 +351,7 @@ def _prepare_case_system_files(
     case_system_dir.mkdir(parents=True, exist_ok=True)
     _require_case_templates(case_system_dir, case_name)
 
-    base_dir = amber_utils.prepare_output_case(
+    base_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name=case_name,
@@ -107,7 +362,7 @@ def _prepare_case_system_files(
     for src in sorted(case_system_dir.glob("*")):
         if src.is_file():
             shutil.copy2(src, base_dir / src.name)
-    amber_utils.run_tleap(base_dir)
+    run_tleap(base_dir)
 
     for file_name in ["system.parm7", "system.rst7"]:
         src = base_dir / file_name
@@ -143,8 +398,7 @@ def _copy_reference_statics(src_root: Path, dst_root: Path):
 
 
 def generate_payload(statics_path: Path, reference_root: Path):
-    amber_utils = _load_amber_utils()
-    amber_utils.require_ambertools()
+    require_ambertools()
 
     systems_root = reference_root / "statics"
     forces_root = reference_root / "forces"
@@ -161,7 +415,6 @@ def generate_payload(statics_path: Path, reference_root: Path):
 
         for case_name in [TIP4P_CASE_NAME, GB1_CASE_NAME]:
             _prepare_case_system_files(
-                amber_utils=amber_utils,
                 statics_path=statics_path,
                 outputs_path=outputs_path,
                 case_statics_root=systems_root,
@@ -177,7 +430,7 @@ def generate_payload(statics_path: Path, reference_root: Path):
             seed = spec["seed"]
             kind = spec["kind"]
 
-            run_dir = amber_utils.prepare_output_case(
+            run_dir = Outputer.prepare_output_case(
                 statics_path=statics_path,
                 outputs_path=outputs_path,
                 case_name=case_name,
@@ -186,24 +439,24 @@ def generate_payload(statics_path: Path, reference_root: Path):
             _copy_system_files_for_case(systems_root, case_name, run_dir)
 
             if kind == "tip4p":
-                amber_utils.write_tip4p_virtual_atom_from_parm7(
+                write_tip4p_virtual_atom_from_parm7(
                     run_dir / "system.parm7",
                     run_dir / "tip4p_virtual_atom.txt",
                 )
                 (run_dir / "system.rst7").write_text(
                     (run_dir / "system_minimized.rst7").read_text()
                 )
-                amber_utils.perturb_rst7_with_rigid_water_inplace(
+                perturb_rst7_with_rigid_water_inplace(
                     run_dir / "system.rst7",
                     run_dir / "system.parm7",
                     perturbation=perturbation,
                     seed=seed,
                 )
             elif kind == "gb1":
-                amber_utils.write_gb_in_file_from_parm7(
+                write_gb_in_file_from_parm7(
                     run_dir / "system.parm7", run_dir / "gb_gb.txt"
                 )
-                amber_utils.perturb_rst7_inplace(
+                perturb_rst7_inplace(
                     run_dir / "system.rst7",
                     perturbation=perturbation,
                     seed=seed,
@@ -211,16 +464,14 @@ def generate_payload(statics_path: Path, reference_root: Path):
             else:
                 raise ValueError(f"Unsupported case kind: {kind}")
 
-            amber_utils.run_sander_run0(run_dir)
+            run_sander_run0(run_dir)
 
             sander_out_path = run_dir / "sander.out"
             if sander_banner is None:
                 sander_banner = _extract_sander_banner(sander_out_path)
 
-            energy_epot = amber_utils.extract_sander_epot(sander_out_path)
-            amber_forces = amber_utils.extract_sander_forces_mdfrc(
-                run_dir / "mdfrc"
-            )
+            energy_epot = extract_sander_epot(sander_out_path)
+            amber_forces = extract_sander_forces_mdfrc(run_dir / "mdfrc")
 
             force_rel_path = Path("forces") / case_name / f"iter{iteration}.npy"
             force_path = reference_root / force_rel_path

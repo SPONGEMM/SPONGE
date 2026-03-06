@@ -7,12 +7,18 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from benchmarks.utils import Extractor
+from benchmarks.utils import Outputer
+
 from benchmarks.validation.barostat.tests.utils import (
-    is_cuda_init_failure,
-    prepare_output_case,
-    print_validation_table,
     run_sponge_barostat,
 )
+
+
+def parse_mdout_column(mdout_path, column_name):
+    rows = Extractor.parse_mdout_rows(mdout_path, [column_name], int_columns=())
+    return [row[column_name] for row in rows]
+
 
 PROTEIN_RESNAMES = {
     "ALA",
@@ -288,37 +294,6 @@ def _write_unrestrained_npt_mdin(case_dir: Path):
     (case_dir / "mdin.spg.toml").write_text(mdin)
 
 
-def _parse_mdout_column(mdout_path: Path, column_name: str):
-    lines = mdout_path.read_text().splitlines()
-    header = None
-    for line in lines:
-        fields = line.split()
-        if fields and fields[0] == "step":
-            header = fields
-            break
-    if header is None:
-        raise ValueError(f"Cannot find mdout header in {mdout_path}")
-    if column_name not in header:
-        raise ValueError(
-            f"Column '{column_name}' not found in {mdout_path}; "
-            f"available={header}"
-        )
-
-    col_idx = header.index(column_name)
-    values = []
-    for line in lines:
-        fields = line.split()
-        if len(fields) <= col_idx or not fields:
-            continue
-        if not fields[0].isdigit():
-            continue
-        values.append(float(fields[col_idx]))
-
-    if not values:
-        raise ValueError(f"No data parsed for column '{column_name}'")
-    return values
-
-
 def _first_nonfinite_index(series):
     for i, value in enumerate(series):
         if not math.isfinite(value):
@@ -326,14 +301,13 @@ def _first_nonfinite_index(series):
     return None
 
 
-def test_restrain_npt_after_minimization(
-    statics_path, outputs_path, mpi_np, mpi_run_tag
-):
-    case_dir = prepare_output_case(
+def test_restrain_npt_after_minimization(statics_path, outputs_path, mpi_np):
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="restrain_npt",
-        run_tag=f"restrain_npt_min_then_npt_{mpi_run_tag}",
+        mpi_np=mpi_np,
+        run_name="restrain_npt_min_then_npt",
     )
 
     (
@@ -348,45 +322,24 @@ def test_restrain_npt_after_minimization(
     if not rna_atom_ids:
         raise ValueError("No RNA atoms found in the system.")
 
-    try:
-        _write_minimization_mdin(case_dir, restrain_file=restrain_file)
-        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
-        shutil.copyfile(case_dir / "run.log", case_dir / "run_min.log")
-        shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_min.txt")
-        shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_min.txt")
-        shutil.copyfile(
-            case_dir / "restart.rst7", case_dir / "restart_min.rst7"
-        )
+    _write_minimization_mdin(case_dir, restrain_file=restrain_file)
+    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_min.txt")
+    shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_min.txt")
+    shutil.copyfile(case_dir / "restart.rst7", case_dir / "restart_min.rst7")
 
-        _write_restrained_npt_mdin(case_dir, restrain_file=restrain_file)
-        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
-        shutil.copyfile(case_dir / "run.log", case_dir / "run_restrained.log")
-        shutil.copyfile(
-            case_dir / "mdout.txt", case_dir / "mdout_restrained.txt"
-        )
-        shutil.copyfile(
-            case_dir / "mdbox.txt", case_dir / "mdbox_restrained.txt"
-        )
-        shutil.copyfile(
-            case_dir / "restart.rst7", case_dir / "restart_restrained.rst7"
-        )
+    _write_restrained_npt_mdin(case_dir, restrain_file=restrain_file)
+    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_restrained.txt")
+    shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_restrained.txt")
+    shutil.copyfile(
+        case_dir / "restart.rst7", case_dir / "restart_restrained.rst7"
+    )
 
-        _write_unrestrained_npt_mdin(case_dir)
-        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
-        shutil.copyfile(case_dir / "run.log", case_dir / "run_unrestrained.log")
-        shutil.copyfile(
-            case_dir / "mdout.txt", case_dir / "mdout_unrestrained.txt"
-        )
-        shutil.copyfile(
-            case_dir / "mdbox.txt", case_dir / "mdbox_unrestrained.txt"
-        )
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    _write_unrestrained_npt_mdin(case_dir)
+    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_unrestrained.txt")
+    shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_unrestrained.txt")
 
     start_coords = _read_rst7_coords(
         case_dir / "model-protein-RNA-complex.inpcrd"
@@ -417,17 +370,15 @@ def test_restrain_npt_after_minimization(
     restrained_mdout = case_dir / "mdout_restrained.txt"
     unrestrained_mdout = case_dir / "mdout_unrestrained.txt"
 
-    restrained_density = _parse_mdout_column(restrained_mdout, "density")
-    restrained_temperature = _parse_mdout_column(
-        restrained_mdout, "temperature"
-    )
-    restrained_pressure = _parse_mdout_column(restrained_mdout, "pressure")
+    restrained_density = parse_mdout_column(restrained_mdout, "density")
+    restrained_temperature = parse_mdout_column(restrained_mdout, "temperature")
+    restrained_pressure = parse_mdout_column(restrained_mdout, "pressure")
 
-    unrestrained_density = _parse_mdout_column(unrestrained_mdout, "density")
-    unrestrained_temperature = _parse_mdout_column(
+    unrestrained_density = parse_mdout_column(unrestrained_mdout, "density")
+    unrestrained_temperature = parse_mdout_column(
         unrestrained_mdout, "temperature"
     )
-    unrestrained_pressure = _parse_mdout_column(unrestrained_mdout, "pressure")
+    unrestrained_pressure = parse_mdout_column(unrestrained_mdout, "pressure")
 
     restrained_nonfinite = any(
         x is not None
@@ -544,7 +495,7 @@ def test_restrain_npt_after_minimization(
         ["UnrestrainedHasNonFinite", "YES" if unrestrained_nonfinite else "NO"],
         ["Status", status],
     ]
-    print_validation_table(
+    Outputer.print_table(
         ["Metric", "Value"],
         rows,
         title="Barostat Validation: Restrain NPT Stability After Minimization",

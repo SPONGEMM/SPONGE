@@ -1,13 +1,13 @@
 import pytest
 
-from benchmarks.validation.point_energy.tests.utils import (
+from benchmarks.utils import Outputer
+
+from benchmarks.validation.point.tests.utils import (
     compare_energies,
     dump_json,
     load_reference,
     parse_mdout_one_frame,
     parse_pme_backend,
-    prepare_output_case,
-    print_validation_table,
     resolve_binary_triplet,
     run_point_energy,
     summarize_errors,
@@ -38,14 +38,15 @@ CASES = [
 
 @pytest.mark.parametrize("cfg", CASES)
 def test_point_energy_multi_backend_and_mpi(
-    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+    statics_path, outputs_path, cfg, mpi_np
 ):
     case_name = cfg["id"]
-    case_dir = prepare_output_case(
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name=case_name,
-        run_tag=f"{case_name}_point_energy_{mpi_run_tag}",
+        mpi_np=mpi_np,
+        run_name="point_energy",
     )
 
     bins = resolve_binary_triplet()
@@ -73,7 +74,6 @@ def test_point_energy_multi_backend_and_mpi(
     summary_payload = {
         "case": case_name,
         "launcher": {
-            "mode": mpi_run_tag,
             "mpi_np": mpi_np,
         },
         "reference_json": cfg["reference_json"],
@@ -85,7 +85,7 @@ def test_point_energy_multi_backend_and_mpi(
     hard_fail = False
 
     for run in runs:
-        mdout_path, run_log = run_point_energy(
+        mdout_path, run_output = run_point_energy(
             case_dir,
             sponge_bin=run["binary"],
             mdin_name=cfg["mdin"],
@@ -96,7 +96,7 @@ def test_point_energy_multi_backend_and_mpi(
         energies = parse_mdout_one_frame(mdout_path)
         term_errors = compare_energies(reference, energies)
         summary = summarize_errors(term_errors)
-        backend = parse_pme_backend(run_log)
+        backend = parse_pme_backend(run_output)
 
         run_ok = summary["max_abs_error"] <= cfg["abs_tol"]
         hard_fail = hard_fail or (not run_ok)
@@ -104,7 +104,6 @@ def test_point_energy_multi_backend_and_mpi(
         summary_payload["runs"][run["id"]] = {
             "role": run["role"],
             "binary": run["binary"],
-            "launcher": mpi_run_tag,
             "mpi_np": mpi_np,
             "pme_backend": backend,
             "max_abs_error": summary["max_abs_error"],
@@ -128,7 +127,7 @@ def test_point_energy_multi_backend_and_mpi(
         summary_payload, case_dir / "point_energy_comparison_summary.json"
     )
 
-    print_validation_table(
+    Outputer.print_table(
         [
             "Run",
             "MPI_NP",

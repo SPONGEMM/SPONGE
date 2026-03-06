@@ -1,14 +1,12 @@
 import pytest
 
+from benchmarks.utils import Outputer
+
 from benchmarks.validation.barostat.tests.utils import (
     boltzmann_reweight_mean,
-    is_cuda_init_failure,
     parse_density_series_from_mdbox,
-    prepare_output_case,
-    print_validation_table,
     read_total_mass_amu,
     run_sponge_barostat,
-    summarize_series,
     write_barostat_mdin,
 )
 
@@ -58,14 +56,15 @@ BAROSTAT_CASES = [
 
 
 def _run_tip3p_barostat_case(
-    statics_path, outputs_path, run_tag, *, cfg, target_pressure, mpi_np
+    statics_path, outputs_path, run_name, *, cfg, target_pressure, mpi_np
 ):
     case_name = "tip3p_water"
-    case_dir = prepare_output_case(
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name=case_name,
-        run_tag=run_tag,
+        mpi_np=mpi_np,
+        run_name=run_name,
     )
     write_barostat_mdin(
         case_dir,
@@ -85,15 +84,7 @@ def _run_tip3p_barostat_case(
         constrain_mode="SETTLE",
     )
 
-    try:
-        run_sponge_barostat(case_dir, timeout=cfg["timeout"], mpi_np=mpi_np)
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    run_sponge_barostat(case_dir, timeout=cfg["timeout"], mpi_np=mpi_np)
 
     total_mass_amu = read_total_mass_amu(case_dir / "tip3p_mass.txt")
     densities, volumes = parse_density_series_from_mdbox(
@@ -108,14 +99,14 @@ def _run_tip3p_barostat_case(
 
 @pytest.mark.parametrize("cfg", BAROSTAT_CASES)
 def test_tip3p_density_boltzmann_reweighting_1bar_500bar(
-    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+    statics_path, outputs_path, cfg, mpi_np
 ):
     pressure_low = 1.0
     pressure_high = 500.0
     run_low = _run_tip3p_barostat_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
-        run_tag=f"{cfg['id']}_1bar_{mpi_run_tag}",
+        run_name=f"{cfg['id']}_1bar",
         cfg=cfg,
         target_pressure=pressure_low,
         mpi_np=mpi_np,
@@ -123,14 +114,18 @@ def test_tip3p_density_boltzmann_reweighting_1bar_500bar(
     run_high = _run_tip3p_barostat_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
-        run_tag=f"{cfg['id']}_500bar_{mpi_run_tag}",
+        run_name=f"{cfg['id']}_500bar",
         cfg=cfg,
         target_pressure=pressure_high,
         mpi_np=mpi_np,
     )
 
-    low_density_stats = summarize_series(run_low["densities"], cfg["burn_in"])
-    high_density_stats = summarize_series(run_high["densities"], cfg["burn_in"])
+    low_density_stats = Outputer.summarize_series(
+        run_low["densities"], cfg["burn_in"]
+    )
+    high_density_stats = Outputer.summarize_series(
+        run_high["densities"], cfg["burn_in"]
+    )
     low_density_sample = run_low["densities"][cfg["burn_in"] :]
     high_density_sample = run_high["densities"][cfg["burn_in"] :]
     low_volume_sample = run_low["volumes"][cfg["burn_in"] :]
@@ -173,7 +168,7 @@ def test_tip3p_density_boltzmann_reweighting_1bar_500bar(
         ["AbsErr(500->1)", f"{high_to_low_err:.4f}"],
         ["Status", status],
     ]
-    print_validation_table(
+    Outputer.print_table(
         ["Metric", "Value"],
         rows,
         title="Barostat Validation: TIP3P Water Density Reweighting (1bar <-> 500bar)",

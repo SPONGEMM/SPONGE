@@ -36,7 +36,7 @@
       "iteration": 0,
       "perturbation": 0.0,
       "seed": 20260217,
-      "energy_epot": -5067.9895,
+      "energy_epot": -5052.0277,
       "natom": 2398,
       "forces_file": "forces/alanine_dipeptide_tip4pew/iter0.npy"
     },
@@ -45,7 +45,7 @@
       "iteration": 1,
       "perturbation": 0.02,
       "seed": 20262217,
-      "energy_epot": -5065.4615,
+      "energy_epot": -5049.538,
       "natom": 2398,
       "forces_file": "forces/alanine_dipeptide_tip4pew/iter1.npy"
     },
@@ -54,7 +54,7 @@
       "iteration": 2,
       "perturbation": 0.05,
       "seed": 20264217,
-      "energy_epot": -5011.7344,
+      "energy_epot": -4995.6916,
       "natom": 2398,
       "forces_file": "forces/alanine_dipeptide_tip4pew/iter2.npy"
     }

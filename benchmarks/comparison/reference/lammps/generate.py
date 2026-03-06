@@ -4,34 +4,19 @@ import argparse
 import json
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 from ase.build import bulk
 
+from benchmarks.comparison.tests.lammps.tests import utils as lammps_utils
+
 STRESS_KEYS = ["Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"]
 
 
 def get_repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
-
-
-def _load_lammps_utils():
-    tests_dir = (
-        get_repo_root()
-        / "benchmarks"
-        / "comparison"
-        / "tests"
-        / "lammps"
-        / "tests"
-    )
-    sys.path.insert(0, str(tests_dir))
-
-    import utils as lammps_utils
-
-    return lammps_utils
 
 
 def _apply_random_perturbation(
@@ -859,8 +844,6 @@ def _gen_custom_listed_class2(
 
 
 def generate_payload(statics_path: Path, reference_root: Path):
-    lammps_utils = _load_lammps_utils()
-
     forces_root = reference_root / "forces"
     charges_root = reference_root / "charges"
     if forces_root.exists():

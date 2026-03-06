@@ -1,13 +1,12 @@
 import json
 import os
 import re
-import shlex
 import shutil
-import subprocess
 from functools import lru_cache
 from pathlib import Path
 
-from benchmarks.launcher import build_sponge_command
+from benchmarks.comparison.utils import get_comparison_root_from_statics
+from benchmarks.utils import Runner
 
 HARTREE_TO_KCAL_MOL = 627.509474
 
@@ -58,12 +57,8 @@ def _read_atoms_from_xyz(xyz_path: Path):
     return natom, atoms
 
 
-def _get_comparison_root_from_statics(statics_path: Path):
-    return statics_path.resolve().parents[2]
-
-
 def get_reference_xyz_path(statics_path: Path, case_name: str):
-    comparison_root = _get_comparison_root_from_statics(statics_path)
+    comparison_root = get_comparison_root_from_statics(statics_path)
     return (
         comparison_root / PYSCF_REFERENCE_STATICS_REL_DIR / f"{case_name}.xyz"
     ).resolve()
@@ -124,7 +119,12 @@ def load_case_definition(statics_path: Path, case_name: str):
 
 
 def prepare_output_case(
-    statics_path: Path, outputs_path: Path, case_name: str, run_tag: str
+    statics_path: Path,
+    outputs_path: Path,
+    case_name: str,
+    run_tag: str,
+    *,
+    mpi_np=None,
 ):
     static_case = statics_path / case_name / "sponge"
     if not static_case.exists():
@@ -156,31 +156,14 @@ def _normalize_sponge_input_files_for_platform(sponge_dir: Path):
 def run_sponge_scf_energy_ha(
     sponge_dir: Path, model_chemistry: str, restricted: bool, mpi_np=None
 ):
-    cmd = build_sponge_command(
-        shlex.split(os.environ.get("SPONGE_BIN", "SPONGE"))
-        + ["-mdin", "mdin.txt", "-qc_model_chemistry", model_chemistry],
+    output = Runner.run_sponge(
+        sponge_dir,
         mpi_np=mpi_np,
+        mdin_name="mdin.txt",
+        sponge_cmd=os.environ.get("SPONGE_BIN", "SPONGE"),
+        extra_args=["-qc_model_chemistry", model_chemistry]
+        + ([] if restricted else ["-qc_restricted", "0"]),
     )
-    if not restricted:
-        cmd.extend(["-qc_restricted", "0"])
-    result = subprocess.run(
-        cmd,
-        cwd=sponge_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    output = result.stdout + "\n" + result.stderr
-    if result.returncode != 0:
-        print("\n[SPONGE stdout]\n")
-        print(result.stdout)
-        print("\n[SPONGE stderr]\n")
-        print(result.stderr)
-        raise RuntimeError(
-            f"SPONGE failed with code {result.returncode} in {sponge_dir}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-2000:]}"
-        )
 
     matches = QC_ENERGY_PATTERN.findall(output)
     if not matches:
@@ -394,7 +377,7 @@ def get_pyscf_reference_energy_ha(
     basis_name: str,
     restricted: bool,
 ):
-    comparison_root = _get_comparison_root_from_statics(statics_path)
+    comparison_root = get_comparison_root_from_statics(statics_path)
     reference_path = (
         comparison_root / PYSCF_REFERENCE_ENERGY_REL_PATH
     ).resolve()
@@ -423,24 +406,23 @@ def run_sponge_vs_pyscf(
     restricted: bool,
     run_prefix: str,
     mpi_np=None,
-    launcher_tag="direct",
 ):
     model_chemistry = f"{method_name}/{basis_name}"
-    run_tag = "_".join(
+    run_name = "_".join(
         [
             _sanitize_token(run_prefix),
             _sanitize_token(case_name),
             _sanitize_token(method_name),
             _sanitize_token(basis_name),
             f"r{int(restricted)}",
-            _sanitize_token(launcher_tag),
         ]
     )
     _run_dir, sponge_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name=case_name,
-        run_tag=run_tag,
+        run_tag=run_name,
+        mpi_np=mpi_np,
     )
 
     sponge_energy_ha = run_sponge_scf_energy_ha(
@@ -474,46 +456,3 @@ def run_sponge_vs_pyscf(
         "abs_diff_ha": abs_diff_ha,
         "abs_diff_kcal_mol": abs_diff_kcal,
     }
-
-
-def print_validation_table(headers, rows, title=None):
-    if not headers:
-        return
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-
-    if len(rows) == 1:
-        row = [str(v) for v in rows[0]]
-        if len(row) != len(headers):
-            raise ValueError(
-                "Header/row length mismatch in validation table: "
-                f"headers={len(headers)}, row={len(row)}"
-            )
-        key_width = max(len(h) for h in headers)
-        value_width = max(len(v) for v in row) if row else 0
-        divider = "-" * (key_width + 3 + value_width)
-        print(divider)
-        for key, value in zip(headers, row):
-            print(f"{key:<{key_width}} : {value}")
-        print(divider)
-        return
-
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)

@@ -1,14 +1,12 @@
 import math
-import shutil
 
 import pytest
 
+from benchmarks.utils import Outputer
+
 from benchmarks.validation.barostat.tests.utils import (
     AMU_PER_A3_TO_G_PER_CM3,
-    is_cuda_init_failure,
     parse_density_series_from_mdbox,
-    prepare_output_case,
-    print_validation_table,
     read_total_mass_amu,
     rescale_coordinate_box,
     run_sponge_barostat,
@@ -76,7 +74,6 @@ def _write_and_run_stage(
         constrain_mode=constrain_mode,
     )
     run_sponge_barostat(case_dir, timeout=timeout, mpi_np=mpi_np)
-    shutil.copyfile(case_dir / "run.log", case_dir / f"run_{stage_tag}.log")
     shutil.copyfile(case_dir / "mdout.txt", case_dir / f"mdout_{stage_tag}.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / f"mdbox_{stage_tag}.txt")
 
@@ -95,13 +92,14 @@ def _parse_mdbox_box6(mdbox_path):
 
 @pytest.mark.parametrize("cfg", REGULATE_CASES)
 def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
-    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+    statics_path, outputs_path, cfg, mpi_np
 ):
-    case_dir = prepare_output_case(
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="WAT_nonortho",
-        run_tag=f"{cfg['id']}_regulate_WAT_nonortho_expanded_{mpi_run_tag}",
+        mpi_np=mpi_np,
+        run_name=f"{cfg['id']}_regulate_WAT_nonortho_expanded",
     )
 
     rescale_coordinate_box(
@@ -131,46 +129,38 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
         )
     )
 
-    try:
-        _write_and_run_stage(
-            case_dir,
-            stage_tag="compress_1000bar",
-            step_limit=100000,
-            target_pressure=1000.0,
-            barostat=cfg["barostat"],
-            barostat_tau=0.1,
-            barostat_update_interval=10,
-            write_information_interval=10,
-            default_in_file_prefix="WAT",
-            constrain_mode="SETTLE",
-            timeout=2400,
-            mpi_np=mpi_np,
-        )
-        shutil.copyfile(
-            case_dir / "restart_coordinate.txt",
-            case_dir / "WAT_coordinate.txt",
-        )
-        _write_and_run_stage(
-            case_dir,
-            stage_tag="relax_1bar",
-            step_limit=50000,
-            target_pressure=1.0,
-            barostat=cfg["barostat"],
-            barostat_tau=0.1,
-            barostat_update_interval=10,
-            write_information_interval=10,
-            default_in_file_prefix="WAT",
-            constrain_mode="SETTLE",
-            timeout=2400,
-            mpi_np=mpi_np,
-        )
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    _write_and_run_stage(
+        case_dir,
+        stage_tag="compress_1000bar",
+        step_limit=100000,
+        target_pressure=1000.0,
+        barostat=cfg["barostat"],
+        barostat_tau=0.1,
+        barostat_update_interval=10,
+        write_information_interval=10,
+        default_in_file_prefix="WAT",
+        constrain_mode="SETTLE",
+        timeout=2400,
+        mpi_np=mpi_np,
+    )
+    shutil.copyfile(
+        case_dir / "restart_coordinate.txt",
+        case_dir / "WAT_coordinate.txt",
+    )
+    _write_and_run_stage(
+        case_dir,
+        stage_tag="relax_1bar",
+        step_limit=50000,
+        target_pressure=1.0,
+        barostat=cfg["barostat"],
+        barostat_tau=0.1,
+        barostat_update_interval=10,
+        write_information_interval=10,
+        default_in_file_prefix="WAT",
+        constrain_mode="SETTLE",
+        timeout=2400,
+        mpi_np=mpi_np,
+    )
 
     densities, _ = parse_density_series_from_mdbox(
         case_dir / "mdbox_relax_1bar.txt", total_mass_amu
@@ -181,16 +171,22 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     assert len(box_records) == 50000 // 10
 
     density_tail_n = 500
-    density_stats = summarize_series(
+    density_stats = Outputer.summarize_series(
         densities, burn_in=len(densities) - density_tail_n
     )
 
     alphas = [r[3] for r in box_records]
     betas = [r[4] for r in box_records]
     gammas = [r[5] for r in box_records]
-    alpha_stats = summarize_series(alphas, burn_in=len(alphas) - density_tail_n)
-    beta_stats = summarize_series(betas, burn_in=len(betas) - density_tail_n)
-    gamma_stats = summarize_series(gammas, burn_in=len(gammas) - density_tail_n)
+    alpha_stats = Outputer.summarize_series(
+        alphas, burn_in=len(alphas) - density_tail_n
+    )
+    beta_stats = Outputer.summarize_series(
+        betas, burn_in=len(betas) - density_tail_n
+    )
+    gamma_stats = Outputer.summarize_series(
+        gammas, burn_in=len(gammas) - density_tail_n
+    )
 
     target_density = 0.992
     density_abs_tol = 0.010
@@ -231,7 +227,7 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
         ["FinalGammaStd", f"{gamma_stats['std']:.3f}"],
         ["Status", "PASS" if (density_ok and angles_finite) else "FAIL"],
     ]
-    print_validation_table(
+    Outputer.print_table(
         ["Metric", "Value"],
         rows,
         title=(

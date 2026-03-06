@@ -1,20 +1,23 @@
-import pytest
-import numpy as np
 import shutil
+
+import numpy as np
+import pytest
+
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.lammps.tests.utils import (
-    load_lammps_reference_entry,
-    load_lammps_reference_forces,
-    load_lammps_reference_stress,
-    extract_sponge_potential,
+    EV_TO_KCAL_MOL,
     extract_sponge_forces,
+    extract_sponge_potential,
     extract_sponge_pressure,
     extract_sponge_stress,
     generate_diamond_structure,
-    write_sponge_coords,
+    load_lammps_reference_entry,
+    load_lammps_reference_forces,
+    load_lammps_reference_stress,
+    prepare_case_dir,
     write_lammps_data,
-    EV_TO_KCAL_MOL,
-    print_validation_table,
-    run_sponge_command,
+    write_sponge_coords,
 )
 
 
@@ -24,11 +27,10 @@ def test_tersoff(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     static_dir = statics_path / "tersoff"
-    case_dir = outputs_path / "tersoff" / mpi_run_tag / str(iteration)
+    case_dir = prepare_case_dir(outputs_path, "tersoff", iteration, mpi_np)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -64,7 +66,7 @@ def test_tersoff(
             f.write(f"{masses[atom_type - 1]}\n")
 
     write_sponge_coords(coord_file, coords, box)
-    run_sponge_command(sponge_dir, mpi_np=mpi_np)
+    Runner.run_sponge(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(statics_path, "tersoff", iteration)
     assert abs(float(ref_entry["perturbation"]) - curr_perturbation) <= 1.0e-12
@@ -141,7 +143,7 @@ def test_tersoff(
     rows.append(["Force Max Diff", "", "", "", f"{max_force_diff:.4e}"])
     rows.append(["Cos Sim", "", "", "", cos_sim_str])
 
-    print_validation_table(headers, rows)
+    Outputer.print_table(headers, rows)
 
     assert e_diff < 1.0 * num_atoms
     assert p_diff < 1000.0

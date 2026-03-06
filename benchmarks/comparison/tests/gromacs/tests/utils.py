@@ -1,139 +1,35 @@
-import json
 import os
-import shlex
 import shutil
 import subprocess
 import textwrap
-from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
-from benchmarks.launcher import build_sponge_command
+
+from benchmarks.comparison.utils import (
+    force_stats,
+    get_reference_json_path,
+    get_reference_root,
+    get_reference_statics_case_dir,
+    load_reference_npy,
+)
+from benchmarks.comparison.utils import (
+    load_reference_entry as load_common_reference_entry,
+)
+from benchmarks.utils import Extractor, Runner
 
 
 KJ_PER_MOL_TO_KCAL_PER_MOL = 0.2390057361376673
 KJ_PER_MOL_PER_NM_TO_KCAL_PER_MOL_PER_A = 0.02390057361376673
-GROMACS_REFERENCE_JSON_REL_PATH = "reference/gromacs/reference.json"
-GROMACS_REFERENCE_ROOT_REL_DIR = "reference/gromacs"
-GROMACS_REFERENCE_STATICS_REL_DIR = "reference/gromacs/statics"
-
-
-def print_validation_table(headers, rows, title=None):
-    if not headers:
-        return
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-
-    if len(rows) == 1:
-        row = [str(v) for v in rows[0]]
-        if len(row) != len(headers):
-            raise ValueError(
-                "Header/row length mismatch in validation table: "
-                f"headers={len(headers)}, row={len(row)}"
-            )
-        key_width = max(len(h) for h in headers)
-        value_width = max(len(v) for v in row) if row else 0
-        divider = "-" * (key_width + 3 + value_width)
-        print(divider)
-        for key, value in zip(headers, row):
-            print(f"{key:<{key_width}} : {value}")
-        print(divider)
-        return
-
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)
-
-
-def _get_comparison_root_from_statics(statics_path):
-    return Path(statics_path).resolve().parents[2]
-
-
-def _get_gromacs_reference_root(statics_path):
-    return (
-        _get_comparison_root_from_statics(statics_path)
-        / GROMACS_REFERENCE_ROOT_REL_DIR
-    )
-
-
-def _get_gromacs_reference_json_path(statics_path):
-    return (
-        _get_comparison_root_from_statics(statics_path)
-        / GROMACS_REFERENCE_JSON_REL_PATH
-    )
-
-
-def _get_gromacs_reference_case_dir(statics_path, case_name):
-    return (
-        _get_comparison_root_from_statics(statics_path)
-        / GROMACS_REFERENCE_STATICS_REL_DIR
-        / case_name
-    )
-
-
-@lru_cache(maxsize=4)
-def _load_gromacs_reference_entries(reference_json_path_str):
-    reference_json_path = Path(reference_json_path_str)
-    if not reference_json_path.exists():
-        raise FileNotFoundError(
-            f"Missing GROMACS reference file: {reference_json_path}"
-        )
-    payload = json.loads(reference_json_path.read_text())
-    entries = payload.get("entries", [])
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Invalid GROMACS reference format in {reference_json_path}: "
-            "'entries' must be a list."
-        )
-
-    index = {}
-    for idx, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"Invalid GROMACS reference entry #{idx}: expected object"
-            )
-        try:
-            case_name = str(entry["case_name"])
-            iteration = int(entry["iteration"])
-        except KeyError as exc:
-            raise ValueError(
-                f"Invalid GROMACS reference entry #{idx}: missing {exc}"
-            ) from exc
-        key = (case_name, iteration)
-        if key in index:
-            raise ValueError(
-                f"Duplicate GROMACS reference entry for case={case_name}, "
-                f"iteration={iteration}"
-            )
-        index[key] = entry
-    return payload, index
 
 
 def load_gromacs_reference_entry(statics_path, case_name, iteration):
-    json_path = _get_gromacs_reference_json_path(statics_path).resolve()
-    _payload, index = _load_gromacs_reference_entries(str(json_path))
-    key = (str(case_name), int(iteration))
-    if key not in index:
-        raise KeyError(
-            "GROMACS reference entry not found for "
-            f"case={case_name}, iteration={iteration} in {json_path}"
-        )
-    return index[key]
+    return load_common_reference_entry(
+        get_reference_json_path(statics_path, "gromacs"),
+        "GROMACS",
+        case_name,
+        iteration,
+    )
 
 
 def load_gromacs_reference_terms(statics_path, case_name, iteration):
@@ -164,30 +60,20 @@ def load_gromacs_reference_terms(statics_path, case_name, iteration):
 
 def load_gromacs_reference_forces(statics_path, case_name, iteration):
     entry = load_gromacs_reference_entry(statics_path, case_name, iteration)
-    forces_rel_path = entry.get("forces_file")
-    if not isinstance(forces_rel_path, str) or not forces_rel_path:
-        raise ValueError(
-            "GROMACS reference entry missing 'forces_file': "
-            f"case={case_name}, iteration={iteration}"
-        )
-    force_path = (
-        _get_gromacs_reference_root(statics_path) / forces_rel_path
-    ).resolve()
-    if not force_path.exists():
-        raise FileNotFoundError(
-            f"Missing GROMACS reference forces file: {force_path}"
-        )
-    arr = np.load(force_path)
-    arr = np.asarray(arr, dtype=np.float64)
-    if arr.ndim != 2 or arr.shape[1] != 3:
-        raise ValueError(
-            f"Invalid GROMACS reference forces shape {arr.shape} in {force_path}"
-        )
-    return arr
+    return load_reference_npy(
+        get_reference_root(statics_path, "gromacs"),
+        entry,
+        key="forces_file",
+        suite_label="GROMACS",
+        expected_ndim=2,
+        expected_last_dim=3,
+    )
 
 
 def copy_gromacs_reference_case_files(statics_path, case_dir, case_name):
-    src_dir = _get_gromacs_reference_case_dir(statics_path, case_name).resolve()
+    src_dir = get_reference_statics_case_dir(
+        statics_path, "gromacs", case_name
+    ).resolve()
     dst_dir = Path(case_dir).resolve()
     if not src_dir.exists():
         raise FileNotFoundError(
@@ -221,7 +107,7 @@ def copy_gromacs_reference_sponge_inputs(
             "GROMACS reference entry missing 'sponge_inputs_dir': "
             f"case={case_name}, iteration={iteration}"
         )
-    src_dir = (_get_gromacs_reference_root(statics_path) / rel_dir).resolve()
+    src_dir = (get_reference_root(statics_path, "gromacs") / rel_dir).resolve()
     dst_dir = Path(case_dir).resolve()
     if not src_dir.exists():
         raise FileNotFoundError(
@@ -269,45 +155,6 @@ def require_xponge():
         )
 
 
-def prepare_output_case(statics_path, outputs_path, case_name, run_tag=None):
-    static_case = statics_path / case_name
-    if not static_case.exists():
-        raise FileNotFoundError(f"Static case not found: {static_case}")
-
-    case_dir = outputs_path / (run_tag or case_name)
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(static_case, case_dir)
-    return case_dir
-
-
-def _run_command(cmd, cwd, env=None, input_text=None):
-    result = subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        env=env,
-        input=input_text,
-    )
-    output = result.stdout + "\n" + result.stderr
-    if result.returncode != 0:
-        cmd0 = Path(str(cmd[0])).name.lower() if cmd else ""
-        if cmd0 in {"sponge", "sponge.exe"}:
-            print("\n[SPONGE stdout]\n")
-            print(result.stdout)
-            print("\n[SPONGE stderr]\n")
-            print(result.stderr)
-        raise RuntimeError(
-            f"Command failed in {cwd} with code {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-3000:]}"
-        )
-    return output
-
-
 def _clean_python_env():
     env = os.environ.copy()
     env["PYTHONPATH"] = ""
@@ -351,7 +198,7 @@ def link_charmm27_forcefield(case_dir):
 
 
 def run_gromacs_flexible_run0(case_dir):
-    _run_command(
+    Runner.run_command(
         [
             "gmx",
             "grompp",
@@ -368,7 +215,7 @@ def run_gromacs_flexible_run0(case_dir):
         ],
         cwd=case_dir,
     )
-    _run_command(
+    Runner.run_command(
         [
             "gmx",
             "mdrun",
@@ -401,7 +248,7 @@ def extract_gromacs_terms(case_dir):
             "",
         ]
     )
-    _run_command(
+    Runner.run_command(
         ["gmx", "energy", "-f", "run0_flex.edr", "-o", "terms_flex_full.xvg"],
         cwd=case_dir,
         input_text=selection,
@@ -508,7 +355,7 @@ def perturb_gro_inplace(
 
 
 def extract_gromacs_forces(case_dir):
-    _run_command(
+    Runner.run_command(
         [
             "gmx",
             "traj",
@@ -590,7 +437,7 @@ load_gro("solv.gro", system)
 save_sponge_input(system, "{output_prefix}")
 """
 
-    _run_command(
+    Runner.run_command(
         ["python", "-c", script],
         cwd=case_dir,
         env=_clean_python_env(),
@@ -616,19 +463,6 @@ def write_sponge_run0_mdin(case_dir, input_prefix="sys_flexible"):
         + "\n"
     )
     Path(case_dir, "sponge.mdin").write_text(mdin)
-
-
-def _resolve_sponge_command():
-    sponge_bin = os.environ.get("SPONGE_BIN", "SPONGE")
-    return shlex.split(sponge_bin)
-
-
-def run_sponge_run0(case_dir, mpi_np=None):
-    cmd = build_sponge_command(
-        _resolve_sponge_command() + ["-mdin", "sponge.mdin"],
-        mpi_np=mpi_np,
-    )
-    return _run_command(cmd, cwd=case_dir)
 
 
 def extract_sponge_terms(case_dir):
@@ -676,43 +510,4 @@ def extract_sponge_terms(case_dir):
 
 
 def extract_sponge_forces(case_dir, natom):
-    raw = np.fromfile(Path(case_dir) / "frc.dat", dtype=np.float32)
-    frame_width = natom * 3
-    if frame_width == 0 or raw.size % frame_width != 0:
-        raise ValueError(
-            "Invalid frc.dat length: "
-            f"size={raw.size}, natom={natom}, path={Path(case_dir) / 'frc.dat'}"
-        )
-    return raw[-frame_width:].reshape(natom, 3).astype(np.float64)
-
-
-def force_stats(reference, predicted):
-    reference = np.asarray(reference, dtype=np.float64)
-    predicted = np.asarray(predicted, dtype=np.float64)
-    if reference.shape != predicted.shape:
-        raise ValueError(
-            f"Force shape mismatch: ref={reference.shape}, pred={predicted.shape}"
-        )
-    diff = predicted - reference
-    abs_diff = np.abs(diff)
-    max_abs = float(abs_diff.max())
-    rms = float(np.sqrt(np.mean(diff * diff)))
-
-    ref_norm = np.linalg.norm(reference, axis=1)
-    pred_norm = np.linalg.norm(predicted, axis=1)
-    denom = ref_norm * pred_norm
-    valid = denom > 1.0e-12
-    if np.any(valid):
-        cos = float(
-            np.mean(
-                np.sum(reference[valid] * predicted[valid], axis=1)
-                / denom[valid]
-            )
-        )
-    else:
-        cos = 1.0
-    return {
-        "max_abs_diff": max_abs,
-        "rms_diff": rms,
-        "cosine_similarity": cos,
-    }
+    return Extractor.extract_sponge_forces(case_dir, natom)

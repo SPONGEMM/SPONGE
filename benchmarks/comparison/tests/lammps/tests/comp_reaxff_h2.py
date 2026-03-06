@@ -1,20 +1,23 @@
-import pytest
 import shutil
+
 import numpy as np
+import pytest
+
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.lammps.tests.utils import (
-    load_lammps_reference_entry,
-    load_lammps_reference_forces,
-    load_lammps_reference_stress,
     extract_sponge_forces,
     extract_sponge_potential,
     extract_sponge_pressure,
     extract_sponge_stress,
+    load_lammps_reference_entry,
+    load_lammps_reference_forces,
+    load_lammps_reference_stress,
+    prepare_case_dir,
     write_lammps_charge_data,
     write_sponge_coords,
     write_sponge_mass,
     write_sponge_types,
-    print_validation_table,
-    run_sponge_command,
 )
 
 
@@ -28,14 +31,13 @@ def test_reaxff_h2(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
     static_dir = statics_path / "reaxff_h2"
     reaxff_static_dir = statics_path / "reaxff"
-    case_dir = outputs_path / "reaxff_h2" / mpi_run_tag / str(iteration)
+    case_dir = prepare_case_dir(outputs_path, "reaxff_h2", iteration, mpi_np)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -94,7 +96,7 @@ def test_reaxff_h2(
     write_sponge_types(sponge_dir / "type.txt", ["H", "H"])
 
     # 运行SPONGE
-    run_sponge_command(sponge_dir, mpi_np=mpi_np)
+    Runner.run_sponge(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_h2", iteration
@@ -170,7 +172,7 @@ def test_reaxff_h2(
                 "PASS" if comp_pass else "FAIL",
             ]
         )
-    print_validation_table(headers, rows, title=f"H2 Distance: {r:.4f} A")
+    Outputer.print_table(headers, rows, title=f"H2 Distance: {r:.4f} A")
 
     assert energy_diff < 1e-2
     assert force_diff < 1e-2

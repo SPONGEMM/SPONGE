@@ -1,11 +1,14 @@
-import pytest
 import shutil
+
+import pytest
+
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.lammps.tests.utils import (
     generate_perturbed_water_system,
     load_lammps_reference_charges,
     load_lammps_reference_entry,
-    print_validation_table,
-    run_sponge_command,
+    prepare_case_dir,
     write_lammps_charge_data,
     write_sponge_coords,
 )
@@ -51,13 +54,12 @@ def test_reaxff_eeq(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
     static_dir = statics_path / "reaxff"
-    case_dir = outputs_path / "reaxff_eeq" / mpi_run_tag / str(iteration)
+    case_dir = prepare_case_dir(outputs_path, "reaxff_eeq", iteration, mpi_np)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -93,7 +95,7 @@ def test_reaxff_eeq(
 
     write_sponge_coords(sponge_dir / "coordinate.txt", coords, box_size)
 
-    run_sponge_command(sponge_dir, mpi_np=mpi_np)
+    Runner.run_sponge(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_eeq", iteration
@@ -116,6 +118,6 @@ def test_reaxff_eeq(
     headers = ["Term", "Max Diff", "Status"]
     status = "PASS" if max_diff < 0.01 else "FAIL"
     rows = [["Charge", f"{max_diff:.6e}", status]]
-    print_validation_table(headers, rows)
+    Outputer.print_table(headers, rows)
 
     assert max_diff < 0.01

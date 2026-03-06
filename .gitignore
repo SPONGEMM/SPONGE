@@ -7,7 +7,7 @@ mdbox.txt
 mdcrd.dat
 mdinfo.txt
 mdout.txt
-restart_coordinate.txta
+restart_coordinate.txt
 restart_velocity.txt
 force.dat
 mdvel.dat

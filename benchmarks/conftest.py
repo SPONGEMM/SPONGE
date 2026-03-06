@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 
@@ -24,15 +26,31 @@ def pytest_configure(config):
     _validate_mpi_np(config.getoption("mpi"))
 
 
+def _request_path(request):
+    path = getattr(request, "path", None)
+    if path is not None:
+        return Path(path).resolve()
+    return Path(str(request.node.fspath)).resolve()
+
+
+def _suite_root_from_request(request):
+    return _request_path(request).parent.parent
+
+
+@pytest.fixture(scope="module")
+def statics_path(request):
+    return _suite_root_from_request(request) / "statics"
+
+
+@pytest.fixture(scope="module")
+def outputs_path(request):
+    path = _suite_root_from_request(request) / "outputs"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 @pytest.fixture(scope="session")
 def mpi_np(pytestconfig):
     value = pytestconfig.getoption("mpi")
     _validate_mpi_np(value)
     return value
-
-
-@pytest.fixture(scope="session")
-def mpi_run_tag(mpi_np):
-    if mpi_np is None:
-        return "direct"
-    return f"mpi_np{mpi_np}"

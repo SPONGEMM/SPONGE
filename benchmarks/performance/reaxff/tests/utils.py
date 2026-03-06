@@ -1,107 +1,24 @@
 import json
 import math
-import os
-import shlex
-import shutil
 import statistics
-import subprocess
 from pathlib import Path
 
-from benchmarks.launcher import build_sponge_command
+from benchmarks.utils import (
+    Outputer,
+    Runner,
+    Extractor,
+)
 
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
 CONSTANT_KB_KCAL_PER_MOL_K = 0.00198716
 
 
-def print_validation_table(headers, rows, title=None):
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)
-
-
-def prepare_output_case(statics_path, outputs_path, case_name, run_tag=None):
-    static_case = statics_path / case_name
-    if not static_case.exists():
-        raise FileNotFoundError(f"Static case not found: {static_case}")
-
-    case_dir = outputs_path / (run_tag or case_name)
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(static_case, case_dir)
-    return case_dir
-
-
-def resolve_sponge_command():
-    env_bin = os.environ.get("SPONGE_BIN")
-    if env_bin:
-        return shlex.split(env_bin)
-
-    local_cpu_bin = REPO_ROOT / "build-cpu" / "SPONGE"
-    if local_cpu_bin.exists():
-        return [str(local_cpu_bin)]
-
-    local_build_bin = REPO_ROOT / "build" / "SPONGE"
-    if local_build_bin.exists():
-        return [str(local_build_bin)]
-
-    sponge_in_path = shutil.which("SPONGE")
-    if sponge_in_path:
-        return [sponge_in_path]
-
-    raise FileNotFoundError(
-        "Cannot find SPONGE binary. Build it first or set SPONGE_BIN."
-    )
-
-
-def is_cuda_init_failure(error_text):
-    lowered = error_text.lower()
-    return (
-        "fail to initialize cuda" in lowered
-        or "spongeerrormallocfailed raised by controller::init_device"
-        in lowered
-    )
-
-
-def run_sponge(case_dir, mdin_name, log_name, timeout=2400, mpi_np=None):
-    cmd = build_sponge_command(
-        resolve_sponge_command() + ["-mdin", mdin_name],
+def run_sponge(case_dir, mdin_name, timeout=2400, mpi_np=None):
+    return Runner.run_sponge(
+        case_dir,
         mpi_np=mpi_np,
-    )
-    result = subprocess.run(
-        cmd,
-        cwd=case_dir,
-        capture_output=True,
-        text=True,
-        check=False,
+        mdin_name=mdin_name,
         timeout=timeout,
     )
-    output = result.stdout + "\n" + result.stderr
-    Path(case_dir, log_name).write_text(output)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Command failed in {case_dir} with code {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-4000:]}"
-        )
-    return output
 
 
 def write_nve_long_mdin(
@@ -143,48 +60,14 @@ def write_nve_long_mdin(
 
 
 def read_atom_count_from_coordinate(coordinate_path):
-    first_line = Path(coordinate_path).read_text().splitlines()[0]
-    fields = first_line.split()
-    if not fields:
-        raise ValueError(f"Invalid coordinate header: {coordinate_path}")
-    return int(fields[0])
+    return Extractor.read_first_field_int(coordinate_path)
 
 
 def parse_mdout_series(mdout_path):
-    lines = Path(mdout_path).read_text().splitlines()
-    if len(lines) < 2:
-        raise ValueError(f"Invalid mdout file: {mdout_path}")
-
-    headers = lines[0].split()
-    required = ["step", "time", "temperature", "potential"]
-    for key in required:
-        if key not in headers:
-            raise ValueError(f"Missing '{key}' column in {mdout_path}")
-
-    step_idx = headers.index("step")
-    time_idx = headers.index("time")
-    temp_idx = headers.index("temperature")
-    pot_idx = headers.index("potential")
-
-    rows = []
-    for line in lines[1:]:
-        fields = line.split()
-        if len(fields) <= max(step_idx, time_idx, temp_idx, pot_idx):
-            continue
-        try:
-            row = {
-                "step": int(fields[step_idx]),
-                "time": float(fields[time_idx]),
-                "temperature": float(fields[temp_idx]),
-                "potential": float(fields[pot_idx]),
-            }
-        except ValueError:
-            continue
-        rows.append(row)
-
-    if not rows:
-        raise ValueError(f"No frame data parsed from {mdout_path}")
-    return rows
+    return Extractor.parse_mdout_rows(
+        mdout_path,
+        ["step", "time", "temperature", "potential"],
+    )
 
 
 def summarize_energy_stability(nve_rows, *, dof):

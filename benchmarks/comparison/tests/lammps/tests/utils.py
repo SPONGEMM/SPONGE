@@ -1,55 +1,32 @@
-import json
-import os
-import shlex
-from functools import lru_cache
-import numpy as np
 import pathlib
-import subprocess
-from Xponge.analysis import MdoutReader
 
-from benchmarks.launcher import build_sponge_command
+import numpy as np
+
+from benchmarks.comparison.utils import (
+    get_reference_json_path,
+    get_reference_root,
+    load_reference_npy,
+)
+from benchmarks.comparison.utils import (
+    load_reference_entry as load_common_reference_entry,
+)
+from benchmarks.utils import Extractor
 
 EV_TO_KCAL_MOL = 23.060548
 ATM_PER_KCAL_MOL_A3 = 68568.415
 BAR_TO_ATM = 1.0 / 1.01325
-LAMMPS_REFERENCE_JSON_REL_PATH = "reference/lammps/reference.json"
-LAMMPS_REFERENCE_ROOT_REL_DIR = "reference/lammps"
 
 
-def run_sponge_command(work_dir, mdin_file=None, mpi_np=None):
-    cmd = build_sponge_command(_resolve_sponge_command(), mpi_np=mpi_np)
-    if mdin_file is not None:
-        cmd.extend(["-mdin", mdin_file])
-    result = subprocess.run(
-        cmd,
-        cwd=work_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        print("\n[SPONGE stdout]\n")
-        print(result.stdout)
-        print("\n[SPONGE stderr]\n")
-        print(result.stderr)
-        raise subprocess.CalledProcessError(
-            result.returncode,
-            cmd,
-            output=result.stdout,
-            stderr=result.stderr,
-        )
-    return result
+def prepare_case_dir(outputs_path, case_name, iteration, mpi_np=None):
+    case_dir = pathlib.Path(outputs_path) / case_name / str(iteration)
+    case_dir.mkdir(parents=True, exist_ok=True)
+    return case_dir
 
 
-def _resolve_sponge_command():
-    return shlex.split(os.environ.get("SPONGE_BIN", "SPONGE"))
-
-
-def _detect_lammps_units_from_case(work_dir):
-    lammps_input = work_dir.parent / "lammps" / "in.lammps"
-    if not lammps_input.exists():
+def _detect_lammps_units(in_lammps_path):
+    if not in_lammps_path.exists():
         return "metal"
-    with open(lammps_input, "r") as f:
+    with open(in_lammps_path, "r") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
@@ -59,26 +36,57 @@ def _detect_lammps_units_from_case(work_dir):
                 if len(parts) >= 2:
                     return parts[1].lower()
     return "metal"
+
+
+def _detect_lammps_units_for_case(work_dir):
+    return _detect_lammps_units(work_dir.parent / "lammps" / "in.lammps")
 
 
 def _detect_lammps_units_from_log(log_path):
-    input_path = pathlib.Path(log_path).parent / "in.lammps"
-    if not input_path.exists():
-        return "metal"
-    with open(input_path, "r") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            if line.lower().startswith("units"):
-                parts = line.split()
-                if len(parts) >= 2:
-                    return parts[1].lower()
-    return "metal"
+    return _detect_lammps_units(pathlib.Path(log_path).parent / "in.lammps")
+
+
+def _parse_lammps_thermo_row(log_path, required_headers):
+    if isinstance(required_headers, str):
+        required_headers = (required_headers,)
+    headers = tuple(required_headers)
+    with open(log_path, "r") as f:
+        lines = f.read().splitlines()
+    for i, line in enumerate(lines):
+        parts = line.split()
+        if (
+            not parts
+            or "Step" not in parts
+            or not all(header in parts for header in headers)
+        ):
+            continue
+        data_index = i + 1
+        if data_index >= len(lines):
+            break
+        data_line = lines[data_index].split()
+        if len(data_line) < len(parts):
+            continue
+        try:
+            values = [float(value) for value in data_line]
+        except ValueError:
+            continue
+        header_index = {header: idx for idx, header in enumerate(parts)}
+        row = {
+            header: values[index]
+            for header, index in header_index.items()
+            if index < len(values)
+        }
+        missing = [header for header in headers if header not in row]
+        if missing:
+            continue
+        return row
+    raise ValueError(
+        f"Thermodynamic output with required headers {headers} not found in {log_path}."
+    )
 
 
 def _sponge_pressure_scale_to_lammps(work_dir, lammps_units=None):
-    units = (lammps_units or _detect_lammps_units_from_case(work_dir)).lower()
+    units = (lammps_units or _detect_lammps_units_for_case(work_dir)).lower()
     # SPONGE mdout pressure/stress are in bar.
     # LAMMPS real uses atm; metal uses bar.
     if units == "real":
@@ -87,115 +95,53 @@ def _sponge_pressure_scale_to_lammps(work_dir, lammps_units=None):
 
 
 def extract_lammps_potential(log_path):
-    with open(log_path, "r") as f:
-        lines = f.readlines()
-    data_index = -1
-    headers = []
-    for i, line in enumerate(lines):
-        if "Step" in line and "PotEng" in line:
-            headers = line.strip().split()
-            data_index = i + 1
-            break
-    if data_index == -1 or data_index >= len(lines):
-        raise ValueError(f"在 {log_path} 中未找到热力学输出。")
-    data_line = lines[data_index].strip().split()
-    try:
-        pot_eng_idx = headers.index("PotEng")
-        pot_eng = float(data_line[pot_eng_idx])
-    except (ValueError, IndexError) as e:
-        raise ValueError(f"无法从该行解析 PotEng: {lines[data_index]}") from e
+    row = _parse_lammps_thermo_row(log_path, "PotEng")
+    pot_eng = row["PotEng"]
     units = _detect_lammps_units_from_log(log_path)
     if units == "real":
         return pot_eng
     if units == "metal":
         return pot_eng * EV_TO_KCAL_MOL
-    raise ValueError(f"不支持的LAMMPS单位体系: {units}")
+    raise ValueError(f"Unsupported LAMMPS unit system: {units}")
 
 
 def extract_lammps_pressure(log_path):
-    with open(log_path, "r") as f:
-        lines = f.readlines()
-    data_index = -1
-    headers = []
-    for i, line in enumerate(lines):
-        if "Step" in line and "Press" in line:
-            headers = line.strip().split()
-            data_index = i + 1
-            break
-    if data_index == -1 or data_index >= len(lines):
-        raise ValueError(f"在 {log_path} 中未找到压强输出。")
-    data_line = lines[data_index].strip().split()
-    try:
-        press_idx = headers.index("Press")
-        pressure = float(data_line[press_idx])
-    except (ValueError, IndexError) as e:
-        raise ValueError(f"无法从该行解析 Press: {lines[data_index]}") from e
+    row = _parse_lammps_thermo_row(log_path, "Press")
+    pressure = row["Press"]
     return pressure
 
 
 def extract_lammps_stress(log_path):
-    with open(log_path, "r") as f:
-        lines = f.readlines()
-    data_index = -1
-    headers = []
-    for i, line in enumerate(lines):
-        if "Step" in line and "Pxx" in line:
-            headers = line.strip().split()
-            data_index = i + 1
-            break
-    if data_index == -1 or data_index >= len(lines):
-        raise ValueError(f"在 {log_path} 中未找到应力信息。")
-    data_line = lines[data_index].strip().split()
+    row = _parse_lammps_thermo_row(
+        log_path, ("Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz")
+    )
     stress = {}
     for key in ["Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"]:
-        try:
-            idx = headers.index(key)
-            stress[key] = float(data_line[idx])
-        except (ValueError, IndexError):
-            stress[key] = float("nan")
+        stress[key] = row.get(key, float("nan"))
     return stress
 
 
 def extract_sponge_pressure(work_dir, lammps_units=None):
-    mdout_path = work_dir / "mdout.txt"
-    if not mdout_path.exists():
-        raise FileNotFoundError(f"未找到 SPONGE 输出文件: {mdout_path}")
-    mdout = MdoutReader(str(mdout_path))
-    if hasattr(mdout, "pressure"):
-        scale = _sponge_pressure_scale_to_lammps(work_dir, lammps_units)
-        return mdout.pressure[-1] * scale
-    raise ValueError("在 SPONGE 输出中未找到压力信息。")
+    pressure = Extractor.extract_sponge_pressure(work_dir)
+    return pressure * _sponge_pressure_scale_to_lammps(work_dir, lammps_units)
 
 
 def extract_sponge_stress(work_dir, lammps_units=None):
-    mdout_path = work_dir / "mdout.txt"
-    if not mdout_path.exists():
-        raise FileNotFoundError(f"未找到 SPONGE 输出文件: {mdout_path}")
-    mdout = MdoutReader(str(mdout_path))
+    stress = Extractor.extract_sponge_stress(work_dir)
     scale = _sponge_pressure_scale_to_lammps(work_dir, lammps_units)
-    stress = {}
-    for key in ["Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"]:
-        if hasattr(mdout, key):
-            stress[key] = getattr(mdout, key)[-1] * scale
-        else:
-            stress[key] = float("nan")
-    return stress
+    return {key: value * scale for key, value in stress.items()}
 
 
 def extract_sponge_potential(work_dir):
-    mdout_path = work_dir / "mdout.txt"
-    if not mdout_path.exists():
-        raise FileNotFoundError(f"未找到 SPONGE 输出文件: {mdout_path}")
-    mdout = MdoutReader(str(mdout_path))
-    if hasattr(mdout, "potential"):
-        return mdout.potential[-1]
-    raise ValueError("在 SPONGE 输出中未找到势能信息。")
+    return Extractor.extract_sponge_potential(work_dir)
 
 
 def extract_lammps_forces(work_dir):
     dump_file = work_dir / "forces.dump"
     if not dump_file.exists():
-        raise FileNotFoundError(f"LAMMPS力输出文件未找到: {dump_file}")
+        raise FileNotFoundError(
+            f"LAMMPS force output file not found: {dump_file}"
+        )
     forces = {}
     with open(dump_file, "r") as f:
         lines = f.readlines()
@@ -205,7 +151,9 @@ def extract_lammps_forces(work_dir):
             start_idx = i + 1
             break
     if start_idx == -1:
-        raise ValueError("LAMMPS力输出文件格式错误，未找到原子力数据")
+        raise ValueError(
+            "Invalid LAMMPS force output format: missing atomic force section."
+        )
     for line in lines[start_idx:]:
         parts = line.split()
         if len(parts) >= 4:
@@ -220,17 +168,7 @@ def extract_lammps_forces(work_dir):
 
 
 def extract_sponge_forces(work_dir, num_atoms):
-    force_bin = work_dir / "frc.dat"
-    if force_bin.exists():
-        raw = np.fromfile(force_bin, dtype=np.float32)
-        frame_width = num_atoms * 3
-        if frame_width == 0 or raw.size % frame_width != 0:
-            raise ValueError(
-                f"SPONGE力轨迹文件尺寸异常: {force_bin}, size={raw.size}, num_atoms={num_atoms}"
-            )
-        return raw[-frame_width:].reshape(num_atoms, 3)
-
-    raise FileNotFoundError(f"SPONGE力轨迹文件未找到: {force_bin}")
+    return Extractor.extract_sponge_forces(work_dir, num_atoms)
 
 
 def compute_pressure_stress_from_coords_forces(coords, forces, box):
@@ -238,12 +176,12 @@ def compute_pressure_stress_from_coords_forces(coords, forces, box):
     forces = np.asarray(forces, dtype=float)
     box = np.asarray(box, dtype=float)
     if coords.shape != forces.shape:
-        raise ValueError("coords 与 forces 形状不一致。")
+        raise ValueError("Coordinate and force arrays shape mismatch.")
     if box.shape != (3,):
-        raise ValueError("box 必须是长度为3的向量。")
+        raise ValueError("Box must be a vector of length 3.")
     volume = float(box[0] * box[1] * box[2])
     if volume <= 0:
-        raise ValueError("box 体积必须大于0。")
+        raise ValueError("Box volume must be positive.")
 
     x = coords[:, 0]
     y = coords[:, 1]
@@ -323,9 +261,8 @@ def rewrite_edip_atom_types(edip_file, atom_types):
             marker_idx = idx
             break
     if marker_idx is None:
-        raise ValueError(f"未找到 '# Atom types' 标记: {edip_file}")
+        raise ValueError(f"Marker '# Atom types' not found: {edip_file}")
 
-    # SPONGE EDIP 文件约定原子类型从 0 开始。
     atom_type_line = " ".join(str(int(t) - 1) for t in atom_types)
     new_lines = lines[: marker_idx + 1] + [atom_type_line]
     edip_file.write_text("\n".join(new_lines) + "\n")
@@ -364,7 +301,9 @@ def write_lammps_data(file_path, coords, box, masses, atom_types=None):
     num_atom_types = len(masses)
 
     if len(masses) < len(unique_types):
-        raise ValueError("提供的 masses 列表长度小于唯一原子类型数量。")
+        raise ValueError(
+            "Mass list length is smaller than the number of unique atom types."
+        )
 
     with open(file_path, "w") as f:
         f.write("Generated by SPONGE Test\n\n")
@@ -393,11 +332,13 @@ def write_lammps_charge_data(
 ):
     num_atoms = len(coords)
     if len(atom_types) != num_atoms:
-        raise ValueError("atom_types 的长度与坐标数量不一致。")
+        raise ValueError(
+            "The length of atom_types does not match the number of atoms."
+        )
 
     ordered_types = sorted(type_id_map.items(), key=lambda item: item[1])
     if not ordered_types:
-        raise ValueError("type_id_map 不能为空。")
+        raise ValueError("type_id_map must not be empty.")
 
     with open(file_path, "w") as f:
         f.write(f"{title}\n\n")
@@ -409,7 +350,9 @@ def write_lammps_charge_data(
         f.write("Masses\n\n")
         for atom_name, atom_type in ordered_types:
             if atom_name not in masses:
-                raise ValueError(f"masses 中缺少类型 {atom_name} 的质量。")
+                raise ValueError(
+                    f"Mass entry for atom type '{atom_name}' is missing in masses."
+                )
             f.write(f"{atom_type} {masses[atom_name]}\n")
 
         f.write("\n")
@@ -418,7 +361,9 @@ def write_lammps_charge_data(
             zip(coords, atom_types), start=1
         ):
             if atom_name not in type_id_map:
-                raise ValueError(f"type_id_map 中缺少类型 {atom_name}。")
+                raise ValueError(
+                    f"Atom type '{atom_name}' is missing in type_id_map."
+                )
             f.write(
                 f"{i} {type_id_map[atom_name]} 0.0 {x:.12f} {y:.12f} {z:.12f}\n"
             )
@@ -451,165 +396,36 @@ def generate_perturbed_water_system(nx, ny, nz, spacing, perturbation, seed):
     return np.array(coords), box_size, atom_types
 
 
-def print_validation_table(headers, rows, title=None):
-    if not headers:
-        return
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-
-    if len(rows) == 1:
-        row = [str(v) for v in rows[0]]
-        if len(row) != len(headers):
-            raise ValueError(
-                "Header/row length mismatch in validation table: "
-                f"headers={len(headers)}, row={len(row)}"
-            )
-        key_width = max(len(h) for h in headers)
-        value_width = max(len(v) for v in row) if row else 0
-        divider = "-" * (key_width + 3 + value_width)
-        print(divider)
-        for key, value in zip(headers, row):
-            print(f"{key:<{key_width}} : {value}")
-        print(divider)
-        return
-
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            str_val = str(val)
-            col_widths[i] = max(col_widths[i], len(str_val))
-
-    col_widths = [w + 2 for w in col_widths]
-
-    header_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    print(divider)
-    print(header_fmt.format(*headers))
-    print(divider)
-
-    for row in rows:
-        formatted_row = [str(val) for val in row]
-        print(header_fmt.format(*formatted_row))
-    print(divider)
-
-
-def _get_comparison_root_from_statics(statics_path):
-    return pathlib.Path(statics_path).resolve().parents[2]
-
-
-def _get_lammps_reference_root(statics_path):
-    return (
-        _get_comparison_root_from_statics(statics_path)
-        / LAMMPS_REFERENCE_ROOT_REL_DIR
-    )
-
-
-def _get_lammps_reference_json_path(statics_path):
-    return (
-        _get_comparison_root_from_statics(statics_path)
-        / LAMMPS_REFERENCE_JSON_REL_PATH
-    )
-
-
-@lru_cache(maxsize=4)
-def _load_lammps_reference_entries(reference_json_path_str):
-    reference_json_path = pathlib.Path(reference_json_path_str)
-    if not reference_json_path.exists():
-        raise FileNotFoundError(
-            f"Missing LAMMPS reference file: {reference_json_path}"
-        )
-    payload = json.loads(reference_json_path.read_text())
-    entries = payload.get("entries", [])
-    if not isinstance(entries, list):
-        raise ValueError(
-            f"Invalid LAMMPS reference format in {reference_json_path}: "
-            "'entries' must be a list."
-        )
-
-    index = {}
-    for idx, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            raise ValueError(
-                f"Invalid LAMMPS reference entry #{idx}: expected object"
-            )
-        try:
-            case_name = str(entry["case_name"])
-            iteration = int(entry["iteration"])
-        except KeyError as exc:
-            raise ValueError(
-                f"Invalid LAMMPS reference entry #{idx}: missing {exc}"
-            ) from exc
-        key = (case_name, iteration)
-        if key in index:
-            raise ValueError(
-                f"Duplicate LAMMPS reference entry for case={case_name}, "
-                f"iteration={iteration}"
-            )
-        index[key] = entry
-    return payload, index
-
-
 def load_lammps_reference_entry(statics_path, case_name, iteration):
-    json_path = _get_lammps_reference_json_path(statics_path).resolve()
-    _payload, index = _load_lammps_reference_entries(str(json_path))
-    key = (str(case_name), int(iteration))
-    if key not in index:
-        raise KeyError(
-            "LAMMPS reference entry not found for "
-            f"case={case_name}, iteration={iteration} in {json_path}"
-        )
-    return index[key]
+    return load_common_reference_entry(
+        get_reference_json_path(statics_path, "lammps"),
+        "LAMMPS",
+        case_name,
+        iteration,
+    )
 
 
 def load_lammps_reference_forces(statics_path, case_name, iteration):
     entry = load_lammps_reference_entry(statics_path, case_name, iteration)
-    forces_rel_path = entry.get("forces_file")
-    if not isinstance(forces_rel_path, str) or not forces_rel_path:
-        raise ValueError(
-            "LAMMPS reference entry missing 'forces_file': "
-            f"case={case_name}, iteration={iteration}"
-        )
-    force_path = (
-        _get_lammps_reference_root(statics_path) / forces_rel_path
-    ).resolve()
-    if not force_path.exists():
-        raise FileNotFoundError(
-            f"Missing LAMMPS reference forces file: {force_path}"
-        )
-    arr = np.asarray(np.load(force_path), dtype=np.float64)
-    if arr.ndim != 2 or arr.shape[1] != 3:
-        raise ValueError(
-            f"Invalid LAMMPS reference forces shape {arr.shape} in {force_path}"
-        )
-    return arr
+    return load_reference_npy(
+        get_reference_root(statics_path, "lammps"),
+        entry,
+        key="forces_file",
+        suite_label="LAMMPS",
+        expected_ndim=2,
+        expected_last_dim=3,
+    )
 
 
 def load_lammps_reference_charges(statics_path, case_name, iteration):
     entry = load_lammps_reference_entry(statics_path, case_name, iteration)
-    charges_rel_path = entry.get("charges_file")
-    if not isinstance(charges_rel_path, str) or not charges_rel_path:
-        raise ValueError(
-            "LAMMPS reference entry missing 'charges_file': "
-            f"case={case_name}, iteration={iteration}"
-        )
-    charges_path = (
-        _get_lammps_reference_root(statics_path) / charges_rel_path
-    ).resolve()
-    if not charges_path.exists():
-        raise FileNotFoundError(
-            f"Missing LAMMPS reference charges file: {charges_path}"
-        )
-    arr = np.asarray(np.load(charges_path), dtype=np.float64)
-    if arr.ndim != 1:
-        raise ValueError(
-            f"Invalid LAMMPS reference charges shape {arr.shape} in {charges_path}"
-        )
-    return arr
+    return load_reference_npy(
+        get_reference_root(statics_path, "lammps"),
+        entry,
+        key="charges_file",
+        suite_label="LAMMPS",
+        expected_ndim=1,
+    )
 
 
 def load_lammps_reference_stress(statics_path, case_name, iteration):

@@ -2,14 +2,12 @@ import shutil
 
 import pytest
 
-from benchmarks.validation.reaxff.tests.utils import (
+from benchmarks.utils import Outputer, Runner
+
+from benchmarks.performance.reaxff.tests.utils import (
     dump_summary_json,
-    is_cuda_init_failure,
     parse_mdout_series,
-    prepare_output_case,
-    print_validation_table,
     read_atom_count_from_coordinate,
-    run_sponge,
     save_energy_plots,
     summarize_energy_stability,
     write_nve_long_mdin,
@@ -17,30 +15,22 @@ from benchmarks.validation.reaxff.tests.utils import (
 
 
 def test_reaxff_cho_heat_then_nve_energy_stability(
-    statics_path, outputs_path, mpi_np, mpi_run_tag
+    statics_path, outputs_path, mpi_np
 ):
-    case_dir = prepare_output_case(
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="cho_nve",
-        run_tag=f"cho_nve_heat_nve_{mpi_run_tag}",
+        mpi_np=mpi_np,
+        run_name="cho_nve_heat_nve",
     )
 
-    try:
-        run_sponge(
-            case_dir,
-            mdin_name="heat.spg.toml",
-            log_name="run_heat.log",
-            timeout=2400,
-            mpi_np=mpi_np,
-        )
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    Runner.run_sponge(
+        case_dir,
+        mdin_name="heat.spg.toml",
+        timeout=2400,
+        mpi_np=mpi_np,
+    )
 
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout.heat.txt")
 
@@ -53,21 +43,12 @@ def test_reaxff_cho_heat_then_nve_energy_stability(
         rst="nve_long",
     )
 
-    try:
-        run_sponge(
-            case_dir,
-            mdin_name="nve.long.spg.toml",
-            log_name="run_nve.log",
-            timeout=2400,
-            mpi_np=mpi_np,
-        )
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    Runner.run_sponge(
+        case_dir,
+        mdin_name="nve.long.spg.toml",
+        timeout=2400,
+        mpi_np=mpi_np,
+    )
 
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout.nve_long.txt")
 
@@ -94,7 +75,7 @@ def test_reaxff_cho_heat_then_nve_energy_stability(
         ["MaxRelDrift", f"{stats['max_rel_drift']:.6e}"],
         ["Slope(kcal/mol/ps)", f"{stats['slope_kcal_per_mol_ps']:.6f}"],
     ]
-    print_validation_table(
+    Outputer.print_table(
         ["Metric", "Value"],
         rows,
         title="ReaxFF Validation: CHO Heat->NVE Energy Stability",

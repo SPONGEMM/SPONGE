@@ -2,49 +2,12 @@ import json
 import math
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from benchmarks.launcher import build_sponge_command
-
+from benchmarks.utils import Outputer, Runner
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 IGNORE_COLUMNS = {"step", "time", "temperature"}
-
-
-def print_validation_table(headers, rows, title=None):
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)
-
-
-def prepare_output_case(statics_path, outputs_path, case_name, run_tag=None):
-    static_case = statics_path / case_name
-    if not static_case.exists():
-        raise FileNotFoundError(f"Static case not found: {static_case}")
-
-    case_dir = outputs_path / (run_tag or case_name)
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(static_case, case_dir)
-    return case_dir
 
 
 def _resolve_binary(path_or_name):
@@ -95,42 +58,21 @@ def resolve_binary_triplet():
     }
 
 
-def _run_command(cmd, cwd, log_name, timeout=1200):
-    result = subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
-    output = result.stdout + "\n" + result.stderr
-    Path(cwd, log_name).write_text(output)
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Command failed in {cwd} with code {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-3000:]}"
-        )
-    return output
-
-
 def run_point_energy(
     case_dir, *, sponge_bin, mdin_name, run_tag, mpi_np=None, timeout=1200
 ):
-    cmd = build_sponge_command(
-        [sponge_bin, "-mdin", mdin_name],
+    output = Runner.run_sponge(
+        case_dir,
         mpi_np=mpi_np,
-        mpirun_env_var="SPONGE_POINT_MPIRUN",
+        mdin_name=mdin_name,
+        sponge_cmd=sponge_bin,
+        timeout=timeout,
     )
-
-    log_name = f"run_{run_tag}.log"
-    _run_command(cmd, cwd=case_dir, log_name=log_name, timeout=timeout)
 
     mdout_path = Path(case_dir, "mdout.txt")
     tagged_mdout = Path(case_dir, f"mdout_{run_tag}.txt")
     shutil.copyfile(mdout_path, tagged_mdout)
-    return tagged_mdout, Path(case_dir, log_name)
+    return tagged_mdout, output
 
 
 def parse_mdout_one_frame(mdout_path):
@@ -164,10 +106,9 @@ def dump_json(data, out_path):
     Path(out_path).write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
-def parse_pme_backend(run_log_path):
-    text = Path(run_log_path).read_text()
+def parse_pme_backend(run_output):
     marker = "PME backend library:"
-    for line in text.splitlines():
+    for line in run_output.splitlines():
         if marker in line:
             return line.split(marker, 1)[1].strip()
     return "unknown"

@@ -3,17 +3,19 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.lammps.tests.utils import (
     EV_TO_KCAL_MOL,
-    load_lammps_reference_entry,
-    load_lammps_reference_forces,
-    load_lammps_reference_stress,
     extract_sponge_forces,
     extract_sponge_potential,
     extract_sponge_pressure,
     extract_sponge_stress,
-    print_validation_table,
-    run_sponge_command,
+    load_lammps_reference_entry,
+    load_lammps_reference_forces,
+    load_lammps_reference_stress,
+    prepare_case_dir,
     write_lammps_data,
     write_sponge_coords,
     write_sponge_mass,
@@ -21,7 +23,7 @@ from benchmarks.comparison.tests.lammps.tests.utils import (
 
 
 def _run_sponge(sponge_dir: Path, mpi_np=None):
-    run_sponge_command(sponge_dir, mdin_file="mdin.spg.toml", mpi_np=mpi_np)
+    Runner.run_sponge(sponge_dir, mdin_name="mdin.spg.toml", mpi_np=mpi_np)
 
 
 def _validate_lammps_vs_sponge(
@@ -135,7 +137,7 @@ def _validate_lammps_vs_sponge(
             ],
         ]
     )
-    print_validation_table(
+    Outputer.print_table(
         headers, rows, title=f"Custom Force: {title_case_name}"
     )
 
@@ -204,17 +206,13 @@ def _apply_random_perturbation(
 
 @pytest.mark.parametrize("iteration", range(3))
 def test_custom_pairwise_morse_vs_lammps(
-    iteration, outputs_path, statics_path, mpi_np, mpi_run_tag
+    iteration, outputs_path, statics_path, mpi_np
 ):
     curr_perturbation = 0.05 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
-    case_dir = (
-        outputs_path
-        / "custom_force"
-        / "pairwise_morse"
-        / mpi_run_tag
-        / str(iteration)
+    case_dir = prepare_case_dir(
+        outputs_path, "custom_force/pairwise_morse", iteration, mpi_np
     )
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
@@ -358,17 +356,13 @@ def test_custom_pairwise_morse_vs_lammps(
 
 @pytest.mark.parametrize("iteration", range(3))
 def test_custom_listed_class2_vs_lammps(
-    iteration, outputs_path, statics_path, mpi_np, mpi_run_tag
+    iteration, outputs_path, statics_path, mpi_np
 ):
     curr_perturbation = 0.04 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
-    case_dir = (
-        outputs_path
-        / "custom_force"
-        / "listed_class2"
-        / mpi_run_tag
-        / str(iteration)
+    case_dir = prepare_case_dir(
+        outputs_path, "custom_force/listed_class2", iteration, mpi_np
     )
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"

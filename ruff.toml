@@ -5,3 +5,6 @@ target-version = "py39"
 quote-style = "double"
 indent-style = "space"
 line-ending = "auto"
+
+[lint]
+select = ["I"]

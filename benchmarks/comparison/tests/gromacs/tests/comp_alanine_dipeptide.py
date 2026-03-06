@@ -2,19 +2,17 @@ import math
 
 import pytest
 
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.gromacs.tests.utils import (
-    load_gromacs_reference_entry,
-    load_gromacs_reference_forces,
-    load_gromacs_reference_terms,
     copy_gromacs_reference_sponge_inputs,
     extract_sponge_forces,
     extract_sponge_terms,
     force_stats,
-    prepare_output_case,
-    print_validation_table,
-    run_sponge_run0,
+    load_gromacs_reference_entry,
+    load_gromacs_reference_forces,
+    load_gromacs_reference_terms,
 )
-
 
 PERTURB_CASES = [
     (0, 0.00),
@@ -34,12 +32,14 @@ def test_gromacs_alanine_dipeptide_charmm_tip3p_flexible_run0(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     case_name = "alanine_dipeptide_charmm_tip3p"
-    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
-    case_dir = prepare_output_case(
-        statics_path, outputs_path, case_name, run_tag=run_tag
+    case_dir = Outputer.prepare_output_case(
+        statics_path,
+        outputs_path,
+        case_name,
+        mpi_np=mpi_np,
+        run_name=iteration,
     )
 
     ref_entry = load_gromacs_reference_entry(statics_path, case_name, iteration)
@@ -56,7 +56,11 @@ def test_gromacs_alanine_dipeptide_charmm_tip3p_flexible_run0(
         statics_path, case_name, iteration
     )
 
-    run_sponge_run0(case_dir, mpi_np=mpi_np)
+    Runner.run_sponge(
+        case_dir,
+        mpi_np=mpi_np,
+        mdin_name="sponge.mdin",
+    )
 
     sponge_terms = extract_sponge_terms(case_dir)
     sponge_forces = extract_sponge_forces(case_dir, natom=gmx_forces.shape[0])
@@ -143,7 +147,7 @@ def test_gromacs_alanine_dipeptide_charmm_tip3p_flexible_run0(
             "PASS" if passed else "FAIL",
         ]
     ]
-    print_validation_table(
+    Outputer.print_table(
         headers,
         rows,
         title="GROMACS CHARMM27 TIP3P (FLEXIBLE) vs SPONGE",

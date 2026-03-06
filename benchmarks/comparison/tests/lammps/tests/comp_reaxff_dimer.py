@@ -1,22 +1,25 @@
-import pytest
 import shutil
+
 import numpy as np
+import pytest
+from Xponge.analysis import MdoutReader
+
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.lammps.tests.utils import (
+    extract_sponge_forces,
+    extract_sponge_pressure,
+    extract_sponge_stress,
     load_lammps_reference_entry,
     load_lammps_reference_forces,
     load_lammps_reference_stress,
     load_lammps_reference_thermo,
-    extract_sponge_forces,
-    extract_sponge_pressure,
-    extract_sponge_stress,
+    prepare_case_dir,
     write_lammps_charge_data,
     write_sponge_coords,
     write_sponge_mass,
     write_sponge_types,
-    print_validation_table,
-    run_sponge_command,
 )
-from Xponge.analysis import MdoutReader
 
 
 def _within_hard_threshold(diff, ref, atol=2.0, rtol=1e-3):
@@ -33,12 +36,11 @@ def test_reaxff_dimer(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
     static_dir = statics_path / "reaxff_dimer"
-    case_dir = outputs_path / "reaxff_dimer" / mpi_run_tag / str(iteration)
+    case_dir = prepare_case_dir(outputs_path, "reaxff_dimer", iteration, mpi_np)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -113,7 +115,7 @@ def test_reaxff_dimer(
     # SPONGE type文件
     write_sponge_types(sponge_dir / "type.txt", types)
 
-    run_sponge_command(sponge_dir, mpi_np=mpi_np)
+    Runner.run_sponge(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_dimer", iteration
@@ -241,7 +243,7 @@ def test_reaxff_dimer(
         if not s_pass:
             all_pass = False
 
-    print_validation_table(headers, rows)
+    Outputer.print_table(headers, rows)
 
     assert np.isfinite(lammps_pressure) and np.isfinite(sponge_pressure)
     for key in ["Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"]:

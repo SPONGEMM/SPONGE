@@ -2,20 +2,16 @@ import shutil
 
 import pytest
 
+from benchmarks.utils import Outputer
 from benchmarks.validation.barostat.tests.utils import (
     AMU_PER_A3_TO_G_PER_CM3,
-    is_cuda_init_failure,
     parse_density_series_from_mdbox,
     parse_mdbox_lengths,
-    prepare_output_case,
-    print_validation_table,
     read_total_mass_amu,
     rescale_coordinate_box,
     run_sponge_barostat,
-    summarize_series,
     write_barostat_mdin,
 )
-
 
 REGULATE_CASES = [
     pytest.param(
@@ -73,20 +69,18 @@ def _write_and_run_stage(
         constrain_mode="SHAKE",
     )
     run_sponge_barostat(case_dir, timeout=timeout, mpi_np=mpi_np)
-    shutil.copyfile(case_dir / "run.log", case_dir / f"run_{stage_tag}.log")
     shutil.copyfile(case_dir / "mdout.txt", case_dir / f"mdout_{stage_tag}.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / f"mdbox_{stage_tag}.txt")
 
 
 @pytest.mark.parametrize("cfg", REGULATE_CASES)
-def test_tip3p_regulate_from_30a_box(
-    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
-):
-    case_dir = prepare_output_case(
+def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
+    case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="tip3p_water",
-        run_tag=f"{cfg['id']}_regulate_30A_{mpi_run_tag}",
+        mpi_np=mpi_np,
+        run_name=f"{cfg['id']}_regulate_30A",
     )
 
     # Expand only the periodic box to start from a low-density state.
@@ -106,45 +100,37 @@ def test_tip3p_regulate_from_30a_box(
         total_mass_amu * AMU_PER_A3_TO_G_PER_CM3 / (box_lx * box_ly * box_lz)
     )
 
-    try:
-        # Stage 1: fast high-pressure compression from very low density.
-        _write_and_run_stage(
-            case_dir,
-            stage_tag="compress_1000bar",
-            step_limit=100000,
-            target_pressure=1000.0,
-            barostat=cfg["barostat"],
-            barostat_tau=0.1,
-            barostat_update_interval=10,
-            write_information_interval=10,
-            timeout=1800,
-            mpi_np=mpi_np,
-        )
-        shutil.copyfile(
-            case_dir / "restart_coordinate.txt",
-            case_dir / "tip3p_coordinate.txt",
-        )
+    # Stage 1: fast high-pressure compression from very low density.
+    _write_and_run_stage(
+        case_dir,
+        stage_tag="compress_1000bar",
+        step_limit=100000,
+        target_pressure=1000.0,
+        barostat=cfg["barostat"],
+        barostat_tau=0.1,
+        barostat_update_interval=10,
+        write_information_interval=10,
+        timeout=1800,
+        mpi_np=mpi_np,
+    )
+    shutil.copyfile(
+        case_dir / "restart_coordinate.txt",
+        case_dir / "tip3p_coordinate.txt",
+    )
 
-        # Stage 2: switch to target barostat at 1 bar and verify density.
-        _write_and_run_stage(
-            case_dir,
-            stage_tag="relax_1bar",
-            step_limit=50000,
-            target_pressure=1.0,
-            barostat=cfg["barostat"],
-            barostat_tau=0.1,
-            barostat_update_interval=10,
-            write_information_interval=10,
-            timeout=1800,
-            mpi_np=mpi_np,
-        )
-    except RuntimeError as e:
-        if is_cuda_init_failure(str(e)):
-            pytest.skip(
-                "SPONGE CUDA initialization failed. "
-                "Use CPU binary or set SPONGE_BIN to a working executable."
-            )
-        raise
+    # Stage 2: switch to target barostat at 1 bar and verify density.
+    _write_and_run_stage(
+        case_dir,
+        stage_tag="relax_1bar",
+        step_limit=50000,
+        target_pressure=1.0,
+        barostat=cfg["barostat"],
+        barostat_tau=0.1,
+        barostat_update_interval=10,
+        write_information_interval=10,
+        timeout=1800,
+        mpi_np=mpi_np,
+    )
 
     densities, _ = parse_density_series_from_mdbox(
         case_dir / "mdbox_relax_1bar.txt", total_mass_amu
@@ -156,16 +142,16 @@ def test_tip3p_regulate_from_30a_box(
     assert len(box_lengths) == expected_samples
 
     density_tail_n = 500
-    final_density_stats = summarize_series(
+    final_density_stats = Outputer.summarize_series(
         densities, burn_in=len(densities) - density_tail_n
     )
-    final_lx_stats = summarize_series(
+    final_lx_stats = Outputer.summarize_series(
         [xyz[0] for xyz in box_lengths], burn_in=2500
     )
-    final_ly_stats = summarize_series(
+    final_ly_stats = Outputer.summarize_series(
         [xyz[1] for xyz in box_lengths], burn_in=2500
     )
-    final_lz_stats = summarize_series(
+    final_lz_stats = Outputer.summarize_series(
         [xyz[2] for xyz in box_lengths], burn_in=2500
     )
 
@@ -189,7 +175,7 @@ def test_tip3p_regulate_from_30a_box(
         ["FinalLzMean(A)", f"{final_lz_stats['mean']:.3f}"],
         ["Status", "PASS" if final_density_ok else "FAIL"],
     ]
-    print_validation_table(
+    Outputer.print_table(
         ["Metric", "Value"],
         rows,
         title="Barostat Validation: TIP3P Regulate from 30A Box to Target Density",

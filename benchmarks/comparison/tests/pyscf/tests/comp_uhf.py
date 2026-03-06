@@ -2,9 +2,9 @@ import pytest
 
 from benchmarks.comparison.tests.pyscf.tests.utils import (
     HARTREE_TO_KCAL_MOL,
-    print_validation_table,
     run_sponge_vs_pyscf,
 )
+from benchmarks.utils import Outputer
 
 UHF_TOL_HA = 1.0e-2
 
@@ -21,9 +21,7 @@ UHF_CASE_BASIS = [
     UHF_CASE_BASIS,
     ids=[f"{case}_{basis}" for case, basis in UHF_CASE_BASIS],
 )
-def test_uhf(
-    case_name, basis_name, statics_path, outputs_path, mpi_np, mpi_run_tag
-):
+def test_uhf(case_name, basis_name, statics_path, outputs_path, mpi_np):
     result = run_sponge_vs_pyscf(
         statics_path=statics_path,
         outputs_path=outputs_path,
@@ -33,7 +31,6 @@ def test_uhf(
         restricted=False,
         run_prefix="uhf",
         mpi_np=mpi_np,
-        launcher_tag=mpi_run_tag,
     )
 
     tol_kcal = UHF_TOL_HA * HARTREE_TO_KCAL_MOL
@@ -57,6 +54,6 @@ def test_uhf(
             "PASS" if result["abs_diff_ha"] <= UHF_TOL_HA else "FAIL",
         ]
     ]
-    print_validation_table(headers, rows, title="UHF vs PySCF")
+    Outputer.print_table(headers, rows, title="UHF vs PySCF")
 
     assert result["abs_diff_ha"] <= UHF_TOL_HA

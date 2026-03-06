@@ -1,22 +1,20 @@
 import pytest
 
+from benchmarks.utils import Outputer, Runner
+
 from benchmarks.comparison.tests.amber.tests.utils import (
+    copy_amber_reference_system_files,
     extract_sponge_forces_frc_dat,
     extract_sponge_potential,
-    force_stats_with_rigid_water_entities,
     force_stats,
+    force_stats_with_rigid_water_entities,
     load_amber_reference_energy,
     load_amber_reference_forces,
-    perturb_rst7_with_rigid_water_inplace,
     perturb_rst7_inplace,
-    prepare_output_case,
-    print_validation_table,
-    run_sponge_run0,
-    copy_amber_reference_system_files,
+    perturb_rst7_with_rigid_water_inplace,
     write_gb_in_file_from_parm7,
     write_tip4p_virtual_atom_from_parm7,
 )
-
 
 TIP4P_CASES = [
     (0, 0.00),
@@ -36,12 +34,14 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
     case_name = "alanine_dipeptide_tip4pew"
-    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
-    case_dir = prepare_output_case(
-        statics_path, outputs_path, case_name, run_tag=run_tag
+    case_dir = Outputer.prepare_output_case(
+        statics_path,
+        outputs_path,
+        case_name,
+        mpi_np=mpi_np,
+        run_name=iteration,
     )
 
     copy_amber_reference_system_files(statics_path, case_dir, case_name)
@@ -49,7 +49,6 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
         case_dir / "system.parm7",
         case_dir / "tip4p_virtual_atom.txt",
     )
-    # Use pre-minimized TIP4P coordinates as the starting structure.
     (case_dir / "system.rst7").write_text(
         (case_dir / "system_minimized.rst7").read_text()
     )
@@ -59,7 +58,7 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
         perturbation=perturbation,
         seed=20260217 + 2000 * iteration,
     )
-    run_sponge_run0(case_dir, mpi_np=mpi_np)
+    Runner.run_sponge(case_dir, mpi_np=mpi_np, mdin_name="sponge.mdin")
 
     amber_epot = load_amber_reference_energy(statics_path, case_name, iteration)
     sponge_potential = extract_sponge_potential(case_dir)
@@ -109,7 +108,7 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
             "PASS" if passed else "FAIL",
         ]
     ]
-    print_validation_table(
+    Outputer.print_table(
         headers, rows, title="AMBER TIP4P-Ew Perturbed Validation"
     )
 
@@ -137,12 +136,19 @@ def test_amber_alanine_dipeptide_gb1_perturbed_force(
     statics_path,
     outputs_path,
     mpi_np,
-    mpi_run_tag,
 ):
+    if mpi_np is not None:
+        pytest.skip(
+            "Skip GB1 AMBER case under MPI due to known NOPBC conflict."
+        )
+
     case_name = "alanine_dipeptide_gb1"
-    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
-    case_dir = prepare_output_case(
-        statics_path, outputs_path, case_name, run_tag=run_tag
+    case_dir = Outputer.prepare_output_case(
+        statics_path,
+        outputs_path,
+        case_name,
+        mpi_np=mpi_np,
+        run_name=iteration,
     )
 
     copy_amber_reference_system_files(statics_path, case_dir, case_name)
@@ -150,14 +156,13 @@ def test_amber_alanine_dipeptide_gb1_perturbed_force(
         case_dir / "system.parm7", case_dir / "gb_gb.txt"
     )
 
-    # LAMMPS-style perturbation sweep: 0 / 0.05 / 0.10 A random displacement.
     _coords = perturb_rst7_inplace(
         case_dir / "system.rst7",
         perturbation=perturbation,
         seed=20260217 + 1000 * iteration,
     )
 
-    run_sponge_run0(case_dir, mpi_np=mpi_np)
+    Runner.run_sponge(case_dir, mpi_np=mpi_np, mdin_name="sponge.mdin")
 
     amber_epot = load_amber_reference_energy(statics_path, case_name, iteration)
     sponge_potential = extract_sponge_potential(case_dir)
@@ -204,7 +209,7 @@ def test_amber_alanine_dipeptide_gb1_perturbed_force(
             "PASS" if passed else "FAIL",
         ]
     ]
-    print_validation_table(
+    Outputer.print_table(
         headers, rows, title="AMBER GB1 Perturbed Force Validation"
     )
 

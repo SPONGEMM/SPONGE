@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 
@@ -19,19 +17,6 @@ def pytest_addoption(parser):
         default=20000000,
         help="Production step_limit for SITS benchmark test.",
     )
-
-
-@pytest.fixture(scope="session")
-def statics_path():
-    return Path(__file__).parent.parent / "statics"
-
-
-@pytest.fixture(scope="session")
-def outputs_path():
-    path = Path(__file__).parent.parent / "outputs"
-    if not path.exists():
-        path.mkdir(exist_ok=True)
-    return path
 
 
 @pytest.fixture(scope="session")

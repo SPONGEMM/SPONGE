@@ -1,80 +1,12 @@
 import re
-import shutil
 import statistics
-import subprocess
 from pathlib import Path
 
-from benchmarks.launcher import build_sponge_command
-
-
-def print_validation_table(headers, rows, title=None):
-    col_widths = [len(h) for h in headers]
-    for row in rows:
-        for i, val in enumerate(row):
-            text = str(val)
-            col_widths[i] = max(col_widths[i], len(text))
-    col_widths = [w + 2 for w in col_widths]
-    row_fmt = " | ".join([f"{{:<{w}}}" for w in col_widths])
-    divider = "-" * (sum(col_widths) + 3 * (len(headers) - 1))
-
-    if title:
-        print(f"\n{title}")
-    else:
-        print()
-    print(divider)
-    print(row_fmt.format(*headers))
-    print(divider)
-    for row in rows:
-        print(row_fmt.format(*[str(v) for v in row]))
-    print(divider)
-
-
-def prepare_output_case(statics_path, outputs_path, case_name, run_tag=None):
-    static_case = statics_path / case_name
-    if not static_case.exists():
-        raise FileNotFoundError(f"Static case not found: {static_case}")
-
-    case_dir = outputs_path / (run_tag or case_name)
-    if case_dir.exists():
-        shutil.rmtree(case_dir)
-    case_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(static_case, case_dir)
-    return case_dir
-
-
-def _run_command(cmd, cwd, timeout=600):
-    result = subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=timeout,
-    )
-    output = result.stdout + "\n" + result.stderr
-    Path(cwd, "run.log").write_text(output)
-    if result.returncode != 0:
-        cmd0 = Path(str(cmd[0])).name.lower() if cmd else ""
-        if cmd0 in {"sponge", "sponge.exe"}:
-            print("\n[SPONGE stdout]\n")
-            print(result.stdout)
-            print("\n[SPONGE stderr]\n")
-            print(result.stderr)
-        raise RuntimeError(
-            f"Command failed in {cwd} with code {result.returncode}\n"
-            f"Command: {' '.join(cmd)}\n"
-            f"Output tail:\n{output[-3000:]}"
-        )
-    return output
-
-
-def is_cuda_init_failure(error_text):
-    lowered = error_text.lower()
-    return (
-        "fail to initialize cuda" in lowered
-        or "spongeerrormallocfailed raised by controller::init_device"
-        in lowered
-    )
+from benchmarks.utils import (
+    Outputer,
+    Runner,
+    Extractor,
+)
 
 
 def write_thermostat_mdin(
@@ -115,64 +47,39 @@ def write_thermostat_mdin(
 
 
 def run_sponge_thermostat(case_dir, timeout=600, mpi_np=None):
-    cmd = build_sponge_command(
-        ["SPONGE", "-mdin", "mdin.spg.toml"], mpi_np=mpi_np
+    return Runner.run_sponge(
+        case_dir,
+        timeout=timeout,
+        mpi_np=mpi_np,
     )
-    return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 
 def parse_temperature_series(mdout_path):
-    lines = Path(mdout_path).read_text().splitlines()
-    if len(lines) < 2:
-        raise ValueError(f"Invalid mdout file: {mdout_path}")
-
-    headers = lines[0].split()
-    if "temperature" not in headers:
-        raise ValueError(f"No temperature column in {mdout_path}")
-    temp_idx = headers.index("temperature")
-
-    temperatures = []
-    for line in lines[1:]:
-        fields = line.split()
-        if len(fields) <= temp_idx:
-            continue
-        try:
-            int(fields[0])
-            temp = float(fields[temp_idx])
-        except ValueError:
-            continue
-        temperatures.append(temp)
-
-    if not temperatures:
-        raise ValueError(f"No temperature samples parsed from {mdout_path}")
-    return temperatures
+    rows = Extractor.parse_mdout_rows(
+        mdout_path, ["temperature"], int_columns=()
+    )
+    return [row["temperature"] for row in rows]
 
 
 def read_atom_count_from_mass(mass_path):
-    first_line = Path(mass_path).read_text().splitlines()[0]
-    parts = first_line.split()
-    if not parts:
-        raise ValueError(f"Invalid mass file header: {mass_path}")
-    return int(parts[0])
+    return Extractor.read_first_field_int(mass_path)
 
 
-def read_constrain_pair_count_from_runlog(runlog_path):
-    text = Path(runlog_path).read_text()
-    match = re.search(r"constrain pair number is\s+(\d+)", text)
+def read_constrain_pair_count_from_runlog(runlog_text):
+    match = re.search(r"constrain pair number is\s+(\d+)", runlog_text)
     if not match:
         return 0
     return int(match.group(1))
 
 
-def read_ug_count_from_runlog(runlog_path):
-    text = Path(runlog_path).read_text()
-    match = re.search(r"md_info->ug\.ug_numbers:\s+(\d+)", text)
+def read_ug_count_from_runlog(runlog_text):
+    match = re.search(r"md_info->ug\.ug_numbers:\s+(\d+)", runlog_text)
     if not match:
         match = re.search(
-            r"max_atom_numbers=\d+,\s*max_res_numbers=(\d+)", text
+            r"max_atom_numbers=\d+,\s*max_res_numbers=(\d+)", runlog_text
         )
     if not match:
-        raise ValueError(f"Cannot parse update_group count from {runlog_path}")
+        raise ValueError("Cannot parse update_group count from run output")
     return int(match.group(1))
 
 

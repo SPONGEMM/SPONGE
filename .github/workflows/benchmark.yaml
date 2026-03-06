@@ -112,6 +112,9 @@ jobs:
       - name: Benchmark comparison/gromacs (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs --mpi 2
 
+      - name: Benchmark comparison/amber (MPI np=2)
+        run: pixi run -e ${{ matrix.env_name }} comp-amber --mpi 2
+
   benchmark-cpu-mpi-np3:
     name: benchmark-cpu-mpi-np3 (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -151,3 +154,6 @@ jobs:
 
       - name: Benchmark comparison/gromacs (MPI np=3)
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs --mpi 3
+
+      - name: Benchmark comparison/amber (MPI np=3)
+        run: pixi run -e ${{ matrix.env_name }} comp-amber --mpi 3
