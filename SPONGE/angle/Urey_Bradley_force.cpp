@@ -97,28 +97,29 @@ void UREY_BRADLEY::Get_Local(int* atom_local, int local_atom_numbers,
 
 void UREY_BRADLEY::Step_Print(CONTROLLER* controller)
 {
-    if (is_initialized)
-    {
-        Sum_Of_List(bond.d_bond_ene, bond.d_sigma_of_bond_ene,
-                    bond.num_bond_local);
-        Sum_Of_List(angle.d_angle_ene, angle.d_sigma_of_angle_ene,
-                    angle.num_angle_local);
-        deviceMemcpy(bond.h_sigma_of_bond_ene, bond.d_sigma_of_bond_ene,
-                     sizeof(float), deviceMemcpyDeviceToHost);
-        deviceMemcpy(angle.h_sigma_of_angle_ene, angle.d_sigma_of_angle_ene,
-                     sizeof(float), deviceMemcpyDeviceToHost);
+    if (!is_initialized || CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
+        return;
+
+    Sum_Of_List(bond.d_bond_ene, bond.d_sigma_of_bond_ene,
+                bond.num_bond_local);
+    Sum_Of_List(angle.d_angle_ene, angle.d_sigma_of_angle_ene,
+                angle.num_angle_local);
+    deviceMemcpy(bond.h_sigma_of_bond_ene, bond.d_sigma_of_bond_ene,
+                 sizeof(float), deviceMemcpyDeviceToHost);
+    deviceMemcpy(angle.h_sigma_of_angle_ene, angle.d_sigma_of_angle_ene,
+                 sizeof(float), deviceMemcpyDeviceToHost);
 #ifdef USE_MPI
-        MPI_Allreduce(MPI_IN_PLACE, &angle.h_sigma_of_angle_ene, 1, MPI_FLOAT,
-                      MPI_SUM, CONTROLLER::pp_comm);
-        MPI_Allreduce(MPI_IN_PLACE, &bond.h_sigma_of_bond_ene, 1, MPI_FLOAT,
-                      MPI_SUM, CONTROLLER::pp_comm);
+    MPI_Allreduce(MPI_IN_PLACE, angle.h_sigma_of_angle_ene, 1, MPI_FLOAT,
+                  MPI_SUM, CONTROLLER::pp_comm);
+    MPI_Allreduce(MPI_IN_PLACE, bond.h_sigma_of_bond_ene, 1, MPI_FLOAT,
+                  MPI_SUM, CONTROLLER::pp_comm);
 #endif
-        if (CONTROLLER::MPI_rank == 0)
-        {
-            controller->Step_Print(
-                this->module_name,
-                bond.h_sigma_of_bond_ene[0] + angle.h_sigma_of_angle_ene[0],
-                true);
-        }
+
+    if (CONTROLLER::MPI_rank == 0)
+    {
+        controller->Step_Print(this->module_name,
+                               bond.h_sigma_of_bond_ene[0] +
+                                   angle.h_sigma_of_angle_ene[0],
+                               true);
     }
 }
