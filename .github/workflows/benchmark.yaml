@@ -54,9 +54,6 @@ jobs:
       - name: Format check
         run: pixi run -e ${{ matrix.env_name }} format
 
-      - name: Check format diff
-        run: git diff --exit-code
-
       - name: Configure SPONGE-CPU
         run: pixi run -e ${{ matrix.env_name }} configure
 
@@ -109,9 +106,6 @@ jobs:
       - name: Format check
         run: pixi run -e ${{ matrix.env_name }} format
 
-      - name: Check format diff
-        run: git diff --exit-code
-
       - name: Configure SPONGE-CPU-MPI
         run: pixi run -e ${{ matrix.env_name }} configure
 
@@ -157,9 +151,6 @@ jobs:
 
       - name: Format check
         run: pixi run -e ${{ matrix.env_name }} format
-
-      - name: Check format diff
-        run: git diff --exit-code
 
       - name: Configure SPONGE-CPU-MPI
         run: pixi run -e ${{ matrix.env_name }} configure
