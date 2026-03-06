@@ -8,6 +8,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
+from benchmarks.launcher import build_sponge_command
 
 
 KJ_PER_MOL_TO_KCAL_PER_MOL = 0.2390057361376673
@@ -622,8 +623,11 @@ def _resolve_sponge_command():
     return shlex.split(sponge_bin)
 
 
-def run_sponge_run0(case_dir):
-    cmd = _resolve_sponge_command() + ["-mdin", "sponge.mdin"]
+def run_sponge_run0(case_dir, mpi_np=None):
+    cmd = build_sponge_command(
+        _resolve_sponge_command() + ["-mdin", "sponge.mdin"],
+        mpi_np=mpi_np,
+    )
     return _run_command(cmd, cwd=case_dir)
 
 

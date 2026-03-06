@@ -2,7 +2,7 @@ import shutil
 
 import pytest
 
-from utils import (
+from benchmarks.validation.barostat.tests.utils import (
     AMU_PER_A3_TO_G_PER_CM3,
     is_cuda_init_failure,
     parse_density_series_from_mdbox,
@@ -53,6 +53,7 @@ def _write_and_run_stage(
     barostat_update_interval,
     write_information_interval,
     timeout,
+    mpi_np,
 ):
     write_barostat_mdin(
         case_dir,
@@ -71,19 +72,21 @@ def _write_and_run_stage(
         default_in_file_prefix="tip3p",
         constrain_mode="SHAKE",
     )
-    run_sponge_barostat(case_dir, timeout=timeout)
+    run_sponge_barostat(case_dir, timeout=timeout, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "run.log", case_dir / f"run_{stage_tag}.log")
     shutil.copyfile(case_dir / "mdout.txt", case_dir / f"mdout_{stage_tag}.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / f"mdbox_{stage_tag}.txt")
 
 
 @pytest.mark.parametrize("cfg", REGULATE_CASES)
-def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg):
+def test_tip3p_regulate_from_30a_box(
+    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+):
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="tip3p_water",
-        run_tag=f"{cfg['id']}_regulate_30A",
+        run_tag=f"{cfg['id']}_regulate_30A_{mpi_run_tag}",
     )
 
     # Expand only the periodic box to start from a low-density state.
@@ -115,6 +118,7 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg):
             barostat_update_interval=10,
             write_information_interval=10,
             timeout=1800,
+            mpi_np=mpi_np,
         )
         shutil.copyfile(
             case_dir / "restart_coordinate.txt",
@@ -132,6 +136,7 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg):
             barostat_update_interval=10,
             write_information_interval=10,
             timeout=1800,
+            mpi_np=mpi_np,
         )
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):

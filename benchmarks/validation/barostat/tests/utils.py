@@ -6,6 +6,8 @@ import statistics
 import subprocess
 from pathlib import Path
 
+from benchmarks.launcher import build_sponge_command
+
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 AMU_PER_A3_TO_G_PER_CM3 = 1.66053906660
@@ -160,8 +162,11 @@ def write_barostat_mdin(
     Path(case_dir, "mdin.spg.toml").write_text(mdin)
 
 
-def run_sponge_barostat(case_dir, timeout=1200):
-    cmd = resolve_sponge_command() + ["-mdin", "mdin.spg.toml"]
+def run_sponge_barostat(case_dir, timeout=1200, mpi_np=None):
+    cmd = build_sponge_command(
+        resolve_sponge_command() + ["-mdin", "mdin.spg.toml"],
+        mpi_np=mpi_np,
+    )
     return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 

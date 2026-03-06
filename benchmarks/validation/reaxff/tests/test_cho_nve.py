@@ -2,7 +2,7 @@ import shutil
 
 import pytest
 
-from utils import (
+from benchmarks.validation.reaxff.tests.utils import (
     dump_summary_json,
     is_cuda_init_failure,
     parse_mdout_series,
@@ -16,12 +16,14 @@ from utils import (
 )
 
 
-def test_reaxff_cho_heat_then_nve_energy_stability(statics_path, outputs_path):
+def test_reaxff_cho_heat_then_nve_energy_stability(
+    statics_path, outputs_path, mpi_np, mpi_run_tag
+):
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="cho_nve",
-        run_tag="cho_nve_heat_nve",
+        run_tag=f"cho_nve_heat_nve_{mpi_run_tag}",
     )
 
     try:
@@ -30,6 +32,7 @@ def test_reaxff_cho_heat_then_nve_energy_stability(statics_path, outputs_path):
             mdin_name="heat.spg.toml",
             log_name="run_heat.log",
             timeout=2400,
+            mpi_np=mpi_np,
         )
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
@@ -56,6 +59,7 @@ def test_reaxff_cho_heat_then_nve_energy_stability(statics_path, outputs_path):
             mdin_name="nve.long.spg.toml",
             log_name="run_nve.log",
             timeout=2400,
+            mpi_np=mpi_np,
         )
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):

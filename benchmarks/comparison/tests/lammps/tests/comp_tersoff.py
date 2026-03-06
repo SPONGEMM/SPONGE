@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 import shutil
-from utils import (
+from benchmarks.comparison.tests.lammps.tests.utils import (
     load_lammps_reference_entry,
     load_lammps_reference_forces,
     load_lammps_reference_stress,
@@ -23,10 +23,12 @@ def test_tersoff(
     iteration,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     static_dir = statics_path / "tersoff"
-    case_dir = outputs_path / "tersoff" / str(iteration)
+    case_dir = outputs_path / "tersoff" / mpi_run_tag / str(iteration)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -62,7 +64,7 @@ def test_tersoff(
             f.write(f"{masses[atom_type - 1]}\n")
 
     write_sponge_coords(coord_file, coords, box)
-    run_sponge_command(sponge_dir)
+    run_sponge_command(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(statics_path, "tersoff", iteration)
     assert abs(float(ref_entry["perturbation"]) - curr_perturbation) <= 1.0e-12

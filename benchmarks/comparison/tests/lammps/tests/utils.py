@@ -1,9 +1,13 @@
 import json
+import os
+import shlex
 from functools import lru_cache
 import numpy as np
 import pathlib
 import subprocess
 from Xponge.analysis import MdoutReader
+
+from benchmarks.launcher import build_sponge_command
 
 EV_TO_KCAL_MOL = 23.060548
 ATM_PER_KCAL_MOL_A3 = 68568.415
@@ -12,8 +16,8 @@ LAMMPS_REFERENCE_JSON_REL_PATH = "reference/lammps/reference.json"
 LAMMPS_REFERENCE_ROOT_REL_DIR = "reference/lammps"
 
 
-def run_sponge_command(work_dir, mdin_file=None):
-    cmd = ["SPONGE"]
+def run_sponge_command(work_dir, mdin_file=None, mpi_np=None):
+    cmd = build_sponge_command(_resolve_sponge_command(), mpi_np=mpi_np)
     if mdin_file is not None:
         cmd.extend(["-mdin", mdin_file])
     result = subprocess.run(
@@ -35,6 +39,10 @@ def run_sponge_command(work_dir, mdin_file=None):
             stderr=result.stderr,
         )
     return result
+
+
+def _resolve_sponge_command():
+    return shlex.split(os.environ.get("SPONGE_BIN", "SPONGE"))
 
 
 def _detect_lammps_units_from_case(work_dir):

@@ -4,6 +4,8 @@ import statistics
 import subprocess
 from pathlib import Path
 
+from benchmarks.launcher import build_sponge_command
+
 
 def print_validation_table(headers, rows, title=None):
     col_widths = [len(h) for h in headers]
@@ -112,8 +114,10 @@ def write_thermostat_mdin(
     Path(case_dir, "mdin.spg.toml").write_text(mdin)
 
 
-def run_sponge_thermostat(case_dir, timeout=600):
-    cmd = ["SPONGE", "-mdin", "mdin.spg.toml"]
+def run_sponge_thermostat(case_dir, timeout=600, mpi_np=None):
+    cmd = build_sponge_command(
+        ["SPONGE", "-mdin", "mdin.spg.toml"], mpi_np=mpi_np
+    )
     return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 

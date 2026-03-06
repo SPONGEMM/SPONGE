@@ -1,7 +1,11 @@
+import os
+import shlex
 import shutil
 import statistics
 import subprocess
 from pathlib import Path
+
+from benchmarks.launcher import build_sponge_command
 
 
 def print_validation_table(headers, rows, title=None):
@@ -420,13 +424,19 @@ def write_steer_cv(
     Path(case_dir, "cv.txt").write_text(cv_text)
 
 
-def run_sponge_enhanced_sampling(case_dir, timeout=900):
-    cmd = ["SPONGE", "-mdin", "mdin.spg.toml"]
+def run_sponge_enhanced_sampling(case_dir, timeout=900, mpi_np=None):
+    cmd = build_sponge_command(
+        shlex.split(os.environ.get("SPONGE_BIN", "SPONGE"))
+        + ["-mdin", "mdin.spg.toml"],
+        mpi_np=mpi_np,
+    )
     return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 
-def run_sponge_cv(case_dir, timeout=900):
-    return run_sponge_enhanced_sampling(case_dir, timeout=timeout)
+def run_sponge_cv(case_dir, timeout=900, mpi_np=None):
+    return run_sponge_enhanced_sampling(
+        case_dir, timeout=timeout, mpi_np=mpi_np
+    )
 
 
 def parse_column_series(mdout_path, column_name):

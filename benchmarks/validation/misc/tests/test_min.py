@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from utils import (
+from benchmarks.validation.misc.tests.utils import (
     is_cuda_init_failure,
     prepare_output_case,
     print_validation_table,
@@ -53,17 +53,19 @@ def parse_potential_by_step(mdout_path):
     return values
 
 
-def test_tip3p_bad_coordinate_minimization_runs(statics_path, outputs_path):
+def test_tip3p_bad_coordinate_minimization_runs(
+    statics_path, outputs_path, mpi_np, mpi_run_tag
+):
     step_limit = 100000
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="tip3p",
-        run_tag="tip3p_min_bad_coordinate",
+        run_tag=f"tip3p_min_bad_coordinate_{mpi_run_tag}",
     )
     write_minimization_mdin(case_dir, step_limit=step_limit)
     try:
-        run_sponge(case_dir, timeout=1200)
+        run_sponge(case_dir, timeout=1200, mpi_np=mpi_np)
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
             pytest.skip(

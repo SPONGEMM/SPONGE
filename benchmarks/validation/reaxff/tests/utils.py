@@ -7,6 +7,8 @@ import statistics
 import subprocess
 from pathlib import Path
 
+from benchmarks.launcher import build_sponge_command
+
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CONSTANT_KB_KCAL_PER_MOL_K = 0.00198716
@@ -78,8 +80,11 @@ def is_cuda_init_failure(error_text):
     )
 
 
-def run_sponge(case_dir, mdin_name, log_name, timeout=2400):
-    cmd = resolve_sponge_command() + ["-mdin", mdin_name]
+def run_sponge(case_dir, mdin_name, log_name, timeout=2400, mpi_np=None):
+    cmd = build_sponge_command(
+        resolve_sponge_command() + ["-mdin", mdin_name],
+        mpi_np=mpi_np,
+    )
     result = subprocess.run(
         cmd,
         cwd=case_dir,

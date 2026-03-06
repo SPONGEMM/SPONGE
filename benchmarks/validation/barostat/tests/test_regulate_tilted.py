@@ -3,7 +3,7 @@ import shutil
 
 import pytest
 
-from utils import (
+from benchmarks.validation.barostat.tests.utils import (
     AMU_PER_A3_TO_G_PER_CM3,
     is_cuda_init_failure,
     parse_density_series_from_mdbox,
@@ -56,6 +56,7 @@ def _write_and_run_stage(
     default_in_file_prefix,
     constrain_mode,
     timeout,
+    mpi_np,
 ):
     write_barostat_mdin(
         case_dir,
@@ -74,7 +75,7 @@ def _write_and_run_stage(
         default_in_file_prefix=default_in_file_prefix,
         constrain_mode=constrain_mode,
     )
-    run_sponge_barostat(case_dir, timeout=timeout)
+    run_sponge_barostat(case_dir, timeout=timeout, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "run.log", case_dir / f"run_{stage_tag}.log")
     shutil.copyfile(case_dir / "mdout.txt", case_dir / f"mdout_{stage_tag}.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / f"mdbox_{stage_tag}.txt")
@@ -94,13 +95,13 @@ def _parse_mdbox_box6(mdbox_path):
 
 @pytest.mark.parametrize("cfg", REGULATE_CASES)
 def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
-    statics_path, outputs_path, cfg
+    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
 ):
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="WAT_nonortho",
-        run_tag=f"{cfg['id']}_regulate_WAT_nonortho_expanded",
+        run_tag=f"{cfg['id']}_regulate_WAT_nonortho_expanded_{mpi_run_tag}",
     )
 
     rescale_coordinate_box(
@@ -143,6 +144,7 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
             default_in_file_prefix="WAT",
             constrain_mode="SETTLE",
             timeout=2400,
+            mpi_np=mpi_np,
         )
         shutil.copyfile(
             case_dir / "restart_coordinate.txt",
@@ -160,6 +162,7 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
             default_in_file_prefix="WAT",
             constrain_mode="SETTLE",
             timeout=2400,
+            mpi_np=mpi_np,
         )
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):

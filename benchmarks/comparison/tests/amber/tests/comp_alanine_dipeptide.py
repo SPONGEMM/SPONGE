@@ -1,6 +1,6 @@
 import pytest
 
-from utils import (
+from benchmarks.comparison.tests.amber.tests.utils import (
     extract_sponge_forces_frc_dat,
     extract_sponge_potential,
     force_stats_with_rigid_water_entities,
@@ -35,9 +35,11 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
     perturbation,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     case_name = "alanine_dipeptide_tip4pew"
-    run_tag = f"{case_name}/{iteration}"
+    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
     case_dir = prepare_output_case(
         statics_path, outputs_path, case_name, run_tag=run_tag
     )
@@ -57,7 +59,7 @@ def test_amber_alanine_dipeptide_tip4pew_run0(
         perturbation=perturbation,
         seed=20260217 + 2000 * iteration,
     )
-    run_sponge_run0(case_dir)
+    run_sponge_run0(case_dir, mpi_np=mpi_np)
 
     amber_epot = load_amber_reference_energy(statics_path, case_name, iteration)
     sponge_potential = extract_sponge_potential(case_dir)
@@ -134,9 +136,11 @@ def test_amber_alanine_dipeptide_gb1_perturbed_force(
     perturbation,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     case_name = "alanine_dipeptide_gb1"
-    run_tag = f"{case_name}/{iteration}"
+    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
     case_dir = prepare_output_case(
         statics_path, outputs_path, case_name, run_tag=run_tag
     )
@@ -153,7 +157,7 @@ def test_amber_alanine_dipeptide_gb1_perturbed_force(
         seed=20260217 + 1000 * iteration,
     )
 
-    run_sponge_run0(case_dir)
+    run_sponge_run0(case_dir, mpi_np=mpi_np)
 
     amber_epot = load_amber_reference_energy(statics_path, case_name, iteration)
     sponge_potential = extract_sponge_potential(case_dir)

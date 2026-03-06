@@ -1,10 +1,13 @@
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 from functools import lru_cache
 from pathlib import Path
+
+from benchmarks.launcher import build_sponge_command
 
 HARTREE_TO_KCAL_MOL = 627.509474
 
@@ -151,15 +154,13 @@ def _normalize_sponge_input_files_for_platform(sponge_dir: Path):
 
 
 def run_sponge_scf_energy_ha(
-    sponge_dir: Path, model_chemistry: str, restricted: bool
+    sponge_dir: Path, model_chemistry: str, restricted: bool, mpi_np=None
 ):
-    cmd = [
-        "SPONGE",
-        "-mdin",
-        "mdin.txt",
-        "-qc_model_chemistry",
-        model_chemistry,
-    ]
+    cmd = build_sponge_command(
+        shlex.split(os.environ.get("SPONGE_BIN", "SPONGE"))
+        + ["-mdin", "mdin.txt", "-qc_model_chemistry", model_chemistry],
+        mpi_np=mpi_np,
+    )
     if not restricted:
         cmd.extend(["-qc_restricted", "0"])
     result = subprocess.run(
@@ -421,6 +422,8 @@ def run_sponge_vs_pyscf(
     basis_name: str,
     restricted: bool,
     run_prefix: str,
+    mpi_np=None,
+    launcher_tag="direct",
 ):
     model_chemistry = f"{method_name}/{basis_name}"
     run_tag = "_".join(
@@ -430,6 +433,7 @@ def run_sponge_vs_pyscf(
             _sanitize_token(method_name),
             _sanitize_token(basis_name),
             f"r{int(restricted)}",
+            _sanitize_token(launcher_tag),
         ]
     )
     _run_dir, sponge_dir = prepare_output_case(
@@ -443,6 +447,7 @@ def run_sponge_vs_pyscf(
         sponge_dir=sponge_dir,
         model_chemistry=model_chemistry,
         restricted=restricted,
+        mpi_np=mpi_np,
     )
     pyscf_energy_ha = get_pyscf_reference_energy_ha(
         statics_path=statics_path,

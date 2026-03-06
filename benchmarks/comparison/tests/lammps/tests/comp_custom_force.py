@@ -3,7 +3,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from utils import (
+from benchmarks.comparison.tests.lammps.tests.utils import (
     EV_TO_KCAL_MOL,
     load_lammps_reference_entry,
     load_lammps_reference_forces,
@@ -20,8 +20,8 @@ from utils import (
 )
 
 
-def _run_sponge(sponge_dir: Path):
-    run_sponge_command(sponge_dir, mdin_file="mdin.spg.toml")
+def _run_sponge(sponge_dir: Path, mpi_np=None):
+    run_sponge_command(sponge_dir, mdin_file="mdin.spg.toml", mpi_np=mpi_np)
 
 
 def _validate_lammps_vs_sponge(
@@ -203,11 +203,19 @@ def _apply_random_perturbation(
 
 
 @pytest.mark.parametrize("iteration", range(3))
-def test_custom_pairwise_morse_vs_lammps(iteration, outputs_path, statics_path):
+def test_custom_pairwise_morse_vs_lammps(
+    iteration, outputs_path, statics_path, mpi_np, mpi_run_tag
+):
     curr_perturbation = 0.05 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
-    case_dir = outputs_path / "custom_force" / "pairwise_morse" / str(iteration)
+    case_dir = (
+        outputs_path
+        / "custom_force"
+        / "pairwise_morse"
+        / mpi_run_tag
+        / str(iteration)
+    )
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -331,7 +339,7 @@ def test_custom_pairwise_morse_vs_lammps(iteration, outputs_path, statics_path):
         )
     )
 
-    _run_sponge(sponge_dir)
+    _run_sponge(sponge_dir, mpi_np=mpi_np)
 
     _validate_lammps_vs_sponge(
         reference_case_name="custom_pairwise_morse",
@@ -349,11 +357,19 @@ def test_custom_pairwise_morse_vs_lammps(iteration, outputs_path, statics_path):
 
 
 @pytest.mark.parametrize("iteration", range(3))
-def test_custom_listed_class2_vs_lammps(iteration, outputs_path, statics_path):
+def test_custom_listed_class2_vs_lammps(
+    iteration, outputs_path, statics_path, mpi_np, mpi_run_tag
+):
     curr_perturbation = 0.04 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
-    case_dir = outputs_path / "custom_force" / "listed_class2" / str(iteration)
+    case_dir = (
+        outputs_path
+        / "custom_force"
+        / "listed_class2"
+        / mpi_run_tag
+        / str(iteration)
+    )
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -475,7 +491,7 @@ def test_custom_listed_class2_vs_lammps(iteration, outputs_path, statics_path):
         )
     )
 
-    _run_sponge(sponge_dir)
+    _run_sponge(sponge_dir, mpi_np=mpi_np)
 
     _validate_lammps_vs_sponge(
         reference_case_name="custom_listed_class2",

@@ -1,6 +1,6 @@
 import pytest
 import shutil
-from utils import (
+from benchmarks.comparison.tests.lammps.tests.utils import (
     generate_perturbed_water_system,
     load_lammps_reference_charges,
     load_lammps_reference_entry,
@@ -50,12 +50,14 @@ def test_reaxff_eeq(
     iteration,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
 
     static_dir = statics_path / "reaxff"
-    case_dir = outputs_path / "reaxff_eeq" / str(iteration)
+    case_dir = outputs_path / "reaxff_eeq" / mpi_run_tag / str(iteration)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -91,7 +93,7 @@ def test_reaxff_eeq(
 
     write_sponge_coords(sponge_dir / "coordinate.txt", coords, box_size)
 
-    run_sponge_command(sponge_dir)
+    run_sponge_command(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_eeq", iteration

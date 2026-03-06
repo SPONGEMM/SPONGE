@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from utils import (
+from benchmarks.validation.barostat.tests.utils import (
     is_cuda_init_failure,
     prepare_output_case,
     print_validation_table,
@@ -326,12 +326,14 @@ def _first_nonfinite_index(series):
     return None
 
 
-def test_restrain_npt_after_minimization(statics_path, outputs_path):
+def test_restrain_npt_after_minimization(
+    statics_path, outputs_path, mpi_np, mpi_run_tag
+):
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="restrain_npt",
-        run_tag="restrain_npt_min_then_npt",
+        run_tag=f"restrain_npt_min_then_npt_{mpi_run_tag}",
     )
 
     (
@@ -348,7 +350,7 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path):
 
     try:
         _write_minimization_mdin(case_dir, restrain_file=restrain_file)
-        run_sponge_barostat(case_dir, timeout=3600)
+        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
         shutil.copyfile(case_dir / "run.log", case_dir / "run_min.log")
         shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_min.txt")
         shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_min.txt")
@@ -357,7 +359,7 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path):
         )
 
         _write_restrained_npt_mdin(case_dir, restrain_file=restrain_file)
-        run_sponge_barostat(case_dir, timeout=3600)
+        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
         shutil.copyfile(case_dir / "run.log", case_dir / "run_restrained.log")
         shutil.copyfile(
             case_dir / "mdout.txt", case_dir / "mdout_restrained.txt"
@@ -370,7 +372,7 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path):
         )
 
         _write_unrestrained_npt_mdin(case_dir)
-        run_sponge_barostat(case_dir, timeout=3600)
+        run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
         shutil.copyfile(case_dir / "run.log", case_dir / "run_unrestrained.log")
         shutil.copyfile(
             case_dir / "mdout.txt", case_dir / "mdout_unrestrained.txt"

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from utils import (
+from benchmarks.comparison.tests.gromacs.tests.utils import (
     load_gromacs_reference_entry,
     load_gromacs_reference_forces,
     load_gromacs_reference_terms,
@@ -33,9 +33,11 @@ def test_gromacs_alanine_dipeptide_charmm_tip3p_flexible_run0(
     perturbation,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     case_name = "alanine_dipeptide_charmm_tip3p"
-    run_tag = f"{case_name}/{iteration}"
+    run_tag = f"{case_name}/{mpi_run_tag}/{iteration}"
     case_dir = prepare_output_case(
         statics_path, outputs_path, case_name, run_tag=run_tag
     )
@@ -54,7 +56,7 @@ def test_gromacs_alanine_dipeptide_charmm_tip3p_flexible_run0(
         statics_path, case_name, iteration
     )
 
-    run_sponge_run0(case_dir)
+    run_sponge_run0(case_dir, mpi_np=mpi_np)
 
     sponge_terms = extract_sponge_terms(case_dir)
     sponge_forces = extract_sponge_forces(case_dir, natom=gmx_forces.shape[0])

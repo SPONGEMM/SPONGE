@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.fft import fft2, fftfreq, ifft2
 
-from utils import (
+from benchmarks.performance.sits.tests.utils import (
     is_cuda_init_failure,
     parse_column_series,
     parse_numeric_values,
@@ -47,9 +47,9 @@ def set_cv_in_file(case_dir, cv_file="cv.txt"):
     mdin_path.write_text("\n".join(lines) + "\n")
 
 
-def run_sponge_or_skip(case_dir, timeout=1200):
+def run_sponge_or_skip(case_dir, timeout=1200, mpi_np=None):
     try:
-        run_sponge_enhanced_sampling(case_dir, timeout=timeout)
+        run_sponge_enhanced_sampling(case_dir, timeout=timeout, mpi_np=mpi_np)
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
             pytest.skip(
@@ -262,9 +262,11 @@ def test_sits_iteration_to_production_reweight_phi_psi(
     outputs_path,
     sits_iter_steps,
     sits_prod_steps,
+    mpi_np,
+    mpi_run_tag,
 ):
     case_name = "ala2_sits"
-    run_tag = "sits_iter_prod_reweight"
+    run_tag = f"sits_iter_prod_reweight_{mpi_run_tag}"
     iteration_step_limit = sits_iter_steps
     prod_step_limit = sits_prod_steps
     iter_write_information_interval = 200
@@ -303,7 +305,7 @@ def test_sits_iteration_to_production_reweight_phi_psi(
         constrain_mode="SHAKE",
     )
     set_cv_in_file(case_dir)
-    run_sponge_or_skip(case_dir, timeout=21600)
+    run_sponge_or_skip(case_dir, timeout=21600, mpi_np=mpi_np)
 
     iter_log = (Path(case_dir) / "run.log").read_text()
     assert "SITS mode = iteration" in iter_log
@@ -352,7 +354,7 @@ def test_sits_iteration_to_production_reweight_phi_psi(
         constrain_mode="SHAKE",
     )
     set_cv_in_file(case_dir)
-    run_sponge_or_skip(case_dir, timeout=172800)
+    run_sponge_or_skip(case_dir, timeout=172800, mpi_np=mpi_np)
 
     prod_log = (Path(case_dir) / "run.log").read_text()
     assert "SITS mode = production" in prod_log

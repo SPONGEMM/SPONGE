@@ -1,7 +1,7 @@
 import pytest
 import shutil
 import numpy as np
-from utils import (
+from benchmarks.comparison.tests.lammps.tests.utils import (
     load_lammps_reference_entry,
     load_lammps_reference_forces,
     load_lammps_reference_stress,
@@ -32,11 +32,13 @@ def test_reaxff_dimer(
     iteration,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
     print(f"\n\nIteration: {iteration}, Perturbation: {curr_perturbation:.2e}")
     static_dir = statics_path / "reaxff_dimer"
-    case_dir = outputs_path / "reaxff_dimer" / str(iteration)
+    case_dir = outputs_path / "reaxff_dimer" / mpi_run_tag / str(iteration)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -111,7 +113,7 @@ def test_reaxff_dimer(
     # SPONGE type文件
     write_sponge_types(sponge_dir / "type.txt", types)
 
-    run_sponge_command(sponge_dir)
+    run_sponge_command(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(
         statics_path, "reaxff_dimer", iteration

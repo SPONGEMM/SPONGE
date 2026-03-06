@@ -2,6 +2,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from benchmarks.launcher import build_sponge_command
+
 
 def print_validation_table(headers, rows, title=None):
     col_widths = [len(h) for h in headers]
@@ -84,8 +86,10 @@ def _run_command(cmd, cwd, timeout=900):
     return output
 
 
-def run_sponge(case_dir, timeout=900):
-    cmd = ["SPONGE", "-mdin", "mdin.spg.toml"]
+def run_sponge(case_dir, timeout=900, mpi_np=None):
+    cmd = build_sponge_command(
+        ["SPONGE", "-mdin", "mdin.spg.toml"], mpi_np=mpi_np
+    )
     return _run_command(cmd, cwd=case_dir, timeout=timeout)
 
 

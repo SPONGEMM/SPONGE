@@ -1,6 +1,6 @@
 import pytest
 
-from utils import (
+from benchmarks.validation.barostat.tests.utils import (
     boltzmann_reweight_mean,
     is_cuda_init_failure,
     parse_density_series_from_mdbox,
@@ -58,7 +58,7 @@ BAROSTAT_CASES = [
 
 
 def _run_tip3p_barostat_case(
-    statics_path, outputs_path, run_tag, *, cfg, target_pressure
+    statics_path, outputs_path, run_tag, *, cfg, target_pressure, mpi_np
 ):
     case_name = "tip3p_water"
     case_dir = prepare_output_case(
@@ -86,7 +86,7 @@ def _run_tip3p_barostat_case(
     )
 
     try:
-        run_sponge_barostat(case_dir, timeout=cfg["timeout"])
+        run_sponge_barostat(case_dir, timeout=cfg["timeout"], mpi_np=mpi_np)
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
             pytest.skip(
@@ -108,23 +108,25 @@ def _run_tip3p_barostat_case(
 
 @pytest.mark.parametrize("cfg", BAROSTAT_CASES)
 def test_tip3p_density_boltzmann_reweighting_1bar_500bar(
-    statics_path, outputs_path, cfg
+    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
 ):
     pressure_low = 1.0
     pressure_high = 500.0
     run_low = _run_tip3p_barostat_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
-        run_tag=f"{cfg['id']}_1bar",
+        run_tag=f"{cfg['id']}_1bar_{mpi_run_tag}",
         cfg=cfg,
         target_pressure=pressure_low,
+        mpi_np=mpi_np,
     )
     run_high = _run_tip3p_barostat_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
-        run_tag=f"{cfg['id']}_500bar",
+        run_tag=f"{cfg['id']}_500bar_{mpi_run_tag}",
         cfg=cfg,
         target_pressure=pressure_high,
+        mpi_np=mpi_np,
     )
 
     low_density_stats = summarize_series(run_low["densities"], cfg["burn_in"])

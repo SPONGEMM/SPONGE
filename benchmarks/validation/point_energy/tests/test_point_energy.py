@@ -1,6 +1,6 @@
 import pytest
 
-from utils import (
+from benchmarks.validation.point_energy.tests.utils import (
     compare_energies,
     dump_json,
     load_reference,
@@ -37,46 +37,33 @@ CASES = [
 
 
 @pytest.mark.parametrize("cfg", CASES)
-def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
+def test_point_energy_multi_backend_and_mpi(
+    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+):
     case_name = cfg["id"]
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name=case_name,
-        run_tag=f"{case_name}_point_energy",
+        run_tag=f"{case_name}_point_energy_{mpi_run_tag}",
     )
 
     bins = resolve_binary_triplet()
 
     runs = [
         {
-            "id": "baseline_np1",
+            "id": "baseline",
             "binary": bins["reference"],
-            "np": 1,
             "role": "baseline",
         },
         {
-            "id": "gpu_np1",
+            "id": "gpu",
             "binary": bins["gpu"],
-            "np": 1,
             "role": "compare",
         },
         {
-            "id": "cpu_np1",
+            "id": "cpu",
             "binary": bins["cpu"],
-            "np": 1,
-            "role": "compare",
-        },
-        {
-            "id": "cpu_np2",
-            "binary": bins["cpu"],
-            "np": 2,
-            "role": "compare",
-        },
-        {
-            "id": "cpu_np4",
-            "binary": bins["cpu"],
-            "np": 4,
             "role": "compare",
         },
     ]
@@ -85,6 +72,10 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
 
     summary_payload = {
         "case": case_name,
+        "launcher": {
+            "mode": mpi_run_tag,
+            "mpi_np": mpi_np,
+        },
         "reference_json": cfg["reference_json"],
         "binaries": bins,
         "runs": {},
@@ -99,7 +90,7 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
             sponge_bin=run["binary"],
             mdin_name=cfg["mdin"],
             run_tag=run["id"],
-            mpi_np=run["np"],
+            mpi_np=mpi_np,
             timeout=1800,
         )
         energies = parse_mdout_one_frame(mdout_path)
@@ -113,7 +104,8 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
         summary_payload["runs"][run["id"]] = {
             "role": run["role"],
             "binary": run["binary"],
-            "np": run["np"],
+            "launcher": mpi_run_tag,
+            "mpi_np": mpi_np,
             "pme_backend": backend,
             "max_abs_error": summary["max_abs_error"],
             "max_abs_error_key": summary["max_abs_error_key"],
@@ -123,7 +115,7 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
         rows.append(
             [
                 run["id"],
-                str(run["np"]),
+                str(mpi_np) if mpi_np is not None else "direct",
                 backend,
                 summary["max_abs_error_key"],
                 f"{summary['max_abs_error']:.6f}",

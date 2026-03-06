@@ -1,6 +1,6 @@
 import pytest
 
-from utils import (
+from benchmarks.validation.misc.tests.utils import (
     is_cuda_init_failure,
     parse_restart_coordinate_zmax,
     prepare_output_case,
@@ -18,6 +18,7 @@ def _run_tip3p_case(
     hard_wall_z_high,
     soft_walls_in_file=None,
     step_limit=1000,
+    mpi_np=None,
 ):
     case_dir = prepare_output_case(
         statics_path=statics_path,
@@ -32,7 +33,7 @@ def _run_tip3p_case(
         soft_walls_in_file=soft_walls_in_file,
     )
     try:
-        run_sponge(case_dir, timeout=1200)
+        run_sponge(case_dir, timeout=1200, mpi_np=mpi_np)
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
             pytest.skip(
@@ -43,14 +44,17 @@ def _run_tip3p_case(
     return case_dir
 
 
-def test_tip3p_hard_wall_zmax_not_out_of_bound(statics_path, outputs_path):
+def test_tip3p_hard_wall_zmax_not_out_of_bound(
+    statics_path, outputs_path, mpi_np, mpi_run_tag
+):
     hard_wall_z_high = 30.0
     case_dir = _run_tip3p_case(
         statics_path,
         outputs_path,
-        "tip3p_hard_wall",
+        f"tip3p_hard_wall_{mpi_run_tag}",
         hard_wall_z_high=hard_wall_z_high,
         step_limit=1000,
+        mpi_np=mpi_np,
     )
 
     zmax = parse_restart_coordinate_zmax(case_dir / "restart_coordinate.txt")
@@ -70,15 +74,18 @@ def test_tip3p_hard_wall_zmax_not_out_of_bound(statics_path, outputs_path):
     assert zmax <= hard_wall_z_high + 0.5
 
 
-def test_tip3p_soft_wall_zmax_not_out_of_bound(statics_path, outputs_path):
+def test_tip3p_soft_wall_zmax_not_out_of_bound(
+    statics_path, outputs_path, mpi_np, mpi_run_tag
+):
     hard_wall_z_high = 30.0
     case_dir = _run_tip3p_case(
         statics_path,
         outputs_path,
-        "tip3p_soft_wall",
+        f"tip3p_soft_wall_{mpi_run_tag}",
         hard_wall_z_high=hard_wall_z_high,
         soft_walls_in_file="soft_walls.txt",
         step_limit=1000,
+        mpi_np=mpi_np,
     )
 
     zmax = parse_restart_coordinate_zmax(case_dir / "restart_coordinate.txt")

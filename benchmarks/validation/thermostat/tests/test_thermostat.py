@@ -1,6 +1,6 @@
 import pytest
 
-from utils import (
+from benchmarks.validation.thermostat.tests.utils import (
     evaluate_temperature_distribution,
     is_cuda_init_failure,
     parse_temperature_series,
@@ -85,10 +85,12 @@ THERMOSTAT_CASES = [
 
 
 @pytest.mark.parametrize("cfg", THERMOSTAT_CASES)
-def test_thermostat_tip3p_water(statics_path, outputs_path, cfg):
+def test_thermostat_tip3p_water(
+    statics_path, outputs_path, cfg, mpi_np, mpi_run_tag
+):
     case_name = "tip3p_water"
     file_prefix = "tip3p"
-    run_tag = cfg["id"]
+    run_tag = f"{cfg['id']}_{mpi_run_tag}"
     case_dir = prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
@@ -112,7 +114,7 @@ def test_thermostat_tip3p_water(statics_path, outputs_path, cfg):
     )
 
     try:
-        run_sponge_thermostat(case_dir, timeout=600)
+        run_sponge_thermostat(case_dir, timeout=600, mpi_np=mpi_np)
     except RuntimeError as e:
         if is_cuda_init_failure(str(e)):
             pytest.skip(

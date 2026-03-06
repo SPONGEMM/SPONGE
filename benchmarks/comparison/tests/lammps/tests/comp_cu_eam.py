@@ -2,7 +2,7 @@ import pytest
 import shutil
 import numpy as np
 from ase.build import bulk
-from utils import (
+from benchmarks.comparison.tests.lammps.tests.utils import (
     load_lammps_reference_entry,
     load_lammps_reference_forces,
     load_lammps_reference_stress,
@@ -24,9 +24,11 @@ def test_cu_eam(
     iteration,
     statics_path,
     outputs_path,
+    mpi_np,
+    mpi_run_tag,
 ):
     curr_perturbation = 0.1 * iteration
-    case_dir = outputs_path / "eam" / str(iteration)
+    case_dir = outputs_path / "eam" / mpi_run_tag / str(iteration)
     lammps_dir = case_dir / "lammps"
     sponge_dir = case_dir / "sponge"
 
@@ -65,7 +67,7 @@ def test_cu_eam(
     write_lammps_data(data_file, coords, box, masses=[63.546])
 
     # Run SPONGE
-    run_sponge_command(sponge_dir)
+    run_sponge_command(sponge_dir, mpi_np=mpi_np)
 
     ref_entry = load_lammps_reference_entry(statics_path, "cu_eam", iteration)
     assert abs(float(ref_entry["perturbation"]) - curr_perturbation) <= 1.0e-12

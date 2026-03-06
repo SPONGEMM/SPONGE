@@ -1,10 +1,11 @@
 import json
 import math
 import os
-import shlex
 import shutil
 import subprocess
 from pathlib import Path
+
+from benchmarks.launcher import build_sponge_command
 
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -115,15 +116,13 @@ def _run_command(cmd, cwd, log_name, timeout=1200):
 
 
 def run_point_energy(
-    case_dir, *, sponge_bin, mdin_name, run_tag, mpi_np=1, timeout=1200
+    case_dir, *, sponge_bin, mdin_name, run_tag, mpi_np=None, timeout=1200
 ):
-    if mpi_np <= 1:
-        cmd = [sponge_bin, "-mdin", mdin_name]
-    else:
-        mpirun_cmd = shlex.split(
-            os.environ.get("SPONGE_POINT_MPIRUN", "mpirun")
-        )
-        cmd = mpirun_cmd + ["-np", str(mpi_np), sponge_bin, "-mdin", mdin_name]
+    cmd = build_sponge_command(
+        [sponge_bin, "-mdin", mdin_name],
+        mpi_np=mpi_np,
+        mpirun_env_var="SPONGE_POINT_MPIRUN",
+    )
 
     log_name = f"run_{run_tag}.log"
     _run_command(cmd, cwd=case_dir, log_name=log_name, timeout=timeout)
