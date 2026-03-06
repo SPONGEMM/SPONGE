@@ -1103,11 +1103,15 @@ static __global__ void dd_frc_to_global(int atom_numbers,
     }
 }
 
-// gather force to debug
 void MD_INFORMATION::Frc_dd_to_Host(VECTOR* dd_frc, char* dd_atom_local_label,
                                     int* dd_atom_local_id,
                                     deviceStream_t stream)
 {
+    if (CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
+    {
+        return;
+    }
+
     if (CONTROLLER::PP_MPI_size == 1)
     {
         deviceMemcpy(frc, dd_frc, sizeof(VECTOR) * atom_numbers,
@@ -1119,22 +1123,18 @@ void MD_INFORMATION::Frc_dd_to_Host(VECTOR* dd_frc, char* dd_atom_local_label,
 
     else
     {
-        if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
-        {
 #ifdef USE_MPI
-            deviceMemset(frc, 0, sizeof(VECTOR) * atom_numbers);
-            Launch_Device_Kernel(dd_frc_to_global, (atom_numbers + 255) / 256,
-                                 256, 0, stream, atom_numbers,
-                                 dd_atom_local_label, frc, dd_frc,
-                                 dd_atom_local_id);
-            D_MPI_Allreduce_IN_PLACE(frc, atom_numbers * 3, D_MPI_FLOAT,
-                                     D_MPI_SUM, CONTROLLER::d_pp_comm, stream);
-            D_MPI_Barrier(CONTROLLER::d_pp_comm, stream);
+        deviceMemset(frc, 0, sizeof(VECTOR) * atom_numbers);
+        Launch_Device_Kernel(dd_frc_to_global, (atom_numbers + 255) / 256,
+                             256, 0, stream, atom_numbers, dd_atom_local_label,
+                             frc, dd_frc, dd_atom_local_id);
+        D_MPI_Allreduce_IN_PLACE(frc, atom_numbers * 3, D_MPI_FLOAT,
+                                 D_MPI_SUM, CONTROLLER::d_pp_comm, stream);
+        D_MPI_Barrier(CONTROLLER::d_pp_comm, stream);
 #endif
-            deviceMemcpy(this->force, this->frc,
-                         sizeof(VECTOR) * this->atom_numbers,
-                         deviceMemcpyDeviceToHost);
-        }
+        deviceMemcpy(this->force, this->frc,
+                     sizeof(VECTOR) * this->atom_numbers,
+                     deviceMemcpyDeviceToHost);
     }
 }
 
