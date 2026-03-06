@@ -18,7 +18,11 @@ def get_comparison_root_from_statics(statics_path):
 
 
 def get_reference_root(statics_path, suite_name):
-    return get_comparison_root_from_statics(statics_path) / "reference" / str(suite_name)
+    return (
+        get_comparison_root_from_statics(statics_path)
+        / "reference"
+        / str(suite_name)
+    )
 
 
 def get_reference_json_path(statics_path, suite_name):
@@ -65,8 +69,12 @@ def load_reference_entries(reference_json_path_str, suite_label):
     return payload, index
 
 
-def load_reference_entry(reference_json_path, suite_label, case_name, iteration):
-    json_path = _ensure_file_exists(reference_json_path, "reference file", suite_label)
+def load_reference_entry(
+    reference_json_path, suite_label, case_name, iteration
+):
+    json_path = _ensure_file_exists(
+        reference_json_path, "reference file", suite_label
+    )
     _payload, index = load_reference_entries(str(json_path), suite_label)
     key = (str(case_name), int(iteration))
     if key not in index:

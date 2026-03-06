@@ -79,7 +79,9 @@ class Extractor:
 
         mdout_path = Path(case_dir) / mdout_name
         if not mdout_path.exists():
-            raise FileNotFoundError(f"SPONGE mdout file not found: {mdout_path}")
+            raise FileNotFoundError(
+                f"SPONGE mdout file not found: {mdout_path}"
+            )
         return MdoutReader(str(mdout_path))
 
     @staticmethod
@@ -118,7 +120,9 @@ class Extractor:
         mdout = Extractor._read_mdout(case_dir, mdout_name)
         return {
             key: (
-                float(getattr(mdout, key)[-1]) if hasattr(mdout, key) else float("nan")
+                float(getattr(mdout, key)[-1])
+                if hasattr(mdout, key)
+                else float("nan")
             )
             for key in ["Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"]
         }
@@ -136,7 +140,9 @@ class Extractor:
                 f"Invalid SPONGE force file shape: size={raw.size}, atom_numbers={atom_numbers}, "
                 f"path={frc_path}"
             )
-        return raw[-frame_width:].reshape(int(atom_numbers), 3).astype(np.float64)
+        return (
+            raw[-frame_width:].reshape(int(atom_numbers), 3).astype(np.float64)
+        )
 
     @staticmethod
     def parse_mdout_rows(mdout_path, columns, *, int_columns=("step",)):
@@ -146,14 +152,14 @@ class Extractor:
         )
         missing = [column for column in columns if not hasattr(mdout, column)]
         if missing:
-            raise ValueError(
-                f"Missing columns {missing} in mdout {mdout_path}"
-            )
+            raise ValueError(f"Missing columns {missing} in mdout {mdout_path}")
 
         selected = {column: getattr(mdout, column) for column in columns}
         lengths = [len(values) for values in selected.values()]
         if not lengths:
-            raise ValueError(f"No columns selected for parsing mdout {mdout_path}")
+            raise ValueError(
+                f"No columns selected for parsing mdout {mdout_path}"
+            )
         if any(length <= 0 for length in lengths):
             raise ValueError(f"Empty mdout column found in {mdout_path}")
         max_rows = min(lengths)
