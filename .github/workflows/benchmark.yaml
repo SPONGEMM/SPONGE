@@ -71,3 +71,83 @@ jobs:
 
       - name: Benchmark comparison/gromacs
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs
+
+  benchmark-cpu-mpi-np2:
+    name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+
+      - name: Install dev-cpu-mpi environment
+        run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Configure SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Compile SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Benchmark comparison/gromacs (MPI np=2)
+        run: pixi run -e ${{ matrix.env_name }} comp-gromacs --mpi 2
+
+  benchmark-cpu-mpi-np3:
+    name: benchmark-cpu-mpi-np3 (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+
+      - name: Install dev-cpu-mpi environment
+        run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Configure SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Compile SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Benchmark comparison/gromacs (MPI np=3)
+        run: pixi run -e ${{ matrix.env_name }} comp-gromacs --mpi 3
