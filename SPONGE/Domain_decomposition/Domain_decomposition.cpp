@@ -7,8 +7,8 @@ static bool is_orthogonal_box(const VECTOR& box_angle, float tolerance)
            std::fabs(box_angle.z - 90.0f) <= tolerance;
 }
 
-static void throw_unsupported_domain_decomposition(
-    CONTROLLER* controller, const char* reason)
+static void throw_unsupported_domain_decomposition(CONTROLLER* controller,
+                                                   const char* reason)
 {
     controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
                                    "DOMAIN_INFORMATION::Domain_Decomposition",

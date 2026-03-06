@@ -1125,11 +1125,11 @@ void MD_INFORMATION::Frc_dd_to_Host(VECTOR* dd_frc, char* dd_atom_local_label,
     {
 #ifdef USE_MPI
         deviceMemset(frc, 0, sizeof(VECTOR) * atom_numbers);
-        Launch_Device_Kernel(dd_frc_to_global, (atom_numbers + 255) / 256,
-                             256, 0, stream, atom_numbers, dd_atom_local_label,
-                             frc, dd_frc, dd_atom_local_id);
-        D_MPI_Allreduce_IN_PLACE(frc, atom_numbers * 3, D_MPI_FLOAT,
-                                 D_MPI_SUM, CONTROLLER::d_pp_comm, stream);
+        Launch_Device_Kernel(dd_frc_to_global, (atom_numbers + 255) / 256, 256,
+                             0, stream, atom_numbers, dd_atom_local_label, frc,
+                             dd_frc, dd_atom_local_id);
+        D_MPI_Allreduce_IN_PLACE(frc, atom_numbers * 3, D_MPI_FLOAT, D_MPI_SUM,
+                                 CONTROLLER::d_pp_comm, stream);
         D_MPI_Barrier(CONTROLLER::d_pp_comm, stream);
 #endif
         deviceMemcpy(this->force, this->frc,
