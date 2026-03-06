@@ -132,7 +132,9 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
             ]
         )
 
-    dump_json(summary_payload, case_dir / "point_energy_comparison_summary.json")
+    dump_json(
+        summary_payload, case_dir / "point_energy_comparison_summary.json"
+    )
 
     print_validation_table(
         [

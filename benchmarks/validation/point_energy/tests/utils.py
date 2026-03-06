@@ -64,7 +64,9 @@ def resolve_binary_triplet():
     default_local = REPO_ROOT / "build" / "SPONGE"
     default_ref = str(default_local) if default_local.exists() else "SPONGE"
 
-    ref_bin = _resolve_binary(ref_env or os.environ.get("SPONGE_BIN") or default_ref)
+    ref_bin = _resolve_binary(
+        ref_env or os.environ.get("SPONGE_BIN") or default_ref
+    )
     if not ref_bin:
         raise FileNotFoundError(
             "Cannot resolve reference SPONGE binary. "
@@ -112,11 +114,15 @@ def _run_command(cmd, cwd, log_name, timeout=1200):
     return output
 
 
-def run_point_energy(case_dir, *, sponge_bin, mdin_name, run_tag, mpi_np=1, timeout=1200):
+def run_point_energy(
+    case_dir, *, sponge_bin, mdin_name, run_tag, mpi_np=1, timeout=1200
+):
     if mpi_np <= 1:
         cmd = [sponge_bin, "-mdin", mdin_name]
     else:
-        mpirun_cmd = shlex.split(os.environ.get("SPONGE_POINT_MPIRUN", "mpirun"))
+        mpirun_cmd = shlex.split(
+            os.environ.get("SPONGE_POINT_MPIRUN", "mpirun")
+        )
         cmd = mpirun_cmd + ["-np", str(mpi_np), sponge_bin, "-mdin", mdin_name]
 
     log_name = f"run_{run_tag}.log"
@@ -176,9 +182,13 @@ def compare_energies(reference, current):
         cur_val = current.get(key)
         if cur_val is None:
             continue
-        if not isinstance(ref_val, (int, float)) or not isinstance(cur_val, (int, float)):
+        if not isinstance(ref_val, (int, float)) or not isinstance(
+            cur_val, (int, float)
+        ):
             continue
-        if not math.isfinite(float(ref_val)) or not math.isfinite(float(cur_val)):
+        if not math.isfinite(float(ref_val)) or not math.isfinite(
+            float(cur_val)
+        ):
             continue
         errors[key] = {
             "reference": float(ref_val),

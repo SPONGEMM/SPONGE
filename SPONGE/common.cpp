@@ -392,8 +392,7 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
 
     int final_threads = (grid < 256) ? grid : 256;
     if (final_threads < WARP_SIZE) final_threads = WARP_SIZE;
-    final_threads =
-        ((final_threads + WARP_SIZE - 1) / WARP_SIZE) * WARP_SIZE;
+    final_threads = ((final_threads + WARP_SIZE - 1) / WARP_SIZE) * WARP_SIZE;
     if (final_threads > 256) final_threads = 256;
     Launch_Device_Kernel(Sum_Of_List_Float_Final, 1, final_threads, 0, NULL,
                          block_sums, grid, sum);

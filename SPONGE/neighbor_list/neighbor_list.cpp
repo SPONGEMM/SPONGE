@@ -597,7 +597,8 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
     {
         int atom_i = atom_local[atom_i_local];
         int excluded_number = excluded_atom_numbers[atom_i];
-        int list_start_i = excluded_number > 0 ? excluded_list_start[atom_i] : 0;
+        int list_start_i =
+            excluded_number > 0 ? excluded_list_start[atom_i] : 0;
         int list_end_i = list_start_i + excluded_number;
         int atom_min_i = excluded_number > 0 ? excluded_list[list_start_i] : 0;
         int atom_max_i =
@@ -612,7 +613,8 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
             atom_j = atom_local[atom_j_local];
             bool is_excluded = false;
 
-            if (excluded_number > 0 && atom_j >= atom_min_i && atom_j <= atom_max_i)
+            if (excluded_number > 0 && atom_j >= atom_min_i &&
+                atom_j <= atom_max_i)
             {
                 for (int j = list_start_i; j < list_end_i; ++j)
                 {

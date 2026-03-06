@@ -89,7 +89,6 @@ int main(int argc, char* argv[])
 
 void Main_Initial(int argc, char* argv[])
 {
-
 #ifdef USE_CPU
     max_omp_threads = omp_get_max_threads();
 #endif

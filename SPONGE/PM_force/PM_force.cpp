@@ -408,8 +408,7 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
 
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
     Device_Malloc_Safely((void**)&charge_sum, sizeof(float));
-    Device_Malloc_Safely((void**)&charge_square,
-                         sizeof(float) * atom_numbers);
+    Device_Malloc_Safely((void**)&charge_square, sizeof(float) * atom_numbers);
 
     int i, kx, ky, kz, index;
     FFT_RESULT errP1, errP2;

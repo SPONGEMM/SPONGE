@@ -238,7 +238,9 @@ def save_energy_plots(nve_rows, *, dof, output_dir):
     times = [r["time"] for r in nve_rows]
     temperatures = [r["temperature"] for r in nve_rows]
     potentials = [r["potential"] for r in nve_rows]
-    kinetics = [0.5 * dof * CONSTANT_KB_KCAL_PER_MOL_K * t for t in temperatures]
+    kinetics = [
+        0.5 * dof * CONSTANT_KB_KCAL_PER_MOL_K * t for t in temperatures
+    ]
     totals = [u + k for u, k in zip(potentials, kinetics)]
     drifts = [e - totals[0] for e in totals]
 

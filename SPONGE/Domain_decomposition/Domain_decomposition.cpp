@@ -416,11 +416,11 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
     Device_Malloc_Safely((void**)&d_ek, sizeof(float) * max_atom_numbers);
     if (d_ek_local == NULL)
         Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
-        deviceMemset(d_ek_local, 0, sizeof(float));
-    
+    deviceMemset(d_ek_local, 0, sizeof(float));
+
     if (d_ek_total == NULL)
         Device_Malloc_Safely((void**)&d_ek_total, sizeof(float));
-        deviceMemset(d_ek_total, 0, sizeof(float));
+    deviceMemset(d_ek_total, 0, sizeof(float));
     Device_Malloc_Safely((void**)&d_num_ghost_dir, sizeof(int) * 6);
     Malloc_Safely((void**)&h_num_ghost_dir_id,
                   sizeof(int) * max_atom_numbers * 6);
@@ -911,12 +911,11 @@ void DOMAIN_INFORMATION::Sync_Local_Charge_From_Global(
     {
         return;
     }
-    Launch_Device_Kernel(
-        sync_local_charge_from_global_charge_device,
-        (atom_numbers + CONTROLLER::device_max_thread - 1) /
-            CONTROLLER::device_max_thread,
-        CONTROLLER::device_max_thread, 0, NULL, atom_numbers, atom_local,
-        global_charge, d_charge);
+    Launch_Device_Kernel(sync_local_charge_from_global_charge_device,
+                         (atom_numbers + CONTROLLER::device_max_thread - 1) /
+                             CONTROLLER::device_max_thread,
+                         CONTROLLER::device_max_thread, 0, NULL, atom_numbers,
+                         atom_local, global_charge, d_charge);
 }
 
 // 似乎在pp进程已被弃用，pm进程还有同名函数
