@@ -612,7 +612,6 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
             atom_j = atom_local[atom_j_local];
             bool is_excluded = false;
 
-            // Check i -> j in the original excluded list.
             if (excluded_number > 0 && atom_j >= atom_min_i && atom_j <= atom_max_i)
             {
                 for (int j = list_start_i; j < list_end_i; ++j)
@@ -625,9 +624,6 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
                 }
             }
 
-            // In DD mode, only ghost neighbors can violate the global-id ordering
-            // implied by half-excluded lists. Limit reverse lookup to ghost entries
-            // to avoid extra overhead on pure local pairs.
             if (!is_excluded && atom_j_local >= local_atom_numbers)
             {
                 int excluded_number_j = excluded_atom_numbers[atom_j];

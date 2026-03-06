@@ -202,7 +202,6 @@ def summarize_energy_stability(nve_rows, *, dof):
     mean_e = statistics.fmean(energies)
     std_e = statistics.pstdev(energies)
 
-    # Linear regression slope: kcal/mol/ps
     x_mean = statistics.fmean(times)
     y_mean = statistics.fmean(energies)
     num = sum((x - x_mean) * (y - y_mean) for x, y in zip(times, energies))

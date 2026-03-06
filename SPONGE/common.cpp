@@ -374,7 +374,6 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
 {
 #ifdef GPU_ARCH_NAME
     const int WARP_SIZE = 32;
-    // Keep reduction kernels warp-safe for any list size.
     if (threads < WARP_SIZE) threads = WARP_SIZE;
     if (threads > 1024) threads = 1024;
     threads = ((threads + WARP_SIZE - 1) / WARP_SIZE) * WARP_SIZE;

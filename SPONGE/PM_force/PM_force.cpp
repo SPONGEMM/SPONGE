@@ -1144,7 +1144,6 @@ void Particle_Mesh::PME_Reciprocal_Force_With_Energy_And_Virial(
                                  PME_Nall, PME_Q, PME_FBCFQ, d_reciprocal_ene);
             Scale_List(d_reciprocal_ene, 0.5f, 1);
 
-            // Compute PM self-energy with deterministic reduction.
             Launch_Device_Kernel(
                 charge_square_kernel,
                 (atom_numbers + CONTROLLER::device_max_thread - 1) /

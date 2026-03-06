@@ -48,7 +48,6 @@ def test_point_energy_multi_backend_and_mpi(statics_path, outputs_path, cfg):
 
     bins = resolve_binary_triplet()
 
-    # 5 runs in total: baseline + gpu np1 + cpu np1 + cpu np2 + cpu np4
     runs = [
         {
             "id": "baseline_np1",

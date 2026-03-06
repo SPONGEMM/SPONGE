@@ -89,12 +89,6 @@ int main(int argc, char* argv[])
 
 void Main_Initial(int argc, char* argv[])
 {
-/*
-#ifdef USE_CUDA
-    // 强制开启全近邻表，以便ReaxFF等模块使用
-    neighbor_list.is_needed_full = true;
-#endif
-*/
 
 #ifdef USE_CPU
     max_omp_threads = omp_get_max_threads();
@@ -108,7 +102,7 @@ void Main_Initial(int argc, char* argv[])
     cv_controller.atom_numbers = md_info.atom_numbers;
     plugin.Initial(&md_info, &controller, &cv_controller, &neighbor_list);
 
-    // ------------ 若需要区域分解才构建全排除表 ------------------------------
+    // 仅在区域分解时重建全排除表
     if (CONTROLLER::PP_MPI_size > 1)
     {
         md_info.nb.Excluded_List_Reform(md_info.atom_numbers);
@@ -186,7 +180,6 @@ void Main_Initial(int argc, char* argv[])
     }
 
     //------------------------- thermostat initialization-----------------------
-    // Accept either 'thermostat' or 'thermostat_mode' as long as one is set.
     if (md_info.mode >= md_info.NVT &&
         (!controller.Command_Exist("thermostat") &&
          !controller.Command_Exist("thermostat_mode")))

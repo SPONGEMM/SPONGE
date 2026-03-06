@@ -14,8 +14,6 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
     controller->printf("DOMAIN DECOMPOSITION BEGIN\n");
     Device_Malloc_Safely((void**)&d_sum_ene_local, sizeof(float));
     Device_Malloc_Safely((void**)&d_sum_ene_total, sizeof(float));
-    // d_ek_local/d_ek_total are used on all ranks in Get_Ek_and_Temperature.
-    // Allocate them here to avoid null pointers on non-PP ranks.
     Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
     Device_Malloc_Safely((void**)&d_ek_total, sizeof(float));
     deviceMemset(d_ek_local, 0, sizeof(float));

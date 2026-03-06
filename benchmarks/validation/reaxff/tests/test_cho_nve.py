@@ -96,6 +96,5 @@ def test_reaxff_cho_heat_then_nve_energy_stability(statics_path, outputs_path):
         title="ReaxFF Validation: CHO Heat->NVE Energy Stability",
     )
 
-    # Tolerances are set for long ReaxFF NVE stability across different binaries.
     assert stats["final_rel_drift"] <= 2.0e-3
     assert stats["max_rel_drift"] <= 5.0e-3
