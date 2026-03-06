@@ -1,5 +1,20 @@
 ﻿#include "Domain_decomposition.h"
 
+static bool is_orthogonal_box(const VECTOR& box_angle, float tolerance)
+{
+    return std::fabs(box_angle.x - 90.0f) <= tolerance &&
+           std::fabs(box_angle.y - 90.0f) <= tolerance &&
+           std::fabs(box_angle.z - 90.0f) <= tolerance;
+}
+
+static void throw_unsupported_domain_decomposition(
+    CONTROLLER* controller, const char* reason)
+{
+    controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
+                                   "DOMAIN_INFORMATION::Domain_Decomposition",
+                                   reason);
+}
+
 #ifdef USE_CPU  // CPU 线程并行内存分配
 extern int max_omp_threads;
 extern int frc_size;
@@ -125,6 +140,46 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
     nx = dom_dec_split_num.int_x;
     ny = dom_dec_split_num.int_y;
     nz = dom_dec_split_num.int_z;
+
+    const float orthogonal_angle_tolerance = 1e-4f;
+    if (!is_orthogonal_box(box_angle, orthogonal_angle_tolerance))
+    {
+        char error_reason[CHAR_LENGTH_MAX * 2];
+        snprintf(error_reason, sizeof(error_reason),
+                 "Reason:\n\tCurrent MPI domain decomposition only supports "
+                 "orthogonal boxes.\n\tbox_angle = (%.6f, %.6f, %.6f) "
+                 "degree(s).\n",
+                 box_angle.x, box_angle.y, box_angle.z);
+        throw_unsupported_domain_decomposition(controller, error_reason);
+    }
+
+    const float halo = md_info->nb.cutoff + md_info->nb.skin;
+    const struct
+    {
+        const char* axis_name;
+        int split_n;
+        float box_extent;
+    } axes[] = {{"x", nx, box_length.x},
+                {"y", ny, box_length.y},
+                {"z", nz, box_length.z}};
+    for (const auto& axis : axes)
+    {
+        if (axis.split_n <= 1) continue;
+        const float local_extent = axis.box_extent / axis.split_n;
+        if (local_extent < 2.0f * halo)
+        {
+            char error_reason[CHAR_LENGTH_MAX * 2];
+            snprintf(
+                error_reason, sizeof(error_reason),
+                "Reason:\n\tCurrent MPI domain decomposition ghost algorithm "
+                "is unsupported on axis %s.\n\tlocal extent = %.6f "
+                "Angstrom, but 2 * (cutoff + skin) = %.6f Angstrom.\n\t"
+                "Reduce MPI domain splits on this axis or increase the box "
+                "size.\n",
+                axis.axis_name, local_extent, 2.0f * halo);
+            throw_unsupported_domain_decomposition(controller, error_reason);
+        }
+    }
 
     int rank_id;
     for (int k = 0; k < nz; ++k)
