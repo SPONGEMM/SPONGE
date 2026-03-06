@@ -302,9 +302,10 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
         partial += static_cast<double>(list[i]);
     }
 
+    unsigned int lane_mask = __activemask();
     for (int offset = warpSize / 2; offset > 0; offset >>= 1)
     {
-        partial += __shfl_down_sync(FULL_MASK, partial, offset);
+        partial += __shfl_down_sync(lane_mask, partial, offset);
     }
 
     int lane = threadIdx.x & (warpSize - 1);
@@ -340,9 +341,10 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
     {
         partial += block_sums[i];
     }
+    unsigned int lane_mask = __activemask();
     for (int offset = warpSize / 2; offset > 0; offset >>= 1)
     {
-        partial += __shfl_down_sync(FULL_MASK, partial, offset);
+        partial += __shfl_down_sync(lane_mask, partial, offset);
     }
 
     int lane = threadIdx.x & (warpSize - 1);
@@ -372,6 +374,10 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
 {
 #ifdef GPU_ARCH_NAME
     const int WARP_SIZE = 32;
+    if (threads < WARP_SIZE) threads = WARP_SIZE;
+    if (threads > 1024) threads = 1024;
+    threads = ((threads + WARP_SIZE - 1) / WARP_SIZE) * WARP_SIZE;
+
     int grid = (end - start + threads - 1) / threads;
     if (grid < 1) grid = 1;
     int warp_numbers = (threads + WARP_SIZE - 1) / WARP_SIZE;
@@ -386,6 +392,9 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
 
     int final_threads = (grid < 256) ? grid : 256;
     if (final_threads < WARP_SIZE) final_threads = WARP_SIZE;
+    final_threads =
+        ((final_threads + WARP_SIZE - 1) / WARP_SIZE) * WARP_SIZE;
+    if (final_threads > 256) final_threads = 256;
     Launch_Device_Kernel(Sum_Of_List_Float_Final, 1, final_threads, 0, NULL,
                          block_sums, grid, sum);
 

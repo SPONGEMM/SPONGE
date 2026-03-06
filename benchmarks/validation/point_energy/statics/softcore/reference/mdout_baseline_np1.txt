@@ -1,0 +1,2 @@
+           step            time     temperature       potential         LJ_soft   LJ_soft_short    LJ_soft_long              PM       PM_direct   PM_reciprocal         PM_self   PM_correction         nb14_LJ         nb14_EE           angle            bond        dihedral
+              1         300.000            -nan      -415594.66        57368.40        61212.43        -3844.02      -499099.12      -422143.03         4300.40     -2934083.00      2852826.50         1360.45        15793.01         3200.47         1102.29         4679.84

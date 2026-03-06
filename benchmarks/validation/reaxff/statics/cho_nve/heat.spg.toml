@@ -1,0 +1,21 @@
+mode = "nvt"
+dt = 0.00025
+step_limit = 10000
+write_information_interval = 100
+
+thermostat = "middle_langevin"
+target_temperature = 3000
+middle_langevin_gamma = 10
+
+cutoff = 8.0
+skin = 2.0
+coordinate_in_file = "coordinate.txt"
+mass_in_file = "mass.txt"
+frc = "frc.dat"
+print_zeroth_frame = 1
+
+rst = "heat"
+
+[REAXFF]
+in_file = "ffield.reax.cho"
+type_in_file = "type.txt"

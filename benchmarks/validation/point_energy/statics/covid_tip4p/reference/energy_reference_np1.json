@@ -1,0 +1,21 @@
+{
+  "case": "covid_tip4p",
+  "energies": {
+    "LJ": 37349.99,
+    "LJ_long": -709.17,
+    "LJ_short": 38059.16,
+    "PM": -357509.19,
+    "angle": 6154.8,
+    "bond": 2355.29,
+    "dihedral": 10501.35,
+    "nb14_EE": 33949.86,
+    "nb14_LJ": 2946.85,
+    "potential": -264250.94,
+    "step": 1,
+    "temperature": NaN,
+    "time": 25.505
+  },
+  "mdin": "mdin.spg.in",
+  "source_binary": "/home/ylj/SPONGE_GITHUB/SPONGE2.0/build/SPONGE",
+  "source_mode": "single_process_np1"
+}

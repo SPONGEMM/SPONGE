@@ -182,6 +182,7 @@ static __global__ void Check_Refresh(int h_need_update, int atom_numbers,
 void NEIGHBOR_LIST::UPDATOR::Check(int atom_numbers, float skin, VECTOR* crd,
                                    LTMatrix3 cell, LTMatrix3 rcell)
 {
+    if (atom_numbers <= 0) return;
     Launch_Device_Kernel(Check_Refresh,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
@@ -349,18 +350,21 @@ static __global__ void Find_Neighbors_Gridly(
                 int j = j_base + lane_index;
                 bool active = j < atom_numbers_in_grid_j;
                 int atom_j = 0;
+                int global_j = 0;
                 VECTOR crd_j = {0, 0, 0};
                 if (active)
                 {
                     atom_j = bucket_j[j];
+                    global_j = atom_local[atom_j];
                     crd_j = grid_crd_j[j];
                 }
 
                 for (int i = 0; i < atom_numbers_in_grid_i; ++i)
                 {
                     int atom_i = sh_atoms[i];
+                    int global_i = atom_local[atom_i];
                     bool is_neighbor = false;
-                    if (active && atom_j > atom_i)
+                    if (active && global_j > global_i)
                     {
                         VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
                                                               cell, rcell);
@@ -435,7 +439,7 @@ static __global__ void Find_Neighbors_Gridly(
                 {
                     int atom_i = sh_atoms[i];
                     bool is_neighbor = false;
-                    if (active && atom_j > atom_i)
+                    if (active)
                     {
                         VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
                                                               cell, rcell);
@@ -511,6 +515,7 @@ static __global__ void Find_Neighbors_Gridly(
             for (int i = 0; i < atom_numbers_in_grid_i; i++)
             {
                 int atom_i = bucket_i[i];
+                int global_i = atom_local[atom_i];
                 VECTOR crd_i = grid_crd_i[i];
 
                 int* nl_atom_numbers_ptr = &nl[atom_i].atom_numbers;
@@ -518,7 +523,7 @@ static __global__ void Find_Neighbors_Gridly(
                 for (int j = 0; j < atom_numbers_in_grid_j; ++j)
                 {
                     int atom_j = bucket_j[j];
-                    if (atom_j <= atom_i) continue;
+                    if (atom_local[atom_j] <= global_i) continue;
                     VECTOR crd_j = grid_crd_j[j];
                     VECTOR dr =
                         Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
@@ -558,7 +563,6 @@ static __global__ void Find_Neighbors_Gridly(
                 for (int j = 0; j < ghost_numbers_in_grid_j; ++j)
                 {
                     int atom_j = bucket_j[j];
-                    if (atom_j <= atom_i) continue;
                     VECTOR crd_j = grid_ghost_crd_j[j];
                     VECTOR dr =
                         Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
@@ -593,50 +597,64 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
     {
         int atom_i = atom_local[atom_i_local];
         int excluded_number = excluded_atom_numbers[atom_i];
-        if (excluded_number > 0)
-        {
-            int list_start = excluded_list_start[atom_i];
-            int atom_min = excluded_list[list_start];
-            int list_end = list_start + excluded_number;
-            int atom_max = excluded_list[list_end - 1];
-            ATOM_GROUP nl_i = nl[atom_i_local];
-            int atomnumbers_in_nl_lin = nl_i.atom_numbers;
-            int atom_j_local, atom_j;
-            int excluded_atom_numbers_lin = list_end - list_start;
-            int excluded_atom_numbers_count = 0;
-            for (int i = 0; i < atomnumbers_in_nl_lin; ++i)
-            {
-                atom_j_local = nl_i.atom_serial[i];
-                atom_j = atom_local[atom_j_local];
+        int list_start_i = excluded_number > 0 ? excluded_list_start[atom_i] : 0;
+        int list_end_i = list_start_i + excluded_number;
+        int atom_min_i = excluded_number > 0 ? excluded_list[list_start_i] : 0;
+        int atom_max_i =
+            excluded_number > 0 ? excluded_list[list_end_i - 1] : -1;
 
-                if (atom_j < atom_min || atom_j > atom_max)
+        ATOM_GROUP nl_i = nl[atom_i_local];
+        int atomnumbers_in_nl_lin = nl_i.atom_numbers;
+        int atom_j_local, atom_j;
+        for (int i = 0; i < atomnumbers_in_nl_lin; ++i)
+        {
+            atom_j_local = nl_i.atom_serial[i];
+            atom_j = atom_local[atom_j_local];
+            bool is_excluded = false;
+
+            if (excluded_number > 0 && atom_j >= atom_min_i && atom_j <= atom_max_i)
+            {
+                for (int j = list_start_i; j < list_end_i; ++j)
                 {
-                    continue;
-                }
-                else
-                {
-                    for (int j = list_start; j < list_end; ++j)
+                    if (atom_j == excluded_list[j])
                     {
-                        if (atom_j == excluded_list[j])
-                        {
-                            atomnumbers_in_nl_lin = atomnumbers_in_nl_lin - 1;
-                            nl_i.atom_serial[i] =
-                                nl_i.atom_serial[atomnumbers_in_nl_lin];
-                            excluded_atom_numbers_count++;
-                            i--;
-                        }
-                    }
-                    if (excluded_atom_numbers_count < excluded_atom_numbers_lin)
-                    {
-                    }
-                    else
-                    {
+                        is_excluded = true;
                         break;
                     }
                 }
             }
-            nl[atom_i_local].atom_numbers = atomnumbers_in_nl_lin;
+
+            if (!is_excluded && atom_j_local >= local_atom_numbers)
+            {
+                int excluded_number_j = excluded_atom_numbers[atom_j];
+                if (excluded_number_j > 0)
+                {
+                    int list_start_j = excluded_list_start[atom_j];
+                    int list_end_j = list_start_j + excluded_number_j;
+                    int atom_min_j = excluded_list[list_start_j];
+                    int atom_max_j = excluded_list[list_end_j - 1];
+                    if (atom_i >= atom_min_j && atom_i <= atom_max_j)
+                    {
+                        for (int j = list_start_j; j < list_end_j; ++j)
+                        {
+                            if (atom_i == excluded_list[j])
+                            {
+                                is_excluded = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (is_excluded)
+            {
+                atomnumbers_in_nl_lin = atomnumbers_in_nl_lin - 1;
+                nl_i.atom_serial[i] = nl_i.atom_serial[atomnumbers_in_nl_lin];
+                i--;
+            }
         }
+        nl[atom_i_local].atom_numbers = atomnumbers_in_nl_lin;
     }
 }
 
@@ -650,6 +668,7 @@ void NEIGHBOR_LIST::UPDATOR::Update(
     int* excluded_numbers)
 {
     int total_atom_numbers = local_atom_numbers + ghost_numbers;
+    if (total_atom_numbers <= 0) return;
     Launch_Device_Kernel(
         Clear_Bucket,
         (grids->grid_numbers + CONTROLLER::device_max_thread - 1) /
@@ -813,6 +832,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
                            int* excluded_numbers)
 {
     if (!is_initialized) return;
+    if (local_atom_numbers <= 0 && ghost_numbers <= 0) return;
     updator.time_recorder->Start();
     if (update == NEIGHBOR_LIST_UPDATE_PARAMETER::FORCED_UPDATE)
     {

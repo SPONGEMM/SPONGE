@@ -14,6 +14,10 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
     controller->printf("DOMAIN DECOMPOSITION BEGIN\n");
     Device_Malloc_Safely((void**)&d_sum_ene_local, sizeof(float));
     Device_Malloc_Safely((void**)&d_sum_ene_total, sizeof(float));
+    Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
+    Device_Malloc_Safely((void**)&d_ek_total, sizeof(float));
+    deviceMemset(d_ek_local, 0, sizeof(float));
+    deviceMemset(d_ek_total, 0, sizeof(float));
 
     update_interval = 100;
     if (controller->Command_Exist(this->module_name, "update_interval"))
@@ -313,29 +317,29 @@ static __global__ void get_atom_and_residues_single_domain(
     if (tid > 0) return;
 #endif
 
+    (void)tot_atom_numbers;
     res_numbers[0] = 0;
     atom_numbers[0] = 0;
-    int atom_res_start;  // 残基的首粒子坐标
 
-    // 对残基中粒子归属的判断
+    // 单域模式下也按残基顺序填充，保证res_start/res_len与局域原子数组一致
     for (int idx = 0; idx < ug_numbers; ++idx)
     {
         res_start[res_numbers[0]] = atom_numbers[0];
         res_len[res_numbers[0]] = ug[idx].atom_numbers;
         res_numbers[0] += 1;
-    }
-    for (int _atom_i = 0; _atom_i < tot_atom_numbers; _atom_i++)
-    {
-        int atom_i = _atom_i;
-        atom_local[atom_numbers[0]] = atom_i;
-        crd[atom_numbers[0]] = md_info_crd[atom_i];
-        vel[atom_numbers[0]] = md_info_vel[atom_i];
-        d_mass[atom_numbers[0]] = md_info_d_mass[atom_i];
-        d_mass_inverse[atom_numbers[0]] = md_info_d_mass_inverse[atom_i];
-        d_charge[atom_numbers[0]] = md_info_d_charge[atom_i];
-        atom_local_label[atom_i] = 1;
-        atom_local_id[atom_i] = atom_numbers[0];
-        atom_numbers[0] += 1;
+        for (int _atom_i = 0; _atom_i < ug[idx].atom_numbers; _atom_i++)
+        {
+            int atom_i = ug[idx].atom_serial[_atom_i];
+            atom_local[atom_numbers[0]] = atom_i;
+            crd[atom_numbers[0]] = md_info_crd[atom_i];
+            vel[atom_numbers[0]] = md_info_vel[atom_i];
+            d_mass[atom_numbers[0]] = md_info_d_mass[atom_i];
+            d_mass_inverse[atom_numbers[0]] = md_info_d_mass_inverse[atom_i];
+            d_charge[atom_numbers[0]] = md_info_d_charge[atom_i];
+            atom_local_label[atom_i] = 1;
+            atom_local_id[atom_i] = atom_numbers[0];
+            atom_numbers[0] += 1;
+        }
     }
 }
 
@@ -410,8 +414,13 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
                          sizeof(float) * max_atom_numbers);
     Device_Malloc_Safely((void**)&d_charge, sizeof(float) * max_atom_numbers);
     Device_Malloc_Safely((void**)&d_ek, sizeof(float) * max_atom_numbers);
-    Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
-    Device_Malloc_Safely((void**)&d_ek_total, sizeof(float));
+    if (d_ek_local == NULL)
+        Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
+        deviceMemset(d_ek_local, 0, sizeof(float));
+    
+    if (d_ek_total == NULL)
+        Device_Malloc_Safely((void**)&d_ek_total, sizeof(float));
+        deviceMemset(d_ek_total, 0, sizeof(float));
     Device_Malloc_Safely((void**)&d_num_ghost_dir, sizeof(int) * 6);
     Malloc_Safely((void**)&h_num_ghost_dir_id,
                   sizeof(int) * max_atom_numbers * 6);
@@ -444,7 +453,8 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
 
     VECTOR dom_box_length = max_corner - min_corner;  // 当前区域的box尺寸
 
-    if (CONTROLLER::PP_MPI_rank != 1)
+    if (CONTROLLER::PP_MPI_size != 1)  // if (CONTROLLER::PP_MPI_rank != 1)  //
+                                       // if (CONTROLLER::PP_MPI_size != 1)
     {
         Launch_Device_Kernel(
             get_atom_and_residues, 1, 1, 0, NULL, dom_dec_split_num,
@@ -875,6 +885,38 @@ static __global__ void set_frc_buffer(int ghost_number_dir,
 static __global__ void add_frc(int atom_numbers, VECTOR* frc, VECTOR* frc_)
 {
     SIMPLE_DEVICE_FOR(idx, atom_numbers) { frc[idx] = frc[idx] + frc_[idx]; }
+}
+
+static __global__ void sync_local_charge_from_global_charge_device(
+    int local_atom_numbers, const int* atom_local, const float* global_charge,
+    float* local_charge)
+{
+#ifdef USE_GPU
+    SIMPLE_DEVICE_FOR(i, local_atom_numbers)
+#else
+#pragma omp parallel for
+    for (int i = 0; i < local_atom_numbers; i++)
+#endif
+    {
+        int global_id = atom_local[i];
+        local_charge[i] = global_charge[global_id];
+    }
+}
+
+void DOMAIN_INFORMATION::Sync_Local_Charge_From_Global(
+    const float* global_charge)
+{
+    if (atom_numbers <= 0 || atom_local == NULL || d_charge == NULL ||
+        global_charge == NULL)
+    {
+        return;
+    }
+    Launch_Device_Kernel(
+        sync_local_charge_from_global_charge_device,
+        (atom_numbers + CONTROLLER::device_max_thread - 1) /
+            CONTROLLER::device_max_thread,
+        CONTROLLER::device_max_thread, 0, NULL, atom_numbers, atom_local,
+        global_charge, d_charge);
 }
 
 // 似乎在pp进程已被弃用，pm进程还有同名函数

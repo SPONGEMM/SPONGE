@@ -1,0 +1,16 @@
+mode = "nve"
+dt = 0.00025
+step_limit = 1
+write_information_interval = 1
+
+cutoff = 8.0
+skin = 2.0
+coordinate_in_file = "heat_coordinate.txt"
+velocity_in_file = "heat_velocity.txt"
+mass_in_file = "mass.txt"
+frc = "frc.dat"
+print_zeroth_frame = 1
+
+[REAXFF]
+in_file = "ffield.reax.cho"
+type_in_file = "type.txt"

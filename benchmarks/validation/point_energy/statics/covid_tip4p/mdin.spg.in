@@ -1,0 +1,20 @@
+point energy validation for covid-tip4p
+
+mode = nvt
+velocity_max = 20
+constrain_mode = SHAKE
+dt = 0
+thermostat = middle_langevin
+target_temperature = 300
+middle_langevin_gamma = 1
+barostat = andersen_barostat
+target_pressure = 1
+
+cutoff = 10.0
+skin = 2.0
+
+default_in_file_prefix = ./covid_tip4p
+step_limit = 1
+write_information_interval = 1
+
+lambda_lj = 0.2

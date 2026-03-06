@@ -277,6 +277,17 @@ static __global__ void device_add(float* ene, float factor, float* charge_sum)
     ene[0] += factor * charge_sum[0] * charge_sum[0];
 }
 
+static __global__ void charge_square_kernel(int element_number,
+                                            const float* charge,
+                                            float* charge_square)
+{
+    SIMPLE_DEVICE_FOR(i, element_number)
+    {
+        float q = charge[i];
+        charge_square[i] = q * q;
+    }
+}
+
 //--------Particle Mesh Ewald Method----------
 
 void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
@@ -397,6 +408,8 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
 
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
     Device_Malloc_Safely((void**)&charge_sum, sizeof(float));
+    Device_Malloc_Safely((void**)&charge_square,
+                         sizeof(float) * atom_numbers);
 
     int i, kx, ky, kz, index;
     FFT_RESULT errP1, errP2;
@@ -653,6 +666,7 @@ void Particle_Mesh::Clear()
         Free_Single_Device_Pointer((void**)&PME_Virial_BC);
         Free_Single_Device_Pointer((void**)&PME_BC0);
         Free_Single_Device_Pointer((void**)&charge_sum);
+        Free_Single_Device_Pointer((void**)&charge_square);
         Free_Single_Device_Pointer((void**)&num_ghost_dir_id);
 
         Free_Single_Device_Pointer((void**)&atom_id_l_g);
@@ -1130,9 +1144,13 @@ void Particle_Mesh::PME_Reciprocal_Force_With_Energy_And_Virial(
                                  PME_Nall, PME_Q, PME_FBCFQ, d_reciprocal_ene);
             Scale_List(d_reciprocal_ene, 0.5f, 1);
 
-            Launch_Device_Kernel(PME_Energy_Product, 1,
-                                 CONTROLLER::device_max_thread, 0, NULL,
-                                 atom_numbers, charge, charge, d_self_ene);
+            Launch_Device_Kernel(
+                charge_square_kernel,
+                (atom_numbers + CONTROLLER::device_max_thread - 1) /
+                    CONTROLLER::device_max_thread,
+                CONTROLLER::device_max_thread, 0, NULL, atom_numbers, charge,
+                charge_square);
+            Sum_Of_List(charge_square, d_self_ene, atom_numbers);
 
             Scale_List(d_self_ene, -beta / sqrt(PI), 1);
 

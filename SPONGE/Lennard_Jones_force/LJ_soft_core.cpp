@@ -214,7 +214,7 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
         VECTOR_LJ_SOFT_TYPE r1 = crd[atom_i];
         VECTOR frc_record = {0., 0., 0.};
         LTMatrix3 virial_record = {0, 0, 0, 0, 0, 0};
-        float energy_total = 0.;
+        float energy_lj = 0.;
         float energy_coulomb = 0.;
         float du_dlambda_lj = 0.;
         float du_dlambda_direct = 0.;
@@ -271,7 +271,7 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
                     }
                     if (need_energy)
                     {
-                        energy_total +=
+                        energy_lj +=
                             ij_factor *
                             (lambda_ * Get_LJ_Energy(r1, r2, dr_abs, AA, AB) +
                              lambda * Get_LJ_Energy(r1, r2, dr_abs, BA, BB));
@@ -341,7 +341,7 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
                     }
                     if (need_energy)
                     {
-                        energy_total +=
+                        energy_lj +=
                             ij_factor *
                             (lambda_ *
                                  Get_LJ_Energy(r1, r2, dr_softcore_A, AA, AB) +
@@ -396,18 +396,20 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
         {
             Warp_Sum_To(frc + atom_i, frc_record, warpSize);
         }
+        if (need_energy)
+        {
+            float energy_total = energy_lj;
+            if (need_coulomb)
+            {
+                energy_total += energy_coulomb;
+            }
+            Warp_Sum_To(atom_energy + atom_i, energy_total, warpSize);
+            Warp_Sum_To(this_energy + atom_i, energy_lj, warpSize);
+        }
         if (need_coulomb && need_energy)
         {
             Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
                         warpSize);
-        }
-        if (need_energy)
-        {
-            Warp_Sum_To(atom_energy + atom_i, energy_total, warpSize);
-#ifdef USE_GPU
-            if (threadIdx.x == 0)
-#endif
-                atomicAdd(this_energy + atom_i, energy_total);
         }
         if (need_virial)
         {
@@ -613,15 +615,8 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
         Device_Malloc_Safely((void**)&d_factor, sizeof(float));
         deviceMemset(d_factor, 0, sizeof(float));
 
-        dim3 gridSize = {
-            (atom_numbers + CONTROLLER::device_warp - 1) /
-                CONTROLLER::device_warp,
-            (atom_numbers +
-             CONTROLLER::device_max_thread / CONTROLLER::device_warp - 1) /
-                (CONTROLLER::device_max_thread / CONTROLLER::device_warp)};
-        dim3 blockSize = {
-            CONTROLLER::device_warp,
-            CONTROLLER::device_max_thread / CONTROLLER::device_warp};
+        dim3 gridSize = {4, 4};
+        dim3 blockSize = {32, 32};
         Launch_Device_Kernel(Total_C6_Get, gridSize, blockSize, 0, NULL,
                              atom_numbers, d_atom_LJ_type_A, d_atom_LJ_type_B,
                              d_LJ_AB, d_LJ_BB, d_factor, this->lambda);
@@ -648,6 +643,8 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
     if (is_initialized && !is_controller_printf_initialized)
     {
         controller->Step_Print_Initial("LJ_soft", "%.2f");
+        controller->Step_Print_Initial("LJ_soft_short", "%.2f");
+        controller->Step_Print_Initial("LJ_soft_long", "%.2f");
         is_controller_printf_initialized = 1;
         controller->printf("    structure last modify date is %d\n",
                            last_modify_date);
@@ -720,7 +717,7 @@ void LJ_SOFT_CORE::Parameter_Host_To_Device()
     Device_Malloc_And_Copy_Safely((void**)&d_subsys_division, h_subsys_division,
                                   sizeof(int) * atom_numbers);
     Device_Malloc_Safely((void**)&crd_with_LJ_parameters_local,
-                         sizeof(VECTOR_LJ) * atom_numbers);
+                         sizeof(VECTOR_LJ_SOFT_TYPE) * atom_numbers);
 }
 
 void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
@@ -852,7 +849,8 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
 
 void LJ_SOFT_CORE::Step_Print(CONTROLLER* controller)
 {
-    if (!is_initialized) return;
+    if (!is_initialized || CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
+        return;
     Sum_Of_List(d_LJ_energy_atom, d_LJ_energy_sum, atom_numbers);
     deviceMemcpy(&h_LJ_energy_sum, d_LJ_energy_sum, sizeof(float),
                  deviceMemcpyDeviceToHost);
@@ -860,9 +858,9 @@ void LJ_SOFT_CORE::Step_Print(CONTROLLER* controller)
     MPI_Allreduce(MPI_IN_PLACE, &h_LJ_energy_sum, 1, MPI_FLOAT, MPI_SUM,
                   CONTROLLER::pp_comm);
 #endif
-    controller->Step_Print("soft_LJ_short", h_LJ_energy_sum);
-    controller->Step_Print("soft_LJ_long", h_LJ_long_energy);
-    controller->Step_Print("soft_LJ", h_LJ_energy_sum + h_LJ_long_energy, true);
+    controller->Step_Print("LJ_soft_short", h_LJ_energy_sum);
+    controller->Step_Print("LJ_soft_long", h_LJ_long_energy);
+    controller->Step_Print("LJ_soft", h_LJ_energy_sum + h_LJ_long_energy, true);
 }
 
 static __global__ void Long_Range_Virial_Correction(LTMatrix3* d_virial,

@@ -1,0 +1,2 @@
+           step            time     temperature       potential        LJ_short         LJ_long              LJ              PM         nb14_LJ         nb14_EE           angle            bond        dihedral
+              1          25.505            -nan      -264250.94        38059.16         -709.17        37349.99      -357509.19         2946.85        33949.86         6154.80         2355.29        10501.35
