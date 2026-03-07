@@ -35,7 +35,6 @@ PATCH_TOOL_BY_SYSTEM = {
     "linux": "patchelf",
     "darwin": "install_name_tool",
 }
-
 RUNTIME_DEPENDENCIES = {
     "cpu": {
         "linux-64": [
@@ -148,6 +147,14 @@ RUNTIME_DEPENDENCIES = {
             "vc14_runtime",
             "ucrt",
             "llvm-openmp",
+        ],
+    },
+    "hip": {
+        "linux-64": [
+            "hip-runtime-amd >=6.3,<7",
+            "rocfft >=1.0,<2",
+            "libstdcxx-ng",
+            "libgcc-ng",
         ],
     },
 }

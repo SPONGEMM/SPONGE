@@ -302,14 +302,14 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
         partial += static_cast<double>(list[i]);
     }
 
-    unsigned int lane_mask = __activemask();
+    device_mask_t lane_mask = deviceActiveMask();
     for (int offset = warpSize / 2; offset > 0; offset >>= 1)
     {
-        partial += __shfl_down_sync(lane_mask, partial, offset);
+        partial += deviceShflDown(lane_mask, partial, offset);
     }
 
     int lane = threadIdx.x & (warpSize - 1);
-    int warp_id = threadIdx.x >> 5;
+    int warp_id = threadIdx.x / warpSize;
     if (lane == 0)
     {
         warp_sums[warp_id] = partial;
@@ -322,7 +322,7 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
         double block_sum = (lane < warp_numbers) ? warp_sums[lane] : 0.0;
         for (int offset = warpSize / 2; offset > 0; offset >>= 1)
         {
-            block_sum += __shfl_down_sync(FULL_MASK, block_sum, offset);
+            block_sum += deviceShflDown(FULL_MASK, block_sum, offset);
         }
         if (lane == 0)
         {
@@ -341,14 +341,14 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
     {
         partial += block_sums[i];
     }
-    unsigned int lane_mask = __activemask();
+    device_mask_t lane_mask = deviceActiveMask();
     for (int offset = warpSize / 2; offset > 0; offset >>= 1)
     {
-        partial += __shfl_down_sync(lane_mask, partial, offset);
+        partial += deviceShflDown(lane_mask, partial, offset);
     }
 
     int lane = threadIdx.x & (warpSize - 1);
-    int warp_id = threadIdx.x >> 5;
+    int warp_id = threadIdx.x / warpSize;
     __shared__ double warp_buf[32];  // 支持最多 32 个 warp（blockDim <= 1024）
     if (lane == 0)
     {
@@ -360,7 +360,7 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
     partial = (lane < warp_numbers) ? warp_buf[lane] : 0.0;
     for (int offset = warpSize / 2; offset > 0; offset >>= 1)
     {
-        partial += __shfl_down_sync(FULL_MASK, partial, offset);
+        partial += deviceShflDown(FULL_MASK, partial, offset);
     }
     if (lane == 0)
     {
@@ -582,21 +582,24 @@ Prefix_Sum::Prefix_Sum(int size)
     {
         padded_size *= 2;
     }
-    cudaMalloc((void**)&in, padded_size * sizeof(int));
-    cudaMemset(in, 0, padded_size * sizeof(int));
-    cudaMalloc((void**)&temp, padded_size * sizeof(int));
-    cudaMemset(temp, 0, padded_size * sizeof(int));
-    cudaMalloc((void**)&out, (padded_size + 1) * sizeof(int));
-    cudaMemset(out, 0, (padded_size + 1) * sizeof(int));
+    deviceMalloc((void**)&in, padded_size * sizeof(int));
+    deviceMemset(in, 0, padded_size * sizeof(int));
+    deviceMalloc((void**)&temp, padded_size * sizeof(int));
+    deviceMemset(temp, 0, padded_size * sizeof(int));
+    deviceMalloc((void**)&out, (padded_size + 1) * sizeof(int));
+    deviceMemset(out, 0, (padded_size + 1) * sizeof(int));
     blockSize = std::min(padded_size, 1024);
     gridSize = (padded_size + blockSize - 1) / blockSize;
 }
 
 void Prefix_Sum::Scan()
 {
-    cudaMemcpy(temp, in, sizeof(int) * padded_size, cudaMemcpyDeviceToDevice);
-    upSweep<<<gridSize, blockSize>>>(out, temp, padded_size);
-    downSweep<<<gridSize, blockSize>>>(out, temp, padded_size);
+    deviceMemcpy(temp, in, sizeof(int) * padded_size,
+                 deviceMemcpyDeviceToDevice);
+    Launch_Device_Kernel(upSweep, gridSize, blockSize, 0, NULL, out, temp,
+                         padded_size);
+    Launch_Device_Kernel(downSweep, gridSize, blockSize, 0, NULL, out, temp,
+                         padded_size);
 }
 #endif
 

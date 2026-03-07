@@ -32,7 +32,11 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
     const float cutoff, VECTOR* frc, const float pme_beta, float* atom_energy,
     LTMatrix3* atom_lj_virial, float* atom_direct_cf_energy, float* this_energy)
 {
-    __shared__ VECTOR_LJ r1s[128];
+    __shared__ float r1s_x[128];
+    __shared__ float r1s_y[128];
+    __shared__ float r1s_z[128];
+    __shared__ int r1s_lj_type[128];
+    __shared__ float r1s_charge[128];
     int residue_i =
         blockDim.y * blockIdx.x + threadIdx.y + solvent_start_residue;
     if (residue_i < res_numbers)
@@ -45,10 +49,15 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
         int atom_i = d_res_start[residue_i];
         if (threadIdx.x < WAT_POINTS)
         {
-            r1s[threadIdx.y * WAT_POINTS + threadIdx.x] =
-                crd[atom_i + threadIdx.x];
+            const int shared_idx = threadIdx.y * WAT_POINTS + threadIdx.x;
+            VECTOR_LJ r1 = crd[atom_i + threadIdx.x];
+            r1s_x[shared_idx] = r1.crd.x;
+            r1s_y[shared_idx] = r1.crd.y;
+            r1s_z[shared_idx] = r1.crd.z;
+            r1s_lj_type[shared_idx] = r1.LJ_type;
+            r1s_charge[shared_idx] = r1.charge;
         }
-        __syncwarp();
+        deviceSyncWarp();
         ATOM_GROUP nl_i = nl[atom_i];
         LTMatrix3 virial_record = {0, 0, 0, 0, 0, 0};
         float energy_lj = 0.;
@@ -62,7 +71,10 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
             frc_record_j = {0.0f, 0.0f, 0.0f};
             for (int i = 0; i < WAT_POINTS; i++)
             {
-                VECTOR_LJ r1 = r1s[threadIdx.y * WAT_POINTS + i];
+                const int shared_idx = threadIdx.y * WAT_POINTS + i;
+                VECTOR_LJ r1 = {
+                    {r1s_x[shared_idx], r1s_y[shared_idx], r1s_z[shared_idx]},
+                    r1s_lj_type[shared_idx], r1s_charge[shared_idx]};
                 VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
                 float dr_abs = norm3df(dr.x, dr.y, dr.z);
                 if (dr_abs < cutoff)
@@ -250,11 +262,14 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
     {
 #ifdef USE_GPU
         dim3 blockSize = {
-            CONTROLLER::device_warp,
-            min(8u, CONTROLLER::device_max_thread / CONTROLLER::device_warp)};
-        dim3 gridSize =
+            static_cast<unsigned int>(CONTROLLER::device_warp),
+            static_cast<unsigned int>(
+                min(8u, static_cast<unsigned int>(
+                            CONTROLLER::device_max_thread /
+                            CONTROLLER::device_warp)))};
+        dim3 gridSize(static_cast<unsigned int>(
             (residue_numbers - solvent_start_local + blockSize.y - 1) /
-            blockSize.y;
+            blockSize.y));
 
         switch (water_points)
         {

@@ -9,7 +9,9 @@ Agreement HCFFT for hpcc backend -  cooperated with 沐曦MetaX
 #pragma once
 #include <string.h>
 
-#ifdef USE_CUDA
+#ifdef USE_HIP
+#include "../third_party/device_backend/hip_api.h"
+#elif defined(USE_CUDA)
 #include "../third_party/device_backend/cuda_api.h"
 #else
 #include "../third_party/device_backend/cpu_api.h"

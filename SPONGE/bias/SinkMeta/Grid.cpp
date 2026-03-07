@@ -455,13 +455,13 @@ Grid<T>::Grid(const vector<int> &numPoints, const vector<float> &lower, const ve
     GridBase<T>::data_.resize(data_size);
 }
 template <typename T>
-Grid<T>::GridIterator<T> Grid<T>::begin(void)
+typename Grid<T>::template GridIterator<T> Grid<T>::begin(void)
 {
     vector<int> indices(GridBase<T>::GetDimension(), 0);
     return iterator(indices, this);
 }
 template <typename T>
-Grid<T>::GridIterator<T> Grid<T>::end(void)
+typename Grid<T>::template GridIterator<T> Grid<T>::end(void)
 {
     vector<int> indices(GridBase<T>::GetDimension());
     for (size_t i = 0; i < indices.size(); ++i)

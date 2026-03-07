@@ -86,12 +86,19 @@ float* out_value, float* out_df_dcv, LTMatrix3* box_grads)
     }
 
     source_code = string_format(
-        R"JIT(#ifdef __CUDACC__
+        R"JIT(#if defined(__CUDACC__)
 #ifndef USE_GPU
 #define USE_GPU
 #endif
 #ifndef USE_CUDA
 #define USE_CUDA
+#endif
+#elif defined(__HIPCC__) || defined(__HIPCC_RTC__)
+#ifndef USE_GPU
+#define USE_GPU
+#endif
+#ifndef USE_HIP
+#define USE_HIP
 #endif
 #endif
 #include "common.h"

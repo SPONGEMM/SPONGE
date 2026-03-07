@@ -29,7 +29,9 @@ struct SpongeTensor
         tensor->data = data;
         if (!on_host)
         {
-#ifdef USE_CUDA
+#ifdef USE_HIP
+            tensor->device = {kDLROCM, 0};
+#elif defined(USE_CUDA)
             tensor->device = {kDLCUDA, 0};
 #else
             tensor->device = {kDLCPU, 0};

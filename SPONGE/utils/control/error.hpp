@@ -4,7 +4,7 @@
 enum spongeError
 {
     spongeSuccess = 0,
-    // 1000以下的错误留给cudaError
+    // 1000以下的错误留给 deviceError
     // 未实现的功能
     spongeErrorNotImplemented = 1001,
     // 文件格式（编码、换行符）问题 或 数据格式不正确
@@ -154,7 +154,7 @@ inline void CONTROLLER::Check_Error(float energy)
         device_error == deviceErrorLaunchOutOfResources)
     {
         Throw_SPONGE_Error(device_error, "CONTROLLER::Check_Error",
-                           "Reasons:\n\tA cuda kernel function is launched "
+                           "Reasons:\n\tA device kernel function is launched "
                            "with wrong parameters, and this should be a bug. "
                            "Please report the issue to the developers.");
     }

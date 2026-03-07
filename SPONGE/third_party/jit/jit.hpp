@@ -20,96 +20,202 @@ inline const std::string& Embedded_Common_Header()
     }();
     return header;
 }
+inline std::string Extract_Function_Name(const std::string& source)
+{
+    size_t pos1 = source.find("extern");
+    size_t pos2 = source.find(string_format("%q%C%q%", {{"q", {'"'}}}), pos1);
+    if (pos2 == source.npos)
+    {
+        return "";
+    }
+    pos1 = source.find_first_of("(", pos2);
+    pos2 = source.find_last_of(" ", pos1);
+    std::string name = string_strip(source.substr(pos2, pos1 - pos2));
+    if (name == "__launch_bounds__")
+    {
+        pos1 = source.find_first_of("(", pos1 + 1);
+        pos2 = source.find_last_of(" ", pos1);
+        name = string_strip(source.substr(pos2, pos1 - pos2));
+    }
+    return name;
+}
+
+#if defined(USE_CUDA) || defined(USE_HIP)
+inline std::string Get_GPU_JIT_Arch_Option()
+{
+    deviceProp prop;
+    getDeviceProperties(&prop, 0);
+#ifdef USE_HIP
+    std::string arch = Get_Device_Runtime_Arch_Name(prop);
+    size_t suffix_pos = arch.find_first_of(": ");
+    if (suffix_pos != arch.npos)
+    {
+        arch.resize(suffix_pos);
+    }
+    if (arch.empty() || arch == "unknown")
+    {
+        return "";
+    }
+    return "--offload-arch=" + arch;
+#else
+    int runtime_arch_bin = prop.major * 10 + prop.minor;
+    return "-arch=sm_" + std::to_string(runtime_arch_bin);
+#endif
+}
+#endif
 }  // namespace sponge_jit_detail
 
-#ifdef USE_CUDA
+#if defined(USE_CUDA) || defined(USE_HIP)
 struct JIT_Function
 {
    private:
-    CUfunction function;
+    deviceFunction_t function = nullptr;
 
    public:
     std::string error_reason;
 
     void Compile(std::string source)
     {
+        error_reason.clear();
+        function = nullptr;
         std::string common_h = sponge_jit_detail::Embedded_Common_Header();
         const char* headers[1] = {common_h.c_str()};
         const char* header_names[1] = {"common.h"};
-        nvrtcProgram prog;
-        nvrtcCreateProgram(&prog, source.c_str(), NULL, 1, headers,
-                           header_names);
-
-        std::string arch = "-arch sm_";
-        deviceProp prop;
-
-        getDeviceProperties(&prop, 0);
-        int runtime_arch_bin = prop.major * 10 + prop.minor;
-        arch += std::to_string(runtime_arch_bin);
-        const char* opts[] = {"--use_fast_math", arch.c_str()};
-        if (nvrtcCompileProgram(prog, 1, opts) != NVRTC_SUCCESS)
+        deviceJitProgram_t prog;
+        deviceCompilerResult_t compiler_result =
+            deviceJitCreateProgram(&prog, source.c_str(), NULL, 1, headers,
+                                   header_names);
+        if (compiler_result != DEVICE_COMPILER_SUCCESS)
         {
-            size_t logSize;
-            nvrtcGetProgramLogSize(prog, &logSize);
-            char* log_ = new char[logSize];
-            nvrtcGetProgramLog(prog, log_);
-            error_reason = log_;
-            delete log_;
+            error_reason = string_format(
+                "Fail to create %compiler% program: %reason%",
+                {{"compiler", DEVICE_JIT_COMPILER_NAME},
+                 {"reason", deviceCompilerGetErrorString(compiler_result)}});
             return;
         }
-        size_t pos1 = source.find("extern");
-        size_t pos2 =
-            source.find(string_format("%q%C%q%", {{"q", {'"'}}}), pos1);
-        if (pos2 == source.npos)
+
+        std::string arch_option = sponge_jit_detail::Get_GPU_JIT_Arch_Option();
+        if (arch_option.empty())
+        {
+            error_reason =
+                "Fail to determine runtime GPU architecture for JIT compile";
+            deviceJitDestroyProgram(&prog);
+            return;
+        }
+
+        std::vector<std::string> option_storage = {"--use_fast_math",
+                                                   arch_option};
+        std::vector<const char*> options;
+        options.reserve(option_storage.size());
+        for (const auto& option : option_storage)
+        {
+            options.push_back(option.c_str());
+        }
+
+        compiler_result = deviceJitCompileProgram(
+            prog, static_cast<int>(options.size()), options.data());
+        if (compiler_result != DEVICE_COMPILER_SUCCESS)
+        {
+            size_t log_size = 0;
+            deviceJitGetProgramLogSize(prog, &log_size);
+            if (log_size > 1)
+            {
+                std::vector<char> log(log_size, '\0');
+                deviceJitGetProgramLog(prog, log.data());
+                error_reason.assign(log.data());
+            }
+            else
+            {
+                error_reason = string_format(
+                    "%compiler% compilation failed: %reason%",
+                    {{"compiler", DEVICE_JIT_COMPILER_NAME},
+                     {"reason",
+                      deviceCompilerGetErrorString(compiler_result)}});
+            }
+            deviceJitDestroyProgram(&prog);
+            return;
+        }
+
+        std::string name = sponge_jit_detail::Extract_Function_Name(source);
+        if (name.empty())
         {
             error_reason =
                 R"(extern "C" should be placed in front of the function name)";
+            deviceJitDestroyProgram(&prog);
             return;
         }
-        pos1 = source.find_first_of("(", pos2);
-        pos2 = source.find_last_of(" ", pos1);
-        std::string name = string_strip(source.substr(pos2, pos1 - pos2));
-        if (name == "__launch_bounds__")
-        {
-            pos1 = source.find_first_of("(", pos1 + 1);
-            pos2 = source.find_last_of(" ", pos1);
-            name = string_strip(source.substr(pos2, pos1 - pos2));
-        }
-        size_t ptxSize;
-        nvrtcGetPTXSize(prog, &ptxSize);
-        char* ptx = new char[ptxSize];
-        nvrtcGetPTX(prog, ptx);
-        CUmodule module;
-        if (cuModuleLoadDataEx(&module, ptx, 0, 0, 0) != CUDA_SUCCESS)
-        {
-            error_reason = string_format(
-                "Fail to load the module from PTX for %f%", {{"f", name}});
-            return;
-        }
-        if (cuModuleGetFunction(&function, module, name.c_str()) !=
-            CUDA_SUCCESS)
-        {
-            error_reason = string_format(
-                "Fail to get the name from the module for %f%", {{"f", name}});
-            return;
-        }
-        delete ptx;
 
-        return;
+        size_t code_size = 0;
+        deviceJitGetCodeSize(prog, &code_size);
+        if (code_size == 0)
+        {
+            error_reason = string_format(
+                "%compiler% returned an empty %kind% for %f%",
+                {{"compiler", DEVICE_JIT_COMPILER_NAME},
+                 {"kind", DEVICE_JIT_CODE_NAME},
+                 {"f", name}});
+            deviceJitDestroyProgram(&prog);
+            return;
+        }
+
+        std::vector<char> code(code_size);
+        deviceJitGetCode(prog, code.data());
+
+        deviceModule_t module;
+        deviceModuleResult_t module_result = deviceModuleLoad(&module,
+                                                              code.data());
+        if (module_result != DEVICE_MODULE_SUCCESS)
+        {
+            error_reason = string_format(
+                "Fail to load the module from %kind% for %f%: %reason%",
+                {{"kind", DEVICE_JIT_CODE_NAME},
+                 {"f", name},
+                 {"reason", deviceModuleGetErrorString(module_result)}});
+            deviceJitDestroyProgram(&prog);
+            return;
+        }
+        module_result = deviceModuleGetFunction(&function, module, name.c_str());
+        if (module_result != DEVICE_MODULE_SUCCESS)
+        {
+            error_reason = string_format(
+                "Fail to get the function from the module for %f%: %reason%",
+                {{"f", name},
+                 {"reason", deviceModuleGetErrorString(module_result)}});
+            deviceJitDestroyProgram(&prog);
+            return;
+        }
+
+        deviceJitDestroyProgram(&prog);
     }
 
-    void operator()(dim3 blocks, dim3 threads, cudaStream_t stream,
+    void operator()(dim3 blocks, dim3 threads, deviceStream_t stream,
+                    unsigned int shared_memory_size,
+                    std::initializer_list<const void*> args)
+    {
+        std::vector<void*> temp;
+        temp.reserve(args.size());
+        for (const void* ptr : args)
+        {
+            temp.push_back(const_cast<void*>(ptr));
+        }
+        (*this)(blocks, threads, stream, shared_memory_size, std::move(temp));
+    }
+
+    void operator()(dim3 blocks, dim3 threads, deviceStream_t stream,
                     unsigned int shared_memory_size, std::vector<void*> args)
     {
-        CUresult result = cuLaunchKernel(
-            function, blocks.x, blocks.y, blocks.z, threads.x, threads.y,
-            threads.z, shared_memory_size, stream, &args[0], NULL);
-        if (result != CUDA_SUCCESS)
+        if (function == nullptr)
         {
-            const char* name;
-            const char* string;
-            cuGetErrorName(result, &name);
-            cuGetErrorString(result, &string);
+            error_reason = "JIT function pointer is null";
+            return;
+        }
+        deviceModuleResult_t result = deviceModuleLaunchKernel(
+            function, blocks.x, blocks.y, blocks.z, threads.x, threads.y,
+            threads.z, shared_memory_size, stream, args.data());
+        if (result != DEVICE_MODULE_SUCCESS)
+        {
+            const char* name = deviceModuleGetErrorName(result);
+            const char* string = deviceModuleGetErrorString(result);
             error_reason = string_format("Kernel Launch Error %NAME%: %STRING%",
                                          {{"NAME", name}, {"STRING", string}});
             printf("Kernel Launch Error %s: %s\n", name, string);

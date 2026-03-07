@@ -50,6 +50,21 @@ inline std::string Get_Wall_Time()
     return asctime(localtime(&timep));
 }
 
+#ifdef USE_GPU
+inline std::string Get_Device_Runtime_Arch_Name(const deviceProp& prop)
+{
+#ifdef USE_HIP
+    if (prop.gcnArchName[0] != '\0')
+    {
+        return prop.gcnArchName;
+    }
+    return "unknown";
+#else
+    return "sm_" + std::to_string(prop.major) + std::to_string(prop.minor);
+#endif
+}
+#endif
+
 #ifdef USE_CUDA
 static __global__ void device_get_built_arch(int* answer)
 {

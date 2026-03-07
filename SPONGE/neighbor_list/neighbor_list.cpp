@@ -300,10 +300,10 @@ static __global__ void Find_Neighbors_Gridly(
     const int lane_stride = blockDim.x < warpSize ? blockDim.x : warpSize;
     const int lane_index = blockDim.x < warpSize ? threadIdx.x : lane;
 
-    unsigned int warp_mask = 0xFFFFFFFF;
+    device_mask_t warp_mask = FULL_MASK;
     if (blockDim.x < warpSize)
     {
-        warp_mask = (1U << blockDim.x) - 1;
+        warp_mask = deviceLowerLaneMask(blockDim.x);
     }
 
     for (int grid_i = blockIdx.x; grid_i < grid_numbers; grid_i += gridDim.x)
@@ -375,12 +375,12 @@ static __global__ void Find_Neighbors_Gridly(
                         }
                     }
 
-                    unsigned int mask = __ballot_sync(warp_mask, is_neighbor);
+                    device_mask_t mask = deviceBallot(warp_mask, is_neighbor);
                     if (mask != 0)
                     {
-                        int count = __popc(mask);
+                        int count = devicePopCount(mask);
                         int base_slot = 0;
-                        int leader_lane = __ffs(mask) - 1;
+                        int leader_lane = deviceFindFirstSet(mask) - 1;
                         if (lane == leader_lane)
                         {
                             base_slot =
@@ -390,12 +390,14 @@ static __global__ void Find_Neighbors_Gridly(
                                 atomicExch(neighbor_list_overflow, 1);
                             }
                         }
-                        base_slot =
-                            __shfl_sync(warp_mask, base_slot, leader_lane);
+                        base_slot = deviceShfl(warp_mask, base_slot,
+                                               leader_lane, lane_stride);
 
                         if (is_neighbor)
                         {
-                            int rank = __popc(mask & ((1 << lane) - 1));
+                            int rank = devicePopCount(mask &
+                                                      deviceLowerLaneMask(
+                                                          lane));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =
@@ -450,12 +452,12 @@ static __global__ void Find_Neighbors_Gridly(
                         }
                     }
 
-                    unsigned int mask = __ballot_sync(warp_mask, is_neighbor);
+                    device_mask_t mask = deviceBallot(warp_mask, is_neighbor);
                     if (mask != 0)
                     {
-                        int count = __popc(mask);
+                        int count = devicePopCount(mask);
                         int base_slot = 0;
-                        int leader_lane = __ffs(mask) - 1;
+                        int leader_lane = deviceFindFirstSet(mask) - 1;
                         if (lane == leader_lane)
                         {
                             base_slot =
@@ -466,12 +468,14 @@ static __global__ void Find_Neighbors_Gridly(
                                 atomicExch(neighbor_list_overflow, 1);
                             }
                         }
-                        base_slot =
-                            __shfl_sync(warp_mask, base_slot, leader_lane);
+                        base_slot = deviceShfl(warp_mask, base_slot,
+                                               leader_lane, lane_stride);
 
                         if (is_neighbor)
                         {
-                            int rank = __popc(mask & ((1 << lane) - 1));
+                            int rank = devicePopCount(mask &
+                                                      deviceLowerLaneMask(
+                                                          lane));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =

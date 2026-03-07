@@ -1,0 +1,10 @@
+find_package(hip CONFIG REQUIRED)
+find_package(hipfft CONFIG REQUIRED)
+find_package(hipblas CONFIG REQUIRED)
+find_package(hipsolver CONFIG REQUIRED)
+find_package(hiprand CONFIG REQUIRED)
+
+target_link_libraries(common_libraries INTERFACE hip::hipfft)
+target_link_libraries(common_libraries INTERFACE roc::hipblas)
+target_link_libraries(common_libraries INTERFACE roc::hipsolver)
+target_link_libraries(common_libraries INTERFACE hip::hiprand)

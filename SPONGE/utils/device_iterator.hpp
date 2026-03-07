@@ -21,9 +21,10 @@
 __device__ __forceinline__ void Warp_Sum_To(int* y, int& x, int delta)
 {
 #ifdef GPU_ARCH_NAME
-    for (delta >>= 1; delta > 0; delta >>= 1)
+    const int width = delta;
+    for (int offset = width >> 1; offset > 0; offset >>= 1)
     {
-        x += __shfl_down_sync(FULL_MASK, x, delta);
+        x += deviceShflDown(FULL_MASK, x, offset, width);
     }
     if (threadIdx.x == 0)
 #endif
@@ -34,9 +35,10 @@ __device__ __forceinline__ void Warp_Sum_To(int* y, int& x, int delta)
 __device__ __forceinline__ void Warp_Sum_To(float* y, float& x, int delta)
 {
 #ifdef GPU_ARCH_NAME
-    for (delta >>= 1; delta > 0; delta >>= 1)
+    const int width = delta;
+    for (int offset = width >> 1; offset > 0; offset >>= 1)
     {
-        x += __shfl_down_sync(FULL_MASK, x, delta);
+        x += deviceShflDown(FULL_MASK, x, offset, width);
     }
     if (threadIdx.x == 0)
 #endif
@@ -47,11 +49,12 @@ __device__ __forceinline__ void Warp_Sum_To(float* y, float& x, int delta)
 __device__ __forceinline__ void Warp_Sum_To(VECTOR* y, VECTOR& x, int delta)
 {
 #ifdef GPU_ARCH_NAME
-    for (delta >>= 1; delta > 0; delta >>= 1)
+    const int width = delta;
+    for (int offset = width >> 1; offset > 0; offset >>= 1)
     {
-        x.x += __shfl_down_sync(FULL_MASK, x.x, delta);
-        x.y += __shfl_down_sync(FULL_MASK, x.y, delta);
-        x.z += __shfl_down_sync(FULL_MASK, x.z, delta);
+        x.x += deviceShflDown(FULL_MASK, x.x, offset, width);
+        x.y += deviceShflDown(FULL_MASK, x.y, offset, width);
+        x.z += deviceShflDown(FULL_MASK, x.z, offset, width);
     }
     if (threadIdx.x == 0)
 #endif
@@ -63,14 +66,15 @@ __device__ __forceinline__ void Warp_Sum_To(LTMatrix3* y, LTMatrix3& x,
                                             int delta)
 {
 #ifdef GPU_ARCH_NAME
-    for (delta >>= 1; delta > 0; delta >>= 1)
+    const int width = delta;
+    for (int offset = width >> 1; offset > 0; offset >>= 1)
     {
-        x.a11 += __shfl_down_sync(FULL_MASK, x.a11, delta);
-        x.a21 += __shfl_down_sync(FULL_MASK, x.a21, delta);
-        x.a22 += __shfl_down_sync(FULL_MASK, x.a22, delta);
-        x.a31 += __shfl_down_sync(FULL_MASK, x.a31, delta);
-        x.a32 += __shfl_down_sync(FULL_MASK, x.a32, delta);
-        x.a33 += __shfl_down_sync(FULL_MASK, x.a33, delta);
+        x.a11 += deviceShflDown(FULL_MASK, x.a11, offset, width);
+        x.a21 += deviceShflDown(FULL_MASK, x.a21, offset, width);
+        x.a22 += deviceShflDown(FULL_MASK, x.a22, offset, width);
+        x.a31 += deviceShflDown(FULL_MASK, x.a31, offset, width);
+        x.a32 += deviceShflDown(FULL_MASK, x.a32, offset, width);
+        x.a33 += deviceShflDown(FULL_MASK, x.a33, offset, width);
     }
     if (threadIdx.x == 0)
 #endif

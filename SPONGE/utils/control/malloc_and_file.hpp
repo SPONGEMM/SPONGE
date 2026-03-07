@@ -32,7 +32,7 @@ inline bool Device_Malloc_Safely(void** address, size_t size)
 #ifndef NO_GLOBAL_CONTROLLER
         extern CONTROLLER controller;
         controller.Throw_SPONGE_Error(spongeErrorMallocFailed,
-                                      "Cuda_Malloc_Safely");
+                                      "Device_Malloc_Safely");
 #endif
         return false;
     }

@@ -420,13 +420,13 @@ Scatter<T>::Scatter(const vector<int>& numPoints, const vector<float>& lower,
     ScatterBase<T>::data_.resize(data_size);
 }
 template <typename T>
-Scatter<T>::SIterator<T> Scatter<T>::begin(void)
+typename Scatter<T>::template SIterator<T> Scatter<T>::begin(void)
 {
     vector<int> indices(ScatterBase<T>::GetDimension(), 0);
     return iterator(indices, this);
 }
 template <typename T>
-Scatter<T>::SIterator<T> Scatter<T>::end(void)
+typename Scatter<T>::template SIterator<T> Scatter<T>::end(void)
 {
     vector<int> indices(ScatterBase<T>::GetDimension());
     for (size_t i = 0; i < indices.size(); ++i)

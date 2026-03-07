@@ -637,12 +637,12 @@ void REAXFF_VALENCE_ANGLE::Calculate_Valence_Angle_Energy_And_Force(
         need_virial ? atom_virial : NULL, d_energy_ang_sum, d_energy_pen_sum,
         d_energy_coa_sum);
 
-#ifdef USE_CUDA
-    cudaError_t err = cudaGetLastError();
-    if (err != cudaSuccess)
+#ifdef USE_GPU
+    deviceError_t err = deviceGetLastError();
+    if (err != 0)
     {
-        printf("CUDA Error in Calculate_Valence_Angle_Kernel: %s\n",
-               cudaGetErrorString(err));
+        printf("Device Error in Calculate_Valence_Angle_Kernel: %s\n",
+               deviceGetErrorString(err));
     }
 #endif
 }

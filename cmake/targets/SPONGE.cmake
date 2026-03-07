@@ -76,5 +76,5 @@ target_include_directories(sponge_toml PUBLIC ${PROJECT_ROOT_DIR}/SPONGE)
 target_link_libraries(sponge_toml PUBLIC tomlplusplus::tomlplusplus)
 
 add_executable(${CURRENT_TARGET} ${SOURCES})
-target_link_libraries(${CURRENT_TARGET} PRIVATE sponge_toml)
+target_link_libraries(${CURRENT_TARGET} PRIVATE sponge_toml stdc++fs)
 install(TARGETS ${CURRENT_TARGET} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

@@ -73,7 +73,104 @@ static __device__ __forceinline__ double atomicAdd(double* address, double val)
     kernel<<<grid, block, sm_memory, stream>>>(__VA_ARGS__)
 
 #define FULL_MASK 0xffffffff
+
+using device_mask_t = unsigned int;
+
+static __device__ __forceinline__ device_mask_t deviceActiveMask()
+{
+    return __activemask();
+}
+
+template <typename T>
+static __device__ __forceinline__ T deviceShflDown(device_mask_t mask, T value,
+                                                   unsigned int delta,
+                                                   int width = warpSize)
+{
+    return __shfl_down_sync(mask, value, delta, width);
+}
+
+template <typename T>
+static __device__ __forceinline__ T deviceShfl(device_mask_t mask, T value,
+                                               int src_lane,
+                                               int width = warpSize)
+{
+    return __shfl_sync(mask, value, src_lane, width);
+}
+
+static __device__ __forceinline__ device_mask_t deviceBallot(device_mask_t mask,
+                                                             int predicate)
+{
+    return __ballot_sync(mask, predicate);
+}
+
+static __device__ __forceinline__ int devicePopCount(device_mask_t mask)
+{
+    return __popc(mask);
+}
+
+static __device__ __forceinline__ int deviceFindFirstSet(device_mask_t mask)
+{
+    return __ffs(mask);
+}
+
+static __device__ __forceinline__ device_mask_t deviceLowerLaneMask(int lane)
+{
+    return lane <= 0 ? 0U : (device_mask_t { 1 } << lane) - 1U;
+}
+
+static __device__ __forceinline__ void deviceSyncWarp(
+    device_mask_t mask = FULL_MASK)
+{
+    __syncwarp(mask);
+}
+
 #define hostDeviceSynchronize cudaDeviceSynchronize
+
+#define DEVICE_JIT_COMPILER_NAME "NVRTC"
+#define DEVICE_JIT_CODE_NAME "PTX"
+#define deviceCompilerResult_t nvrtcResult
+#define DEVICE_COMPILER_SUCCESS NVRTC_SUCCESS
+#define deviceJitProgram_t nvrtcProgram
+#define deviceJitCreateProgram nvrtcCreateProgram
+#define deviceJitCompileProgram nvrtcCompileProgram
+#define deviceJitDestroyProgram nvrtcDestroyProgram
+#define deviceCompilerGetErrorString nvrtcGetErrorString
+#define deviceJitGetProgramLogSize nvrtcGetProgramLogSize
+#define deviceJitGetProgramLog nvrtcGetProgramLog
+#define deviceJitGetCodeSize nvrtcGetPTXSize
+#define deviceJitGetCode nvrtcGetPTX
+
+#define deviceModule_t CUmodule
+#define deviceFunction_t CUfunction
+#define deviceModuleResult_t CUresult
+#define DEVICE_MODULE_SUCCESS CUDA_SUCCESS
+static inline deviceModuleResult_t deviceModuleLoad(deviceModule_t* module,
+                                                    const void* image)
+{
+    return cuModuleLoadDataEx(module, image, 0, nullptr, nullptr);
+}
+#define deviceModuleGetFunction cuModuleGetFunction
+static inline const char* deviceModuleGetErrorName(deviceModuleResult_t result)
+{
+    const char* name = nullptr;
+    cuGetErrorName(result, &name);
+    return name != nullptr ? name : "CUDA_ERROR_UNKNOWN";
+}
+static inline const char* deviceModuleGetErrorString(deviceModuleResult_t result)
+{
+    const char* reason = nullptr;
+    cuGetErrorString(result, &reason);
+    return reason != nullptr ? reason : "unknown CUDA driver error";
+}
+static inline deviceModuleResult_t deviceModuleLaunchKernel(
+    deviceFunction_t function, unsigned int grid_x, unsigned int grid_y,
+    unsigned int grid_z, unsigned int block_x, unsigned int block_y,
+    unsigned int block_z, unsigned int shared_memory_size,
+    deviceStream_t stream, void** args)
+{
+    return cuLaunchKernel(function, grid_x, grid_y, grid_z, block_x, block_y,
+                          block_z, shared_memory_size, stream, args, nullptr);
+}
 #endif  // BASIC_BACKEND_H
 
 #ifndef FFT_BACKEND_H
@@ -108,6 +205,10 @@ static __device__ __forceinline__ double atomicAdd(double* address, double val)
 #define BLAS_HANDLE cublasHandle_t
 #define BLAS_SUCCESS CUBLAS_STATUS_SUCCESS
 
+#define DEVICE_BLAS_OP_N CUBLAS_OP_N
+#define DEVICE_BLAS_OP_T CUBLAS_OP_T
+#define DEVICE_BLAS_OP_C CUBLAS_OP_C
+
 #define deviceBlasCreate cublasCreate
 #define deviceBlasDestroy cublasDestroy
 #define deviceBlasSgeam cublasSgeam
@@ -123,7 +224,12 @@ static __device__ __forceinline__ double atomicAdd(double* address, double val)
 #define SOLVER_HANDLE cusolverDnHandle_t
 #define SOLVER_SUCCESS CUSOLVER_STATUS_SUCCESS
 
+#define DEVICE_FILL_MODE_UPPER CUBLAS_FILL_MODE_UPPER
+#define DEVICE_EIG_MODE_VECTOR CUSOLVER_EIG_MODE_VECTOR
+
 #define deviceSolverCreate cusolverDnCreate
 #define deviceSolverDestroy cusolverDnDestroy
+#define deviceSolverSsyevdBufferSize cusolverDnSsyevd_bufferSize
+#define deviceSolverSsyevd cusolverDnSsyevd
 
 #endif  // SOLVER_BACKEND_H

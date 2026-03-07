@@ -570,6 +570,7 @@ void CONTROLLER::Init_Device()
 #ifdef USE_GPU
     printf("    Start initializing GPU\n");
 
+#ifdef USE_CUDA
 #ifdef CUDA_VERSION
     int cuda_major_version = CUDA_VERSION / 1000;
     int cuda_minor_version = (CUDA_VERSION - 1000 * cuda_major_version) / 10;
@@ -578,10 +579,28 @@ void CONTROLLER::Init_Device()
 #else
     printf("        Compiled by unknown CUDA version\n");
 #endif  // CUDA_VERSION
+#elif defined(USE_HIP)
+#if defined(HIP_VERSION_MAJOR) && defined(HIP_VERSION_MINOR)
+#ifdef HIP_VERSION_PATCH
+    printf("        Compiled by HIP %d.%d.%d\n", HIP_VERSION_MAJOR,
+           HIP_VERSION_MINOR, HIP_VERSION_PATCH);
+#else
+    printf("        Compiled by HIP %d.%d\n", HIP_VERSION_MAJOR,
+           HIP_VERSION_MINOR);
+#endif
+#else
+    printf("        Compiled by unknown HIP/ROCm version\n");
+#endif
+#endif
 
     if (deviceInit(0) != DEVICE_INIT_SUCCESS)
+    {
+        std::string error_reason = string_format(
+            "Reason:\n\tFail to initialize %backend% runtime",
+            {{"backend", GPU_ARCH_NAME}});
         Throw_SPONGE_Error(spongeErrorMallocFailed, "CONTROLLER::Init_Device",
-                           "Reason:\n\tFail to initialize cuda");
+                           error_reason.c_str());
+    }
 
     if (Command_Exist("device"))
     {
@@ -628,10 +647,18 @@ neither equal to the size of MPI ranks (%d) nor 1\n",
     {
         getDeviceProperties(&prop, i);
         GlobalMem = (float)prop.totalGlobalMem / 1024.0f / 1024.0f / 1024.0f;
+#ifdef USE_HIP
+        std::string runtime_arch = Get_Device_Runtime_Arch_Name(prop);
+        printf(
+            "            Device %d:\n                Name: %s\n                "
+            "Memory: %.1f GB\n                Architecture: %s\n",
+            i, prop.name, GlobalMem, runtime_arch.c_str());
+#else
         printf(
             "            Device %d:\n                Name: %s\n                "
             "Memory: %.1f GB\n                Compute Capability: %d%d\n",
             i, prop.name, GlobalMem, prop.major, prop.minor);
+#endif
         if (i == working_device)
         {
             device_max_thread = prop.maxThreadsPerBlock;
@@ -673,6 +700,12 @@ neither equal to the size of MPI ranks (%d) nor 1\n",
     printf("        Runtime CUDA ARCH %d.%d\n", runtime_arch_bin / 10,
            runtime_arch_bin % 10);
 #endif  // USE_CUDA
+#ifdef USE_HIP
+    getDeviceProperties(&prop, working_device);
+    printf("        Runtime HIP ARCH %s\n",
+           Get_Device_Runtime_Arch_Name(prop).c_str());
+    printf("        Runtime backend HIP/ROCm\n");
+#endif
     printf("    End initializing GPU\n");
 #else
     printf("    Start initializing OpenMP\n");

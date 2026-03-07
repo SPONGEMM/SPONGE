@@ -23,6 +23,33 @@ function(CheckCuda)
   endif()
 endfunction()
 
+function(CheckHIP)
+  message(STATUS "Performing Test HAVE_HIP")
+  find_program(HIPCC_EXECUTABLE hipcc)
+  find_program(HIPCONFIG_EXECUTABLE hipconfig)
+  if(NOT HIPCC_EXECUTABLE OR NOT HIPCONFIG_EXECUTABLE)
+    message(STATUS "Performing Test HAVE_HIP - Failed")
+    return()
+  endif()
+
+  execute_process(
+    COMMAND "${HIPCONFIG_EXECUTABLE}" --platform
+    OUTPUT_VARIABLE HIP_PLATFORM_OUTPUT
+    ERROR_VARIABLE HIP_PLATFORM_ERROR
+    RESULT_VARIABLE HIP_PLATFORM_RESULT
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+  string(STRIP "${HIP_PLATFORM_OUTPUT}" HIP_PLATFORM_OUTPUT)
+
+  if(HIP_PLATFORM_RESULT EQUAL 0 AND HIP_PLATFORM_OUTPUT STREQUAL "amd")
+    set(PARALLEL_BACKEND
+        "hip"
+        PARENT_SCOPE)
+    message(STATUS "Performing Test HAVE_HIP - Success")
+  else()
+    message(STATUS "Performing Test HAVE_HIP - Failed")
+  endif()
+endfunction()
+
 function(CheckAVX512)
   if(MSVC)
     set(CMAKE_REQUIRED_FLAGS "/arch:AVX512")
@@ -205,7 +232,7 @@ function(CheckNeon)
   endif()
 endfunction()
 
-set(PARALLEL_BACKEND_GPU_CHECK_FUNCTIONS CheckCuda)
+set(PARALLEL_BACKEND_GPU_CHECK_FUNCTIONS CheckCuda CheckHIP)
 
 set(PARALLEL_BACKEND_CPU_CHECK_FUNCTIONS
     CheckAVX512

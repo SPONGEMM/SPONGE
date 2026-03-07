@@ -369,12 +369,19 @@ void LISTED_FORCE::Compile(CONTROLLER* controller)
         "%s\n",
         needed_bond.size(), needed_angle.size(), needed_dihedral.size(),
         this->module_name);
-    std::string full_source_code = R"JIT(#ifdef __CUDACC__
+    std::string full_source_code = R"JIT(#if defined(__CUDACC__)
 #ifndef USE_GPU
 #define USE_GPU
 #endif
 #ifndef USE_CUDA
 #define USE_CUDA
+#endif
+#elif defined(__HIPCC__) || defined(__HIPCC_RTC__)
+#ifndef USE_GPU
+#define USE_GPU
+#endif
+#ifndef USE_HIP
+#define USE_HIP
 #endif
 #endif
 #include "common.h"

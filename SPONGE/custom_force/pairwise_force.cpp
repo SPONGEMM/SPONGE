@@ -188,12 +188,19 @@ void PAIRWISE_FORCE::JIT_Compile(CONTROLLER* controller)
             "        %s will not be calculated with direct part of the "
             "electrostatic potential\n",
             this->force_name.c_str());
-    std::string full_source_code = R"JIT(#ifdef __CUDACC__
+    std::string full_source_code = R"JIT(#if defined(__CUDACC__)
 #ifndef USE_GPU
 #define USE_GPU
 #endif
 #ifndef USE_CUDA
 #define USE_CUDA
+#endif
+#elif defined(__HIPCC__) || defined(__HIPCC_RTC__)
+#ifndef USE_GPU
+#define USE_GPU
+#endif
+#ifndef USE_HIP
+#define USE_HIP
 #endif
 #endif
 #include "common.h"

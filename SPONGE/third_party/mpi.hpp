@@ -2,11 +2,14 @@
 
 #define SPONGE_MPI_ROOT 0
 
+#ifdef USE_CUDA
+#define USE_XCCL
+#endif
+
 #ifdef USE_MPI
 #include <mpi.h>
-#ifdef USE_CUDA
+#ifdef USE_XCCL
 #include <nccl.h>
-#define USE_XCCL
 #define xcclUniqueId ncclUniqueId
 #define xcclGetUniqueId ncclGetUniqueId
 #define xcclCommInitRank ncclCommInitRank
@@ -66,7 +69,7 @@ struct SPONGE_MPI_WRAPPER
     {
 #ifndef USE_MPI
 
-#elif defined(GPU_ARCH_NAME)
+#elif defined(USE_XCCL)
         xcclAllReduce(ptr, ptr, count, xcclFloat, xcclSum, comm, NULL);
 #else
         MPI_Allreduce(MPI_IN_PLACE, ptr, count, MPI_FLOAT, MPI_SUM, comm);
@@ -78,7 +81,7 @@ struct SPONGE_MPI_WRAPPER
     {
 #ifndef USE_MPI
 
-#elif defined(GPU_ARCH_NAME)
+#elif defined(USE_XCCL)
         float* temp;
         xcclGroupStart();
         for (int i = 0; i < MPI_size; i++)
@@ -98,7 +101,7 @@ struct SPONGE_MPI_WRAPPER
 // xccl 中，没有tag，而是需要在同一个stream中依次发送和接收
 #ifdef USE_MPI
 //-------------------USE_NCCL-------------------
-#ifdef USE_GPU
+#ifdef USE_XCCL
 #define D_MPI_Request deviceStream_t
 #define D_MPI_Status int
 #define D_MPI_Isend(buf, count, datatype, dest, tag, comm, request) \

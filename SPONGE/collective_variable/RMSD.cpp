@@ -6,26 +6,34 @@ static __global__ void Get_Center_of_Atoms(int atom_numbers, int* atoms,
                                            VECTOR* crd, VECTOR* points)
 {
 #ifdef USE_GPU
-    __shared__ VECTOR crd_sum[1024];
-    crd_sum[threadIdx.x] = {0, 0, 0};
+    __shared__ float crd_sum_x[1024];
+    __shared__ float crd_sum_y[1024];
+    __shared__ float crd_sum_z[1024];
+    crd_sum_x[threadIdx.x] = 0.0f;
+    crd_sum_y[threadIdx.x] = 0.0f;
+    crd_sum_z[threadIdx.x] = 0.0f;
     VECTOR tempc;
     for (int i = threadIdx.x; i < atom_numbers; i += blockDim.x)
     {
         tempc = crd[atoms[i]];
         points[i] = tempc;
-        crd_sum[threadIdx.x] = crd_sum[threadIdx.x] + tempc;
+        crd_sum_x[threadIdx.x] += tempc.x;
+        crd_sum_y[threadIdx.x] += tempc.y;
+        crd_sum_z[threadIdx.x] += tempc.z;
     }
     __syncthreads();
     for (int i = 512; i > 0; i >>= 1)
     {
         if (threadIdx.x < i)
         {
-            crd_sum[threadIdx.x] =
-                crd_sum[threadIdx.x] + crd_sum[i + threadIdx.x];
+            crd_sum_x[threadIdx.x] += crd_sum_x[i + threadIdx.x];
+            crd_sum_y[threadIdx.x] += crd_sum_y[i + threadIdx.x];
+            crd_sum_z[threadIdx.x] += crd_sum_z[i + threadIdx.x];
         }
         __syncthreads();
     }
-    tempc = 1.0f / atom_numbers * crd_sum[0];
+    tempc = {crd_sum_x[0] / atom_numbers, crd_sum_y[0] / atom_numbers,
+             crd_sum_z[0] / atom_numbers};
     for (int i = threadIdx.x; i < atom_numbers; i += blockDim.x)
     {
         points[i] = points[i] - tempc;

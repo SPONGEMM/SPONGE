@@ -10,10 +10,12 @@ conda-pypi-map = { conda-forge = "scripts/conda-pypi-map.json" }
 [environments]
 cpu = ["cpu"]
 cpu-mpi = ["cpu-mpi", "cpu"]
+hip = ["hip"]
 cuda12 = ["cuda", "cuda12"]
 cuda13 = ["cuda", "cuda13"]
 dev-cpu = ["dev", "cpu"]
 dev-cpu-mpi = ["dev", "cpu-mpi", "cpu"]
+dev-hip = ["dev", "hip"]
 dev-cuda12 = ["dev", "cuda", "cuda12"]
 dev-cuda13 = ["dev", "cuda", "cuda13"]
 ref-gen = ["ref-gen"]
@@ -52,6 +54,11 @@ cuda-nvcc = "13.0.*"
 
 [feature.cuda13.target.win-64.dependencies]
 cuda-nvcc = "13.0.*"
+
+[feature.hip.target.linux-64.dependencies]
+cmake = ">=3.24,<4"
+ninja = "*"
+tomlplusplus = "*"
 
 [feature.cpu.dependencies]
 zlib = "*"
@@ -191,6 +198,10 @@ compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target 
 
 [feature.cuda.target.win-64.tasks]
 configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='cuda' -DCUDA_ARCH='all-major' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
+compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
+
+[feature.hip.target.linux-64.tasks]
+configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='hip' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\""
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
 
 [feature.ref-gen.target.linux-64.tasks]
