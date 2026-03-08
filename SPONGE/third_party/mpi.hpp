@@ -2,7 +2,7 @@
 
 #define SPONGE_MPI_ROOT 0
 
-#ifdef USE_CUDA
+#if defined(USE_CUDA) && defined(USE_MPI)
 #define USE_XCCL
 #endif
 

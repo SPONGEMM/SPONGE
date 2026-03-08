@@ -763,7 +763,7 @@ void CONTROLLER::Init_Device_MPI()
     printf("    Start initializing Device MPI\n");
     printf("        Total %d MPI process(es)\n", MPI_size);
 
-#ifdef USE_GPU
+#ifdef USE_XCCL
     xcclUniqueId id;
     if (MPI_rank == 0) xcclGetUniqueId(&id);
     MPI_Bcast(&id, sizeof(id), MPI_BYTE, SPONGE_MPI_ROOT, MPI_COMM_WORLD);
@@ -877,7 +877,7 @@ void CONTROLLER::Clear()
             getchar();
         }
 #ifdef USE_MPI
-#ifdef USE_GPU
+#ifdef USE_XCCL
         if (CONTROLLER::MPI_size > 1)
         {
             xcclCommDestroy(CONTROLLER::D_MPI_COMM_WORLD);
