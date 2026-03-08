@@ -150,7 +150,7 @@ jobs:
         run: pixi install -e ${{ matrix.env_name }}
 
       - name: Format check
-        run: pixi run -e ${{ matrix.env_name }} format
+        run: pixi run -e ${{ matrix.env_name }} format-check
 
       - name: Configure SPONGE-CPU-MPI
         run: pixi run -e ${{ matrix.env_name }} configure
