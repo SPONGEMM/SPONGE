@@ -146,11 +146,11 @@ enum deviceEigMode_t
             (C)[i] = (*(alpha)) * (A)[i] + (*(beta)) * (B)[i];                \
     } while (0)
 
-#define deviceBlasSgemm(handle, transa, transb, m, n, k, alpha, A, lda, B,    \
-                        ldb, beta, C, ldc)                                    \
-    cblas_sgemm(CblasColMajor,                                                \
-                (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),     \
-                (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m,  \
+#define deviceBlasSgemm(handle, transa, transb, m, n, k, alpha, A, lda, B,   \
+                        ldb, beta, C, ldc)                                   \
+    cblas_sgemm(CblasColMajor,                                               \
+                (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),    \
+                (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m, \
                 n, k, *(alpha), A, lda, B, ldb, *(beta), C, ldc)
 #endif
 

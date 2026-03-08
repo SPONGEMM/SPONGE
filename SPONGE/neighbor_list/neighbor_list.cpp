@@ -395,9 +395,8 @@ static __global__ void Find_Neighbors_Gridly(
 
                         if (is_neighbor)
                         {
-                            int rank = devicePopCount(mask &
-                                                      deviceLowerLaneMask(
-                                                          lane));
+                            int rank = devicePopCount(
+                                mask & deviceLowerLaneMask(lane));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =
@@ -473,9 +472,8 @@ static __global__ void Find_Neighbors_Gridly(
 
                         if (is_neighbor)
                         {
-                            int rank = devicePopCount(mask &
-                                                      deviceLowerLaneMask(
-                                                          lane));
+                            int rank = devicePopCount(
+                                mask & deviceLowerLaneMask(lane));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =

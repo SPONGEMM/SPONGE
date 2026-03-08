@@ -595,9 +595,9 @@ void CONTROLLER::Init_Device()
 
     if (deviceInit(0) != DEVICE_INIT_SUCCESS)
     {
-        std::string error_reason = string_format(
-            "Reason:\n\tFail to initialize %backend% runtime",
-            {{"backend", GPU_ARCH_NAME}});
+        std::string error_reason =
+            string_format("Reason:\n\tFail to initialize %backend% runtime",
+                          {{"backend", GPU_ARCH_NAME}});
         Throw_SPONGE_Error(spongeErrorMallocFailed, "CONTROLLER::Init_Device",
                            error_reason.c_str());
     }

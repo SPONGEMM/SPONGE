@@ -115,7 +115,7 @@ static __device__ __forceinline__ int deviceFindFirstSet(device_mask_t mask)
 
 static __device__ __forceinline__ device_mask_t deviceLowerLaneMask(int lane)
 {
-    return lane <= 0 ? 0U : (device_mask_t { 1 } << lane) - 1U;
+    return lane <= 0 ? 0U : (device_mask_t{1} << lane) - 1U;
 }
 
 static __device__ __forceinline__ void deviceSyncWarp(
@@ -156,7 +156,8 @@ static inline const char* deviceModuleGetErrorName(deviceModuleResult_t result)
     cuGetErrorName(result, &name);
     return name != nullptr ? name : "CUDA_ERROR_UNKNOWN";
 }
-static inline const char* deviceModuleGetErrorString(deviceModuleResult_t result)
+static inline const char* deviceModuleGetErrorString(
+    deviceModuleResult_t result)
 {
     const char* reason = nullptr;
     cuGetErrorString(result, &reason);

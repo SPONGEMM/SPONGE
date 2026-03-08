@@ -82,9 +82,8 @@ struct JIT_Function
         const char* headers[1] = {common_h.c_str()};
         const char* header_names[1] = {"common.h"};
         deviceJitProgram_t prog;
-        deviceCompilerResult_t compiler_result =
-            deviceJitCreateProgram(&prog, source.c_str(), NULL, 1, headers,
-                                   header_names);
+        deviceCompilerResult_t compiler_result = deviceJitCreateProgram(
+            &prog, source.c_str(), NULL, 1, headers, header_names);
         if (compiler_result != DEVICE_COMPILER_SUCCESS)
         {
             error_reason = string_format(
@@ -149,11 +148,11 @@ struct JIT_Function
         deviceJitGetCodeSize(prog, &code_size);
         if (code_size == 0)
         {
-            error_reason = string_format(
-                "%compiler% returned an empty %kind% for %f%",
-                {{"compiler", DEVICE_JIT_COMPILER_NAME},
-                 {"kind", DEVICE_JIT_CODE_NAME},
-                 {"f", name}});
+            error_reason =
+                string_format("%compiler% returned an empty %kind% for %f%",
+                              {{"compiler", DEVICE_JIT_COMPILER_NAME},
+                               {"kind", DEVICE_JIT_CODE_NAME},
+                               {"f", name}});
             deviceJitDestroyProgram(&prog);
             return;
         }
@@ -162,8 +161,8 @@ struct JIT_Function
         deviceJitGetCode(prog, code.data());
 
         deviceModule_t module;
-        deviceModuleResult_t module_result = deviceModuleLoad(&module,
-                                                              code.data());
+        deviceModuleResult_t module_result =
+            deviceModuleLoad(&module, code.data());
         if (module_result != DEVICE_MODULE_SUCCESS)
         {
             error_reason = string_format(
@@ -174,7 +173,8 @@ struct JIT_Function
             deviceJitDestroyProgram(&prog);
             return;
         }
-        module_result = deviceModuleGetFunction(&function, module, name.c_str());
+        module_result =
+            deviceModuleGetFunction(&function, module, name.c_str());
         if (module_result != DEVICE_MODULE_SUCCESS)
         {
             error_reason = string_format(

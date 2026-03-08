@@ -1,10 +1,9 @@
-#ifndef BASIC_BACKEND_H
+﻿#ifndef BASIC_BACKEND_H
 #define BASIC_BACKEND_H
 #define GPU_ARCH_NAME "HIP"
 
 #include <hip/hip_runtime.h>
 #include <hip/hiprtc.h>
-
 #include <hiprand/hiprand_kernel.h>
 
 #define Philox4_32_10_t hiprandStatePhilox4_32_10_t
@@ -101,9 +100,9 @@ static __device__ __forceinline__ device_mask_t deviceLowerLaneMask(int lane)
     }
     if (lane >= static_cast<int>(sizeof(device_mask_t) * 8))
     {
-        return ~device_mask_t { 0 };
+        return ~device_mask_t{0};
     }
-    return (device_mask_t { 1 } << lane) - 1;
+    return (device_mask_t{1} << lane) - 1;
 }
 
 static __device__ __forceinline__ void deviceSyncWarp(
@@ -144,7 +143,8 @@ static inline const char* deviceModuleGetErrorName(deviceModuleResult_t result)
 {
     return hipGetErrorName(result);
 }
-static inline const char* deviceModuleGetErrorString(deviceModuleResult_t result)
+static inline const char* deviceModuleGetErrorString(
+    deviceModuleResult_t result)
 {
     return hipGetErrorString(result);
 }

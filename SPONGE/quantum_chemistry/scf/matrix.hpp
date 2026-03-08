@@ -103,8 +103,7 @@ static inline void QC_Diagonalize(SOLVER_HANDLE solver_handle, int n,
 {
 #ifdef USE_GPU
     deviceSolverSsyevd(solver_handle, DEVICE_EIG_MODE_VECTOR,
-                       DEVICE_FILL_MODE_UPPER, n, mat, n, w, work, lwork,
-                       info);
+                       DEVICE_FILL_MODE_UPPER, n, mat, n, w, work, lwork, info);
 #elif defined(USE_MKL) || defined(USE_OPENBLAS)
     *info = (int)LAPACKE_ssyevd_work(
         LAPACK_COL_MAJOR, 'V', 'U', (lapack_int)n, mat, (lapack_int)n, w, work,
@@ -121,8 +120,8 @@ static inline void QC_MatMul_RowRow_Blas(BLAS_HANDLE blas_handle, const int m,
 {
     const float alpha = 1.0f;
     const float beta = 0.0f;
-    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, n, m,
-                    kdim, &alpha, B_row, n, A_row, kdim, &beta, C_row, n);
+    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, n, m, kdim,
+                    &alpha, B_row, n, A_row, kdim, &beta, C_row, n);
 }
 
 static inline void QC_MatMul_RowCol_Blas(BLAS_HANDLE blas_handle, const int m,
@@ -132,8 +131,8 @@ static inline void QC_MatMul_RowCol_Blas(BLAS_HANDLE blas_handle, const int m,
 {
     const float alpha = 1.0f;
     const float beta = 0.0f;
-    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, n, m,
-                    kdim, &alpha, B_col, kdim, A_row, kdim, &beta, C_row, n);
+    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, n, m, kdim,
+                    &alpha, B_col, kdim, A_row, kdim, &beta, C_row, n);
 }
 
 static inline void QC_Build_Density_Blas(BLAS_HANDLE blas_handle, const int nao,

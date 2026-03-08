@@ -74,7 +74,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
                 const int shared_idx = threadIdx.y * WAT_POINTS + i;
                 VECTOR_LJ r1 = {
                     {r1s_x[shared_idx], r1s_y[shared_idx], r1s_z[shared_idx]},
-                    r1s_lj_type[shared_idx], r1s_charge[shared_idx]};
+                    r1s_lj_type[shared_idx],
+                    r1s_charge[shared_idx]};
                 VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
                 float dr_abs = norm3df(dr.x, dr.y, dr.z);
                 if (dr_abs < cutoff)
@@ -263,10 +264,9 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
 #ifdef USE_GPU
         dim3 blockSize = {
             static_cast<unsigned int>(CONTROLLER::device_warp),
-            static_cast<unsigned int>(
-                min(8u, static_cast<unsigned int>(
-                            CONTROLLER::device_max_thread /
-                            CONTROLLER::device_warp)))};
+            static_cast<unsigned int>(min(
+                8u, static_cast<unsigned int>(CONTROLLER::device_max_thread /
+                                              CONTROLLER::device_warp)))};
         dim3 gridSize(static_cast<unsigned int>(
             (residue_numbers - solvent_start_local + blockSize.y - 1) /
             blockSize.y));
