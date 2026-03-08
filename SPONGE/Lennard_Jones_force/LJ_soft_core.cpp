@@ -79,11 +79,11 @@ __global__ void Copy_Crd_To_New_Crd(const int atom_numbers, const VECTOR* crd,
 
 static __global__ void Total_C6_Get(int atom_numbers, int* atom_lj_type_A,
                                     int* atom_lj_type_B, float* d_lj_Ab,
-                                    float* d_lj_Bb, float* d_factor,
+                                    float* d_lj_Bb, double* d_factor,
                                     const float lambda)
 {
     int j;
-    float temp_sum = 0.0;
+    double temp_sum = 0.0;
     int xA, yA, xB, yB;
     int itype_A, jtype_A, itype_B, jtype_B, atom_pair_LJ_type_A,
         atom_pair_LJ_type_B;
@@ -101,6 +101,7 @@ static __global__ void Total_C6_Get(int atom_numbers, int* atom_lj_type_A,
     {
         itype_A = atom_lj_type_A[i];
         itype_B = atom_lj_type_B[i];
+        double temp_small_sum = 0.0;
 #ifdef USE_GPU
         for (j = blockIdx.y * blockDim.y + threadIdx.y; j < atom_numbers;
              j += gridDim.y * blockDim.y)
@@ -126,19 +127,20 @@ static __global__ void Total_C6_Get(int atom_numbers, int* atom_lj_type_A,
             xB = (xB - yB) >> 1;
             atom_pair_LJ_type_B = (jtype_B * (jtype_B + 1) >> 1) + xB;
 
-            temp_sum += lambda_ * d_lj_Ab[atom_pair_LJ_type_A];
-            temp_sum += lambda * d_lj_Bb[atom_pair_LJ_type_B];
+            temp_small_sum += lambda_ * d_lj_Ab[atom_pair_LJ_type_A];
+            temp_small_sum += lambda * d_lj_Bb[atom_pair_LJ_type_B];
         }
+        temp_sum += temp_small_sum;
     }
     atomicAdd(d_factor, temp_sum);
 }
 
 static __global__ void Total_C6_B_A_Get(int atom_numbers, int* atom_lj_type_A,
                                         int* atom_lj_type_B, float* d_lj_Ab,
-                                        float* d_lj_Bb, float* d_factor)
+                                        float* d_lj_Bb, double* d_factor)
 {
     int j;
-    float temp_sum = 0.0;
+    double temp_sum = 0.0;
     int xA, yA, xB, yB;
     int itype_A, jtype_A, itype_B, jtype_B, atom_pair_LJ_type_A,
         atom_pair_LJ_type_B;
@@ -154,6 +156,7 @@ static __global__ void Total_C6_B_A_Get(int atom_numbers, int* atom_lj_type_A,
     {
         itype_A = atom_lj_type_A[i];
         itype_B = atom_lj_type_B[i];
+        double temp_small_sum = 0.0;
 #ifdef USE_GPU
         for (j = blockIdx.y * blockDim.y + threadIdx.y; j < atom_numbers;
              j += gridDim.y * blockDim.y)
@@ -179,9 +182,10 @@ static __global__ void Total_C6_B_A_Get(int atom_numbers, int* atom_lj_type_A,
             xB = (xB - yB) >> 1;
             atom_pair_LJ_type_B = (jtype_B * (jtype_B + 1) >> 1) + xB;
 
-            temp_sum +=
+            temp_small_sum +=
                 d_lj_Bb[atom_pair_LJ_type_B] - d_lj_Ab[atom_pair_LJ_type_A];
         }
+        temp_sum += temp_small_sum;
     }
     atomicAdd(d_factor, temp_sum);
 }
@@ -611,9 +615,10 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
             d_subsys_division);
         controller->printf("    Start initializing long range LJ correction\n");
         long_range_factor = 0;
-        float* d_factor = NULL;
-        Device_Malloc_Safely((void**)&d_factor, sizeof(float));
-        deviceMemset(d_factor, 0, sizeof(float));
+        double h_factor = 0.0;
+        double* d_factor = NULL;
+        Device_Malloc_Safely((void**)&d_factor, sizeof(double));
+        deviceMemset(d_factor, 0, sizeof(double));
 
         dim3 gridSize = {4, 4};
         dim3 blockSize = {32, 32};
@@ -621,15 +626,17 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
                              atom_numbers, d_atom_LJ_type_A, d_atom_LJ_type_B,
                              d_LJ_AB, d_LJ_BB, d_factor, this->lambda);
 
-        deviceMemcpy(&long_range_factor, d_factor, sizeof(float),
+        deviceMemcpy(&h_factor, d_factor, sizeof(double),
                      deviceMemcpyDeviceToHost);
-        deviceMemset(d_factor, 0, sizeof(float));
+        long_range_factor = (float)h_factor;
+        deviceMemset(d_factor, 0, sizeof(double));
 
         Launch_Device_Kernel(Total_C6_B_A_Get, gridSize, blockSize, 0, NULL,
                              atom_numbers, d_atom_LJ_type_A, d_atom_LJ_type_B,
                              d_LJ_AB, d_LJ_BB, d_factor);
-        deviceMemcpy(&long_range_factor_TI, d_factor, sizeof(float),
+        deviceMemcpy(&h_factor, d_factor, sizeof(double),
                      deviceMemcpyDeviceToHost);
+        long_range_factor_TI = (float)h_factor;
         Free_Single_Device_Pointer((void**)&d_factor);
 
         long_range_factor *=
