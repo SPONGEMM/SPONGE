@@ -77,7 +77,4 @@ target_link_libraries(sponge_toml PUBLIC tomlplusplus::tomlplusplus)
 
 add_executable(${CURRENT_TARGET} ${SOURCES})
 target_link_libraries(${CURRENT_TARGET} PRIVATE sponge_toml)
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  target_link_libraries(${CURRENT_TARGET} PRIVATE stdc++fs)
-endif()
 install(TARGETS ${CURRENT_TARGET} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
