@@ -59,7 +59,7 @@ def _write_prips_script(case_dir, backend):
         "    step = Sponge.md_info.sys.steps\n"
         "    before = float(frc[0, 0])\n"
         "    if step == 1:\n"
-        "        frc[0, 0] = before + _force_delta\n"
+        "        frc[0, 0] += _force_delta\n"
         "    after = float(frc[0, 0])\n"
         "    with open('prips_hook.log', 'a', encoding='utf-8') as f:\n"
         "        f.write(\n"
