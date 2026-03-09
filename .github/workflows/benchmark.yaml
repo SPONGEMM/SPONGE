@@ -130,8 +130,8 @@ jobs:
       - name: Install CPU backends for PRIPS
         shell: bash
         run: |
-          pixi run -e ${{ matrix.env_name }} python -m pip install "jax[cpu]"
-          pixi run -e ${{ matrix.env_name }} python -m pip install torch
+          pixi add --feature dev --platform ${{ matrix.target }} --pypi "jax[cpu]"
+          pixi add --feature dev --platform ${{ matrix.target }} --pypi torch
 
       - name: Benchmark validation/prips (jax)
         run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips

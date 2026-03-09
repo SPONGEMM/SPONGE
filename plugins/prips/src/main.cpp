@@ -591,9 +591,9 @@ def set_backend(backend):
             f"backend 'numpy' requires CPU tensors, but current device is "
             f"{_device_name(device_type)}"
         )
-    if backend_name in ("cupy", "jax", "pytorch", "torch") and device_type == 1:
+    if backend_name == "cupy" and device_type == 1:
         raise ValueError(
-            f"backend '{backend_name}' expects GPU tensors, but current device is "
+            "backend 'cupy' requires GPU tensors, but current device is "
             f"{_device_name(device_type)}"
         )
     Sponge.backend = _resolve_backend(backend_name)
