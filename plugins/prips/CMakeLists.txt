@@ -16,8 +16,6 @@ set_target_properties(
              SUFFIX ".so")
 target_include_directories(${PROJECT_NAME} PRIVATE ${Python3_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PRIVATE Python3::Python)
-target_compile_definitions(${PROJECT_NAME}
-                           PRIVATE PYTHON_LIB_PATH="${Python3_LIBRARIES}")
 
 file(
   GENERATE

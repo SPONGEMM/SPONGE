@@ -339,11 +339,6 @@ PLUGIN_API void Initial(MD_INFORMATION* md, CONTROLLER* ctrl, NEIGHBOR_LIST* nl,
                        std::to_string(SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION));
     }
     controller_printf("    initializing pyplugin\n");
-    if (dlopen(PYTHON_LIB_PATH, RTLD_NOW | RTLD_GLOBAL) == NULL)
-    {
-        fprintf(stderr, "        Load Python Library Failed.\n");
-        exit(1);
-    }
     if (controller_command_exist("py"))
     {
         py_script_path = controller_command("py");
