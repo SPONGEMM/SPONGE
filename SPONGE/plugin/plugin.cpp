@@ -7,7 +7,7 @@ CONTROLLER* g_plugin_controller = NULL;
 NEIGHBOR_LIST* g_plugin_neighbor_list = NULL;
 DOMAIN_INFORMATION* g_plugin_domain_info = NULL;
 SPONGE_PLUGIN_API g_prips_api = {};
-}
+}  // namespace
 
 std::map<std::string,
          std::function<void(COLLECTIVE_VARIABLE_CONTROLLER*, int, const char*)>>
@@ -54,10 +54,7 @@ void PluginLogMessage(const char* message)
     g_plugin_controller->printf("%s", message);
 }
 
-int PluginGetMPIRank()
-{
-    return CONTROLLER::MPI_rank;
-}
+int PluginGetMPIRank() { return CONTROLLER::MPI_rank; }
 
 int PluginGetAtomNumbers()
 {
@@ -81,15 +78,16 @@ void* PluginGetForcePtr()
 
 int PluginGetNeighborListMaxNumbers()
 {
-    return g_plugin_neighbor_list == NULL ? 0
-                                          : g_plugin_neighbor_list->max_neighbor_numbers;
+    return g_plugin_neighbor_list == NULL
+               ? 0
+               : g_plugin_neighbor_list->max_neighbor_numbers;
 }
 
 int PluginGetNeighborListCount(int atom_index)
 {
-    if (g_plugin_neighbor_list == NULL || g_plugin_neighbor_list->h_nl == NULL ||
-        g_plugin_md_info == NULL || atom_index < 0 ||
-        atom_index >= g_plugin_md_info->atom_numbers)
+    if (g_plugin_neighbor_list == NULL ||
+        g_plugin_neighbor_list->h_nl == NULL || g_plugin_md_info == NULL ||
+        atom_index < 0 || atom_index >= g_plugin_md_info->atom_numbers)
     {
         return 0;
     }
@@ -107,12 +105,14 @@ void* PluginGetNeighborListIndexPtr()
 
 int PluginGetLocalAtomNumbers()
 {
-    return g_plugin_domain_info == NULL ? 0 : g_plugin_domain_info->atom_numbers;
+    return g_plugin_domain_info == NULL ? 0
+                                        : g_plugin_domain_info->atom_numbers;
 }
 
 int PluginGetLocalGhostNumbers()
 {
-    return g_plugin_domain_info == NULL ? 0 : g_plugin_domain_info->ghost_numbers;
+    return g_plugin_domain_info == NULL ? 0
+                                        : g_plugin_domain_info->ghost_numbers;
 }
 
 int PluginGetLocalPPRank()
@@ -122,24 +122,28 @@ int PluginGetLocalPPRank()
 
 int PluginGetLocalMaxAtomNumbers()
 {
-    return g_plugin_domain_info == NULL ? 0
-                                        : g_plugin_domain_info->max_atom_numbers;
+    return g_plugin_domain_info == NULL
+               ? 0
+               : g_plugin_domain_info->max_atom_numbers;
 }
 
 void* PluginGetAtomLocalPtr()
 {
-    return g_plugin_domain_info == NULL ? NULL : g_plugin_domain_info->atom_local;
+    return g_plugin_domain_info == NULL ? NULL
+                                        : g_plugin_domain_info->atom_local;
 }
 
 void* PluginGetAtomLocalLabelPtr()
 {
-    return g_plugin_domain_info == NULL ? NULL
-                                        : g_plugin_domain_info->atom_local_label;
+    return g_plugin_domain_info == NULL
+               ? NULL
+               : g_plugin_domain_info->atom_local_label;
 }
 
 void* PluginGetAtomLocalIdPtr()
 {
-    return g_plugin_domain_info == NULL ? NULL : g_plugin_domain_info->atom_local_id;
+    return g_plugin_domain_info == NULL ? NULL
+                                        : g_plugin_domain_info->atom_local_id;
 }
 
 void* PluginGetLocalCoordinatePtr()
@@ -293,11 +297,11 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                                            error_reason.c_str());
         }
 
-        stable_initial_func =
-            (InitialStableFunction)dlsym(plugin_handles[count], "Initial_Stable");
-        version_check_error = version_check_func(stable_initial_func != NULL
-                                                     ? SPONGE_PRIPS_API_VERSION
-                                                     : controller->last_modify_date);
+        stable_initial_func = (InitialStableFunction)dlsym(
+            plugin_handles[count], "Initial_Stable");
+        version_check_error = version_check_func(
+            stable_initial_func != NULL ? SPONGE_PRIPS_API_VERSION
+                                        : controller->last_modify_date);
         if (!version_check_error.empty())
         {
             std::string error_reason =

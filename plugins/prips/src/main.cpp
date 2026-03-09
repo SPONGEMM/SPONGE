@@ -17,9 +17,9 @@
 #include <cstdlib>
 #include <sstream>
 
+#include "../include/sponge_plugin_api.h"
 #include "Python.h"
 #include "dlpack.h"
-#include "../include/sponge_plugin_api.h"
 
 static const SPONGE_PLUGIN_API* sponge_api = NULL;
 static int is_initialized = 0;
@@ -64,8 +64,8 @@ PLUGIN_API std::string Version_Check(int i)
     {
         return std::string(
             "Reason:\n\tPRIPS v2.0a0 expects SPONGE plugin API version " +
-            std::to_string(SPONGE_PRIPS_API_VERSION) +
-            ", but got " + std::to_string(i));
+            std::to_string(SPONGE_PRIPS_API_VERSION) + ", but got " +
+            std::to_string(i));
     }
     return std::string();
 }
@@ -113,10 +113,10 @@ static PyObject* Atom_Numbers(PyObject* self, PyObject* args)
 
 static PyObject* Steps(PyObject* self, PyObject* args)
 {
-    return Py_BuildValue(
-        "i", sponge_api == NULL || sponge_api->get_steps == NULL
-                 ? 0
-                 : sponge_api->get_steps());
+    return Py_BuildValue("i",
+                         sponge_api == NULL || sponge_api->get_steps == NULL
+                             ? 0
+                             : sponge_api->get_steps());
 }
 
 static PyObject* Coordinate(PyObject* self, PyObject* args)
@@ -266,7 +266,8 @@ static PyObject* Neighbor_List_Numbers(PyObject* self, PyObject* args)
     for (int i = 0; i < atom_numbers; i++)
     {
         PyList_SET_ITEM(
-            numbers, i, PyLong_FromLong(sponge_api->get_neighbor_list_count(i)));
+            numbers, i,
+            PyLong_FromLong(sponge_api->get_neighbor_list_count(i)));
     }
     return numbers;
 }
@@ -296,10 +297,10 @@ static PyObject* Control_Printf(PyObject* self, PyObject* args, PyObject* kw)
 
 static PyObject* Control_MPI_Rank(PyObject* self, PyObject* args)
 {
-    return Py_BuildValue(
-        "i", sponge_api == NULL || sponge_api->get_mpi_rank == NULL
-                 ? 0
-                 : sponge_api->get_mpi_rank());
+    return Py_BuildValue("i",
+                         sponge_api == NULL || sponge_api->get_mpi_rank == NULL
+                             ? 0
+                             : sponge_api->get_mpi_rank());
 }
 
 static PyMethodDef SpongeMethods[] = {

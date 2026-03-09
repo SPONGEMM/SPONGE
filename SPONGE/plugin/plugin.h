@@ -1,12 +1,12 @@
 ﻿#pragma once
 
+#include "../../plugins/prips/include/sponge_plugin_api.h"
 #include "../Domain_decomposition/Domain_decomposition.h"
 #include "../MD_core/MD_core.h"
 #include "../collective_variable/collective_variable.h"
 #include "../common.h"
 #include "../control.h"
 #include "../neighbor_list/neighbor_list.h"
-#include "../../plugins/prips/include/sponge_plugin_api.h"
 
 typedef std::vector<std::vector<std::string>> CVRegisterString;
 typedef CVRegisterString (*CVRegisterFunction)();
