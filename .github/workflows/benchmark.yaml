@@ -126,6 +126,7 @@ jobs:
         run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
         env:
           PRIPS_TEST_BACKEND: numpy
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
 
       - name: Install CPU backends for PRIPS
         shell: bash
@@ -136,11 +137,13 @@ jobs:
         run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
         env:
           PRIPS_TEST_BACKEND: jax
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
 
       - name: Benchmark validation/prips (pytorch)
         run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
         env:
           PRIPS_TEST_BACKEND: pytorch
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
 
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
