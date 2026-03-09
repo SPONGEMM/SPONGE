@@ -26,11 +26,11 @@ from prips import Sponge
 Sponge.set_backend("jax")
 
 def Calculate_Force():
-    Sponge.md_info.frc[:, 2] += 1
+    print(Sponge.md_info.frc[:, 2])
 ```
 """
 
-from typing import Any, Literal, NoReturn, Tuple, Union
+from typing import Literal
 
 def set_backend(backend: Literal["numpy", "jax", "cupy", "pytorch"]) -> None:
     """
@@ -40,6 +40,7 @@ def set_backend(backend: Literal["numpy", "jax", "cupy", "pytorch"]) -> None:
     -----------
     backend : Literal["numpy", "jax", "cupy", "pytorch"]
         Backend name used to convert DLPack tensors to framework tensors.
+        The ``jax`` backend is read-only in PRIPS.
     """
 
 class MD_INFORMATION:

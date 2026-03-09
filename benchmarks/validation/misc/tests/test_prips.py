@@ -59,7 +59,8 @@ def _write_prips_script(case_dir, backend):
         "    step = Sponge.md_info.sys.steps\n"
         "    before = float(frc[0, 0])\n"
         "    if step == 1:\n"
-        "        frc[0, 0] += _force_delta\n"
+        "        if Sponge.backend_name != 'jax':\n"
+        "            frc[0, 0] += _force_delta\n"
         "    after = float(frc[0, 0])\n"
         "    with open('prips_hook.log', 'a', encoding='utf-8') as f:\n"
         "        f.write(\n"
@@ -201,13 +202,18 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     step1_before, step1_after, step1_delta = force_records[1]
     assert abs(step0_after - step0_before) < 1e-5
     assert abs(step0_delta) < 1e-5
-    assert abs(step1_after - step1_before - 1.25) < 1e-5
-    assert abs(step1_delta - 1.25) < 1e-5
-    assert abs(step1_delta - step0_delta - 1.25) < 1e-5
+    if backend == "jax":
+        assert abs(step1_after - step1_before) < 1e-5
+        assert abs(step1_delta) < 1e-5
+    else:
+        assert abs(step1_after - step1_before - 1.25) < 1e-5
+        assert abs(step1_delta - 1.25) < 1e-5
+        assert abs(step1_delta - step0_delta - 1.25) < 1e-5
     final_force_match = re.search(
         r"mdout_force\s+step=\d+\s+force\[0,0\]_final=([-\d.]+)",
         final_force_line,
     )
     assert final_force_match is not None
     final_force = float(final_force_match.group(1))
-    assert abs(sponge_forces[0, 0] - final_force) < 1e-5
+    if backend != "jax":
+        assert abs(sponge_forces[0, 0] - final_force) < 1e-5

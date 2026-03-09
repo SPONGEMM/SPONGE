@@ -586,6 +586,8 @@ def _device_name(device_type):
     return names.get(device_type, f"device_type={device_type}")
 
 def set_backend(backend):
+    import warnings
+
     if not isinstance(backend, str):
         raise TypeError("backend must be a string")
     if Sponge.backend_name is not None:
@@ -601,6 +603,13 @@ def set_backend(backend):
         raise ValueError(
             "backend 'cupy' requires GPU tensors, but current device is "
             f"{_device_name(device_type)}"
+        )
+    if backend_name == "jax":
+        warnings.warn(
+            "jax backend is read-only in PRIPS. "
+            "Use numpy/cupy/pytorch if you need in-place writable tensors.",
+            RuntimeWarning,
+            stacklevel=2,
         )
     Sponge.backend = _resolve_backend(backend_name)
     Sponge.md_info._crd = Sponge.backend(Sponge.md_info._crd)
