@@ -72,6 +72,9 @@ jobs:
       - name: Benchmark comparison/gromacs
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs
 
+      - name: Benchmark validation/prips
+        run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
+
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -104,7 +107,7 @@ jobs:
         run: pixi install -e ${{ matrix.env_name }}
 
       - name: Format check
-        run: pixi run -e ${{ matrix.env_name }} format
+        run: pixi run -e ${{ matrix.env_name }} format-check
 
       - name: Configure SPONGE-CPU-MPI
         run: pixi run -e ${{ matrix.env_name }} configure

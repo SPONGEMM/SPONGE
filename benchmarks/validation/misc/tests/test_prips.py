@@ -135,7 +135,11 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
         line for line in hook_lines if line.startswith("calculate_force ")
     ]
     final_force_line = next(
-        (line for line in reversed(hook_lines) if line.startswith("mdout_force ")),
+        (
+            line
+            for line in reversed(hook_lines)
+            if line.startswith("mdout_force ")
+        ),
         None,
     )
     sponge_forces = Extractor.extract_sponge_forces(case_dir, 1011)
@@ -145,7 +149,10 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
         [
             ["Case", "tip3p_prips"],
             ["PluginPath", str(plugin_path)],
-            ["Backend", backend_line.split("=", 1)[1] if backend_line else "N/A"],
+            [
+                "Backend",
+                backend_line.split("=", 1)[1] if backend_line else "N/A",
+            ],
             ["AfterInitial", "PASS" if after_init_line else "MISSING"],
             ["CalculateForce", "PASS" if force_lines else "MISSING"],
             ["MdoutForce", "PASS" if final_force_line else "MISSING"],

@@ -1,4 +1,4 @@
-/*!
+﻿/*!
  *  Copyright (c) 2017 by Contributors
  * \file dlpack.h
  * \brief The common header of DLPack.

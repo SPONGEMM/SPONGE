@@ -1,4 +1,4 @@
-#ifdef _WIN32
+﻿#ifdef _WIN32
 #define PLUGIN_API extern "C" __declspec(dllexport)
 #include <windows.h>
 #ifndef RTLD_NOW
@@ -304,7 +304,8 @@ PyMODINIT_FUNC PyInit_prips(void)
     PyObject* m = PyModule_Create(&pripsModule);
     PyModule_AddStringConstant(m, "__version__", Version().c_str());
     PyObject* m0 = PyInit_sponge();
-    PyModule_AddIntConstant(m0, "_backend", static_cast<int>(dlpack_device_type));
+    PyModule_AddIntConstant(m0, "_backend",
+                            static_cast<int>(dlpack_device_type));
     PyModule_AddObject(m, "Sponge", m0);
     return m;
 }
