@@ -90,7 +90,6 @@ def _write_prips_mdin(case_dir, plugin_path=None, *, step_limit=1):
         "dt = 0.0\n"
         "cutoff = 8.0\n"
         'default_in_file_prefix = "tip3p"\n'
-        'constrain_mode = "SETTLE"\n'
         "print_zeroth_frame = 1\n"
         "write_mdout_interval = 1\n"
         "write_information_interval = 1\n"
@@ -148,23 +147,6 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     )
     sponge_forces = Extractor.extract_sponge_forces(case_dir, 1011)
 
-    Outputer.print_table(
-        ["Metric", "Value"],
-        [
-            ["Case", "tip3p_prips"],
-            ["PluginPath", str(plugin_path)],
-            [
-                "Backend",
-                backend_line.split("=", 1)[1] if backend_line else "N/A",
-            ],
-            ["AfterInitial", "PASS" if after_init_line else "MISSING"],
-            ["CalculateForce", "PASS" if force_lines else "MISSING"],
-            ["MdoutForce", "PASS" if final_force_line else "MISSING"],
-            ["Force000", f"{sponge_forces[0, 0]:.6f}"],
-        ],
-        title="Misc Validation: TIP3P PRIPS",
-    )
-
     assert backend_line is not None
     assert f"name={backend}" in backend_line
     assert any(
@@ -200,6 +182,26 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     assert set(force_records) == {0, 1}
     step0_before, step0_after, step0_delta = force_records[0]
     step1_before, step1_after, step1_delta = force_records[1]
+
+    Outputer.print_table(
+        ["Metric", "Value"],
+        [
+            ["Case", "tip3p_prips"],
+            ["PluginPath", str(plugin_path)],
+            [
+                "Backend",
+                backend_line.split("=", 1)[1] if backend_line else "N/A",
+            ],
+            ["AfterInitial", "PASS" if after_init_line else "MISSING"],
+            ["CalculateForce", "PASS" if force_lines else "MISSING"],
+            ["MdoutForce", "PASS" if final_force_line else "MISSING"],
+            ["F[0,0,0]", f"{step0_after:.6f}"],
+            ["F[1,0,0]", f"{step1_after:.6f}"],
+            ["ΔF[0,0]", f"{step1_after - step0_after:.6f}"],
+        ],
+        title="Misc Validation: TIP3P PRIPS",
+    )
+
     assert abs(step0_after - step0_before) < 1e-5
     assert abs(step0_delta) < 1e-5
     if backend == "jax":
