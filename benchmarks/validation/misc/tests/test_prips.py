@@ -102,7 +102,7 @@ def _write_prips_mdin(case_dir, plugin_path=None, *, step_limit=1):
         "hard_wall_z_high = 30.0\n"
     )
     if plugin_path is not None:
-        mdin += f'plugin = "{plugin_path}"\n'
+        mdin += f'plugin = "{Path(plugin_path).as_posix()}"\n'
         mdin += 'py = "prips_test.py"\n'
     Path(case_dir, "mdin.spg.toml").write_text(mdin, encoding="utf-8")
 
