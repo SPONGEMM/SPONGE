@@ -508,11 +508,62 @@ class CONTROLLER:
 Sponge.CONTROLLER = CONTROLLER
 Sponge.controller = CONTROLLER()
 
+def _numpy_backend(dlpack_tensor):
+    import ctypes
+    import numpy as np
+
+    class DLDevice(ctypes.Structure):
+        _fields_ = [('device_type', ctypes.c_int), ('device_id', ctypes.c_int)]
+
+    class DLDataType(ctypes.Structure):
+        _fields_ = [('code', ctypes.c_uint8), ('bits', ctypes.c_uint8), ('lanes', ctypes.c_uint16)]
+
+    class DLTensor(ctypes.Structure):
+        _fields_ = [
+            ('data', ctypes.c_void_p),
+            ('device', DLDevice),
+            ('ndim', ctypes.c_int),
+            ('dtype', DLDataType),
+            ('shape', ctypes.POINTER(ctypes.c_int64)),
+            ('strides', ctypes.POINTER(ctypes.c_int64)),
+            ('byte_offset', ctypes.c_uint64),
+        ]
+
+    class DLManagedTensor(ctypes.Structure):
+        _fields_ = [('dl_tensor', DLTensor), ('manager_ctx', ctypes.c_void_p), ('deleter', ctypes.c_void_p)]
+
+    pycapsule_get_pointer = ctypes.pythonapi.PyCapsule_GetPointer
+    pycapsule_get_pointer.restype = ctypes.c_void_p
+    pycapsule_get_pointer.argtypes = [ctypes.py_object, ctypes.c_char_p]
+
+    capsule = dlpack_tensor.capsule
+    ptr = pycapsule_get_pointer(capsule, b'dltensor')
+    managed = ctypes.cast(ptr, ctypes.POINTER(DLManagedTensor)).contents
+    tensor = managed.dl_tensor
+    shape = tuple(tensor.shape[i] for i in range(tensor.ndim))
+    if tensor.dtype.lanes != 1:
+        raise TypeError(f'unsupported dlpack lanes: {tensor.dtype.lanes}')
+    dtype_map = {
+        (0, 32): (ctypes.c_int32, np.int32),
+        (1, 8): (ctypes.c_uint8, np.uint8),
+        (2, 32): (ctypes.c_float, np.float32),
+    }
+    key = (int(tensor.dtype.code), int(tensor.dtype.bits))
+    if key not in dtype_map:
+        raise TypeError(
+            f'unsupported dlpack dtype: code={tensor.dtype.code}, '
+            f'bits={tensor.dtype.bits}, lanes={tensor.dtype.lanes}'
+        )
+    ctype, np_dtype = dtype_map[key]
+    size = int(np.prod(shape, dtype=np.int64))
+    data_ptr = tensor.data + tensor.byte_offset
+    buffer = (ctype * size).from_address(data_ptr)
+    return np.ctypeslib.as_array(buffer).view(np_dtype).reshape(shape)
+
 def _resolve_backend(name):
     backend = name.lower()
     if backend == "numpy":
-        import numpy as np
-        return np.from_dlpack
+        return _numpy_backend
     if backend == "jax":
         import jax.dlpack
         return jax.dlpack.from_dlpack
