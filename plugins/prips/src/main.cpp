@@ -8,7 +8,7 @@
 #define RTLD_GLOBAL 0
 #endif
 #define dlopen(filename, mode) LoadLibrary(filename)
-#elif __linux__
+#else
 #define PLUGIN_API extern "C"
 #include <dlfcn.h>
 #endif
