@@ -6,6 +6,7 @@
 #include "../common.h"
 #include "../control.h"
 #include "../neighbor_list/neighbor_list.h"
+#include "../../plugins/prips/include/sponge_plugin_api.h"
 
 typedef std::vector<std::vector<std::string>> CVRegisterString;
 typedef CVRegisterString (*CVRegisterFunction)();
@@ -14,6 +15,7 @@ typedef void (*cv_compute_func)(int, UNSIGNED_INT_VECTOR*, VECTOR, VECTOR*,
                                 VECTOR, int, int);
 typedef std::string (*NameFunction)();
 typedef std::string (*VersionCheckFunction)(int);
+typedef void (*InitialStableFunction)(const SPONGE_PLUGIN_API* api);
 typedef void (*InitialFunction)(MD_INFORMATION* md_info, CONTROLLER* controller,
                                 NEIGHBOR_LIST* neighbor_list,
                                 COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,

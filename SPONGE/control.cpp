@@ -753,7 +753,6 @@ void CONTROLLER::Init_Host_MPI()
     MPI_Init_thread(nullptr, nullptr, MPI_THREAD_MULTIPLE, &provided);
     MPI_Comm_size(MPI_COMM_WORLD, &MPI_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &MPI_rank);
-    _MPI_rank = MPI_rank;
 #endif
 }
 

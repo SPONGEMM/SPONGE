@@ -15,6 +15,7 @@ set_target_properties(
              PREFIX ""
              SUFFIX ".so")
 target_include_directories(${PROJECT_NAME} PRIVATE ${Python3_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(${PROJECT_NAME} PRIVATE Python3::Python)
 
 file(

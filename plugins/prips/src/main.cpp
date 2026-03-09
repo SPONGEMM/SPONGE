@@ -19,51 +19,36 @@
 
 #include "Python.h"
 #include "dlpack.h"
-#include "sponge_abi.h"
+#include "../include/sponge_plugin_api.h"
 
-static MD_INFORMATION* md_info = NULL;
-static CONTROLLER* controller = NULL;
-static NEIGHBOR_LIST* neighbor_list = NULL;
-static DOMAIN_INFORMATION* dd = NULL;
+static const SPONGE_PLUGIN_API* sponge_api = NULL;
 static int is_initialized = 0;
 static std::string py_script_path;
 static DLDeviceType dlpack_device_type = kDLCPU;
 
 static bool controller_command_exist(const char* key)
 {
-    return controller != NULL && controller->commands.count(key) > 0;
+    return sponge_api != NULL && sponge_api->get_command != NULL &&
+           sponge_api->get_command(key) != NULL;
 }
 
 static const char* controller_command(const char* key)
 {
     if (!controller_command_exist(key)) return NULL;
-    return controller->commands.find(key)->second.c_str();
+    return sponge_api->get_command(key);
 }
 
 static void controller_printf(const char* fmt, ...)
 {
     va_list args;
     va_start(args, fmt);
-    va_list args_copy;
-    va_copy(args_copy, args);
-    vprintf(fmt, args);
-    if (controller != NULL && controller->mdinfo != NULL)
-        vfprintf(controller->mdinfo, fmt, args_copy);
-    va_end(args_copy);
+    char buffer[4096];
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
-}
-
-static void fail_abi_check(const std::string& reason)
-{
-    fprintf(stderr, "        PRIPS ABI check failed: %s\n", reason.c_str());
-    exit(1);
-}
-
-static int read_layout_version(const void* ptr, size_t offset)
-{
-    int value = 0;
-    memcpy(&value, (const char*)ptr + offset, sizeof(int));
-    return value;
+    if (sponge_api != NULL && sponge_api->log_message != NULL)
+    {
+        sponge_api->log_message(buffer);
+    }
 }
 
 PLUGIN_API std::string Name()
@@ -75,11 +60,11 @@ PLUGIN_API std::string Version() { return std::string("2.0a0"); }
 
 PLUGIN_API std::string Version_Check(int i)
 {
-    if (i != SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION)
+    if (i != SPONGE_PRIPS_API_VERSION)
     {
         return std::string(
-            "Reason:\n\tPRIPS v2.0a0 expects SPONGE layout version " +
-            std::to_string(SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION) +
+            "Reason:\n\tPRIPS v2.0a0 expects SPONGE plugin API version " +
+            std::to_string(SPONGE_PRIPS_API_VERSION) +
             ", but got " + std::to_string(i));
     }
     return std::string();
@@ -120,116 +105,179 @@ static PyObject* create_dltensor(void* data, int N_dim, int64_t* shape,
 // MD information
 static PyObject* Atom_Numbers(PyObject* self, PyObject* args)
 {
-    return Py_BuildValue("i", md_info->atom_numbers);
+    return Py_BuildValue(
+        "i", sponge_api == NULL || sponge_api->get_atom_numbers == NULL
+                 ? 0
+                 : sponge_api->get_atom_numbers());
 }
 
 static PyObject* Steps(PyObject* self, PyObject* args)
 {
-    return Py_BuildValue("i", md_info->sys.steps);
+    return Py_BuildValue(
+        "i", sponge_api == NULL || sponge_api->get_steps == NULL
+                 ? 0
+                 : sponge_api->get_steps());
 }
 
 static PyObject* Coordinate(PyObject* self, PyObject* args)
 {
-    int64_t shape[2] = {3, md_info->atom_numbers};
-    return create_dltensor((void*)md_info->crd, 2, shape, NULL, kDLFloat);
+    const int atom_numbers =
+        sponge_api == NULL || sponge_api->get_atom_numbers == NULL
+            ? 0
+            : sponge_api->get_atom_numbers();
+    void* crd = sponge_api == NULL || sponge_api->get_coordinate_ptr == NULL
+                    ? NULL
+                    : sponge_api->get_coordinate_ptr();
+    int64_t shape[2] = {3, atom_numbers};
+    return create_dltensor(crd, 2, shape, NULL, kDLFloat);
 }
 
 static PyObject* Force(PyObject* self, PyObject* args)
 {
-    int64_t shape[2] = {3, md_info->atom_numbers};
-    return create_dltensor((void*)md_info->frc, 2, shape, NULL, kDLFloat);
+    const int atom_numbers =
+        sponge_api == NULL || sponge_api->get_atom_numbers == NULL
+            ? 0
+            : sponge_api->get_atom_numbers();
+    void* frc = sponge_api == NULL || sponge_api->get_force_ptr == NULL
+                    ? NULL
+                    : sponge_api->get_force_ptr();
+    int64_t shape[2] = {3, atom_numbers};
+    return create_dltensor(frc, 2, shape, NULL, kDLFloat);
 }
 
 // Domain decomposition
 static PyObject* Local_Atom_Numbers(PyObject* self, PyObject* args)
 {
-    if (dd == NULL) return Py_BuildValue("");
-    return Py_BuildValue("i", dd->atom_numbers);
+    if (sponge_api == NULL || sponge_api->get_local_atom_numbers == NULL)
+        return Py_BuildValue("");
+    return Py_BuildValue("i", sponge_api->get_local_atom_numbers());
 }
 
 static PyObject* Local_Ghost_Numbers(PyObject* self, PyObject* args)
 {
-    if (dd == NULL) return Py_BuildValue("");
-    return Py_BuildValue("i", dd->ghost_numbers);
+    if (sponge_api == NULL || sponge_api->get_local_ghost_numbers == NULL)
+        return Py_BuildValue("");
+    return Py_BuildValue("i", sponge_api->get_local_ghost_numbers());
 }
 
 static PyObject* Local_PP_Rank(PyObject* self, PyObject* args)
 {
-    if (dd == NULL) return Py_BuildValue("");
-    return Py_BuildValue("i", dd->pp_rank);
+    if (sponge_api == NULL || sponge_api->get_local_pp_rank == NULL)
+        return Py_BuildValue("");
+    return Py_BuildValue("i", sponge_api->get_local_pp_rank());
 }
 
 static PyObject* Atom_Local(PyObject* self, PyObject* args)
 {
-    if (dd == NULL || dd->atom_local == NULL) return Py_BuildValue("");
-    int64_t shape[1] = {dd->atom_numbers + dd->ghost_numbers};
-    return create_dltensor((void*)dd->atom_local, 1, shape, NULL, kDLInt);
+    if (sponge_api == NULL || sponge_api->get_atom_local_ptr == NULL ||
+        sponge_api->get_local_atom_numbers == NULL ||
+        sponge_api->get_local_ghost_numbers == NULL)
+    {
+        return Py_BuildValue("");
+    }
+    void* atom_local = sponge_api->get_atom_local_ptr();
+    if (atom_local == NULL) return Py_BuildValue("");
+    int64_t shape[1] = {sponge_api->get_local_atom_numbers() +
+                        sponge_api->get_local_ghost_numbers()};
+    return create_dltensor(atom_local, 1, shape, NULL, kDLInt);
 }
 
 static PyObject* Atom_Local_Label(PyObject* self, PyObject* args)
 {
-    if (dd == NULL || dd->atom_local_label == NULL) return Py_BuildValue("");
-    int64_t shape[1] = {dd->max_atom_numbers};
-    return create_dltensor((void*)dd->atom_local_label, 1, shape, NULL, kDLUInt,
-                           8);
+    if (sponge_api == NULL || sponge_api->get_atom_local_label_ptr == NULL ||
+        sponge_api->get_local_max_atom_numbers == NULL)
+    {
+        return Py_BuildValue("");
+    }
+    void* atom_local_label = sponge_api->get_atom_local_label_ptr();
+    if (atom_local_label == NULL) return Py_BuildValue("");
+    int64_t shape[1] = {sponge_api->get_local_max_atom_numbers()};
+    return create_dltensor(atom_local_label, 1, shape, NULL, kDLUInt, 8);
 }
 
 static PyObject* Atom_Local_Id(PyObject* self, PyObject* args)
 {
-    if (dd == NULL || dd->atom_local_id == NULL) return Py_BuildValue("");
-    int64_t shape[1] = {dd->max_atom_numbers};
-    return create_dltensor((void*)dd->atom_local_id, 1, shape, NULL, kDLInt);
+    if (sponge_api == NULL || sponge_api->get_atom_local_id_ptr == NULL ||
+        sponge_api->get_local_max_atom_numbers == NULL)
+    {
+        return Py_BuildValue("");
+    }
+    void* atom_local_id = sponge_api->get_atom_local_id_ptr();
+    if (atom_local_id == NULL) return Py_BuildValue("");
+    int64_t shape[1] = {sponge_api->get_local_max_atom_numbers()};
+    return create_dltensor(atom_local_id, 1, shape, NULL, kDLInt);
 }
 
 static PyObject* Local_Coordinate(PyObject* self, PyObject* args)
 {
-    if (dd == NULL || dd->crd == NULL) return Py_BuildValue("");
-    int64_t shape[2] = {3, dd->atom_numbers + dd->ghost_numbers};
-    return create_dltensor((void*)dd->crd, 2, shape, NULL, kDLFloat);
+    if (sponge_api == NULL || sponge_api->get_local_coordinate_ptr == NULL ||
+        sponge_api->get_local_atom_numbers == NULL ||
+        sponge_api->get_local_ghost_numbers == NULL)
+    {
+        return Py_BuildValue("");
+    }
+    void* crd = sponge_api->get_local_coordinate_ptr();
+    if (crd == NULL) return Py_BuildValue("");
+    int64_t shape[2] = {3, sponge_api->get_local_atom_numbers() +
+                               sponge_api->get_local_ghost_numbers()};
+    return create_dltensor(crd, 2, shape, NULL, kDLFloat);
 }
 
 static PyObject* Local_Force(PyObject* self, PyObject* args)
 {
-    if (dd == NULL || dd->frc == NULL) return Py_BuildValue("");
-    int64_t shape[2] = {3, dd->atom_numbers + dd->ghost_numbers};
-    return create_dltensor((void*)dd->frc, 2, shape, NULL, kDLFloat);
+    if (sponge_api == NULL || sponge_api->get_local_force_ptr == NULL ||
+        sponge_api->get_local_atom_numbers == NULL ||
+        sponge_api->get_local_ghost_numbers == NULL)
+    {
+        return Py_BuildValue("");
+    }
+    void* frc = sponge_api->get_local_force_ptr();
+    if (frc == NULL) return Py_BuildValue("");
+    int64_t shape[2] = {3, sponge_api->get_local_atom_numbers() +
+                               sponge_api->get_local_ghost_numbers()};
+    return create_dltensor(frc, 2, shape, NULL, kDLFloat);
 }
 
 // Neighbor List
 static PyObject* Neighbor_List_Index(PyObject* self, PyObject* args)
 {
-    if (neighbor_list == NULL || neighbor_list->h_nl == NULL)
+    if (sponge_api == NULL || sponge_api->get_neighbor_list_index_ptr == NULL ||
+        sponge_api->get_atom_numbers == NULL ||
+        sponge_api->get_neighbor_list_max_numbers == NULL)
     {
         return Py_BuildValue("");
     }
-    int64_t shape[2] = {md_info->atom_numbers,
-                        neighbor_list->max_neighbor_numbers};
-    return create_dltensor((void*)neighbor_list->h_nl->atom_serial, 2, shape,
-                           NULL, kDLInt);
+    void* nl_index = sponge_api->get_neighbor_list_index_ptr();
+    if (nl_index == NULL) return Py_BuildValue("");
+    int64_t shape[2] = {sponge_api->get_atom_numbers(),
+                        sponge_api->get_neighbor_list_max_numbers()};
+    return create_dltensor(nl_index, 2, shape, NULL, kDLInt);
 }
 
 static PyObject* Neighbor_List_Numbers(PyObject* self, PyObject* args)
 {
-    if (neighbor_list == NULL || neighbor_list->h_nl == NULL)
+    if (sponge_api == NULL || sponge_api->get_neighbor_list_count == NULL ||
+        sponge_api->get_atom_numbers == NULL)
     {
         return Py_BuildValue("");
     }
-    PyObject* numbers = PyList_New(md_info->atom_numbers);
-    for (int i = 0; i < md_info->atom_numbers; i++)
+    const int atom_numbers = sponge_api->get_atom_numbers();
+    PyObject* numbers = PyList_New(atom_numbers);
+    for (int i = 0; i < atom_numbers; i++)
     {
-        PyList_SET_ITEM(numbers, i,
-                        PyLong_FromLong(neighbor_list->h_nl[i].atom_numbers));
+        PyList_SET_ITEM(
+            numbers, i, PyLong_FromLong(sponge_api->get_neighbor_list_count(i)));
     }
     return numbers;
 }
 
 static PyObject* Neighbor_List_Max_Numbers(PyObject* self, PyObject* args)
 {
-    if (neighbor_list == NULL)
+    if (sponge_api == NULL || sponge_api->get_neighbor_list_max_numbers == NULL)
     {
         return Py_BuildValue("");
     }
-    return Py_BuildValue("i", neighbor_list->max_neighbor_numbers);
+    return Py_BuildValue("i", sponge_api->get_neighbor_list_max_numbers());
 }
 
 // Domain information
@@ -248,7 +296,10 @@ static PyObject* Control_Printf(PyObject* self, PyObject* args, PyObject* kw)
 
 static PyObject* Control_MPI_Rank(PyObject* self, PyObject* args)
 {
-    return Py_BuildValue("i", controller->_MPI_rank);
+    return Py_BuildValue(
+        "i", sponge_api == NULL || sponge_api->get_mpi_rank == NULL
+                 ? 0
+                 : sponge_api->get_mpi_rank());
 }
 
 static PyMethodDef SpongeMethods[] = {
@@ -315,29 +366,15 @@ PLUGIN_API void Set_Backend_Device_Type(int device_type)
     dlpack_device_type = static_cast<DLDeviceType>(device_type);
 }
 
-PLUGIN_API void Initial(MD_INFORMATION* md, CONTROLLER* ctrl, NEIGHBOR_LIST* nl,
-                        void* cv, void* cv_map, void* cv_instance_map)
+PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
 {
-    md_info = md;
-    controller = ctrl;
-    neighbor_list = nl;
-    const int controller_layout_version = read_layout_version(
-        controller, SPONGE_PRIPS_CONTROLLER_LAST_MODIFY_DATE_OFFSET);
-    if (controller_layout_version != SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION)
+    sponge_api = api;
+    if (sponge_api == NULL)
     {
-        fail_abi_check("controller->last_modify_date=" +
-                       std::to_string(controller_layout_version) +
-                       ", expected=" +
-                       std::to_string(SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION));
+        fprintf(stderr, "        PRIPS initialization failed: null API.\n");
+        exit(1);
     }
-    const int md_layout_version = read_layout_version(
-        md_info, SPONGE_PRIPS_MD_INFO_LAST_MODIFY_DATE_OFFSET);
-    if (md_layout_version != SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION)
-    {
-        fail_abi_check("md_info->last_modify_date=" +
-                       std::to_string(md_layout_version) + ", expected=" +
-                       std::to_string(SPONGE_PRIPS_EXPECTED_LAYOUT_VERSION));
-    }
+    dlpack_device_type = static_cast<DLDeviceType>(sponge_api->device_type);
     controller_printf("    initializing pyplugin\n");
     if (controller_command_exist("py"))
     {
@@ -621,7 +658,7 @@ Sponge.backend_name = None
 
 )XYJ");
 
-    char buffer[CHAR_LENGTH_MAX];
+    char buffer[4096];
     sprintf(buffer, "Sponge.fname = r'%s'", py_script_path.c_str());
     PyRun_SimpleString(buffer);
     PyRun_SimpleString(R"XYJ(sponge_pyplugin_path = Path(Sponge.fname)
@@ -639,6 +676,21 @@ else:
     controller_printf("    end initializing pyplugin\n");
 }
 
+PLUGIN_API void Initial(void* md, void* ctrl, void* nl, void* cv, void* cv_map,
+                        void* cv_instance_map)
+{
+    (void)md;
+    (void)ctrl;
+    (void)nl;
+    (void)cv;
+    (void)cv_map;
+    (void)cv_instance_map;
+    fprintf(stderr,
+            "PRIPS requires SPONGE stable plugin API support. "
+            "Rebuild SPONGE with Initial_Stable loader support.\n");
+    exit(1);
+}
+
 PLUGIN_API void After_Initial()
 {
     if (!is_initialized) return;
@@ -650,9 +702,9 @@ if hasattr(sponge_pyplugin, "After_Initial"):
     )XYJ");
 }
 
-PLUGIN_API void Set_Domain_Information(DOMAIN_INFORMATION* domain_info)
+PLUGIN_API void Set_Domain_Information(void* domain_info)
 {
-    dd = domain_info;
+    (void)domain_info;
     if (!is_initialized) return;
     PyRun_SimpleString(R"XYJ(
 Sponge.dd = Sponge.DOMAIN_INFORMATION()
