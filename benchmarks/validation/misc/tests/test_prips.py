@@ -1,3 +1,4 @@
+import os
 import re
 import subprocess
 import sys
@@ -32,11 +33,11 @@ def _prips_plugin_path():
     return plugin_path
 
 
-def _write_prips_script(case_dir):
+def _write_prips_script(case_dir, backend):
     script = (
         "from prips import Sponge\n"
         "\n"
-        "Sponge.set_backend('numpy')\n"
+        f"Sponge.set_backend({backend!r})\n"
         "_force_delta = 1.25\n"
         "\n"
         "with open('prips_hook.log', 'w', encoding='utf-8') as f:\n"
@@ -107,6 +108,8 @@ def _write_prips_mdin(case_dir, plugin_path=None, *, step_limit=1):
 
 
 def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
+    backend = os.environ.get("PRIPS_TEST_BACKEND", "numpy")
+    assert backend in {"numpy", "jax", "cupy", "pytorch"}
     plugin_path = _prips_plugin_path()
     case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
@@ -115,7 +118,7 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
         mpi_np=mpi_np,
         run_name="tip3p_prips",
     )
-    _write_prips_script(case_dir)
+    _write_prips_script(case_dir, backend)
     _write_prips_mdin(case_dir, plugin_path)
     run_sponge(case_dir, timeout=1200, mpi_np=mpi_np)
 
@@ -162,7 +165,7 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     )
 
     assert backend_line is not None
-    assert "name=numpy" in backend_line
+    assert f"name={backend}" in backend_line
     assert any(
         backend_line.startswith(f"backend device={value} ")
         for value in (1, 2, 10)
