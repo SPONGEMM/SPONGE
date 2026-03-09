@@ -17,6 +17,17 @@ static std::string DlErrorString()
 #endif
 }
 
+static int PluginBackendDeviceType()
+{
+#ifdef USE_HIP
+    return 10;  // kDLROCM
+#elif defined(USE_CUDA)
+    return 2;  // kDLCUDA
+#else
+    return 1;  // kDLCPU
+#endif
+}
+
 void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                             COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                             NEIGHBOR_LIST* neighbor_list)
@@ -47,12 +58,15 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                   sizeof(RuntimeFunction) * plugin_numbers);
     Malloc_Safely((void**)&print_funcs,
                   sizeof(RuntimeFunction) * plugin_numbers);
+    Malloc_Safely((void**)&set_domain_info_funcs,
+                  sizeof(SetDomainInformationFunction) * plugin_numbers);
 
     int count = 0;
     std::string plugin_name, plugin_version, version_check_error;
     char plugin_path[CHAR_LENGTH_MAX];
     NameFunction name_func, version_func;
     VersionCheckFunction version_check_func;
+    SetBackendDeviceTypeFunction set_backend_device_type_func;
 
     last_pos = command.find_first_not_of(" ", 0);
     pos = command.find_first_of(" ", last_pos);
@@ -160,6 +174,15 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 
         controller->printf(" Initial");
 
+        set_backend_device_type_func = (SetBackendDeviceTypeFunction)dlsym(
+            plugin_handles[count], "Set_Backend_Device_Type");
+        if (set_backend_device_type_func != NULL)
+        {
+            funcs_loaded += 1;
+            controller->printf(" Set_Backend_Device_Type");
+            set_backend_device_type_func(PluginBackendDeviceType());
+        }
+
         after_init_funcs[after_init_func_numbers] =
             (RuntimeFunction)dlsym(plugin_handles[count], "After_Initial");
         if (after_init_funcs[after_init_func_numbers] != NULL)
@@ -187,6 +210,16 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
             controller->printf(" Mdout_Print");
         }
 
+        set_domain_info_funcs[set_domain_info_func_numbers] =
+            (SetDomainInformationFunction)dlsym(plugin_handles[count],
+                                                "Set_Domain_Information");
+        if (set_domain_info_funcs[set_domain_info_func_numbers] != NULL)
+        {
+            funcs_loaded += 1;
+            set_domain_info_func_numbers += 1;
+            controller->printf(" Set_Domain_Information");
+        }
+
         controller->printf(" (%d in total)\n", funcs_loaded);
         func(md_info, controller, neighbor_list, cv_controller, CV_MAP,
              CV_INSTANCE_MAP);
@@ -197,6 +230,14 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     }
 
     controller->printf("END INITIALIZING SPONGE PLUGIN\n\n");
+}
+
+void SPONGE_PLUGIN::Set_Domain_Information(DOMAIN_INFORMATION* dd)
+{
+    for (int i = 0; i < set_domain_info_func_numbers; i++)
+    {
+        set_domain_info_funcs[i](dd);
+    }
 }
 
 void SPONGE_PLUGIN::After_Initial()

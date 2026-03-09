@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "../Domain_decomposition/Domain_decomposition.h"
 #include "../MD_core/MD_core.h"
 #include "../collective_variable/collective_variable.h"
 #include "../common.h"
@@ -17,6 +18,8 @@ typedef void (*InitialFunction)(MD_INFORMATION* md_info, CONTROLLER* controller,
                                 NEIGHBOR_LIST* neighbor_list,
                                 COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                                 CV_MAP_TYPE*, CV_INSTANCE_TYPE*);
+typedef void (*SetDomainInformationFunction)(DOMAIN_INFORMATION* dd);
+typedef void (*SetBackendDeviceTypeFunction)(int device_type);
 typedef void (*RuntimeFunction)();
 
 struct SPONGE_PLUGIN
@@ -42,9 +45,13 @@ struct SPONGE_PLUGIN
     int print_func_numbers = 0;
     RuntimeFunction* print_funcs = NULL;
 
+    int set_domain_info_func_numbers = 0;
+    SetDomainInformationFunction* set_domain_info_funcs = NULL;
+
     void Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                  NEIGHBOR_LIST* neighbor_list);
+    void Set_Domain_Information(DOMAIN_INFORMATION* dd);
     void After_Initial();
     void Calculate_Force();
     void Mdout_Print();
