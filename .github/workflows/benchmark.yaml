@@ -74,7 +74,7 @@ jobs:
 
       - name: Benchmark validation/prips
         run: |
-          pixi run -e ${{ matrix.env_name }} pip install plugin/prips
+          pixi run -e ${{ matrix.env_name }} python -m pip install plugins/prips
           pixi run -e ${{ matrix.env_name }} vali-misc -k prips
 
   benchmark-cpu-mpi-np2:
