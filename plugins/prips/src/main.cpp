@@ -402,6 +402,10 @@ class SpongeDLPackTensor:
 Sponge.SpongeDLPackTensor = SpongeDLPackTensor
 
 class MD_INFORMATION:
+    def __init__(self):
+        self._crd = Sponge.SpongeDLPackTensor(Sponge._coordinate())
+        self._frc = Sponge.SpongeDLPackTensor(Sponge._force())
+
     class system_information:
         @property
         def steps(self):
@@ -413,11 +417,11 @@ class MD_INFORMATION:
 
     @property
     def crd(self):
-        return Sponge.backend(Sponge.SpongeDLPackTensor(Sponge._coordinate()))
+        return self._crd
 
     @property
     def frc(self):
-        return Sponge.backend(Sponge.SpongeDLPackTensor(Sponge._force()))
+        return self._frc
 
 Sponge.MD_INFORMATION = MD_INFORMATION
 Sponge.md_info = MD_INFORMATION()
@@ -533,6 +537,8 @@ def _device_name(device_type):
 def set_backend(backend):
     if not isinstance(backend, str):
         raise TypeError("backend must be a string")
+    if Sponge.backend_name is not None:
+        raise RuntimeError("backend has already been set")
     backend_name = backend.lower()
     device_type = Sponge._backend
     if backend_name == "numpy" and device_type != 1:
@@ -546,6 +552,8 @@ def set_backend(backend):
             f"{_device_name(device_type)}"
         )
     Sponge.backend = _resolve_backend(backend_name)
+    Sponge.md_info._crd = Sponge.backend(Sponge.md_info._crd)
+    Sponge.md_info._frc = Sponge.backend(Sponge.md_info._frc)
     Sponge.backend_name = backend_name
 
 Sponge.set_backend = set_backend
