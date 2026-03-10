@@ -1,4 +1,5 @@
 ﻿#include "common.h"
+
 #include "control.h"
 
 #ifdef USE_CPU
@@ -336,8 +337,7 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
 
 static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
                                                const int block_count,
-                                               float* sum,
-                                               const int warp_size)
+                                               float* sum, const int warp_size)
 {
     double partial = 0.0;
     int idx = threadIdx.x;
@@ -402,8 +402,7 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
 
     int final_threads = (grid < 256) ? grid : 256;
     if (final_threads < warp_size) final_threads = warp_size;
-    final_threads =
-        ((final_threads + warp_size - 1) / warp_size) * warp_size;
+    final_threads = ((final_threads + warp_size - 1) / warp_size) * warp_size;
     if (final_threads > 256) final_threads = 256;
     Launch_Device_Kernel(Sum_Of_List_Float_Final, 1, final_threads, 0, NULL,
                          block_sums, grid, sum, warp_size);
