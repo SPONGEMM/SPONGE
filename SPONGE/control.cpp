@@ -617,7 +617,7 @@ void CONTROLLER::Init_Device()
             char error_reason[CHAR_LENGTH_MAX];
             int ret = sprintf(
                 error_reason,
-                "Reason:\n\tthe number of words (%ld) in the command 'device' is \
+                "Reason:\n\tthe number of words (%zu) in the command 'device' is \
 neither equal to the size of MPI ranks (%d) nor 1\n",
                 words.size(), MPI_size);
             Throw_SPONGE_Error(spongeErrorValueErrorCommand,

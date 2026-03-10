@@ -23,10 +23,5 @@ foreach(CURRENT_TARGET ${TARGETS})
   endif()
 endforeach()
 
-install(
-  FILES "${CMAKE_BINARY_DIR}/compile_commands.json"
-  DESTINATION ${CMAKE_INSTALL_BINDIR}
-  CONFIGURATIONS Release)
-
 message(
   STATUS "------------------------------------------------------------------")

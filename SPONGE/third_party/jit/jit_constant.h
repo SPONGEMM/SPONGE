@@ -4,17 +4,23 @@
 #define CONSTANT_Pi 3.1415926535897932f
 //自然对数的底
 #define CONSTANT_e 2.7182818284590452f
-//玻尔兹曼常量（kcal.mol^-1.K^ -1）
-//使用kcal为能量单位，因此kB=8.31441(J.mol^-1.K^-1)/4.18407(J/cal)/1000
+// 玻尔兹曼常量
+// 单位见下一行
+// kB unit: kcal mol^-1 K^-1
+// 使用 kcal 作为能量单位
+// kB = 8.31441 / 4.18407 / 1000
 #define CONSTANT_kB 0.00198716f
-//程序中使用的单位时间与物理时间的换算1/20.455*dt=1 ps
+// 程序中使用的单位时间与物理时间的换算
+// 1 / 20.455 * dt = 1 ps
 #define CONSTANT_TIME_CONVERTION 20.455f
-//程序中使用的单位压强与物理压强的换算
-// 压强单位: bar -> kcal/mol/A^3 
-// (1 kcal/mol) * (4.184074e3 J/kcal) / (6.023e23 mol^-1) * (1e30 m^3/A^3) * (1e-5 bar/pa)
-// 程序的压强/(kcal/mol/A^3 ) * CONSTANT_PRES_CONVERTION = 物理压强/bar
+// 程序压强与物理压强的换算
+// 程序压强单位为 kcal 每 mol 每 A^3
+// 物理压强单位为 bar
+// 计算关系见下一行
+// physical_pressure = program_pressure * CONSTANT_PRES_CONVERTION
 #define CONSTANT_PRES_CONVERTION 6.946827162543585e4f
-// 物理压强/bar * CONSTANT_PRES_CONVERTION_INVERSE = 程序的压强/(kcal/mol/A^3 )
+// 反向计算关系见下一行
+// program_pressure = physical_pressure * CONSTANT_PRES_CONVERTION_INVERSE
 #define CONSTANT_PRES_CONVERTION_INVERSE 0.00001439506089041446f
 //角度制到弧度制的转换系数
 #define CONSTANT_RAD_TO_DEG 57.2957795f

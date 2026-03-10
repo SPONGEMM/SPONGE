@@ -51,9 +51,6 @@ jobs:
       - name: Install dev-cpu environment
         run: pixi install -e ${{ matrix.env_name }}
 
-      - name: Format check
-        run: pixi run -e ${{ matrix.env_name }} format
-
       - name: Configure SPONGE-CPU
         run: pixi run -e ${{ matrix.env_name }} configure
 

@@ -1,13 +1,23 @@
 ﻿value += R"JIT(
-/*XYJ备注：SAD=simple/sponge auto diff，简单/SPONGE自动微分
-SA2D: 2阶微分
-实现原理：利用操作符重载，将f(x,y)的关系同时用链式法则链接到df(x,y)和ddf(x,y)上。效率会有影响，但影响较小，因为主要成本在通讯上，在每个线程的内部利用cache计算不是决速步
-使用方法：1. 确定该部分需要求偏微分的数量，假设有1个，则后面使用的类就为SADfloat<1>或SADvector<1>，2个则为SADfloat<2>或SADvector<2>
-2. 将包含微分的变量和过程用上面确定的类声明变量，其中对于想求的变量初始化时需要两个参数：本身的值和第i个变量
-3. 正常计算，那么最后结果中的dval[i]即为第i个变量的微分。
-使用样例：（均在No_PNC/generalized_Born.cu中）
-1. 求有效伯恩半径对距离的导数：不求导数的函数为Effective_Born_Radii_Factor_CUDA，求导数的函数为GB_accumulate_Force_Energy_CUDA
-2. 求GB能量对距离和有效伯恩半径的导数：不求导数的函数为GB_inej_Energy_CUDA，求导数的函数为GB_inej_Force_Energy_CUDA
+/*XYJ 备注
+SAD 表示 simple sponge auto diff
+即简单自动微分
+SA2D 表示二阶微分
+实现原理为利用操作符重载
+将 f(x,y) 的关系同时用链式法则链接到 df(x,y) 和 ddf(x,y) 上
+效率会有影响
+但影响较小
+因为主要成本在通讯上
+在每个线程内部利用 cache 计算不是决速步
+使用方法
+1. 先确定需要求偏微分的数量
+2. 若数量为 1 则后面使用 SADfloat 或 SADvector 的 1 维版本
+3. 若数量为 2 则后面使用 SADfloat 或 SADvector 的 2 维版本
+4. 对于想要求导的变量 初始化时需要两个参数 即本身的值和第 i 个变量
+5. 正常计算后 最后结果中的 dval[i] 即为第 i 个变量的微分
+使用样例位于 No_PNC generalized_Born.cu
+可参考 Effective_Born_Radii_Factor_CUDA 和 GB_accumulate_Force_Energy_CUDA
+也可参考 GB_inej_Energy_CUDA 和 GB_inej_Force_Energy_CUDA
 */
 template<int N>
 struct SADfloat

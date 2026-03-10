@@ -448,7 +448,7 @@ size_t Scatter<T>::mapTo1d(const vector<int>& indices) const
         if (index < 0 || index >= numpoints)
         {
             printf(
-                "Scatter index %ld out of range: index is %d while the number "
+                "Scatter index %zu out of range: index is %d while the number "
                 "of points is %d",
                 i, index, numpoints);
         }

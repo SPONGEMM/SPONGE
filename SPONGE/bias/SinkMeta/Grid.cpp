@@ -482,7 +482,7 @@ size_t Grid<T>::mapTo1d(const vector<int> &indices) const
         int numpoints = GridBase<T>::numPoints_[i];
         if (index < 0 || index >= numpoints)
         {
-            printf("Grid index %ld out of range: index is %d while the number of points is %d", i, index,
+            printf("Grid index %zu out of range: index is %d while the number of points is %d", i, index,
                    numpoints);
         }
     }

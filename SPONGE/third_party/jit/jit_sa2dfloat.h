@@ -22,14 +22,26 @@
             } \
         }
 
-/*使用方法：
-1. 确定该部分需要求偏微分的数量N
-2. 确定该部分需要求二阶偏微分的最大序数N2，第i个变量和第j个变量(i <= j)的二阶偏微分序数为2 * N - i - 1) * i / 2 + j
-3. 将包含微分的变量和过程使用变量SA2Dfloat<N,N2>，其中对于想求的变量初始化时需要两个参数：本身的值和第i个变量，SA2Dfloat<1,1> x(1.0f, 0);
-4. 正常计算，那么最后结果中的dval[i]即为第i个变量的微分，ddval[(2 * N - i - 1) * i / 2 + j]即为第i个变量和第j个变量(i <= j)的二阶偏微分。
-样例：
-已知f(x, y) = x ^ y + x * y， x=1.2, y = 2, 求df/dx和ddf/dx/dy
-可以直接将下面的代码和common.h复制到一个新文件test.cu，再使用nvcc test.cu -o SAD_TEST编译，最后使用./SAD_TEST运行
+/*使用方法
+1. 确定该部分需要求偏微分的数量 N
+2. 确定该部分需要求二阶偏微分的最大序数 N2
+3. 第 i 个变量和第 j 个变量的二阶偏微分序数计算见下一行
+4. second order index = (2 * N - i - 1) * i / 2 + j
+5. 将包含微分的变量和过程使用 SA2Dfloat
+6. 对于想求的变量 初始化时需要两个参数 即本身的值和第 i 个变量
+7. 可参考下一行示例
+8. SA2Dfloat example: SA2Dfloat<1, 1> x(1.0f, 0)
+9. 正常计算后 dval[i] 为第 i 个变量的微分
+10. 二阶偏微分存放在 ddval 对应位置
+样例
+已知 f(x, y) = x ^ y + x * y
+x = 1.2
+y = 2
+求 df/dx 和 ddf/dx/dy
+可以将下面的代码和 common.h 复制到一个新文件 test.cu
+再使用 nvcc 编译并运行
+example build command: nvcc test.cu -o SAD_TEST
+example run command: ./SAD_TEST
 
 #include "common.h"
 #include "stdio.h"
