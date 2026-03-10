@@ -372,6 +372,7 @@ void Main_Initial(int argc, char* argv[])
         dd.Get_Atoms(&controller, &md_info);
         dd.Get_Ghost(&controller, &md_info);
         dd.Get_Excluded(&controller, &md_info);
+        plugin.Set_Domain_Information(&dd);
         printf("rank_id=%d, atom_numbers=%d, ghost_numbers=%d\n",
                CONTROLLER::PP_MPI_rank, dd.atom_numbers, dd.ghost_numbers);
 

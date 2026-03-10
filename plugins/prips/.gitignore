@@ -1,0 +1,4 @@
+__pycache__/
+dist/
+*.pyc
+.py-build-cmake_cache

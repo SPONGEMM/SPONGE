@@ -1,5 +1,14 @@
 ﻿#include "plugin.h"
 
+namespace
+{
+MD_INFORMATION* g_plugin_md_info = NULL;
+CONTROLLER* g_plugin_controller = NULL;
+NEIGHBOR_LIST* g_plugin_neighbor_list = NULL;
+DOMAIN_INFORMATION* g_plugin_domain_info = NULL;
+SPONGE_PLUGIN_API g_prips_api = {};
+}  // namespace
+
 std::map<std::string,
          std::function<void(COLLECTIVE_VARIABLE_CONTROLLER*, int, const char*)>>
     SPONGE_PLUGIN::cv_init_functions;
@@ -17,6 +26,163 @@ static std::string DlErrorString()
 #endif
 }
 
+static int PluginBackendDeviceType()
+{
+#ifdef USE_HIP
+    return 10;  // kDLROCM
+#elif defined(USE_CUDA)
+    return 2;  // kDLCUDA
+#else
+    return 1;  // kDLCPU
+#endif
+}
+
+namespace
+{
+const char* PluginGetCommand(const char* key)
+{
+    if (g_plugin_controller == NULL || !g_plugin_controller->Command_Exist(key))
+    {
+        return NULL;
+    }
+    return g_plugin_controller->Command(key);
+}
+
+void PluginLogMessage(const char* message)
+{
+    if (g_plugin_controller == NULL || message == NULL) return;
+    g_plugin_controller->printf("%s", message);
+}
+
+int PluginGetMPIRank() { return CONTROLLER::MPI_rank; }
+
+int PluginGetAtomNumbers()
+{
+    return g_plugin_md_info == NULL ? 0 : g_plugin_md_info->atom_numbers;
+}
+
+int PluginGetSteps()
+{
+    return g_plugin_md_info == NULL ? 0 : g_plugin_md_info->sys.steps;
+}
+
+void* PluginGetCoordinatePtr()
+{
+    return g_plugin_md_info == NULL ? NULL : g_plugin_md_info->crd;
+}
+
+void* PluginGetForcePtr()
+{
+    return g_plugin_md_info == NULL ? NULL : g_plugin_md_info->frc;
+}
+
+int PluginGetNeighborListMaxNumbers()
+{
+    return g_plugin_neighbor_list == NULL
+               ? 0
+               : g_plugin_neighbor_list->max_neighbor_numbers;
+}
+
+int PluginGetNeighborListCount(int atom_index)
+{
+    if (g_plugin_neighbor_list == NULL ||
+        g_plugin_neighbor_list->h_nl == NULL || g_plugin_md_info == NULL ||
+        atom_index < 0 || atom_index >= g_plugin_md_info->atom_numbers)
+    {
+        return 0;
+    }
+    return g_plugin_neighbor_list->h_nl[atom_index].atom_numbers;
+}
+
+void* PluginGetNeighborListIndexPtr()
+{
+    if (g_plugin_neighbor_list == NULL || g_plugin_neighbor_list->h_nl == NULL)
+    {
+        return NULL;
+    }
+    return g_plugin_neighbor_list->h_nl->atom_serial;
+}
+
+int PluginGetLocalAtomNumbers()
+{
+    return g_plugin_domain_info == NULL ? 0
+                                        : g_plugin_domain_info->atom_numbers;
+}
+
+int PluginGetLocalGhostNumbers()
+{
+    return g_plugin_domain_info == NULL ? 0
+                                        : g_plugin_domain_info->ghost_numbers;
+}
+
+int PluginGetLocalPPRank()
+{
+    return g_plugin_domain_info == NULL ? 0 : g_plugin_domain_info->pp_rank;
+}
+
+int PluginGetLocalMaxAtomNumbers()
+{
+    return g_plugin_domain_info == NULL
+               ? 0
+               : g_plugin_domain_info->max_atom_numbers;
+}
+
+void* PluginGetAtomLocalPtr()
+{
+    return g_plugin_domain_info == NULL ? NULL
+                                        : g_plugin_domain_info->atom_local;
+}
+
+void* PluginGetAtomLocalLabelPtr()
+{
+    return g_plugin_domain_info == NULL
+               ? NULL
+               : g_plugin_domain_info->atom_local_label;
+}
+
+void* PluginGetAtomLocalIdPtr()
+{
+    return g_plugin_domain_info == NULL ? NULL
+                                        : g_plugin_domain_info->atom_local_id;
+}
+
+void* PluginGetLocalCoordinatePtr()
+{
+    return g_plugin_domain_info == NULL ? NULL : g_plugin_domain_info->crd;
+}
+
+void* PluginGetLocalForcePtr()
+{
+    return g_plugin_domain_info == NULL ? NULL : g_plugin_domain_info->frc;
+}
+
+const SPONGE_PLUGIN_API* BuildPripsApi()
+{
+    g_prips_api.api_version = SPONGE_PRIPS_API_VERSION;
+    g_prips_api.device_type = PluginBackendDeviceType();
+    g_prips_api.get_command = PluginGetCommand;
+    g_prips_api.log_message = PluginLogMessage;
+    g_prips_api.get_mpi_rank = PluginGetMPIRank;
+    g_prips_api.get_atom_numbers = PluginGetAtomNumbers;
+    g_prips_api.get_steps = PluginGetSteps;
+    g_prips_api.get_coordinate_ptr = PluginGetCoordinatePtr;
+    g_prips_api.get_force_ptr = PluginGetForcePtr;
+    g_prips_api.get_neighbor_list_max_numbers = PluginGetNeighborListMaxNumbers;
+    g_prips_api.get_neighbor_list_count = PluginGetNeighborListCount;
+    g_prips_api.get_neighbor_list_index_ptr = PluginGetNeighborListIndexPtr;
+    g_prips_api.get_local_atom_numbers = PluginGetLocalAtomNumbers;
+    g_prips_api.get_local_ghost_numbers = PluginGetLocalGhostNumbers;
+    g_prips_api.get_local_pp_rank = PluginGetLocalPPRank;
+    g_prips_api.get_local_max_atom_numbers = PluginGetLocalMaxAtomNumbers;
+    g_prips_api.get_atom_local_ptr = PluginGetAtomLocalPtr;
+    g_prips_api.get_atom_local_label_ptr = PluginGetAtomLocalLabelPtr;
+    g_prips_api.get_atom_local_id_ptr = PluginGetAtomLocalIdPtr;
+    g_prips_api.get_local_coordinate_ptr = PluginGetLocalCoordinatePtr;
+    g_prips_api.get_local_force_ptr = PluginGetLocalForcePtr;
+    return &g_prips_api;
+}
+}  // namespace
+
 void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                             COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                             NEIGHBOR_LIST* neighbor_list)
@@ -28,6 +194,10 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 
     controller->printf("START INITIALIZING SPONGE PLUGIN:\n");
     plugin_numbers = 0;
+    g_plugin_md_info = md_info;
+    g_plugin_controller = controller;
+    g_plugin_neighbor_list = neighbor_list;
+    g_plugin_domain_info = NULL;
 
     std::string command(controller->Original_Command("plugin"));
     auto last_pos = command.find_first_not_of(" ", 0);
@@ -47,12 +217,16 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                   sizeof(RuntimeFunction) * plugin_numbers);
     Malloc_Safely((void**)&print_funcs,
                   sizeof(RuntimeFunction) * plugin_numbers);
+    Malloc_Safely((void**)&set_domain_info_funcs,
+                  sizeof(SetDomainInformationFunction) * plugin_numbers);
 
     int count = 0;
     std::string plugin_name, plugin_version, version_check_error;
     char plugin_path[CHAR_LENGTH_MAX];
     NameFunction name_func, version_func;
     VersionCheckFunction version_check_func;
+    SetBackendDeviceTypeFunction set_backend_device_type_func;
+    InitialStableFunction stable_initial_func;
 
     last_pos = command.find_first_not_of(" ", 0);
     pos = command.find_first_of(" ", last_pos);
@@ -123,7 +297,11 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                                            error_reason.c_str());
         }
 
-        version_check_error = version_check_func(controller->last_modify_date);
+        stable_initial_func = (InitialStableFunction)dlsym(
+            plugin_handles[count], "Initial_Stable");
+        version_check_error = version_check_func(
+            stable_initial_func != NULL ? SPONGE_PRIPS_API_VERSION
+                                        : controller->last_modify_date);
         if (!version_check_error.empty())
         {
             std::string error_reason =
@@ -145,7 +323,7 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 
         InitialFunction func =
             (InitialFunction)dlsym(plugin_handles[count], "Initial");
-        if (func == NULL)
+        if (func == NULL && stable_initial_func == NULL)
         {
             std::string error_reason =
                 "Reason:\n\tFind the initial function of the plugin from ";
@@ -159,6 +337,15 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
         }
 
         controller->printf(" Initial");
+
+        set_backend_device_type_func = (SetBackendDeviceTypeFunction)dlsym(
+            plugin_handles[count], "Set_Backend_Device_Type");
+        if (set_backend_device_type_func != NULL)
+        {
+            funcs_loaded += 1;
+            controller->printf(" Set_Backend_Device_Type");
+            set_backend_device_type_func(PluginBackendDeviceType());
+        }
 
         after_init_funcs[after_init_func_numbers] =
             (RuntimeFunction)dlsym(plugin_handles[count], "After_Initial");
@@ -187,9 +374,26 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
             controller->printf(" Mdout_Print");
         }
 
+        set_domain_info_funcs[set_domain_info_func_numbers] =
+            (SetDomainInformationFunction)dlsym(plugin_handles[count],
+                                                "Set_Domain_Information");
+        if (set_domain_info_funcs[set_domain_info_func_numbers] != NULL)
+        {
+            funcs_loaded += 1;
+            set_domain_info_func_numbers += 1;
+            controller->printf(" Set_Domain_Information");
+        }
+
         controller->printf(" (%d in total)\n", funcs_loaded);
-        func(md_info, controller, neighbor_list, cv_controller, CV_MAP,
-             CV_INSTANCE_MAP);
+        if (stable_initial_func != NULL)
+        {
+            stable_initial_func(BuildPripsApi());
+        }
+        else
+        {
+            func(md_info, controller, neighbor_list, cv_controller, CV_MAP,
+                 CV_INSTANCE_MAP);
+        }
 
         count += 1;
         last_pos = command.find_first_not_of(" ", pos);
@@ -197,6 +401,15 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     }
 
     controller->printf("END INITIALIZING SPONGE PLUGIN\n\n");
+}
+
+void SPONGE_PLUGIN::Set_Domain_Information(DOMAIN_INFORMATION* dd)
+{
+    g_plugin_domain_info = dd;
+    for (int i = 0; i < set_domain_info_func_numbers; i++)
+    {
+        set_domain_info_funcs[i](dd);
+    }
 }
 
 void SPONGE_PLUGIN::After_Initial()

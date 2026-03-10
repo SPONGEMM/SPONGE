@@ -1,0 +1,32 @@
+[project]
+name = "prips"
+readme = "README.md"
+license = {"file" = "LICENSE"}
+authors = [{"name" = "Yijie Xia", "email" = "yijiexia@pku.edu.cn"}]
+keywords = ["SPONGE", "molecular dynamics"]
+classifiers = [
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: Plugins",
+        "License :: OSI Approved :: Apache Software License",
+        "Topic :: Scientific/Engineering :: Physics",
+        "Topic :: Scientific/Engineering :: Chemistry",
+        "Programming Language :: Python :: 3",
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: Microsoft :: Windows",
+]
+dynamic = ["version", "description"]
+
+[build-system]
+requires = ["py-build-cmake~=0.1.8"]
+build-backend = "py_build_cmake.build"
+
+[tool.py-build-cmake.module]
+directory = "."
+
+[tool.py-build-cmake.sdist]
+include = ["CMakeLists.txt", "src/*", "include/*"]
+
+[tool.py-build-cmake.cmake]
+build_type = "Release"
+source_path = "."
+install_components = ["python_modules"]

@@ -19,7 +19,6 @@ struct CONTROLLER
     // PP, PM 可能有多个进程，需要构造通信器；
     // CC 只有单进程情况，不需要构造通信器。
     static int MPI_rank;
-    int _MPI_rank;
     static int MPI_size;
     static int PP_MPI_size;
     static int PM_MPI_size;

@@ -72,6 +72,79 @@ jobs:
       - name: Benchmark comparison/gromacs
         run: pixi run -e ${{ matrix.env_name }} comp-gromacs
 
+  benchmark-cpu-prips:
+    name: PRIPS-CPU Benchmark (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+          - feature: cpu
+            env_name: dev-cpu
+            target: osx-arm64
+            runner: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0
+        with:
+          run-install: false
+
+      - name: Install dev-cpu environment
+        run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Configure SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Compile SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Install PRIPS
+        shell: bash
+        run: |
+          pixi run -e ${{ matrix.env_name }} python -m pip install plugins/prips
+
+      - name: Benchmark validation/prips (numpy)
+        run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
+        env:
+          PRIPS_TEST_BACKEND: numpy
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
+
+      - name: Install CPU backends for PRIPS
+        shell: bash
+        run: |
+          pixi run -e ${{ matrix.env_name }} python -m pip install "jax[cpu]" torch
+
+      - name: Benchmark validation/prips (jax)
+        run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
+        env:
+          PRIPS_TEST_BACKEND: jax
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
+
+      - name: Benchmark validation/prips (pytorch)
+        run: pixi run -e ${{ matrix.env_name }} vali-misc -k prips
+        env:
+          PRIPS_TEST_BACKEND: pytorch
+          KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
+
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -104,7 +177,7 @@ jobs:
         run: pixi install -e ${{ matrix.env_name }}
 
       - name: Format check
-        run: pixi run -e ${{ matrix.env_name }} format
+        run: pixi run -e ${{ matrix.env_name }} format-check
 
       - name: Configure SPONGE-CPU-MPI
         run: pixi run -e ${{ matrix.env_name }} configure
