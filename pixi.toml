@@ -197,7 +197,7 @@ configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='non
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
 
 [feature.cuda.target.linux-64.tasks]
-configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='cuda' -DCUDA_ARCH='all-major' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_CXX_COMPILER=\"$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++\" -DCMAKE_CUDA_HOST_COMPILER=\"$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-g++\""
+configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='cuda' -DCUDA_ARCH='all-major' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_CXX_COMPILER=\"$CONDA_PREFIX/bin/x86_64-conda-linux-gnu-c++\""
 compile = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install"
 
 [feature.cuda.target.win-64.tasks]
