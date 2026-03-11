@@ -1,4 +1,4 @@
-#ifndef SPONGE_LANE_GROUP_SCALAR_H
+﻿#ifndef SPONGE_LANE_GROUP_SCALAR_H
 #define SPONGE_LANE_GROUP_SCALAR_H
 
 #include "lane_group.h"
@@ -16,15 +16,9 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __host__ __device__ __forceinline__ static int Width()
-    {
-        return 1;
-    }
+    __host__ __device__ __forceinline__ static int Width() { return 1; }
 
-    __host__ __device__ __forceinline__ static int Lane_Id()
-    {
-        return 0;
-    }
+    __host__ __device__ __forceinline__ static int Lane_Id() { return 0; }
 
     __host__ __device__ __forceinline__ static LaneMask Active_Mask()
     {
@@ -121,7 +115,6 @@ struct LaneGroup
         (void)width;
         return value;
     }
-
 };
 
 #endif  // SPONGE_LANE_GROUP_SCALAR_H

@@ -1,4 +1,4 @@
-#ifndef SPONGE_LANE_GROUP_CUDA_H
+﻿#ifndef SPONGE_LANE_GROUP_CUDA_H
 #define SPONGE_LANE_GROUP_CUDA_H
 
 #include "lane_group.h"
@@ -16,10 +16,7 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __device__ __forceinline__ static int Width()
-    {
-        return warpSize;
-    }
+    __device__ __forceinline__ static int Width() { return warpSize; }
 
     __device__ __forceinline__ static int Lane_Id()
     {
@@ -130,7 +127,6 @@ struct LaneGroup
         }
         return value;
     }
-
 };
 
 #endif  // SPONGE_LANE_GROUP_CUDA_H

@@ -1,9 +1,9 @@
-#ifndef SPONGE_LANE_GROUP_AVX_H
+﻿#ifndef SPONGE_LANE_GROUP_AVX_H
 #define SPONGE_LANE_GROUP_AVX_H
 
-#include "lane_group.h"
-
 #include <immintrin.h>
+
+#include "lane_group.h"
 
 struct LaneMask
 {
@@ -18,15 +18,9 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __host__ __device__ __forceinline__ static int Width()
-    {
-        return 8;
-    }
+    __host__ __device__ __forceinline__ static int Width() { return 8; }
 
-    __host__ __device__ __forceinline__ static int Lane_Id()
-    {
-        return 0;
-    }
+    __host__ __device__ __forceinline__ static int Lane_Id() { return 0; }
 
     __host__ __device__ __forceinline__ static LaneMask Active_Mask()
     {
@@ -40,12 +34,15 @@ struct LaneGroup
 
     __host__ __device__ __forceinline__ static LaneMask Ballot(__m256 predicate)
     {
-        return LaneMask(static_cast<unsigned int>(_mm256_movemask_ps(predicate)));
+        return LaneMask(
+            static_cast<unsigned int>(_mm256_movemask_ps(predicate)));
     }
 
-    __host__ __device__ __forceinline__ static LaneMask Ballot(__m256d predicate)
+    __host__ __device__ __forceinline__ static LaneMask Ballot(
+        __m256d predicate)
     {
-        return LaneMask(static_cast<unsigned int>(_mm256_movemask_pd(predicate)));
+        return LaneMask(
+            static_cast<unsigned int>(_mm256_movemask_pd(predicate)));
     }
 
     __host__ __device__ __forceinline__ static LaneMask And(LaneMask lhs,
@@ -157,7 +154,6 @@ struct LaneGroup
         }
         return sum;
     }
-
 };
 
 #endif  // SPONGE_LANE_GROUP_AVX_H

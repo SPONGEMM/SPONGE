@@ -1,17 +1,15 @@
-#ifndef SPONGE_LANE_GROUP_SVE_H
+﻿#ifndef SPONGE_LANE_GROUP_SVE_H
 #define SPONGE_LANE_GROUP_SVE_H
 
-#include "lane_group.h"
-
 #include <arm_sve.h>
+
+#include "lane_group.h"
 
 struct LaneMask
 {
     svbool_t bits;
 
-    __host__ __device__ __forceinline__ LaneMask() : bits(svpfalse_b())
-    {
-    }
+    __host__ __device__ __forceinline__ LaneMask() : bits(svpfalse_b()) {}
 
     __host__ __device__ __forceinline__ explicit LaneMask(svbool_t value)
         : bits(value)
@@ -21,17 +19,11 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __host__ __device__ __forceinline__ static int Width()
-    {
-        return svcntw();
-    }
+    __host__ __device__ __forceinline__ static int Width() { return svcntw(); }
 
     // SVE lanes are vector lanes rather than per-thread lanes. Keep this
     // conservative until a lane-local API is introduced for CPU vector kernels.
-    __host__ __device__ __forceinline__ static int Lane_Id()
-    {
-        return 0;
-    }
+    __host__ __device__ __forceinline__ static int Lane_Id() { return 0; }
 
     __host__ __device__ __forceinline__ static LaneMask Active_Mask()
     {
@@ -43,7 +35,8 @@ struct LaneGroup
         return predicate ? Active_Mask() : LaneMask(svpfalse_b());
     }
 
-    __host__ __device__ __forceinline__ static LaneMask Ballot(svbool_t predicate)
+    __host__ __device__ __forceinline__ static LaneMask Ballot(
+        svbool_t predicate)
     {
         return LaneMask(predicate);
     }
@@ -144,7 +137,8 @@ struct LaneGroup
         return value;
     }
 
-    __host__ __device__ __forceinline__ static float Reduce_Sum(svfloat32_t value)
+    __host__ __device__ __forceinline__ static float Reduce_Sum(
+        svfloat32_t value)
     {
         return svaddv_f32(svptrue_b32(), value);
     }
@@ -154,7 +148,6 @@ struct LaneGroup
     {
         return svaddv_f64(svptrue_b64(), value);
     }
-
 };
 
 #endif  // SPONGE_LANE_GROUP_SVE_H

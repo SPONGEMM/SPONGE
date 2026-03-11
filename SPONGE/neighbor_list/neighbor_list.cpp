@@ -375,8 +375,8 @@ static __global__ void Find_Neighbors_Gridly(
                         }
                     }
 
-                    LaneMask mask = LaneGroup::And(LaneGroup::Ballot(is_neighbor),
-                                                   LaneMask(warp_mask));
+                    LaneMask mask = LaneGroup::And(
+                        LaneGroup::Ballot(is_neighbor), LaneMask(warp_mask));
                     if (LaneGroup::Any(mask))
                     {
                         int count = LaneGroup::Count(mask);
@@ -391,15 +391,13 @@ static __global__ void Find_Neighbors_Gridly(
                                 atomicExch(neighbor_list_overflow, 1);
                             }
                         }
-                        base_slot =
-                            deviceShfl(warp_mask, base_slot, leader_lane,
-                                       lane_stride);
+                        base_slot = deviceShfl(warp_mask, base_slot,
+                                               leader_lane, lane_stride);
 
                         if (is_neighbor)
                         {
-                            int rank = LaneGroup::Count(
-                                LaneGroup::And(mask,
-                                               LaneGroup::Lower_Lane_Mask()));
+                            int rank = LaneGroup::Count(LaneGroup::And(
+                                mask, LaneGroup::Lower_Lane_Mask()));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =
@@ -454,8 +452,8 @@ static __global__ void Find_Neighbors_Gridly(
                         }
                     }
 
-                    LaneMask mask = LaneGroup::And(LaneGroup::Ballot(is_neighbor),
-                                                   LaneMask(warp_mask));
+                    LaneMask mask = LaneGroup::And(
+                        LaneGroup::Ballot(is_neighbor), LaneMask(warp_mask));
                     if (LaneGroup::Any(mask))
                     {
                         int count = LaneGroup::Count(mask);
@@ -471,15 +469,13 @@ static __global__ void Find_Neighbors_Gridly(
                                 atomicExch(neighbor_list_overflow, 1);
                             }
                         }
-                        base_slot =
-                            deviceShfl(warp_mask, base_slot, leader_lane,
-                                       lane_stride);
+                        base_slot = deviceShfl(warp_mask, base_slot,
+                                               leader_lane, lane_stride);
 
                         if (is_neighbor)
                         {
-                            int rank = LaneGroup::Count(
-                                LaneGroup::And(mask,
-                                               LaneGroup::Lower_Lane_Mask()));
+                            int rank = LaneGroup::Count(LaneGroup::And(
+                                mask, LaneGroup::Lower_Lane_Mask()));
                             if (base_slot + rank < max_neighbor_numbers)
                             {
                                 nl[atom_i].atom_serial[base_slot + rank] =

@@ -1,4 +1,4 @@
-#ifndef SPONGE_LANE_GROUP_H
+﻿#ifndef SPONGE_LANE_GROUP_H
 #define SPONGE_LANE_GROUP_H
 
 #include <stdint.h>

@@ -1,9 +1,9 @@
-#ifndef SPONGE_LANE_GROUP_NEON_H
+﻿#ifndef SPONGE_LANE_GROUP_NEON_H
 #define SPONGE_LANE_GROUP_NEON_H
 
-#include "lane_group.h"
-
 #include <arm_neon.h>
+
+#include "lane_group.h"
 
 struct LaneMask
 {
@@ -18,15 +18,9 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __host__ __device__ __forceinline__ static int Width()
-    {
-        return 4;
-    }
+    __host__ __device__ __forceinline__ static int Width() { return 4; }
 
-    __host__ __device__ __forceinline__ static int Lane_Id()
-    {
-        return 0;
-    }
+    __host__ __device__ __forceinline__ static int Lane_Id() { return 0; }
 
     __host__ __device__ __forceinline__ static LaneMask Active_Mask()
     {
@@ -38,7 +32,8 @@ struct LaneGroup
         return predicate ? Active_Mask() : LaneMask(0);
     }
 
-    __host__ __device__ __forceinline__ static LaneMask Ballot(uint32x4_t predicate)
+    __host__ __device__ __forceinline__ static LaneMask Ballot(
+        uint32x4_t predicate)
     {
         unsigned int bits = 0;
         bits |= (vgetq_lane_u32(predicate, 0) >> 31) << 0;
@@ -134,7 +129,8 @@ struct LaneGroup
         return value;
     }
 
-    __host__ __device__ __forceinline__ static float Reduce_Sum(float32x4_t value)
+    __host__ __device__ __forceinline__ static float Reduce_Sum(
+        float32x4_t value)
     {
 #if defined(__aarch64__)
         return vaddvq_f32(value);
@@ -146,13 +142,12 @@ struct LaneGroup
     }
 
 #if defined(__aarch64__)
-    __host__ __device__ __forceinline__ static double Reduce_Sum(
-        float64x2_t value)
+    __host__ __device__
+        __forceinline__ static double Reduce_Sum(float64x2_t value)
     {
         return vaddvq_f64(value);
     }
 #endif
-
 };
 
 #endif  // SPONGE_LANE_GROUP_NEON_H

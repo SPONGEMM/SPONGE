@@ -1,9 +1,9 @@
-#ifndef SPONGE_LANE_GROUP_SSE42_H
+﻿#ifndef SPONGE_LANE_GROUP_SSE42_H
 #define SPONGE_LANE_GROUP_SSE42_H
 
-#include "lane_group.h"
-
 #include <immintrin.h>
+
+#include "lane_group.h"
 
 struct LaneMask
 {
@@ -18,15 +18,9 @@ struct LaneMask
 
 struct LaneGroup
 {
-    __host__ __device__ __forceinline__ static int Width()
-    {
-        return 4;
-    }
+    __host__ __device__ __forceinline__ static int Width() { return 4; }
 
-    __host__ __device__ __forceinline__ static int Lane_Id()
-    {
-        return 0;
-    }
+    __host__ __device__ __forceinline__ static int Lane_Id() { return 0; }
 
     __host__ __device__ __forceinline__ static LaneMask Active_Mask()
     {
@@ -43,7 +37,8 @@ struct LaneGroup
         return LaneMask(static_cast<unsigned int>(_mm_movemask_ps(predicate)));
     }
 
-    __host__ __device__ __forceinline__ static LaneMask Ballot(__m128d predicate)
+    __host__ __device__ __forceinline__ static LaneMask Ballot(
+        __m128d predicate)
     {
         return LaneMask(static_cast<unsigned int>(_mm_movemask_pd(predicate)));
     }
@@ -147,7 +142,6 @@ struct LaneGroup
         _mm_storeu_pd(lanes, value);
         return lanes[0] + lanes[1];
     }
-
 };
 
 #endif  // SPONGE_LANE_GROUP_SSE42_H
