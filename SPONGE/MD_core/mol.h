@@ -56,6 +56,7 @@ struct molecule_information
     float* d_mass_inverse = NULL;     // 分子质量的倒数
     VECTOR* d_center_of_mass = NULL;  // 分子质心
     int* d_periodicity = NULL;        // 分子是否是无限长的
+    bool force_whole_output = false;  // 是否强制整分子输出映射
 
     void Molecule_Crd_Map(
         float scaler =
