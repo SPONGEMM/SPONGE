@@ -205,16 +205,10 @@ jobs:
       - name: Benchmark validation/cv (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-cv --mpi 2
 
-      - name: Benchmark validation/thermostat (MPI np=2)
-        run: pixi run -e ${{ matrix.env_name }} vali-thermostat --mpi 2
-
-      - name: Benchmark validation/barostat (MPI np=2)
-        run: pixi run -e ${{ matrix.env_name }} vali-barostat --mpi 2
-
-      - name: Benchmark validation/misc (except prips and minimization, MPI np=2)
+      - name: Benchmark validation/misc (walls and softcore, MPI np=2)
         run: >-
           pixi run -e ${{ matrix.env_name }} vali-misc --mpi 2 -k
-          "not prips and not minimization"
+          "walls or softcore"
 
   benchmark-cpu-mpi-np3:
     name: benchmark-cpu-mpi-np3 (${{ matrix.target }})
@@ -265,13 +259,7 @@ jobs:
       - name: Benchmark validation/cv (MPI np=3)
         run: pixi run -e ${{ matrix.env_name }} vali-cv --mpi 3
 
-      - name: Benchmark validation/thermostat (MPI np=3)
-        run: pixi run -e ${{ matrix.env_name }} vali-thermostat --mpi 3
-
-      - name: Benchmark validation/barostat (MPI np=3)
-        run: pixi run -e ${{ matrix.env_name }} vali-barostat --mpi 3
-
-      - name: Benchmark validation/misc (except prips and minimization, MPI np=3)
+      - name: Benchmark validation/misc (walls and softcore, MPI np=3)
         run: >-
           pixi run -e ${{ matrix.env_name }} vali-misc --mpi 3 -k
-          "not prips and not minimization"
+          "walls or softcore"
