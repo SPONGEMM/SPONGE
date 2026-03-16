@@ -1,15 +1,26 @@
-#pragma once
+﻿#pragma once
 
 #include "../control.h"
 #include "./ir/md_core.h"
 
-namespace Xponge {
+namespace Xponge
+{
 
-struct System {
+enum class InputSource
+{
+    kUnknown,
+    kNative,
+    kAmber,
+};
+
+struct System
+{
     Atoms atoms;
     Box box;
     Residues residues;
     Exclusions exclusions;
+    InputSource source = InputSource::kUnknown;
+    double start_time = 0.0;
 
     void Load_Inputs(CONTROLLER* controller);
 };

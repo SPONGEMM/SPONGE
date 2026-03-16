@@ -1,8 +1,9 @@
-#pragma once
+﻿#pragma once
 
 #include "../xponge.h"
 
-namespace Xponge {
+namespace Xponge
+{
 
 static int Native_Get_Atom_Numbers(const System* system)
 {
@@ -32,9 +33,9 @@ static int Native_Ensure_Atom_Numbers(System* system, int atom_numbers,
     int current_atom_numbers = Native_Get_Atom_Numbers(system);
     if (current_atom_numbers > 0 && current_atom_numbers != atom_numbers)
     {
-        controller->Throw_SPONGE_Error(
-            spongeErrorConflictingCommand, error_by,
-            "Reason:\n\t'atom_numbers' is different in different input files\n");
+        controller->Throw_SPONGE_Error(spongeErrorConflictingCommand, error_by,
+                                       "Reason:\n\t'atom_numbers' is different "
+                                       "in different input files\n");
     }
     return atom_numbers;
 }
@@ -135,9 +136,17 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
     FILE* fp = NULL;
     Open_File_Safely(&fp, controller->Command("coordinate_in_file"), "r");
 
+    char line[CHAR_LENGTH_MAX];
+    if (fgets(line, CHAR_LENGTH_MAX, fp) == NULL)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat,
+            "Xponge::Native_Load_Coordinate_And_Velocity",
+            "Reason:\n\tthe format of coordinate_in_file is not right\n");
+    }
     int atom_numbers = 0;
     double start_time = 0.0;
-    int scanf_ret = fscanf(fp, "%d %lf", &atom_numbers, &start_time);
+    int scanf_ret = sscanf(line, "%d %lf", &atom_numbers, &start_time);
     if (scanf_ret < 1)
     {
         controller->Throw_SPONGE_Error(
@@ -145,6 +154,7 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
             "Xponge::Native_Load_Coordinate_And_Velocity",
             "Reason:\n\tthe format of coordinate_in_file is not right\n");
     }
+    system->start_time = (scanf_ret == 2) ? start_time : 0.0;
     Native_Ensure_Atom_Numbers(system, atom_numbers, controller,
                                "Xponge::Native_Load_Coordinate_And_Velocity");
 
@@ -165,8 +175,7 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
     system->box.box_length.resize(3);
     system->box.box_angle.resize(3);
     if (fscanf(fp, "%f %f %f", &system->box.box_length[0],
-               &system->box.box_length[1],
-               &system->box.box_length[2]) != 3)
+               &system->box.box_length[1], &system->box.box_length[2]) != 3)
     {
         controller->Throw_SPONGE_Error(
             spongeErrorBadFileFormat,
@@ -195,8 +204,9 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
                 "Xponge::Native_Load_Coordinate_And_Velocity",
                 "Reason:\n\tthe format of velocity_in_file is not right\n");
         }
-        Native_Ensure_Atom_Numbers(system, vel_atom_numbers, controller,
-                                   "Xponge::Native_Load_Coordinate_And_Velocity");
+        Native_Ensure_Atom_Numbers(
+            system, vel_atom_numbers, controller,
+            "Xponge::Native_Load_Coordinate_And_Velocity");
         system->atoms.velocity.resize(3 * vel_atom_numbers);
         for (int i = 0; i < vel_atom_numbers; i++)
         {
@@ -287,8 +297,7 @@ static void Native_Load_Exclusions(System* system, CONTROLLER* controller)
         system->exclusions.excluded_atoms[i].resize(excluded_numbers);
         for (int j = 0; j < excluded_numbers; j++)
         {
-            if (fscanf(fp, "%d",
-                       &system->exclusions.excluded_atoms[i][j]) != 1)
+            if (fscanf(fp, "%d", &system->exclusions.excluded_atoms[i][j]) != 1)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, "Xponge::Native_Load_Exclusions",
@@ -310,6 +319,7 @@ static void Native_Load_Exclusions(System* system, CONTROLLER* controller)
 
 void Load_Native_Inputs(System* system, CONTROLLER* controller)
 {
+    system->source = InputSource::kNative;
     Native_Load_Mass(system, controller);
     Native_Load_Charge(system, controller);
     Native_Load_Coordinate_And_Velocity(system, controller);

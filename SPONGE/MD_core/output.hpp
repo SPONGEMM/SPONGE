@@ -216,7 +216,7 @@ void MD_INFORMATION::trajectory_output::Export_Restart_File(
     restart_export_count = restart_export_count + 1;
     std::string prefix =
         export_index ? std::to_string(export_index) + "_" + filename : filename;
-    if (amber_irest >= 0)
+    if (Xponge::system.source == Xponge::InputSource::kAmber)
     {
         strcpy(filename, prefix.c_str());
         strcat(filename, ".rst7");

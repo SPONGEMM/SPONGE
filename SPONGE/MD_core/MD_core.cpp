@@ -1,4 +1,5 @@
 ﻿#include "MD_core.h"
+
 #include "../xponge/xponge.h"
 
 #define BOX_TRAJ_COMMAND "box"
@@ -153,6 +154,44 @@ void MD_INFORMATION::Read_dt(CONTROLLER* controller)
 void MD_INFORMATION::Read_Coordinate_And_Velocity(CONTROLLER* controller)
 {
     sys.start_time = 0.0;
+    if (mode == RERUN)
+    {
+        if (atom_numbers == 0)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorMissingCommand,
+                "MD_INFORMATION::Read_Coordinate_And_Velocity",
+                "Reason:\n\tFor the 'rerun' mode, the number of atoms should "
+                "be provided by mass_in_file or charge_in_file\n");
+        }
+        Malloc_Safely(
+            (void**)&coordinate,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        Device_Malloc_And_Copy_Safely(
+            (void**)&crd, coordinate,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        Device_Malloc_Safely(
+            (void**)&last_crd,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        deviceMemset(
+            last_crd, 0,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        Malloc_Safely(
+            (void**)&velocity,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        Device_Malloc_And_Copy_Safely(
+            (void**)&vel, velocity,
+            sizeof(VECTOR) * (this->atom_numbers +
+                              no_direct_interaction_virtual_atom_numbers));
+        rerun.Initial(controller, this);
+        rerun.Iteration(rerun.start_frame);
+        return;
+    }
     if (Xponge::system.atoms.coordinate.empty())
     {
         controller->Throw_SPONGE_Error(
@@ -161,18 +200,21 @@ void MD_INFORMATION::Read_Coordinate_And_Velocity(CONTROLLER* controller)
             "Reason:\n\tno coordinate information found in Xponge::system\n");
     }
     atom_numbers = Xponge_Atom_Numbers();
-    Malloc_Safely((void**)&coordinate,
-                  sizeof(VECTOR) * (this->atom_numbers +
-                                    no_direct_interaction_virtual_atom_numbers));
-    Device_Malloc_Safely((void**)&last_crd,
-                         sizeof(VECTOR) * (this->atom_numbers +
-                                           no_direct_interaction_virtual_atom_numbers));
+    Malloc_Safely(
+        (void**)&coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_Safely(
+        (void**)&last_crd,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
     deviceMemset(last_crd, 0,
                  sizeof(VECTOR) * (this->atom_numbers +
                                    no_direct_interaction_virtual_atom_numbers));
-    Malloc_Safely((void**)&velocity,
-                  sizeof(VECTOR) * (this->atom_numbers +
-                                    no_direct_interaction_virtual_atom_numbers));
+    Malloc_Safely(
+        (void**)&velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
 
     for (int i = 0; i < atom_numbers; i++)
     {
@@ -210,12 +252,15 @@ void MD_INFORMATION::Read_Coordinate_And_Velocity(CONTROLLER* controller)
         sys.box_angle.y = Xponge::system.box.box_angle[1];
         sys.box_angle.z = Xponge::system.box.box_angle[2];
     }
-    Device_Malloc_And_Copy_Safely((void**)&crd, coordinate,
-                                  sizeof(VECTOR) * (this->atom_numbers +
-                                                    no_direct_interaction_virtual_atom_numbers));
-    Device_Malloc_And_Copy_Safely((void**)&vel, velocity,
-                                  sizeof(VECTOR) * (this->atom_numbers +
-                                                    no_direct_interaction_virtual_atom_numbers));
+    sys.start_time = Xponge::system.start_time;
+    Device_Malloc_And_Copy_Safely(
+        (void**)&crd, coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_And_Copy_Safely(
+        (void**)&vel, velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
 }
 
 void MD_INFORMATION::Read_Mass(CONTROLLER* controller)

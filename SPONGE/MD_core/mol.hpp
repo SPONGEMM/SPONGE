@@ -362,6 +362,14 @@ void MD_INFORMATION::residue_information::Initial(CONTROLLER* controller,
             count += Xponge::system.residues.atom_numbers[i];
             h_res_end[i] = count;
         }
+        if (count != md_info->atom_numbers)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand,
+                "MD_INFORMATION::residue_information::Initial",
+                "Reason:\n\tresidue atom counts in Xponge::system do not sum "
+                "to the total atom number\n");
+        }
         deviceMemcpy(d_res_start, h_res_start, sizeof(int) * residue_numbers,
                      deviceMemcpyHostToDevice);
         deviceMemcpy(d_res_end, h_res_end, sizeof(int) * residue_numbers,

@@ -4,7 +4,6 @@ struct trajectory_output
 {
     MD_INFORMATION* md_info = NULL;
     int current_crd_synchronized_step = 0;
-    int amber_irest = -1;
     bool print_zeroth_frame = false;
     bool print_virial = false;
     float last_density = NAN;

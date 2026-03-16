@@ -1,8 +1,20 @@
-#pragma once
+﻿#pragma once
 
 #include "../xponge.h"
 
-namespace Xponge {
+namespace Xponge
+{
+
+static std::string Amber_Trim(const std::string& value)
+{
+    std::size_t begin = value.find_first_not_of(" \t\r\n");
+    if (begin == std::string::npos)
+    {
+        return "";
+    }
+    std::size_t end = value.find_last_not_of(" \t\r\n");
+    return value.substr(begin, end - begin + 1);
+}
 
 static int Amber_Get_Atom_Numbers(const System* system)
 {
@@ -28,9 +40,9 @@ static void Amber_Ensure_Atom_Numbers(System* system, int atom_numbers,
     int current_atom_numbers = Amber_Get_Atom_Numbers(system);
     if (current_atom_numbers > 0 && current_atom_numbers != atom_numbers)
     {
-        controller->Throw_SPONGE_Error(
-            spongeErrorConflictingCommand, error_by,
-            "Reason:\n\t'atom_numbers' is different in different input files\n");
+        controller->Throw_SPONGE_Error(spongeErrorConflictingCommand, error_by,
+                                       "Reason:\n\t'atom_numbers' is different "
+                                       "in different input files\n");
     }
 }
 
@@ -95,7 +107,7 @@ static void Amber_Load_Parm7(System* system, CONTROLLER* controller)
         {
             continue;
         }
-        std::string current_flag = line.substr(6);
+        std::string current_flag = Amber_Trim(line.substr(6));
         i++;
         std::vector<std::string> values = Amber_Read_Section(lines, &i);
 
@@ -184,10 +196,11 @@ static void Amber_Load_Parm7(System* system, CONTROLLER* controller)
 
     system->exclusions.excluded_atoms.assign(atom_numbers, {});
     int count = 0;
-    for (int i = 0; i < atom_numbers && i < static_cast<int>(excluded_numbers.size());
-         i++)
+    for (int i = 0;
+         i < atom_numbers && i < static_cast<int>(excluded_numbers.size()); i++)
     {
-        for (int j = 0; j < excluded_numbers[i] && count < static_cast<int>(excluded_list.size());
+        for (int j = 0; j < excluded_numbers[i] &&
+                        count < static_cast<int>(excluded_list.size());
              j++)
         {
             int excluded_atom = excluded_list[count++];
@@ -226,6 +239,11 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
     if (scanf_ret == 2)
     {
         has_vel = 1;
+        system->start_time = start_time;
+    }
+    else
+    {
+        system->start_time = 0.0;
     }
 
     system->atoms.coordinate.resize(3 * atom_numbers);
@@ -243,12 +261,6 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
         }
     }
 
-    int amber_irest = 1;
-    if (controller->Command_Exist("amber_irest"))
-    {
-        amber_irest =
-            controller->Get_Bool("amber_irest", "Xponge::Amber_Load_Rst7");
-    }
     if (has_vel)
     {
         for (int i = 0; i < atom_numbers; i++)
@@ -263,7 +275,7 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
             }
         }
     }
-    if (!has_vel || amber_irest == 0)
+    if (!has_vel)
     {
         system->atoms.velocity.assign(3 * atom_numbers, 0.0f);
     }
@@ -289,6 +301,7 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
 
 void Load_Amber_Inputs(System* system, CONTROLLER* controller)
 {
+    system->source = InputSource::kAmber;
     Amber_Load_Parm7(system, controller);
     Amber_Load_Rst7(system, controller);
 }

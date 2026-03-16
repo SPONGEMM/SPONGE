@@ -1,26 +1,31 @@
-#pragma once
+﻿#pragma once
 
 #include <vector>
 
-namespace Xponge {
+namespace Xponge
+{
 
-struct Atoms {
+struct Atoms
+{
     std::vector<float> mass;
     std::vector<float> charge;
     std::vector<float> coordinate;
     std::vector<float> velocity;
 };
 
-struct Box {
+struct Box
+{
     std::vector<float> box_length;
     std::vector<float> box_angle;
 };
 
-struct Residues {
+struct Residues
+{
     std::vector<int> atom_numbers;
 };
 
-struct Exclusions {
+struct Exclusions
+{
     std::vector<std::vector<int>> excluded_atoms;
 };
 
