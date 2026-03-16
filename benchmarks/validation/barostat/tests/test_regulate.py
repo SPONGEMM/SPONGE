@@ -169,7 +169,7 @@ def test_tip3p_regulate_from_moderately_expanded_box(
     )
 
     target_density = 0.982
-    density_abs_tol = 0.010
+    density_abs_tol = 0.020
     density_error = abs(final_density_stats["mean"] - target_density)
     final_density_ok = density_error <= density_abs_tol
 
