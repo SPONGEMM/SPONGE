@@ -8,6 +8,7 @@
 #include "manybody/reaxff/torsion.h"
 #include "manybody/reaxff/vdw.h"
 #include "neighbor_list/full_neighbor_list.h"
+#include "xponge/xponge.h"
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
@@ -16,6 +17,7 @@
      controller.Command_Choice("thermostat_mode", (name)))
 
 CONTROLLER controller;
+Xponge::System Xponge::system;
 MD_INFORMATION md_info;
 DOMAIN_INFORMATION dd;
 MIDDLE_Langevin_INFORMATION middle_langevin;
@@ -93,6 +95,7 @@ void Main_Initial(int argc, char* argv[])
     max_omp_threads = omp_get_max_threads();
 #endif
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
+    Xponge::system.Load_Inputs(&controller);
     cv_controller.Initial(&controller,
                           &md_info.no_direct_interaction_virtual_atom_numbers);
     md_info.Initial(&controller);
