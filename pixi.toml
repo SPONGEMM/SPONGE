@@ -155,6 +155,7 @@ vali-thermostat = "python -X utf8 -m pytest benchmarks/validation/thermostat/tes
 vali-barostat = "python -X utf8 -m pytest benchmarks/validation/barostat/tests -s --tb=short"
 vali-cv = "python -X utf8 -m pytest benchmarks/validation/cv/tests -s --tb=short"
 vali-misc = "python -X utf8 -m pytest benchmarks/validation/misc/tests -s --tb=short"
+perf-barostat = "python -X utf8 -m pytest benchmarks/performance/barostat/tests -s --tb=short"
 perf-reaxff = "python -X utf8 -m pytest benchmarks/performance/reaxff/tests -s --tb=short"
 perf-sits = "python -X utf8 -m pytest benchmarks/performance/sits/tests -s --tb=short"
 format = "GITHOOK_MODIFY=1 GITHOOK_AUTO_ADD=0 GITHOOK_ALL=1 GITHOOK_FILES= python -X utf8 scripts/pre-commit"

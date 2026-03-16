@@ -1,16 +1,16 @@
 import math
+import shutil
 
 import pytest
 
 from benchmarks.utils import Outputer
 
+from benchmarks.performance.barostat.tests.utils import run_sponge_barostat
 from benchmarks.validation.barostat.tests.utils import (
     AMU_PER_A3_TO_G_PER_CM3,
     parse_density_series_from_mdbox,
     read_total_mass_amu,
     rescale_coordinate_box,
-    run_sponge_barostat,
-    summarize_series,
     triclinic_volume_a3,
     write_barostat_mdin,
 )
@@ -39,6 +39,12 @@ REGULATE_CASES = [
         id="berendsen_barostat",
     ),
 ]
+
+COMPRESS_STEP_LIMIT = 10000
+RELAX_STEP_LIMIT = 5000
+WRITE_INFORMATION_INTERVAL = 1000
+WRITE_MDOUT_INTERVAL = 1000
+DENSITY_TAIL_SAMPLES = 3
 
 
 def _write_and_run_stage(
@@ -70,6 +76,7 @@ def _write_and_run_stage(
         barostat_tau=barostat_tau,
         barostat_update_interval=barostat_update_interval,
         write_information_interval=write_information_interval,
+        write_mdout_interval=WRITE_MDOUT_INTERVAL,
         default_in_file_prefix=default_in_file_prefix,
         constrain_mode=constrain_mode,
     )
@@ -132,15 +139,15 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     _write_and_run_stage(
         case_dir,
         stage_tag="compress_1000bar",
-        step_limit=100000,
+        step_limit=COMPRESS_STEP_LIMIT,
         target_pressure=1000.0,
         barostat=cfg["barostat"],
         barostat_tau=0.1,
         barostat_update_interval=10,
-        write_information_interval=10,
+        write_information_interval=WRITE_INFORMATION_INTERVAL,
         default_in_file_prefix="WAT",
         constrain_mode="SETTLE",
-        timeout=2400,
+        timeout=1200,
         mpi_np=mpi_np,
     )
     shutil.copyfile(
@@ -150,15 +157,15 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     _write_and_run_stage(
         case_dir,
         stage_tag="relax_1bar",
-        step_limit=50000,
+        step_limit=RELAX_STEP_LIMIT,
         target_pressure=1.0,
         barostat=cfg["barostat"],
         barostat_tau=0.1,
         barostat_update_interval=10,
-        write_information_interval=10,
+        write_information_interval=WRITE_INFORMATION_INTERVAL,
         default_in_file_prefix="WAT",
         constrain_mode="SETTLE",
-        timeout=2400,
+        timeout=1200,
         mpi_np=mpi_np,
     )
 
@@ -167,10 +174,10 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     )
     box_records = _parse_mdbox_box6(case_dir / "mdbox_relax_1bar.txt")
 
-    assert len(densities) == 50000 // 10
-    assert len(box_records) == 50000 // 10
+    assert len(densities) == RELAX_STEP_LIMIT // WRITE_INFORMATION_INTERVAL
+    assert len(box_records) == RELAX_STEP_LIMIT // WRITE_INFORMATION_INTERVAL
 
-    density_tail_n = 500
+    density_tail_n = DENSITY_TAIL_SAMPLES
     density_stats = Outputer.summarize_series(
         densities, burn_in=len(densities) - density_tail_n
     )

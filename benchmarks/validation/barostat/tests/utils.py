@@ -27,7 +27,8 @@ def write_barostat_mdin(
     barostat_isotropy="isotropic",
     barostat_tau=1.0,
     barostat_update_interval=10,
-    write_information_interval=10,
+    write_information_interval=1000,
+    write_mdout_interval=1000,
     default_in_file_prefix="tip3p",
     constrain_mode="SETTLE",
     monte_carlo_initial_ratio=0.001,
@@ -49,7 +50,7 @@ def write_barostat_mdin(
         f'default_in_file_prefix = "{default_in_file_prefix}"\n'
         f'constrain_mode = "{constrain_mode}"\n'
         "print_zeroth_frame = 1\n"
-        "write_mdout_interval = 1\n"
+        f"write_mdout_interval = {write_mdout_interval}\n"
         f"write_information_interval = {write_information_interval}\n"
     )
     if barostat_mode is not None:

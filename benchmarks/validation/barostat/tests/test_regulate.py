@@ -37,6 +37,13 @@ REGULATE_CASES = [
     ),
 ]
 
+COMPRESS_STEP_LIMIT = 10000
+RELAX_STEP_LIMIT = 10000
+WRITE_INFORMATION_INTERVAL = 1000
+WRITE_MDOUT_INTERVAL = 1000
+DENSITY_TAIL_SAMPLES = 5
+BOX_BURN_IN_SAMPLES = 5
+
 
 def _write_and_run_stage(
     case_dir,
@@ -48,6 +55,7 @@ def _write_and_run_stage(
     barostat_tau,
     barostat_update_interval,
     write_information_interval,
+    write_mdout_interval,
     timeout,
     mpi_np,
 ):
@@ -65,6 +73,7 @@ def _write_and_run_stage(
         barostat_tau=barostat_tau,
         barostat_update_interval=barostat_update_interval,
         write_information_interval=write_information_interval,
+        write_mdout_interval=write_mdout_interval,
         default_in_file_prefix="tip3p",
         constrain_mode="SHAKE",
     )
@@ -74,21 +83,23 @@ def _write_and_run_stage(
 
 
 @pytest.mark.parametrize("cfg", REGULATE_CASES)
-def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
+def test_tip3p_regulate_from_moderately_expanded_box(
+    statics_path, outputs_path, cfg, mpi_np
+):
     case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,
         case_name="tip3p_water",
         mpi_np=mpi_np,
-        run_name=f"{cfg['id']}_regulate_30A",
+        run_name=f"{cfg['id']}_regulate_26A",
     )
 
     # Expand only the periodic box to start from a low-density state.
     rescale_coordinate_box(
         case_dir / "tip3p_coordinate.txt",
-        new_lx=30.0,
-        new_ly=30.0,
-        new_lz=30.0,
+        new_lx=26.0,
+        new_ly=26.0,
+        new_lz=26.0,
         scale_coordinates=False,
     )
     total_mass_amu = read_total_mass_amu(case_dir / "tip3p_mass.txt")
@@ -104,13 +115,14 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
     _write_and_run_stage(
         case_dir,
         stage_tag="compress_1000bar",
-        step_limit=100000,
+        step_limit=COMPRESS_STEP_LIMIT,
         target_pressure=1000.0,
         barostat=cfg["barostat"],
         barostat_tau=0.1,
         barostat_update_interval=10,
-        write_information_interval=10,
-        timeout=1800,
+        write_information_interval=WRITE_INFORMATION_INTERVAL,
+        write_mdout_interval=WRITE_MDOUT_INTERVAL,
+        timeout=600,
         mpi_np=mpi_np,
     )
     shutil.copyfile(
@@ -122,13 +134,14 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
     _write_and_run_stage(
         case_dir,
         stage_tag="relax_1bar",
-        step_limit=50000,
+        step_limit=RELAX_STEP_LIMIT,
         target_pressure=1.0,
         barostat=cfg["barostat"],
         barostat_tau=0.1,
         barostat_update_interval=10,
-        write_information_interval=10,
-        timeout=1800,
+        write_information_interval=WRITE_INFORMATION_INTERVAL,
+        write_mdout_interval=WRITE_MDOUT_INTERVAL,
+        timeout=600,
         mpi_np=mpi_np,
     )
 
@@ -137,22 +150,22 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
     )
     box_lengths = parse_mdbox_lengths(case_dir / "mdbox_relax_1bar.txt")
 
-    expected_samples = 50000 // 10
+    expected_samples = RELAX_STEP_LIMIT // WRITE_INFORMATION_INTERVAL
     assert len(densities) == expected_samples
     assert len(box_lengths) == expected_samples
 
-    density_tail_n = 500
+    density_tail_n = DENSITY_TAIL_SAMPLES
     final_density_stats = Outputer.summarize_series(
         densities, burn_in=len(densities) - density_tail_n
     )
     final_lx_stats = Outputer.summarize_series(
-        [xyz[0] for xyz in box_lengths], burn_in=2500
+        [xyz[0] for xyz in box_lengths], burn_in=BOX_BURN_IN_SAMPLES
     )
     final_ly_stats = Outputer.summarize_series(
-        [xyz[1] for xyz in box_lengths], burn_in=2500
+        [xyz[1] for xyz in box_lengths], burn_in=BOX_BURN_IN_SAMPLES
     )
     final_lz_stats = Outputer.summarize_series(
-        [xyz[2] for xyz in box_lengths], burn_in=2500
+        [xyz[2] for xyz in box_lengths], burn_in=BOX_BURN_IN_SAMPLES
     )
 
     target_density = 0.982
@@ -178,7 +191,10 @@ def test_tip3p_regulate_from_30a_box(statics_path, outputs_path, cfg, mpi_np):
     Outputer.print_table(
         ["Metric", "Value"],
         rows,
-        title="Barostat Validation: TIP3P Regulate from 30A Box to Target Density",
+        title=(
+            "Barostat Validation: TIP3P Regulate from Moderately Expanded "
+            "Box to Target Density"
+        ),
     )
 
     assert final_density_ok

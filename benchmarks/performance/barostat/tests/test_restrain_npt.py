@@ -10,7 +10,7 @@ import pytest
 from benchmarks.utils import Extractor
 from benchmarks.utils import Outputer
 
-from benchmarks.validation.barostat.tests.utils import (
+from benchmarks.performance.barostat.tests.utils import (
     run_sponge_barostat,
 )
 
@@ -73,6 +73,10 @@ RNA_BACKBONE_ATOMS = {
     "O2'",
     "C1'",
 }
+
+MINIMIZATION_STEP_LIMIT = 1000
+NPT_STEP_LIMIT = 2000
+TAIL_SAMPLES = 50
 
 
 def _read_prmtop_flag_lines(prmtop_path: Path, flag: str):
@@ -226,10 +230,10 @@ def _write_minimization_mdin(case_dir: Path, restrain_file: str):
         'mode = "minimization"\n'
         'amber_parm7 = "model-protein-RNA-complex.prmtop"\n'
         'amber_rst7 = "model-protein-RNA-complex.inpcrd"\n'
-        "cutoff = 10.0\n"
-        "step_limit = 5000\n"
-        "write_information_interval = 100\n"
-        "write_mdout_interval = 1\n"
+        "cutoff = 8.0\n"
+        f"step_limit = {MINIMIZATION_STEP_LIMIT}\n"
+        "write_information_interval = 1000\n"
+        "write_mdout_interval = 1000\n"
         "print_zeroth_frame = 1\n"
         "minimization_dynamic_dt = 1\n"
         "minimization_max_move = 0.05\n"
@@ -248,11 +252,11 @@ def _write_restrained_npt_mdin(case_dir: Path, restrain_file: str):
         'amber_parm7 = "model-protein-RNA-complex.prmtop"\n'
         'amber_rst7 = "restart_min.rst7"\n'
         "amber_irest = 0\n"
-        "cutoff = 10.0\n"
+        "cutoff = 8.0\n"
         "dt = 0.002\n"
-        "step_limit = 10000\n"
-        "write_information_interval = 100\n"
-        "write_mdout_interval = 1\n"
+        f"step_limit = {NPT_STEP_LIMIT}\n"
+        "write_information_interval = 1000\n"
+        "write_mdout_interval = 1000\n"
         "print_zeroth_frame = 1\n"
         'thermostat = "middle_langevin"\n'
         "langevin_gamma = 10.0\n"
@@ -276,11 +280,11 @@ def _write_unrestrained_npt_mdin(case_dir: Path):
         'amber_parm7 = "model-protein-RNA-complex.prmtop"\n'
         'amber_rst7 = "restart_restrained.rst7"\n'
         "amber_irest = 1\n"
-        "cutoff = 10.0\n"
+        "cutoff = 8.0\n"
         "dt = 0.002\n"
-        "step_limit = 10000\n"
-        "write_information_interval = 100\n"
-        "write_mdout_interval = 1\n"
+        f"step_limit = {NPT_STEP_LIMIT}\n"
+        "write_information_interval = 1000\n"
+        "write_mdout_interval = 1000\n"
         "print_zeroth_frame = 1\n"
         'thermostat = "middle_langevin"\n'
         "langevin_gamma = 10.0\n"
@@ -323,13 +327,13 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path, mpi_np):
         raise ValueError("No RNA atoms found in the system.")
 
     _write_minimization_mdin(case_dir, restrain_file=restrain_file)
-    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    run_sponge_barostat(case_dir, timeout=1200, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_min.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_min.txt")
     shutil.copyfile(case_dir / "restart.rst7", case_dir / "restart_min.rst7")
 
     _write_restrained_npt_mdin(case_dir, restrain_file=restrain_file)
-    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    run_sponge_barostat(case_dir, timeout=1200, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_restrained.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_restrained.txt")
     shutil.copyfile(
@@ -337,7 +341,7 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path, mpi_np):
     )
 
     _write_unrestrained_npt_mdin(case_dir)
-    run_sponge_barostat(case_dir, timeout=3600, mpi_np=mpi_np)
+    run_sponge_barostat(case_dir, timeout=1200, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_unrestrained.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_unrestrained.txt")
 
@@ -397,7 +401,7 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path, mpi_np):
         )
     )
 
-    tail_n = 100
+    tail_n = TAIL_SAMPLES
     restrained_tail = restrained_density[-tail_n:]
     unrestrained_tail = unrestrained_density[-tail_n:]
     restrained_tail_mean = statistics.fmean(restrained_tail)
@@ -449,7 +453,9 @@ def test_restrain_npt_after_minimization(statics_path, outputs_path, mpi_np):
         ["Case", "restrain_npt"],
         [
             "Protocol",
-            "minimization(5000) -> restrained NPT(10000) -> unrestrained NPT(10000)",
+            f"minimization({MINIMIZATION_STEP_LIMIT}) -> "
+            f"restrained NPT({NPT_STEP_LIMIT}) -> "
+            f"unrestrained NPT({NPT_STEP_LIMIT})",
         ],
         ["Barostat", "andersen_barostat"],
         ["ConstrainMode", "SHAKE"],

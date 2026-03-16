@@ -75,6 +75,9 @@ jobs:
       - name: Benchmark validation/thermostat
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat
 
+      - name: Benchmark validation/barostat
+        run: pixi run -e ${{ matrix.env_name }} vali-barostat
+
       - name: Benchmark validation/misc (except prips and minimization)
         run: >-
           pixi run -e ${{ matrix.env_name }} vali-misc -k
