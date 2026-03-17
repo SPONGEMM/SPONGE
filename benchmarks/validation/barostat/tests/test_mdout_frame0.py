@@ -45,9 +45,9 @@ def test_barostat_mdout_frame0_thermo_is_initialized(
     pressure_series = parse_mdout_column(case_dir / "mdout.txt", "pressure")
 
     total_mass_amu = read_total_mass_amu(case_dir / "tip3p_mass.txt")
-    box_fields = (case_dir / "tip3p_coordinate.txt").read_text().splitlines()[
-        -1
-    ].split()
+    box_fields = (
+        (case_dir / "tip3p_coordinate.txt").read_text().splitlines()[-1].split()
+    )
     box_lx, box_ly, box_lz = map(float, box_fields[:3])
     expected_density = (
         total_mass_amu * AMU_PER_A3_TO_G_PER_CM3 / (box_lx * box_ly * box_lz)
