@@ -1,9 +1,9 @@
 ﻿#pragma once
 
+#include "./common.hpp"
 #include "./native/angle.hpp"
 #include "./native/bond.hpp"
 #include "./native/cmap.hpp"
-#include "./common.hpp"
 #include "./native/dihedral.hpp"
 #include "./native/gb.hpp"
 #include "./native/improper_dihedral.hpp"

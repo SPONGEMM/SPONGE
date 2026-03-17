@@ -239,18 +239,19 @@ static fs::path Gromacs_Resolve_Include(
             return candidate;
         }
     }
-    std::string reason =
-        "Reason:\n\tfailed to resolve GROMACS include file '" + include_name +
-        "'\n";
+    std::string reason = "Reason:\n\tfailed to resolve GROMACS include file '" +
+                         include_name + "'\n";
     controller->Throw_SPONGE_Error(spongeErrorBadFileFormat, error_by,
                                    reason.c_str());
     return {};
 }
 
-static void Gromacs_Preprocess_File(
-    const fs::path& file_path, std::set<std::string>* macros,
-    const std::vector<fs::path>& include_dirs, std::vector<std::string>* lines,
-    CONTROLLER* controller, const char* error_by)
+static void Gromacs_Preprocess_File(const fs::path& file_path,
+                                    std::set<std::string>* macros,
+                                    const std::vector<fs::path>& include_dirs,
+                                    std::vector<std::string>* lines,
+                                    CONTROLLER* controller,
+                                    const char* error_by)
 {
     std::ifstream fin(file_path);
     if (!fin.is_open())
@@ -269,7 +270,8 @@ static void Gromacs_Preprocess_File(
         bool else_seen = false;
     };
     std::vector<Conditional_State> stack;
-    auto is_active = [&stack]() -> bool {
+    auto is_active = [&stack]() -> bool
+    {
         if (stack.empty())
         {
             return true;
@@ -393,7 +395,8 @@ static void Gromacs_Preprocess_File(
                     spongeErrorBadFileFormat, error_by,
                     "Reason:\n\tunterminated GROMACS line continuation\n");
             }
-            std::string next_line = Gromacs_Strip_Comment(Gromacs_Trim(raw_line));
+            std::string next_line =
+                Gromacs_Strip_Comment(Gromacs_Trim(raw_line));
             if (!next_line.empty())
             {
                 continued_line += " ";
@@ -415,10 +418,7 @@ static void Gromacs_Preprocess_File(
     }
 }
 
-static float Gromacs_To_Kcal(float value_in_kj)
-{
-    return value_in_kj / 4.184f;
-}
+static float Gromacs_To_Kcal(float value_in_kj) { return value_in_kj / 4.184f; }
 
 static float Gromacs_To_Angstrom(float value_in_nm)
 {
@@ -493,7 +493,8 @@ static const Gromacs_Bond_Type* Gromacs_Find_Bond_Type(
         {
             continue;
         }
-        if ((type.ai == ai && type.aj == aj) || (type.ai == aj && type.aj == ai))
+        if ((type.ai == ai && type.aj == aj) ||
+            (type.ai == aj && type.aj == ai))
         {
             return &type;
         }
@@ -545,8 +546,8 @@ static std::vector<const Gromacs_Dihedral_Type*> Gromacs_Find_Dihedral_Types(
         {
             continue;
         }
-        int wildcards = Gromacs_Count_Wildcards(
-            {type.ai, type.aj, type.ak, type.al});
+        int wildcards =
+            Gromacs_Count_Wildcards({type.ai, type.aj, type.ak, type.al});
         if (wildcards < best_wildcards)
         {
             matches.clear();
@@ -570,7 +571,8 @@ static const Gromacs_Pair_Type* Gromacs_Find_Pair_Type(
         {
             continue;
         }
-        if ((type.ai == ai && type.aj == aj) || (type.ai == aj && type.aj == ai))
+        if ((type.ai == ai && type.aj == aj) ||
+            (type.ai == aj && type.aj == ai))
         {
             return &type;
         }
@@ -643,7 +645,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ defaults ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ defaults ] section in GROMACS "
+                    "topology\n");
             }
             topology.defaults.nbfunc = std::stoi(tokens[0]);
             topology.defaults.comb_rule = std::stoi(tokens[1]);
@@ -657,7 +660,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ atomtypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ atomtypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Atom_Type atom_type;
             atom_type.name = tokens[0];
@@ -674,7 +678,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ bondtypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ bondtypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Bond_Type bond_type;
             bond_type.ai = tokens[0];
@@ -690,7 +695,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ angletypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ angletypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Angle_Type angle_type;
             angle_type.ai = tokens[0];
@@ -712,7 +718,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ dihedraltypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ dihedraltypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Dihedral_Type dihedral_type;
             dihedral_type.ai = tokens[0];
@@ -732,7 +739,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ pairtypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ pairtypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Pair_Type pair_type;
             pair_type.ai = tokens[0];
@@ -750,7 +758,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ cmaptypes ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ cmaptypes ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_CMap_Type cmap_type;
             cmap_type.ai = tokens[0];
@@ -765,7 +774,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tnon-square GROMACS CMAP grids are not supported yet\n");
+                    "Reason:\n\tnon-square GROMACS CMAP grids are not "
+                    "supported yet\n");
             }
             cmap_type.resolution = resolution_phi;
             std::size_t expected_grid_size =
@@ -790,7 +800,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ moleculetype ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ moleculetype ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Molecule molecule;
             molecule.name = tokens[0];
@@ -802,9 +813,10 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
         {
             if (current_molecule == NULL || tokens.size() < 7)
             {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ atoms ] section in GROMACS topology\n");
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               error_by,
+                                               "Reason:\n\tinvalid [ atoms ] "
+                                               "section in GROMACS topology\n");
             }
             Gromacs_Molecule_Atom atom;
             atom.nr = std::stoi(tokens[0]);
@@ -824,9 +836,10 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
         {
             if (current_molecule == NULL || tokens.size() < 3)
             {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ bonds ] section in GROMACS topology\n");
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               error_by,
+                                               "Reason:\n\tinvalid [ bonds ] "
+                                               "section in GROMACS topology\n");
             }
             Gromacs_Bond bond;
             bond.ai = std::stoi(tokens[0]);
@@ -842,9 +855,10 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
         {
             if (current_molecule == NULL || tokens.size() < 3)
             {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ pairs ] section in GROMACS topology\n");
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               error_by,
+                                               "Reason:\n\tinvalid [ pairs ] "
+                                               "section in GROMACS topology\n");
             }
             Gromacs_Pair pair;
             pair.ai = std::stoi(tokens[0]);
@@ -860,9 +874,10 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
         {
             if (current_molecule == NULL || tokens.size() < 4)
             {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ angles ] section in GROMACS topology\n");
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               error_by,
+                                               "Reason:\n\tinvalid [ angles ] "
+                                               "section in GROMACS topology\n");
             }
             Gromacs_Angle angle;
             angle.ai = std::stoi(tokens[0]);
@@ -881,7 +896,8 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ dihedrals ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ dihedrals ] section in GROMACS "
+                    "topology\n");
             }
             Gromacs_Dihedral dihedral;
             dihedral.ai = std::stoi(tokens[0]);
@@ -901,17 +917,18 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
-                    "Reason:\n\tinvalid [ molecules ] section in GROMACS topology\n");
+                    "Reason:\n\tinvalid [ molecules ] section in GROMACS "
+                    "topology\n");
             }
             topology.system_molecules.push_back(
                 {tokens[0], std::stoi(tokens[1])});
         }
-        else if (current_section == "settles" || current_section == "constraints" ||
-                 current_section == "cmap")
+        else if (current_section == "settles" ||
+                 current_section == "constraints" || current_section == "cmap")
         {
-            controller->Throw_SPONGE_Error(
-                spongeErrorBadFileFormat, error_by,
-                "Reason:\n\tthis GROMACS topology feature is not supported yet\n");
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat, error_by,
+                                           "Reason:\n\tthis GROMACS topology "
+                                           "feature is not supported yet\n");
         }
     }
 
@@ -933,9 +950,8 @@ static void Gromacs_Load_Gro(System* system, CONTROLLER* controller)
     std::getline(fin, line);
     if (!std::getline(fin, line))
     {
-        controller->Throw_SPONGE_Error(
-            spongeErrorBadFileFormat, error_by,
-            "Reason:\n\tinvalid GROMACS gro file\n");
+        controller->Throw_SPONGE_Error(spongeErrorBadFileFormat, error_by,
+                                       "Reason:\n\tinvalid GROMACS gro file\n");
     }
     int atom_numbers = std::stoi(Gromacs_Trim(line));
     Load_Ensure_Atom_Numbers(system, atom_numbers, controller, error_by);
@@ -980,13 +996,12 @@ static void Gromacs_Load_Gro(System* system, CONTROLLER* controller)
             spongeErrorBadFileFormat, error_by,
             "Reason:\n\tunsupported box line in GROMACS gro file\n");
     }
-    if (tokens.size() == 9 &&
-        (std::fabs(std::stof(tokens[3])) > 1e-6f ||
-         std::fabs(std::stof(tokens[4])) > 1e-6f ||
-         std::fabs(std::stof(tokens[5])) > 1e-6f ||
-         std::fabs(std::stof(tokens[6])) > 1e-6f ||
-         std::fabs(std::stof(tokens[7])) > 1e-6f ||
-         std::fabs(std::stof(tokens[8])) > 1e-6f))
+    if (tokens.size() == 9 && (std::fabs(std::stof(tokens[3])) > 1e-6f ||
+                               std::fabs(std::stof(tokens[4])) > 1e-6f ||
+                               std::fabs(std::stof(tokens[5])) > 1e-6f ||
+                               std::fabs(std::stof(tokens[6])) > 1e-6f ||
+                               std::fabs(std::stof(tokens[7])) > 1e-6f ||
+                               std::fabs(std::stof(tokens[8])) > 1e-6f))
     {
         controller->Throw_SPONGE_Error(
             spongeErrorBadFileFormat, error_by,
@@ -999,8 +1014,7 @@ static void Gromacs_Load_Gro(System* system, CONTROLLER* controller)
 }
 
 static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
-                                       System* system,
-                                       CONTROLLER* controller)
+                                       System* system, CONTROLLER* controller)
 {
     const char* error_by = "Xponge::Load_Gromacs_Inputs";
     system->source = InputSource::kGromacs;
@@ -1042,17 +1056,19 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     std::string reason =
                         "Reason:\n\tundefined GROMACS atom type '" + atom.type +
                         "'\n";
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorBadFileFormat, error_by, reason.c_str());
+                    controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                                   error_by, reason.c_str());
                 }
                 const Gromacs_Atom_Type& atom_type = atom_type_iter->second;
-                local_to_global[i] = static_cast<int>(system->atoms.mass.size());
+                local_to_global[i] =
+                    static_cast<int>(system->atoms.mass.size());
                 system->atoms.mass.push_back(atom.mass > 0.0f ? atom.mass
                                                               : atom_type.mass);
                 system->atoms.charge.push_back(atom.charge *
                                                CONSTANT_SPONGE_CHARGE_SCALE);
                 global_atom_types.push_back(atom.type);
-                if (atom.resnr != current_resnr || atom.residue != current_residue)
+                if (atom.resnr != current_resnr ||
+                    atom.residue != current_residue)
                 {
                     system->residues.atom_numbers.push_back(0);
                     current_resnr = atom.resnr;
@@ -1077,7 +1093,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
     std::vector<std::string> ordered_types;
     for (const std::string& atom_type_name : global_atom_types)
     {
-        const Gromacs_Atom_Type& atom_type = topology.atom_types.at(atom_type_name);
+        const Gromacs_Atom_Type& atom_type =
+            topology.atom_types.at(atom_type_name);
         std::pair<float, float> self_c6_c12 =
             Gromacs_Get_C6_C12(topology.defaults, atom_type, atom_type);
         char lj_key[CHAR_LENGTH_MAX];
@@ -1091,8 +1108,7 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
             ordered_types.push_back(atom_type_name);
             iter = atom_type_id.find(lj_key);
         }
-        system->classical_force_field.lj.atom_type.push_back(
-            iter->second);
+        system->classical_force_field.lj.atom_type.push_back(iter->second);
     }
     system->classical_force_field.lj.atom_type_numbers =
         static_cast<int>(atom_type_id.size());
@@ -1113,8 +1129,10 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
             std::pair<float, float> c6_c12 =
                 Gromacs_Get_C6_C12(topology.defaults, type_i, type_j);
             int pair_id = large * (large + 1) / 2 + small;
-            system->classical_force_field.lj.pair_A[pair_id] = 12.0f * c6_c12.second;
-            system->classical_force_field.lj.pair_B[pair_id] = 6.0f * c6_c12.first;
+            system->classical_force_field.lj.pair_A[pair_id] =
+                12.0f * c6_c12.second;
+            system->classical_force_field.lj.pair_B[pair_id] =
+                6.0f * c6_c12.first;
         }
     }
 
@@ -1138,13 +1156,15 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 {
                     bonds.atom_a.push_back(local_to_global[ai_local]);
                     bonds.atom_b.push_back(local_to_global[aj_local]);
-                    bonds.k.push_back(Gromacs_To_Kcal(bond.parameters[1]) / 200.0f);
+                    bonds.k.push_back(Gromacs_To_Kcal(bond.parameters[1]) /
+                                      200.0f);
                     bonds.r0.push_back(Gromacs_To_Angstrom(bond.parameters[0]));
                 }
                 else
                 {
-                    type = Gromacs_Find_Bond_Type(topology.bond_types, atom_i.type,
-                                                  atom_j.type, bond.funct);
+                    type =
+                        Gromacs_Find_Bond_Type(topology.bond_types, atom_i.type,
+                                               atom_j.type, bond.funct);
                     if (type == NULL)
                     {
                         controller->Throw_SPONGE_Error(
@@ -1184,7 +1204,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                         queue.push(next);
                     }
                 }
-                for (int j = i + 1; j < static_cast<int>(molecule.atoms.size()); j++)
+                for (int j = i + 1; j < static_cast<int>(molecule.atoms.size());
+                     j++)
                 {
                     if (distance[j] > 0 && distance[j] <= molecule.nrexcl)
                     {
@@ -1213,16 +1234,14 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     if (angle.funct == 5 && angle.parameters.size() >= 4)
                     {
                         ub0 = Gromacs_To_Angstrom(angle.parameters[2]);
-                        kub =
-                            Gromacs_To_Kcal(angle.parameters[3]) / 200.0f;
+                        kub = Gromacs_To_Kcal(angle.parameters[3]) / 200.0f;
                     }
                 }
                 else
                 {
-                    const Gromacs_Angle_Type* type =
-                        Gromacs_Find_Angle_Type(topology.angle_types, atom_i.type,
-                                                atom_j.type, atom_k.type,
-                                                angle.funct);
+                    const Gromacs_Angle_Type* type = Gromacs_Find_Angle_Type(
+                        topology.angle_types, atom_i.type, atom_j.type,
+                        atom_k.type, angle.funct);
                     if (type == NULL)
                     {
                         controller->Throw_SPONGE_Error(
@@ -1257,8 +1276,9 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 const Gromacs_Molecule_Atom& atom_k = molecule.atoms[ak_local];
                 const Gromacs_Molecule_Atom& atom_l = molecule.atoms[al_local];
 
-                auto append_proper = [&](float phase_deg, float k_kj,
-                                         int multiplicity) {
+                auto append_proper =
+                    [&](float phase_deg, float k_kj, int multiplicity)
+                {
                     dihedrals.atom_a.push_back(local_to_global[ai_local]);
                     dihedrals.atom_b.push_back(local_to_global[aj_local]);
                     dihedrals.atom_c.push_back(local_to_global[ak_local]);
@@ -1270,7 +1290,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     dihedrals.gamc.push_back(cosf(phase) * dihedrals.pk.back());
                     dihedrals.gams.push_back(sinf(phase) * dihedrals.pk.back());
                 };
-                auto append_improper = [&](float phase_deg, float k_kj) {
+                auto append_improper = [&](float phase_deg, float k_kj)
+                {
                     impropers.atom_a.push_back(local_to_global[ai_local]);
                     impropers.atom_b.push_back(local_to_global[aj_local]);
                     impropers.atom_c.push_back(local_to_global[ak_local]);
@@ -1291,11 +1312,12 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     }
                     else
                     {
-                        append_proper(dihedral.parameters[0], dihedral.parameters[1],
-                                      static_cast<int>(std::lround(
-                                          dihedral.parameters.size() >= 3
-                                              ? dihedral.parameters[2]
-                                              : 1.0f)));
+                        append_proper(
+                            dihedral.parameters[0], dihedral.parameters[1],
+                            static_cast<int>(
+                                std::lround(dihedral.parameters.size() >= 3
+                                                ? dihedral.parameters[2]
+                                                : 1.0f)));
                     }
                     continue;
                 }
@@ -1314,7 +1336,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 {
                     if (dihedral.funct == 2)
                     {
-                        append_improper(type->parameters[0], type->parameters[1]);
+                        append_improper(type->parameters[0],
+                                        type->parameters[1]);
                     }
                     else
                     {
@@ -1341,8 +1364,9 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 }
                 else
                 {
-                    const Gromacs_Pair_Type* pair_type = Gromacs_Find_Pair_Type(
-                        topology.pair_types, atom_i.type, atom_j.type, pair.funct);
+                    const Gromacs_Pair_Type* pair_type =
+                        Gromacs_Find_Pair_Type(topology.pair_types, atom_i.type,
+                                               atom_j.type, pair.funct);
                     if (pair_type != NULL)
                     {
                         c6_c12 = Gromacs_Get_C6_C12_From_Pair_Parameters(
@@ -1351,7 +1375,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     else if (topology.defaults.gen_pairs)
                     {
                         c6_c12 = Gromacs_Get_C6_C12(
-                            topology.defaults, topology.atom_types.at(atom_i.type),
+                            topology.defaults,
+                            topology.atom_types.at(atom_i.type),
                             topology.atom_types.at(atom_j.type));
                         c6_c12.first *= topology.defaults.fudge_lj;
                         c6_c12.second *= topology.defaults.fudge_lj;
@@ -1360,7 +1385,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                     {
                         controller->Throw_SPONGE_Error(
                             spongeErrorBadFileFormat, error_by,
-                            "Reason:\n\tfailed to resolve GROMACS pair interaction\n");
+                            "Reason:\n\tfailed to resolve GROMACS pair "
+                            "interaction\n");
                     }
                 }
                 nb14.atom_a.push_back(local_to_global[ai_local]);

@@ -597,6 +597,22 @@ static void Amber_Load_Parm7(System* system, CONTROLLER* controller)
                 system->atoms.charge[i] = std::stof(values[i]);
             }
         }
+        else if (current_flag == "RADII")
+        {
+            system->generalized_born.radius.resize(values.size());
+            for (std::size_t i = 0; i < values.size(); i++)
+            {
+                system->generalized_born.radius[i] = std::stof(values[i]);
+            }
+        }
+        else if (current_flag == "SCREEN")
+        {
+            system->generalized_born.scale_factor.resize(values.size());
+            for (std::size_t i = 0; i < values.size(); i++)
+            {
+                system->generalized_born.scale_factor[i] = std::stof(values[i]);
+            }
+        }
         else if (current_flag == "RESIDUE_POINTER")
         {
             system->residues.atom_numbers.clear();
@@ -649,6 +665,24 @@ static void Amber_Load_Parm7(System* system, CONTROLLER* controller)
     if (system->residues.atom_numbers.empty() && atom_numbers > 0)
     {
         system->residues.atom_numbers.assign(atom_numbers, 1);
+    }
+    if (!system->generalized_born.radius.empty() &&
+        system->generalized_born.radius.size() !=
+            static_cast<std::size_t>(atom_numbers))
+    {
+        controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                       "Xponge::Amber_Load_Parm7",
+                                       "Reason:\n\tRADII length in amber_parm7 "
+                                       "does not match atom_numbers\n");
+    }
+    if (!system->generalized_born.scale_factor.empty() &&
+        system->generalized_born.scale_factor.size() !=
+            static_cast<std::size_t>(atom_numbers))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat, "Xponge::Amber_Load_Parm7",
+            "Reason:\n\tSCREEN length in amber_parm7 does not match "
+            "atom_numbers\n");
     }
 
     system->exclusions.excluded_atoms.assign(atom_numbers, {});

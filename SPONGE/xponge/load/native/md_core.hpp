@@ -19,7 +19,7 @@ static void Native_Load_Mass(System* system, CONTROLLER* controller)
                 "Reason:\n\tthe format of mass_in_file is not right\n");
         }
         Load_Ensure_Atom_Numbers(system, atom_numbers, controller,
-                                   "Xponge::Native_Load_Mass");
+                                 "Xponge::Native_Load_Mass");
         system->atoms.mass.resize(atom_numbers);
         for (int i = 0; i < atom_numbers; i++)
         {
@@ -60,7 +60,7 @@ static void Native_Load_Charge(System* system, CONTROLLER* controller)
                 "Reason:\n\tthe format of charge_in_file is not right\n");
         }
         Load_Ensure_Atom_Numbers(system, atom_numbers, controller,
-                                   "Xponge::Native_Load_Charge");
+                                 "Xponge::Native_Load_Charge");
         system->atoms.charge.resize(atom_numbers);
         for (int i = 0; i < atom_numbers; i++)
         {
@@ -121,7 +121,7 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
     }
     system->start_time = (scanf_ret == 2) ? start_time : 0.0;
     Load_Ensure_Atom_Numbers(system, atom_numbers, controller,
-                               "Xponge::Native_Load_Coordinate_And_Velocity");
+                             "Xponge::Native_Load_Coordinate_And_Velocity");
 
     system->atoms.coordinate.resize(3 * atom_numbers);
     for (int i = 0; i < atom_numbers; i++)
@@ -169,9 +169,8 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
                 "Xponge::Native_Load_Coordinate_And_Velocity",
                 "Reason:\n\tthe format of velocity_in_file is not right\n");
         }
-        Load_Ensure_Atom_Numbers(
-            system, vel_atom_numbers, controller,
-            "Xponge::Native_Load_Coordinate_And_Velocity");
+        Load_Ensure_Atom_Numbers(system, vel_atom_numbers, controller,
+                                 "Xponge::Native_Load_Coordinate_And_Velocity");
         system->atoms.velocity.resize(3 * vel_atom_numbers);
         for (int i = 0; i < vel_atom_numbers; i++)
         {
@@ -212,7 +211,7 @@ static void Native_Load_Residues(System* system, CONTROLLER* controller)
             "Reason:\n\tthe format of residue_in_file is not right\n");
     }
     Load_Ensure_Atom_Numbers(system, residue_atom_numbers, controller,
-                               "Xponge::Native_Load_Residues");
+                             "Xponge::Native_Load_Residues");
     system->residues.atom_numbers.resize(residue_numbers);
     for (int i = 0; i < residue_numbers; i++)
     {
@@ -247,7 +246,7 @@ static void Native_Load_Exclusions(System* system, CONTROLLER* controller)
             "Reason:\n\tThe format of exclude_in_file is not right\n");
     }
     Load_Ensure_Atom_Numbers(system, exclude_atom_numbers, controller,
-                               "Xponge::Native_Load_Exclusions");
+                             "Xponge::Native_Load_Exclusions");
 
     int count = 0;
     for (int i = 0; i < atom_numbers; i++)
