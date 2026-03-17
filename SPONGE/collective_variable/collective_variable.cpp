@@ -48,7 +48,7 @@ static int read_one_line(FILE* In_File, char* line, char* ender)
 {
     int line_count = 0;
     int ender_count = 0;
-    char c;
+    int c;
     while ((c = getc(In_File)) != EOF)
     {
         if (line_count == 0 && (c == '\t' || c == ' '))

@@ -82,6 +82,15 @@ class Extractor:
             raise FileNotFoundError(
                 f"SPONGE mdout file not found: {mdout_path}"
             )
+        contents = mdout_path.read_text(encoding="utf-8")
+        normalized = contents.replace("-nan(ind)", "nan")
+        normalized = normalized.replace("nan(ind)", "nan")
+        if normalized != contents:
+            normalized_path = mdout_path.with_suffix(
+                mdout_path.suffix + ".normalized"
+            )
+            normalized_path.write_text(normalized, encoding="utf-8")
+            return MdoutReader(str(normalized_path))
         return MdoutReader(str(mdout_path))
 
     @staticmethod
