@@ -1118,17 +1118,19 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
     system->classical_force_field.lj.pair_A.resize(pair_type_numbers);
     system->classical_force_field.lj.pair_B.resize(pair_type_numbers);
 
-    for (int large = 0; large < static_cast<int>(ordered_types.size()); large++)
+    for (int type_j_index = 0;
+         type_j_index < static_cast<int>(ordered_types.size()); type_j_index++)
     {
-        for (int small = 0; small <= large; small++)
+        for (int type_i_index = 0; type_i_index <= type_j_index; type_i_index++)
         {
             const Gromacs_Atom_Type& type_i =
-                topology.atom_types.at(ordered_types[small]);
+                topology.atom_types.at(ordered_types[type_i_index]);
             const Gromacs_Atom_Type& type_j =
-                topology.atom_types.at(ordered_types[large]);
+                topology.atom_types.at(ordered_types[type_j_index]);
             std::pair<float, float> c6_c12 =
                 Gromacs_Get_C6_C12(topology.defaults, type_i, type_j);
-            int pair_id = large * (large + 1) / 2 + small;
+            int pair_id =
+                type_j_index * (type_j_index + 1) / 2 + type_i_index;
             system->classical_force_field.lj.pair_A[pair_id] =
                 12.0f * c6_c12.second;
             system->classical_force_field.lj.pair_B[pair_id] =
