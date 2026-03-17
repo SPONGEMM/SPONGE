@@ -40,9 +40,6 @@ struct IMPROPER_DIHEDRAL
 
     // 为dihedral中的变量分配空间
     void Memory_Allocate();
-    // 从parm7文件中读取信息
-    void Read_Information_From_AMBERFILE(const char* file_name,
-                                         CONTROLLER controller);
     // 拷贝cpu中的数据到gpu
     void Parameter_Host_To_Device();
 

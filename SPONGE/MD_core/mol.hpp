@@ -315,92 +315,17 @@ void MD_INFORMATION::residue_information::Initial(CONTROLLER* controller,
                                                   MD_INFORMATION* md_info)
 {
     this->md_info = md_info;
-    if (!(controller[0].Command_Exist("residue_in_file")))
+    if (!Xponge::system.residues.atom_numbers.empty())
     {
-        if (controller[0].Command_Exist("amber_parm7"))
+        residue_numbers = (int)Xponge::system.residues.atom_numbers.size();
+        if (md_info->atom_numbers == 0)
         {
-            Read_AMBER_Parm7(controller[0].Command("amber_parm7"),
-                             controller[0]);
-            is_initialized = 1;
-        }
-        // 对于没有residue输入的模拟，默认每个粒子作为一个residue
-        else
-        {
-            residue_numbers = md_info->atom_numbers;
-            controller->printf("    Set default residue list:\n");
-            controller->printf("        residue_numbers is %d\n",
-                               residue_numbers);
-            Malloc_Safely((void**)&h_mass,
-                          sizeof(float) * this->residue_numbers);
-            Malloc_Safely((void**)&h_mass_inverse,
-                          sizeof(float) * this->residue_numbers);
-            Malloc_Safely((void**)&h_res_start,
-                          sizeof(int) * this->residue_numbers);
-            Malloc_Safely((void**)&h_res_end,
-                          sizeof(int) * this->residue_numbers);
-            Malloc_Safely((void**)&h_momentum,
-                          sizeof(float) * this->residue_numbers);
-            Malloc_Safely((void**)&h_center_of_mass,
-                          sizeof(VECTOR) * this->residue_numbers);
-            Malloc_Safely((void**)&h_sigma_of_res_ek, sizeof(float));
-
-            Device_Malloc_Safely((void**)&d_mass,
-                                 sizeof(float) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&d_mass_inverse,
-                                 sizeof(float) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&d_res_start,
-                                 sizeof(int) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&d_res_end,
-                                 sizeof(int) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&d_momentum,
-                                 sizeof(float) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&d_center_of_mass,
-                                 sizeof(VECTOR) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&res_ek_energy,
-                                 sizeof(float) * this->residue_numbers);
-            Device_Malloc_Safely((void**)&sigma_of_res_ek, sizeof(float));
-            int count = 0;
-            int temp = 1;  // 每个粒子作为一个residue
-            for (int i = 0; i < residue_numbers; i++)
+            for (int atom_number : Xponge::system.residues.atom_numbers)
             {
-                h_res_start[i] = count;
-                count += temp;
-                h_res_end[i] = count;
+                md_info->atom_numbers += atom_number;
             }
-            deviceMemcpy(d_res_start, h_res_start,
-                         sizeof(int) * residue_numbers,
-                         deviceMemcpyHostToDevice);
-            deviceMemcpy(d_res_end, h_res_end, sizeof(int) * residue_numbers,
-                         deviceMemcpyHostToDevice);
-            controller->printf("    End reading residue list\n\n");
-            is_initialized = 1;
         }
-    }
-    else
-    {
-        FILE* fp = NULL;
-        controller->printf("    Start reading residue list:\n");
-        Open_File_Safely(&fp, controller[0].Command("residue_in_file"), "r");
-        int atom_numbers = 0;
-        int scanf_ret = fscanf(fp, "%d %d", &atom_numbers, &residue_numbers);
-        if (scanf_ret != 2)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorBadFileFormat,
-                "MD_INFORMATION::residue_information::Initial",
-                "Reason:\n\tthe format of the residue_in_file is not right\n");
-        }
-        if (md_info->atom_numbers > 0 && md_info->atom_numbers != atom_numbers)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorConflictingCommand,
-                "MD_INFORMATION::residue_information::Initial",
-                ATOM_NUMBERS_DISMATCH);
-        }
-        else if (md_info->atom_numbers == 0)
-        {
-            md_info->atom_numbers = atom_numbers;
-        }
+        controller->printf("    Start reading residue list from Xponge:\n");
         controller->printf("        residue_numbers is %d\n", residue_numbers);
         Malloc_Safely((void**)&h_mass, sizeof(float) * this->residue_numbers);
         Malloc_Safely((void**)&h_mass_inverse,
@@ -431,29 +356,33 @@ void MD_INFORMATION::residue_information::Initial(CONTROLLER* controller,
         Device_Malloc_Safely((void**)&sigma_of_res_ek, sizeof(float));
 
         int count = 0;
-        int temp;
         for (int i = 0; i < residue_numbers; i++)
         {
             h_res_start[i] = count;
-            scanf_ret = fscanf(fp, "%d", &temp);
-            if (scanf_ret != 1)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat,
-                    "MD_INFORMATION::residue_information::Initial",
-                    "Reason:\n\tthe format of the residue_in_file is not "
-                    "right\n");
-            }
-            count += temp;
+            count += Xponge::system.residues.atom_numbers[i];
             h_res_end[i] = count;
+        }
+        if (count != md_info->atom_numbers)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand,
+                "MD_INFORMATION::residue_information::Initial",
+                "Reason:\n\tresidue atom counts in Xponge::system do not sum "
+                "to the total atom number\n");
         }
         deviceMemcpy(d_res_start, h_res_start, sizeof(int) * residue_numbers,
                      deviceMemcpyHostToDevice);
         deviceMemcpy(d_res_end, h_res_end, sizeof(int) * residue_numbers,
                      deviceMemcpyHostToDevice);
-        controller->printf("    End reading residue list\n\n");
-        fclose(fp);
+        controller->printf("    End reading residue list from Xponge\n\n");
         is_initialized = 1;
+    }
+    else
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorMissingCommand,
+            "MD_INFORMATION::residue_information::Initial",
+            "Reason:\n\tno residue information found in Xponge::system\n");
     }
     if (is_initialized)
     {

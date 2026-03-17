@@ -1,5 +1,8 @@
 ﻿#include "LJ_soft_core.h"
 
+#include "../xponge/load/native/lj_soft.hpp"
+#include "../xponge/xponge.h"
+
 __global__ void Copy_LJ_Type_And_Mask_To_New_Crd(const int atom_numbers,
                                                  VECTOR_LJ_SOFT_TYPE* new_crd,
                                                  const int* LJ_type_A,
@@ -444,7 +447,21 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
     }
     controller->printf(
         "START INITIALIZING FEP SOFT CORE FOR LJ AND COULOMB:\n");
-    if (controller->Command_Exist(this->module_name, "in_file"))
+    const auto& lj_soft = Xponge::system.classical_force_field.lj_soft_core;
+    Xponge::LJSoftCore local_lj_soft;
+    const Xponge::LJSoftCore* lj_soft_to_use = NULL;
+    if (module_name == NULL)
+    {
+        lj_soft_to_use = &lj_soft;
+    }
+    else if (controller->Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_LJ_Soft_Core(&local_lj_soft, controller,
+                                         this->module_name);
+        lj_soft_to_use = &local_lj_soft;
+    }
+
+    if (lj_soft_to_use != NULL && lj_soft_to_use->atom_numbers > 0)
     {
         if (controller->Command_Exist("lambda_lj"))
         {
@@ -510,12 +527,10 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
             this->sigma_min = 0.0;
         }
 
-        FILE* fp = NULL;
-        Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
-                         "r");
-
-        int toscan = fscanf(fp, "%d %d %d", &atom_numbers, &atom_type_numbers_A,
-                            &atom_type_numbers_B);
+        atom_numbers = lj_soft_to_use->atom_numbers;
+        atom_type_numbers_A = lj_soft_to_use->atom_type_numbers_A;
+        atom_type_numbers_B = lj_soft_to_use->atom_type_numbers_B;
+        int toscan = 0;
         controller->printf("    atom_numbers is %d\n", atom_numbers);
         controller->printf(
             "    atom_LJ_type_number_A is %d, atom_LJ_type_number_B is %d\n",
@@ -528,60 +543,36 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
 
         for (int i = 0; i < pair_type_numbers_A; i++)
         {
-            toscan = fscanf(fp, "%f", h_LJ_AA + i);
-            h_LJ_AA[i] *= 12.0f;
+            h_LJ_AA[i] = lj_soft_to_use->LJ_AA[i];
         }
         for (int i = 0; i < pair_type_numbers_A; i++)
         {
-            toscan = fscanf(fp, "%f", h_LJ_AB + i);
-            h_LJ_AB[i] *= 6.0f;
+            h_LJ_AB[i] = lj_soft_to_use->LJ_AB[i];
         }
         for (int i = 0; i < pair_type_numbers_B; ++i)
         {
-            toscan = fscanf(fp, "%f", h_LJ_BA + i);
-            h_LJ_BA[i] *= 12.0f;
+            h_LJ_BA[i] = lj_soft_to_use->LJ_BA[i];
         }
         for (int i = 0; i < pair_type_numbers_B; ++i)
         {
-            toscan = fscanf(fp, "%f", h_LJ_BB + i);
-            h_LJ_BB[i] *= 6.0f;
+            h_LJ_BB[i] = lj_soft_to_use->LJ_BB[i];
         }
         for (int i = 0; i < atom_numbers; i++)
         {
-            toscan =
-                fscanf(fp, "%d %d", h_atom_LJ_type_A + i, h_atom_LJ_type_B + i);
+            h_atom_LJ_type_A[i] = lj_soft_to_use->atom_LJ_type_A[i];
+            h_atom_LJ_type_B[i] = lj_soft_to_use->atom_LJ_type_B[i];
         }
-        fclose(fp);
 
-        if (controller->Command_Exist("subsys_division_in_file"))
+        if (!lj_soft_to_use->subsystem_division.empty())
         {
-            FILE* fp = NULL;
             controller->printf(
                 "    Start reading subsystem division information:\n");
-            Open_File_Safely(
-                &fp, controller->Command("subsys_division_in_file"), "r");
-            int atom_numbers = 0;
-            char lin[CHAR_LENGTH_MAX];
-            char* get_ret = fgets(lin, CHAR_LENGTH_MAX, fp);
-            toscan = sscanf(lin, "%d", &atom_numbers);
-            if (this->atom_numbers > 0 && this->atom_numbers != atom_numbers)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorConflictingCommand, "LJ_SOFT_CORE::Initial",
-                    "Reason:\n\t'atom_numbers' (the number of atoms) is "
-                    "diiferent in different input files\n");
-            }
-            else if (this->atom_numbers == 0)
-            {
-                this->atom_numbers = atom_numbers;
-            }
             for (int i = 0; i < atom_numbers; i++)
             {
-                toscan = fscanf(fp, "%d", &h_subsys_division[i]);
+                h_subsys_division[i] = lj_soft_to_use->subsystem_division[i];
             }
             controller->printf(
                 "    End reading subsystem division information\n\n");
-            fclose(fp);
         }
         else
         {

@@ -2,6 +2,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/main.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/common.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/control.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/xponge/xponge.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/MD_core.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/Domain_decomposition/Domain_decomposition.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/neighbor_list/neighbor_list.cpp
@@ -20,7 +21,6 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/angle/angle.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/angle/Urey_Bradley_force.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/bond/bond.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bond/bond_soft.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/cmap/cmap.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/dihedral/dihedral.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/dihedral/improper_dihedral.cpp

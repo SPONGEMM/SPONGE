@@ -1,5 +1,8 @@
 ﻿#include "improper_dihedral.h"
 
+#include "../xponge/load/native/improper_dihedral.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void Dihedral_Force_With_Atom_Energy_And_Virial_Device(
     const int dihedral_numbers, const VECTOR* crd, const LTMatrix3 cell,
     const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
@@ -131,27 +134,51 @@ void IMPROPER_DIHEDRAL::Initial(CONTROLLER* controller, const char* module_name)
 
     char file_name_suffix[CHAR_LENGTH_MAX];
     sprintf(file_name_suffix, "in_file");
+    const auto& impropers = Xponge::system.classical_force_field.impropers;
+    Xponge::Torsions local_impropers;
+    const Xponge::Torsions* impropers_to_use = NULL;
+    const char* init_source = NULL;
 
-    if (controller[0].Command_Exist(this->module_name, file_name_suffix))
+    if (module_name == NULL)
     {
-        controller[0].printf("START INITIALIZING IMPROPER DIHEDRAL (%s_%s):\n",
-                             this->module_name, file_name_suffix);
+        impropers_to_use = &impropers;
+        init_source = "Xponge::system";
+    }
+    else if (controller[0].Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_Impropers(&local_impropers, controller,
+                                      this->module_name);
+        impropers_to_use = &local_impropers;
+    }
 
-        FILE* fp = NULL;
-        Open_File_Safely(
-            &fp, controller[0].Command(this->module_name, file_name_suffix),
-            "r");
-
-        int ret = fscanf(fp, "%d", &dihedral_numbers);
+    if (impropers_to_use != NULL)
+    {
+        dihedral_numbers = static_cast<int>(impropers_to_use->atom_a.size());
+    }
+    if (dihedral_numbers > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller[0].printf("START INITIALIZING IMPROPER DIHEDRAL (%s):\n",
+                                 init_source);
+        }
+        else
+        {
+            controller[0].printf(
+                "START INITIALIZING IMPROPER DIHEDRAL (%s_%s):\n",
+                this->module_name, file_name_suffix);
+        }
         controller[0].printf("    dihedral_numbers is %d\n", dihedral_numbers);
         Memory_Allocate();
-
         for (int i = 0; i < dihedral_numbers; i++)
         {
-            ret = fscanf(fp, "%d %d %d %d %f %f", h_atom_a + i, h_atom_b + i,
-                         h_atom_c + i, h_atom_d + i, h_pk + i, h_phi0 + i);
+            h_atom_a[i] = impropers_to_use->atom_a[i];
+            h_atom_b[i] = impropers_to_use->atom_b[i];
+            h_atom_c[i] = impropers_to_use->atom_c[i];
+            h_atom_d[i] = impropers_to_use->atom_d[i];
+            h_pk[i] = impropers_to_use->pk[i];
+            h_phi0[i] = impropers_to_use->gamc[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
     }

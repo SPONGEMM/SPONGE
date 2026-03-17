@@ -33,9 +33,6 @@ struct ANGLE
     void Initial(CONTROLLER* controller, const char* module_name = NULL);
     // 内存分配
     void Memory_Allocate();
-    // 从parm7文件中读取角信息
-    void Read_Information_From_AMBERFILE(const char* file_name,
-                                         CONTROLLER controller);
     // 拷贝cpu中的数据到gpu中
     void Parameter_Host_To_Device();
 

@@ -38,11 +38,6 @@ struct NON_BOND_14
                  const float* LJ_type_B, const int* lj_atom_type,
                  const char* module_name = NULL);
     void Memory_Allocate();
-    void Read_Information_From_AMBERFILE(const char* file_name,
-                                         CONTROLLER controller,
-                                         const float* LJ_type_A,
-                                         const float* LJ_type_B,
-                                         const int* lj_atom_type);
     void Parameter_Host_To_Device();
 
     // 同时计算原子的力、能量和维里

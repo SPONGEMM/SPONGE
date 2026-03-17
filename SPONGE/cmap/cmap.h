@@ -57,9 +57,6 @@ struct CMAP
     void Initial(CONTROLLER* controller, const char* module_name = NULL);
     // 内存分配
     void Memory_Allocate();
-    // 从parm7文件中读取键信息
-    void Read_Information_From_AMBERFILE(const char* file_name,
-                                         CONTROLLER* controller);
     // 计算插值系数
     void Interpolation(CONTROLLER* controller);
     // CUDA计算

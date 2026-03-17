@@ -1,5 +1,8 @@
 ﻿#include "Urey_Bradley_force.h"
 
+#include "../xponge/load/native/urey_bradley.hpp"
+#include "../xponge/xponge.h"
+
 void UREY_BRADLEY::Initial(CONTROLLER* controller, char* module_name)
 {
     if (module_name == NULL)
@@ -13,16 +16,40 @@ void UREY_BRADLEY::Initial(CONTROLLER* controller, char* module_name)
 
     char file_name_suffix[CHAR_LENGTH_MAX];
     sprintf(file_name_suffix, "in_file");
-
-    if (controller[0].Command_Exist(this->module_name, file_name_suffix))
+    const auto& urey_bradley =
+        Xponge::system.classical_force_field.urey_bradley;
+    Xponge::UreyBradley local_urey_bradley;
+    const Xponge::UreyBradley* urey_bradley_to_use = NULL;
+    const char* init_source = NULL;
+    if (module_name == NULL)
     {
-        controller[0].printf("START INITIALIZING UREY BRADLEY (%s_%s):\n",
-                             this->module_name, file_name_suffix);
-        FILE* fp = NULL;
-        Open_File_Safely(
-            &fp, controller[0].Command(this->module_name, "in_file"), "r");
+        urey_bradley_to_use = &urey_bradley;
+        init_source = "Xponge::system";
+    }
+    else if (controller[0].Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_Urey_Bradley(&local_urey_bradley, controller,
+                                         this->module_name);
+        urey_bradley_to_use = &local_urey_bradley;
+    }
+    if (urey_bradley_to_use != NULL)
+    {
+        Urey_Bradley_numbers =
+            static_cast<int>(urey_bradley_to_use->atom_a.size());
+    }
 
-        int ret = fscanf(fp, "%d", &Urey_Bradley_numbers);
+    if (Urey_Bradley_numbers > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller[0].printf("START INITIALIZING UREY BRADLEY (%s):\n",
+                                 init_source);
+        }
+        else
+        {
+            controller[0].printf("START INITIALIZING UREY BRADLEY (%s_%s):\n",
+                                 this->module_name, file_name_suffix);
+        }
         controller[0].printf("    urey_bradley_numbers is %d\n",
                              Urey_Bradley_numbers);
 
@@ -34,14 +61,16 @@ void UREY_BRADLEY::Initial(CONTROLLER* controller, char* module_name)
 
         for (int i = 0; i < Urey_Bradley_numbers; i++)
         {
-            ret = fscanf(fp, "%d %d %d %f %f %f %f", angle.h_atom_a + i,
-                         angle.h_atom_b + i, angle.h_atom_c + i,
-                         angle.h_angle_k + i, angle.h_angle_theta0 + i,
-                         bond.h_k + i, bond.h_r0 + i);
-            bond.h_atom_a[i] = angle.h_atom_a[i];
-            bond.h_atom_b[i] = angle.h_atom_c[i];
+            angle.h_atom_a[i] = urey_bradley_to_use->atom_a[i];
+            angle.h_atom_b[i] = urey_bradley_to_use->atom_b[i];
+            angle.h_atom_c[i] = urey_bradley_to_use->atom_c[i];
+            angle.h_angle_k[i] = urey_bradley_to_use->angle_k[i];
+            angle.h_angle_theta0[i] = urey_bradley_to_use->angle_theta0[i];
+            bond.h_atom_a[i] = urey_bradley_to_use->atom_a[i];
+            bond.h_atom_b[i] = urey_bradley_to_use->atom_c[i];
+            bond.h_k[i] = urey_bradley_to_use->bond_k[i];
+            bond.h_r0[i] = urey_bradley_to_use->bond_r0[i];
         }
-        fclose(fp);
 
         bond.Parameter_Host_To_Device();
         angle.Parameter_Host_To_Device();

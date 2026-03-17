@@ -167,6 +167,13 @@ def link_charmm27_forcefield(case_dir):
         return
 
     candidates = []
+    statics_root = Path(__file__).resolve().parents[1] / "statics"
+    case_name = Path(case_dir).resolve().name
+    candidates.append(statics_root / case_name / "charmm27.ff")
+    for cand in sorted(statics_root.glob("*/charmm27.ff")):
+        if cand not in candidates:
+            candidates.append(cand)
+
     conda_prefix = os.environ.get("CONDA_PREFIX")
     if conda_prefix:
         candidates.append(
@@ -186,7 +193,7 @@ def link_charmm27_forcefield(case_dir):
     source = None
     for cand in candidates:
         if cand.exists():
-            source = cand
+            source = cand.resolve()
             break
 
     if source is None:

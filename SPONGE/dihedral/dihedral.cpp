@@ -1,5 +1,8 @@
 ﻿#include "dihedral.h"
 
+#include "../xponge/load/native/dihedral.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void Dihedral_Force_With_Atom_Energy_And_Virial_Device(
     const int dihedral_numbers, const VECTOR* crd, const LTMatrix3 cell,
     const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
@@ -141,40 +144,55 @@ void DIHEDRAL::Initial(CONTROLLER* controller, const char* module_name)
 
     char file_name_suffix[CHAR_LENGTH_MAX];
     sprintf(file_name_suffix, "in_file");
+    const auto& dihedrals = Xponge::system.classical_force_field.dihedrals;
+    Xponge::Torsions local_torsions;
+    const Xponge::Torsions* torsions_to_use = NULL;
+    const char* init_source = NULL;
 
-    if (controller->Command_Exist(this->module_name, file_name_suffix))
+    if (module_name == NULL)
     {
-        controller->printf("START INITIALIZING DIHEDRAL (%s_%s):\n",
-                           this->module_name, file_name_suffix);
+        torsions_to_use = &dihedrals;
+        init_source = "Xponge::system";
+    }
+    else if (controller->Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_Dihedrals(&local_torsions, controller,
+                                      this->module_name);
+        torsions_to_use = &local_torsions;
+    }
 
-        FILE* fp = NULL;
-        Open_File_Safely(
-            &fp, controller->Command(this->module_name, file_name_suffix), "r");
-
-        int scanf_ret = fscanf(fp, "%d", &dihedral_numbers);
+    if (torsions_to_use != NULL)
+    {
+        dihedral_numbers = static_cast<int>(torsions_to_use->atom_a.size());
+    }
+    if (dihedral_numbers > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller->printf("START INITIALIZING DIHEDRAL (%s):\n",
+                               init_source);
+        }
+        else
+        {
+            controller->printf("START INITIALIZING DIHEDRAL (%s_%s):\n",
+                               this->module_name, file_name_suffix);
+        }
         controller->printf("    dihedral_numbers is %d\n", dihedral_numbers);
         Memory_Allocate();
-
-        float temp;
         for (int i = 0; i < dihedral_numbers; i++)
         {
-            scanf_ret =
-                fscanf(fp, "%d %d %d %d %d %f %f", h_atom_a + i, h_atom_b + i,
-                       h_atom_c + i, h_atom_d + i, h_ipn + i, h_pk + i, &temp);
-            h_pn[i] = (float)h_ipn[i];
-            h_gamc[i] = cosf(temp) * h_pk[i];
-            h_gams[i] = sinf(temp) * h_pk[i];
+            h_atom_a[i] = torsions_to_use->atom_a[i];
+            h_atom_b[i] = torsions_to_use->atom_b[i];
+            h_atom_c[i] = torsions_to_use->atom_c[i];
+            h_atom_d[i] = torsions_to_use->atom_d[i];
+            h_ipn[i] = torsions_to_use->ipn[i];
+            h_pk[i] = torsions_to_use->pk[i];
+            h_pn[i] = torsions_to_use->pn[i];
+            h_gamc[i] = torsions_to_use->gamc[i];
+            h_gams[i] = torsions_to_use->gams[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
-    }
-    else if (controller->Command_Exist("amber_parm7") && module_name == NULL)
-    {
-        controller->printf("START INITIALIZING DIHEDRAL (amber_parm7):\n");
-        Read_Information_From_AMBERFILE(controller->Command("amber_parm7"),
-                                        controller[0]);
-        if (dihedral_numbers > 0) is_initialized = 1;
     }
     else
     {
@@ -192,168 +210,6 @@ void DIHEDRAL::Initial(CONTROLLER* controller, const char* module_name)
     {
         controller->printf("END INITIALIZING DIHEDRAL\n\n");
     }
-}
-
-void DIHEDRAL::Read_Information_From_AMBERFILE(const char* file_name,
-                                               CONTROLLER controller)
-{
-    float *phase_type_cpu = NULL, *pk_type_cpu = NULL, *pn_type_cpu = NULL;
-    int dihedral_type_numbers = 0, dihedral_with_hydrogen = 0;
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-    char temps[CHAR_LENGTH_MAX];
-    char temp_first_str[CHAR_LENGTH_MAX];
-    char temp_second_str[CHAR_LENGTH_MAX];
-    int i, tempi;
-    float tempf, tempf2;
-    controller.printf("    Reading dihedral information from AMBER file:\n");
-    while (true)
-    {
-        if (!fgets(temps, CHAR_LENGTH_MAX, parm)) break;
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "POINTERS") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            for (i = 0; i < 6; i++) int scanf_ret = fscanf(parm, "%d", &tempi);
-
-            int scanf_ret = fscanf(parm, "%d", &dihedral_with_hydrogen);
-            scanf_ret = fscanf(parm, "%d", &this->dihedral_numbers);
-            this->dihedral_numbers += dihedral_with_hydrogen;
-
-            controller.printf("        dihedral numbers is %d\n",
-                              this->dihedral_numbers);
-
-            this->Memory_Allocate();
-
-            for (i = 0; i < 9; i++) scanf_ret = fscanf(parm, "%d", &tempi);
-
-            scanf_ret = fscanf(parm, "%d", &dihedral_type_numbers);
-            controller.printf("        dihedral type numbers is %d\n",
-                              dihedral_type_numbers);
-
-            Malloc_Safely((void**)&phase_type_cpu,
-                          sizeof(float) * dihedral_type_numbers);
-            Malloc_Safely((void**)&pk_type_cpu,
-                          sizeof(float) * dihedral_type_numbers);
-            Malloc_Safely((void**)&pn_type_cpu,
-                          sizeof(float) * dihedral_type_numbers);
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRAL_FORCE_CONSTANT") == 0)
-        {
-            controller.printf("        read dihedral force constant\n");
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_type_numbers; i++)
-                int scanf_ret = fscanf(parm, "%f", &pk_type_cpu[i]);
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRAL_PHASE") == 0)
-        {
-            controller.printf("        read dihedral phase\n");
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_type_numbers; i++)
-                int scanf_ret = fscanf(parm, "%f", &phase_type_cpu[i]);
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRAL_PERIODICITY") == 0)
-        {
-            controller.printf("        read dihedral periodicity\n");
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_type_numbers; i++)
-                int scanf_ret = fscanf(parm, "%f", &pn_type_cpu[i]);
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRALS_INC_HYDROGEN") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_with_hydrogen; i++)
-            {
-                int scanf_ret = fscanf(parm, "%d\n", &this->h_atom_a[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_b[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_c[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_d[i]);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-                this->h_atom_a[i] /= 3;
-                this->h_atom_b[i] /= 3;
-                this->h_atom_c[i] /= 3;
-
-                this->h_atom_d[i] = abs(this->h_atom_d[i] / 3);
-                tempi -= 1;
-                this->h_pk[i] = pk_type_cpu[tempi];
-
-                tempf = phase_type_cpu[tempi];
-                if (abs(tempf - CONSTANT_Pi) <= 0.001) tempf = CONSTANT_Pi;
-
-                tempf2 = cosf(tempf);
-                if (fabsf(tempf2) < 1e-6) tempf2 = 0;
-                this->h_gamc[i] = tempf2 * this->h_pk[i];
-
-                tempf2 = sinf(tempf);
-                if (fabsf(tempf2) < 1e-6) tempf2 = 0;
-                this->h_gams[i] = tempf2 * this->h_pk[i];
-
-                this->h_pn[i] = fabsf(pn_type_cpu[tempi]);
-                this->h_ipn[i] = (int)(this->h_pn[i] + 0.001);
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRALS_WITHOUT_HYDROGEN") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = dihedral_with_hydrogen; i < this->dihedral_numbers; i++)
-            {
-                int scanf_ret = fscanf(parm, "%d\n", &this->h_atom_a[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_b[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_c[i]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_d[i]);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-                this->h_atom_a[i] /= 3;
-                this->h_atom_b[i] /= 3;
-                this->h_atom_c[i] /= 3;
-
-                this->h_atom_d[i] = abs(this->h_atom_d[i] / 3);
-                tempi -= 1;
-                this->h_pk[i] = pk_type_cpu[tempi];
-
-                tempf = phase_type_cpu[tempi];
-                if (abs(tempf - CONSTANT_Pi) <= 0.001) tempf = CONSTANT_Pi;
-
-                tempf2 = cosf(tempf);
-                if (fabsf(tempf2) < 1e-6) tempf2 = 0;
-                this->h_gamc[i] = tempf2 * this->h_pk[i];
-
-                tempf2 = sinf(tempf);
-                if (fabsf(tempf2) < 1e-6) tempf2 = 0;
-                this->h_gams[i] = tempf2 * this->h_pk[i];
-
-                this->h_pn[i] = fabsf(pn_type_cpu[tempi]);
-                this->h_ipn[i] = (int)(this->h_pn[i] + 0.001);
-            }
-        }
-    }
-
-    for (int i = 0; i < this->dihedral_numbers; ++i)
-    {
-        if (this->h_atom_c[i] < 0) this->h_atom_c[i] *= -1;
-    }
-
-    controller.printf("    End reading dihedral information from AMBER file\n");
-
-    fclose(parm);
-    free(pn_type_cpu);
-    free(phase_type_cpu);
-    free(pk_type_cpu);
-
-    Parameter_Host_To_Device();
-    if (dihedral_type_numbers > 0) is_initialized = 1;
 }
 
 void DIHEDRAL::Memory_Allocate()

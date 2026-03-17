@@ -1,5 +1,8 @@
 ﻿#include "angle.h"
 
+#include "../xponge/load/native/angle.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void Angle_Force_With_Atom_Energy_And_Virial_Device(
     const int angle_numbers, const VECTOR* crd, const LTMatrix3 cell,
     const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
@@ -92,34 +95,50 @@ void ANGLE::Initial(CONTROLLER* controller, const char* module_name)
 
     char file_name_suffix[CHAR_LENGTH_MAX];
     sprintf(file_name_suffix, "in_file");
+    const auto& angles = Xponge::system.classical_force_field.angles;
+    Xponge::Angles local_angles;
+    const Xponge::Angles* angles_to_use = NULL;
+    const char* init_source = NULL;
 
-    if (controller->Command_Exist(this->module_name, file_name_suffix))
+    if (module_name == NULL)
     {
-        controller->printf("START INITIALIZING ANGLE (%s_%s):\n",
-                           this->module_name, file_name_suffix);
-        FILE* fp = NULL;
-        Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
-                         "r");
+        angles_to_use = &angles;
+        init_source = "Xponge::system";
+    }
+    else if (controller->Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_Angles(&local_angles, controller,
+                                   this->module_name);
+        angles_to_use = &local_angles;
+    }
 
-        int scanf_ret = fscanf(fp, "%d", &angle_numbers);
+    if (angles_to_use != NULL)
+    {
+        angle_numbers = static_cast<int>(angles_to_use->atom_a.size());
+    }
+    if (angle_numbers > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller->printf("START INITIALIZING ANGLE (%s):\n", init_source);
+        }
+        else
+        {
+            controller->printf("START INITIALIZING ANGLE (%s_%s):\n",
+                               this->module_name, file_name_suffix);
+        }
         controller->printf("    angle_numbers is %d\n", angle_numbers);
         Memory_Allocate();
         for (int i = 0; i < angle_numbers; i++)
         {
-            int scanf_ret =
-                fscanf(fp, "%d %d %d %f %f", h_atom_a + i, h_atom_b + i,
-                       h_atom_c + i, h_angle_k + i, h_angle_theta0 + i);
+            h_atom_a[i] = angles_to_use->atom_a[i];
+            h_atom_b[i] = angles_to_use->atom_b[i];
+            h_atom_c[i] = angles_to_use->atom_c[i];
+            h_angle_k[i] = angles_to_use->k[i];
+            h_angle_theta0[i] = angles_to_use->theta0[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
-    }
-    else if (controller->Command_Exist("amber_parm7") && module_name == NULL)
-    {
-        controller->printf("START INITIALIZING ANGLE (amber_parm7):\n");
-        Read_Information_From_AMBERFILE(controller->Command("amber_parm7"),
-                                        controller[0]);
-        if (angle_numbers > 0) is_initialized = 1;
     }
     else
     {
@@ -136,170 +155,6 @@ void ANGLE::Initial(CONTROLLER* controller, const char* module_name)
     {
         controller->printf("END INITIALIZING ANGLE\n\n");
     }
-}
-
-void ANGLE::Read_Information_From_AMBERFILE(const char* file_name,
-                                            CONTROLLER controller)
-{
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-    int angle_with_H_numbers = 0;
-    int angle_without_H_numbers = 0;
-    int angle_count = 0;
-
-    int angle_type_numbers = 0;
-    float *type_k = NULL, *type_theta0 = NULL;
-    int* h_type = NULL;
-
-    controller.printf("    Reading angle information from AMBER file:\n");
-
-    char temps[CHAR_LENGTH_MAX];
-    char temp_first_str[CHAR_LENGTH_MAX];
-    char temp_second_str[CHAR_LENGTH_MAX];
-
-    while (true)
-    {
-        if (!fgets(temps, CHAR_LENGTH_MAX, parm))
-        {
-            break;
-        }
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "POINTERS") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            int lin;
-            for (int i = 0; i < 4; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%d", &lin);
-            }
-            int scanf_ret = fscanf(parm, "%d", &angle_with_H_numbers);
-            scanf_ret = fscanf(parm, "%d", &angle_without_H_numbers);
-            this->angle_numbers =
-                angle_with_H_numbers + angle_without_H_numbers;
-            controller.printf("        angle_numbers is %d\n",
-                              this->angle_numbers);
-
-            this->Memory_Allocate();
-
-            for (int i = 0; i < 10; i = i + 1)
-            {
-                scanf_ret = fscanf(parm, "%d", &lin);
-            }
-            scanf_ret = fscanf(parm, "%d", &angle_type_numbers);
-            controller.printf("        angle_type_numbers is %d\n",
-                              angle_type_numbers);
-
-            if (!Malloc_Safely((void**)&h_type,
-                               sizeof(int) * this->angle_numbers))
-            {
-                controller.printf(
-                    "        Error occurs when malloc h_type in "
-                    "ANGLE::Read_Information_From_AMBERFILE");
-            }
-
-            if (!Malloc_Safely((void**)&type_k,
-                               sizeof(float) * angle_type_numbers))
-            {
-                controller.printf(
-                    "        Error occurs when malloc type_k in "
-                    "ANGLE::Read_Information_From_AMBERFILE");
-            }
-            if (!Malloc_Safely((void**)&type_theta0,
-                               sizeof(float) * angle_type_numbers))
-            {
-                controller.printf(
-                    "        Error occurs when malloc type_theta0 in "
-                    "ANGLE::Read_Information_From_AMBERFILE");
-            }
-
-        }  // POINTER
-
-        // read angle type
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "ANGLES_INC_HYDROGEN") == 0)
-        {
-            controller.printf("        reading angle_with_hydrogen %d\n",
-                              angle_with_H_numbers);
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (int i = 0; i < angle_with_H_numbers; i = i + 1)
-            {
-                int scanf_ret =
-                    fscanf(parm, "%d\n", &this->h_atom_a[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_b[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_c[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &h_type[angle_count]);
-                this->h_atom_a[angle_count] = this->h_atom_a[angle_count] / 3;
-                this->h_atom_b[angle_count] = this->h_atom_b[angle_count] / 3;
-                this->h_atom_c[angle_count] = this->h_atom_c[angle_count] / 3;
-                h_type[angle_count] = h_type[angle_count] - 1;
-                angle_count = angle_count + 1;
-            }
-        }  // angle type
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "ANGLES_WITHOUT_HYDROGEN") == 0)
-        {
-            controller.printf("        reading angle_without_hydrogen %d\n",
-                              angle_without_H_numbers);
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (int i = 0; i < angle_without_H_numbers; i = i + 1)
-            {
-                int scanf_ret =
-                    fscanf(parm, "%d\n", &this->h_atom_a[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_b[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &this->h_atom_c[angle_count]);
-                scanf_ret = fscanf(parm, "%d\n", &h_type[angle_count]);
-                this->h_atom_a[angle_count] = this->h_atom_a[angle_count] / 3;
-                this->h_atom_b[angle_count] = this->h_atom_b[angle_count] / 3;
-                this->h_atom_c[angle_count] = this->h_atom_c[angle_count] / 3;
-                h_type[angle_count] = h_type[angle_count] - 1;
-                angle_count = angle_count + 1;
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "ANGLE_FORCE_CONSTANT") == 0)
-        {
-            char* scanf_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (int i = 0; i < angle_type_numbers; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%f\n", &type_k[i]);
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "ANGLE_EQUIL_VALUE") == 0)
-        {
-            char* scanf_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (int i = 0; i < angle_type_numbers; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%f\n", &type_theta0[i]);  // in
-                                                                        // rad
-            }
-        }
-    }  // while
-    if (this->angle_numbers != angle_count)
-    {
-        controller.Throw_SPONGE_Error(
-            spongeErrorBadFileFormat, "ANGLE::Read_Information_From_AMBERFILE",
-            "Reason:\n\tangle_count != angle_numbers");
-    }
-    for (int i = 0; i < this->angle_numbers; i = i + 1)
-    {
-        this->h_angle_k[i] = type_k[h_type[i]];
-        this->h_angle_theta0[i] = type_theta0[h_type[i]];
-    }
-
-    controller.printf("    End reading angle information from AMBER file\n");
-    fclose(parm);
-    free(h_type);
-    free(type_k);
-    free(type_theta0);
-
-    Parameter_Host_To_Device();
-    if (angle_numbers != 0) is_initialized = 1;
 }
 
 void ANGLE::Memory_Allocate()

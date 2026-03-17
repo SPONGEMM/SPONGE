@@ -19,7 +19,6 @@
 #include "bias/restrain_cv.h"
 #include "bias/steer.h"
 #include "bond/bond.h"
-#include "bond/bond_soft.h"
 #include "cmap/cmap.h"
 #include "collective_variable/collective_variable.h"
 #include "common.h"

@@ -1,5 +1,8 @@
 ﻿#include "virtual_atoms.h"
 
+#include "../xponge/load/native/virtual_atoms.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_0* v_info,
                                              VECTOR* crd, const LTMatrix3 cell,
@@ -382,19 +385,25 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
     {
         strcpy(this->module_name, module_name);
     }
-    bool has_in_file = controller->Command_Exist("virtual_atom_in_file");
+    const auto& system_virtual_atoms = Xponge::system.virtual_atoms.records;
+    Xponge::VirtualAtoms local_virtual_atoms;
+    const std::vector<Xponge::VirtualAtomRecord>* records_to_use = NULL;
+    if (module_name == NULL)
+    {
+        records_to_use = &system_virtual_atoms;
+    }
+    else if (controller->Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_Virtual_Atoms(&local_virtual_atoms, controller,
+                                          this->module_name);
+        records_to_use = &local_virtual_atoms.records;
+    }
+    bool has_in_file = records_to_use != NULL && !records_to_use->empty();
     if (has_in_file || no_direct_vatom_numbers > 0)
     {
         controller->printf("START INITIALIZING VIRTUAL ATOM\n");
         Malloc_Safely((void**)&virtual_level,
                       sizeof(int) * (atom_numbers + no_direct_vatom_numbers));
-        FILE* fp = NULL;
-        char line[CHAR_LENGTH_MAX];
-        if (has_in_file)
-        {
-            Open_File_Safely(&fp, controller->Command("virtual_atom_in_file"),
-                             "r");
-        }
         for (int i = 0; i < atom_numbers + no_direct_vatom_numbers; i++)
         {
             virtual_level[i] = 0;
@@ -402,125 +411,62 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
 
         int virtual_type;
         int virtual_atom;
-        int temp[12];
-        float tempf[5];
-        int scanf_ret;
 
         // 文件会从头到尾读三遍，分别确定每个原子的虚拟等级（因为可能存在坐标依赖于虚原子的虚原子，所以不得不如此做）
         // 第一遍确定虚拟原子的层级
         controller->printf("    Start reading virtual levels\n");
-        int line_numbers = 0;
         if (has_in_file)
         {
-            while (fgets(line, CHAR_LENGTH_MAX, fp) != NULL)
+            for (const auto& record : *records_to_use)
             {
-                line_numbers++;
-                scanf_ret = sscanf(line, "%d %d", &virtual_type, &virtual_atom);
-                if (scanf_ret != 2)
-                {
-                    continue;
-                }
+                virtual_type = record.type;
+                virtual_atom = record.virtual_atom;
                 switch (virtual_type)
                 {
                     case 0:
-                        scanf_ret = sscanf(line, "%*d %*d %d %f", temp, tempf);
-                        if (scanf_ret != 2)
-                        {
-                            char error_reason[CHAR_LENGTH_MAX];
-                            sprintf(
-                                error_reason,
-                                "Reason:\n\tError: can not parse line #%d.\n",
-                                line_numbers);
-                            controller->Throw_SPONGE_Error(
-                                spongeErrorBadFileFormat,
-                                "VIRTUAL_INFORMATION::Initial", error_reason);
-                        }
                         virtual_level[virtual_atom] =
-                            virtual_level[temp[0]] + 1;
+                            virtual_level[record.from[0]] + 1;
                         break;
 
                     case 1:
-                        scanf_ret = sscanf(line, "%*d %*d %d %d %f", temp,
-                                           temp + 1, tempf);
-                        if (scanf_ret != 3)
-                        {
-                            char error_reason[CHAR_LENGTH_MAX];
-                            sprintf(
-                                error_reason,
-                                "Reason:\n\tError: can not parse line #%d.\n",
-                                line_numbers);
-                            controller->Throw_SPONGE_Error(
-                                spongeErrorBadFileFormat,
-                                "VIRTUAL_INFORMATION::Initial", error_reason);
-                        }
                         virtual_level[virtual_atom] =
-                            std::max(virtual_level[temp[0]],
-                                     virtual_level[temp[1]]) +
+                            std::max(virtual_level[record.from[0]],
+                                     virtual_level[record.from[1]]) +
                             1;
                         break;
 
                     case 2:
-                        scanf_ret =
-                            sscanf(line, "%*d %*d %d %d %d %f %f", temp,
-                                   temp + 1, temp + 2, tempf, tempf + 1);
-                        if (scanf_ret != 5)
-                        {
-                            char error_reason[CHAR_LENGTH_MAX];
-                            sprintf(
-                                error_reason,
-                                "Reason:\n\tError: can not parse line #%d.\n",
-                                line_numbers);
-                            controller->Throw_SPONGE_Error(
-                                spongeErrorBadFileFormat,
-                                "VIRTUAL_INFORMATION::Initial", error_reason);
-                        }
-                        virtual_level[virtual_atom] = std::max(
-                            virtual_level[temp[0]], virtual_level[temp[1]]);
+                        virtual_level[virtual_atom] =
+                            std::max(virtual_level[record.from[0]],
+                                     virtual_level[record.from[1]]);
                         virtual_level[virtual_atom] =
                             std::max(virtual_level[virtual_atom],
-                                     virtual_level[temp[2]]) +
+                                     virtual_level[record.from[2]]) +
                             1;
                         // 添加信息至成键信息
-                        connectivity[0][virtual_atom].insert(temp[0]);
-                        connectivity[0][temp[0]].insert(virtual_atom);
+                        connectivity[0][virtual_atom].insert(record.from[0]);
+                        connectivity[0][record.from[0]].insert(virtual_atom);
                         break;
 
                     case 3:
-                        scanf_ret =
-                            sscanf(line, "%*d %*d %d %d %d %f %f", temp,
-                                   temp + 1, temp + 2, tempf, tempf + 1);
-                        if (scanf_ret != 5)
-                        {
-                            char error_reason[CHAR_LENGTH_MAX];
-                            sprintf(
-                                error_reason,
-                                "Reason:\n\tError: can not parse line #%d.\n",
-                                line_numbers);
-                            controller->Throw_SPONGE_Error(
-                                spongeErrorBadFileFormat,
-                                "VIRTUAL_INFORMATION::Initial", error_reason);
-                        }
-                        virtual_level[virtual_atom] = std::max(
-                            virtual_level[temp[0]], virtual_level[temp[1]]);
+                        virtual_level[virtual_atom] =
+                            std::max(virtual_level[record.from[0]],
+                                     virtual_level[record.from[1]]);
                         virtual_level[virtual_atom] =
                             std::max(virtual_level[virtual_atom],
-                                     virtual_level[temp[2]]) +
+                                     virtual_level[record.from[2]]) +
                             1;
                         // 添加信息至成键信息
-                        connectivity[0][virtual_atom].insert(temp[0]);
-                        connectivity[0][temp[0]].insert(virtual_atom);
+                        connectivity[0][virtual_atom].insert(record.from[0]);
+                        connectivity[0][record.from[0]].insert(virtual_atom);
                         break;
 
                     default:
-                        char error_reason[CHAR_LENGTH_MAX];
-                        sprintf(
-                            error_reason,
-                            "Reason:\n\tError: can not parse line #%d because "
-                            "%d is not a proper type for virtual atoms.\n",
-                            line_numbers, virtual_type);
                         controller->Throw_SPONGE_Error(
                             spongeErrorBadFileFormat,
-                            "VIRTUAL_INFORMATION::Initial", error_reason);
+                            "VIRTUAL_INFORMATION::Initial",
+                            "Reason:\n\tvirtual_atom_in_file contains an "
+                            "unsupported virtual atom type\n");
                 }
             }
         }
@@ -587,16 +533,10 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
             "    Start reading virtual type numbers in different levels\n");
         if (has_in_file)
         {
-            fseek(fp, 0, SEEK_SET);
-            line_numbers = 0;
-            while (fgets(line, CHAR_LENGTH_MAX, fp) != NULL)
+            for (const auto& record : *records_to_use)
             {
-                line_numbers++;
-                scanf_ret = sscanf(line, "%d %d", &virtual_type, &virtual_atom);
-                if (scanf_ret != 2)
-                {
-                    continue;
-                }
+                virtual_type = record.type;
+                virtual_atom = record.virtual_atom;
                 VIRTUAL_LAYER_INFORMATION* temp_vl =
                     &virtual_layer_info[virtual_level[virtual_atom] - 1];
                 switch (virtual_type)
@@ -691,8 +631,6 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
             "    Start reading information for every virtual atom\n");
         if (has_in_file)
         {
-            fseek(fp, 0, SEEK_SET);
-            line_numbers = 0;
             std::map<int, int> count0, count1, count2, count3;
             for (int i = 0; i < virtual_layer_info.size(); i++)
             {
@@ -701,115 +639,66 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                 count2[i] = 0;
                 count3[i] = 0;
             }
-            while (fgets(line, CHAR_LENGTH_MAX, fp) != NULL)
+            for (const auto& record : *records_to_use)
             {
-                line_numbers++;
-                scanf_ret = sscanf(line, "%d %d", &virtual_type, &virtual_atom);
-                if (scanf_ret != 2)
-                {
-                    continue;
-                }
+                virtual_type = record.type;
+                virtual_atom = record.virtual_atom;
                 int this_level = virtual_level[virtual_atom] - 1;
                 VIRTUAL_LAYER_INFORMATION* temp_vl =
                     &virtual_layer_info[this_level];
                 switch (virtual_type)
                 {
                     case 0:
-                        scanf_ret =
-                            sscanf(line, "%*d %d %d %f",
-                                   &temp_vl->v0_info
-                                        .h_virtual_type_0[count0[this_level]]
-                                        .virtual_atom,
-                                   &temp_vl->v0_info
-                                        .h_virtual_type_0[count0[this_level]]
-                                        .from_1,
-                                   &temp_vl->v0_info
-                                        .h_virtual_type_0[count0[this_level]]
-                                        .h_double);
                         temp_vl->v0_info.h_virtual_type_0[count0[this_level]]
-                            .h_double *= 2;
-                        if (scanf_ret != 3)
-                        {
-                            continue;
-                        }
+                            .virtual_atom = record.virtual_atom;
+                        temp_vl->v0_info.h_virtual_type_0[count0[this_level]]
+                            .from_1 = record.from[0];
+                        temp_vl->v0_info.h_virtual_type_0[count0[this_level]]
+                            .h_double = 2 * record.parameter[0];
                         count0[this_level]++;
                         break;
 
                     case 1:
-                        scanf_ret =
-                            sscanf(line, "%*d %d %d %d %f",
-                                   &temp_vl->v1_info
-                                        .h_virtual_type_1[count1[this_level]]
-                                        .virtual_atom,
-                                   &temp_vl->v1_info
-                                        .h_virtual_type_1[count1[this_level]]
-                                        .from_1,
-                                   &temp_vl->v1_info
-                                        .h_virtual_type_1[count1[this_level]]
-                                        .from_2,
-                                   &temp_vl->v1_info
-                                        .h_virtual_type_1[count1[this_level]]
-                                        .a);
-                        if (scanf_ret != 4)
-                        {
-                            continue;
-                        }
+                        temp_vl->v1_info.h_virtual_type_1[count1[this_level]]
+                            .virtual_atom = record.virtual_atom;
+                        temp_vl->v1_info.h_virtual_type_1[count1[this_level]]
+                            .from_1 = record.from[0];
+                        temp_vl->v1_info.h_virtual_type_1[count1[this_level]]
+                            .from_2 = record.from[1];
+                        temp_vl->v1_info.h_virtual_type_1[count1[this_level]]
+                            .a = record.parameter[0];
                         count1[this_level]++;
                         break;
 
                     case 2:
-                        scanf_ret =
-                            sscanf(line, "%*d %d %d %d %d %f %f",
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .virtual_atom,
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .from_1,
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .from_2,
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .from_3,
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .a,
-                                   &temp_vl->v2_info
-                                        .h_virtual_type_2[count2[this_level]]
-                                        .b);
-                        if (scanf_ret != 6)
-                        {
-                            continue;
-                        }
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .virtual_atom = record.virtual_atom;
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .from_1 = record.from[0];
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .from_2 = record.from[1];
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .from_3 = record.from[2];
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .a = record.parameter[0];
+                        temp_vl->v2_info.h_virtual_type_2[count2[this_level]]
+                            .b = record.parameter[1];
                         count2[this_level]++;
                         break;
 
                     case 3:
-                        scanf_ret =
-                            sscanf(line, "%*d %d %d %d %d %f %f",
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .virtual_atom,
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .from_1,
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .from_2,
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .from_3,
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .d,
-                                   &temp_vl->v3_info
-                                        .h_virtual_type_3[count3[this_level]]
-                                        .k);
-                        if (scanf_ret != 6)
-                        {
-                            continue;
-                        }
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .virtual_atom = record.virtual_atom;
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .from_1 = record.from[0];
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .from_2 = record.from[1];
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .from_3 = record.from[2];
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .d = record.parameter[0];
+                        temp_vl->v3_info.h_virtual_type_3[count3[this_level]]
+                            .k = record.parameter[1];
                         count3[this_level]++;
                         break;
 
@@ -817,7 +706,6 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                         break;
                 }
             }
-            fclose(fp);
         }
         std::map<int, int> count4;
         for (int i = 0; i < virtual_layer_info.size(); i++)

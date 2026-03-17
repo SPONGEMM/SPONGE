@@ -1,29 +1,32 @@
 ﻿#pragma once
 
+#include <ctype.h>
 #include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <omp.h>
 #include <stdarg.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
 #include <algorithm>
-#include <cctype>
-#include <climits>
-#include <cmath>
 #include <deque>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
 #include <iostream>
+#include <limits>
 #include <map>
+#include <queue>
 #include <random>
 #include <set>
 #include <sstream>
 #include <string>
 #include <tuple>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 namespace fs = std::filesystem;

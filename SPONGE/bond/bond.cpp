@@ -1,5 +1,8 @@
 ﻿#include "bond.h"
 
+#include "../xponge/load/native/bond.hpp"
+#include "../xponge/xponge.h"
+
 // 由于，大部分情况下bond的energy和virial计算耗时不显著，为简化bond模块的逻辑复杂度，
 // 将bond
 // 对原子上的力（frc）、原子上的能量（atom_energy）、原子上的维力值（atom_virial）
@@ -73,40 +76,50 @@ void BOND::Initial(CONTROLLER* controller, CONECT* connectivity,
         strcpy(this->module_name, module_name);
     }
 
-    // 指定读入bond信息的后缀，默认为in_file，即合成为bond_in_file
     char file_name_suffix[CHAR_LENGTH_MAX];
     sprintf(file_name_suffix, "in_file");
-    // 不同的bond初始化方案
-    // 从bond_in_file对应的文件中读取bond参数
-    if (controller->Command_Exist(this->module_name, file_name_suffix))
+    const auto& bonds = Xponge::system.classical_force_field.bonds;
+    Xponge::Bonds local_bonds;
+    const Xponge::Bonds* bonds_to_use = NULL;
+    const char* init_source = NULL;
+    if (module_name == NULL)
     {
-        controller->printf("START INITIALIZING BOND (%s_%s):\n",
-                           this->module_name, file_name_suffix);
-        FILE* fp = NULL;
-        Open_File_Safely(
-            &fp, controller->Command(this->module_name, file_name_suffix), "r");
+        bonds_to_use = &bonds;
+        init_source = "Xponge::system";
+    }
+    else if (controller->Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_Bonds(&local_bonds, controller, this->module_name);
+        bonds_to_use = &local_bonds;
+    }
 
-        int read_ret = fscanf(fp, "%d", &bond_numbers);
+    if (bonds_to_use != NULL)
+    {
+        bond_numbers = static_cast<int>(bonds_to_use->atom_a.size());
+    }
+    if (bond_numbers > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller->printf("START INITIALIZING BOND (%s):\n", init_source);
+        }
+        else
+        {
+            controller->printf("START INITIALIZING BOND (%s_%s):\n",
+                               this->module_name, file_name_suffix);
+        }
         controller->printf("    bond_numbers is %d\n", bond_numbers);
         Memory_Allocate();
         for (int i = 0; i < bond_numbers; i++)
         {
-            read_ret = fscanf(fp, "%d %d %f %f", h_atom_a + i, h_atom_b + i,
-                              h_k + i, h_r0 + i);
+            h_atom_a[i] = bonds_to_use->atom_a[i];
+            h_atom_b[i] = bonds_to_use->atom_b[i];
+            h_k[i] = bonds_to_use->k[i];
+            h_r0[i] = bonds_to_use->r0[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
     }
-    // 从amber_parm7对应的文件中读取bond参数
-    else if (controller->Command_Exist("amber_parm7") && module_name == NULL)
-    {
-        controller->printf("START INITIALIZING BOND (amber_parm7):\n");
-        Read_Information_From_AMBERFILE(controller->Command("amber_parm7"),
-                                        controller[0]);
-        if (bond_numbers > 0) is_initialized = 1;
-    }
-    // 没有获得任何关于bond的信息
     else
     {
         controller->printf("BOND IS NOT INITIALIZED\n\n");
@@ -140,146 +153,6 @@ void BOND::Initial(CONTROLLER* controller, CONECT* connectivity,
             }
         }
         controller->printf("END INITIALIZING BOND\n\n");
-    }
-}
-
-void BOND::Read_Information_From_AMBERFILE(const char* file_name,
-                                           CONTROLLER controller)
-{
-    float* bond_type_k = NULL;
-    float* bond_type_r = NULL;
-    int bond_type_numbers = 0;
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-
-    controller.printf("    Reading bond information from AMBER file:\n");
-
-    char temps[CHAR_LENGTH_MAX];
-    char temp_first_str[CHAR_LENGTH_MAX];
-    char temp_second_str[CHAR_LENGTH_MAX];
-    int i, tempi, bond_with_hydrogen;
-
-    while (true)
-    {
-        if (fgets(temps, CHAR_LENGTH_MAX, parm) == NULL)
-        {
-            break;
-        }
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "POINTERS") == 0)
-        {
-            // 读取parm7中的这一行“%FORMAT(10I8)”
-            char* read_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            // 前两个和bond信息无关
-            for (i = 0; i < 2; i++) int read_ret = fscanf(parm, "%d", &tempi);
-
-            int scan_ret = fscanf(parm, "%d", &bond_with_hydrogen);
-            scan_ret = fscanf(parm, "%d", &(this->bond_numbers));
-            this->bond_numbers += bond_with_hydrogen;
-
-            controller.printf("        bond_numbers is %d\n",
-                              this->bond_numbers);
-
-            this->Memory_Allocate();
-
-            // 跳过11个记录的无关变量
-            for (i = 0; i < 11; i++) scan_ret = fscanf(parm, "%d", &tempi);
-
-            scan_ret = fscanf(parm, "%d", &bond_type_numbers);
-            controller.printf("        bond_type_numbers is %d\n",
-                              bond_type_numbers);
-
-            if (!Malloc_Safely((void**)&bond_type_k,
-                               sizeof(float) * bond_type_numbers))
-            {
-                controller.printf(
-                    "        Error occurs when malloc bond_type_k in "
-                    "BOND::Read_Information_From_AMBERFILE");
-            }
-
-            if (!Malloc_Safely((void**)&bond_type_r,
-                               sizeof(float) * bond_type_numbers))
-            {
-                controller.printf(
-                    "        Error occurs when malloc bond_type_r in "
-                    "BOND::Read_Information_From_AMBERFILE");
-            }
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "BOND_FORCE_CONSTANT") == 0)
-        {
-            controller.printf("        reading bond_type_numbers %d\n",
-                              bond_type_numbers);
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < bond_type_numbers; i++)
-            {
-                int scan_ret = fscanf(parm, "%f", &bond_type_k[i]);
-            }
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "BOND_EQUIL_VALUE") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < bond_type_numbers; i++)
-                int scan_ret = fscanf(parm, "%f", &bond_type_r[i]);
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "BONDS_INC_HYDROGEN") == 0)
-        {
-            controller.printf("        reading bond_with_hydrogen %d\n",
-                              bond_with_hydrogen);
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < bond_with_hydrogen; i++)
-            {
-                int scan_ret = fscanf(parm, "%d\n", &this->h_atom_a[i]);
-                scan_ret = fscanf(parm, "%d\n", &this->h_atom_b[i]);
-                scan_ret = fscanf(parm, "%d\n", &tempi);
-                this->h_atom_a[i] /=
-                    3;  // AMBER 上存储的bond的原子编号要除以空间维度
-                this->h_atom_b[i] /= 3;
-                tempi -= 1;
-                this->h_k[i] = bond_type_k[tempi];
-                this->h_r0[i] = bond_type_r[tempi];
-            }
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "BONDS_WITHOUT_HYDROGEN") == 0)
-        {
-            controller.printf("        reading bond_without_hydrogen %d\n",
-                              this->bond_numbers - bond_with_hydrogen);
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = bond_with_hydrogen; i < this->bond_numbers; i++)
-            {
-                int scan_ret = fscanf(parm, "%d\n", &this->h_atom_a[i]);
-                scan_ret = fscanf(parm, "%d\n", &this->h_atom_b[i]);
-                scan_ret = fscanf(parm, "%d\n", &tempi);
-                this->h_atom_a[i] /= 3;
-                this->h_atom_b[i] /= 3;
-                tempi -= 1;
-                this->h_k[i] = bond_type_k[tempi];
-                this->h_r0[i] = bond_type_r[tempi];
-            }
-        }
-    }
-    controller.printf("    End reading bond information from AMBER file\n");
-    fclose(parm);
-
-    free(bond_type_k);
-    free(bond_type_r);
-
-    Parameter_Host_To_Device();
-    if (bond_numbers)
-    {
-        is_initialized = 1;
     }
 }
 

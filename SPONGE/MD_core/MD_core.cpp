@@ -1,5 +1,7 @@
 ﻿#include "MD_core.h"
 
+#include "../xponge/xponge.h"
+
 #define BOX_TRAJ_COMMAND "box"
 #define BOX_TRAJ_DEFAULT_FILENAME "mdbox.txt"
 #define TRAJ_COMMAND "crd"
@@ -26,6 +28,27 @@
 #include "rerun.hpp"
 #include "sys.hpp"
 #include "ug.hpp"
+
+static int Xponge_Atom_Numbers()
+{
+    if (!Xponge::system.atoms.mass.empty())
+    {
+        return (int)Xponge::system.atoms.mass.size();
+    }
+    if (!Xponge::system.atoms.charge.empty())
+    {
+        return (int)Xponge::system.atoms.charge.size();
+    }
+    if (!Xponge::system.atoms.coordinate.empty())
+    {
+        return (int)Xponge::system.atoms.coordinate.size() / 3;
+    }
+    if (!Xponge::system.atoms.velocity.empty())
+    {
+        return (int)Xponge::system.atoms.velocity.size() / 3;
+    }
+    return 0;
+}
 
 static __global__ void Scale_Positions_Device(const int atom_numbers,
                                               const LTMatrix3 g, VECTOR* crd,
@@ -167,242 +190,99 @@ void MD_INFORMATION::Read_Coordinate_And_Velocity(CONTROLLER* controller)
                               no_direct_interaction_virtual_atom_numbers));
         rerun.Initial(controller, this);
         rerun.Iteration(rerun.start_frame);
+        return;
     }
-    else if (controller[0].Command_Exist("coordinate_in_file"))
-    {
-        Read_Coordinate_In_File(controller[0].Command("coordinate_in_file"),
-                                controller[0]);
-        if (controller[0].Command_Exist("velocity_in_file"))
-        {
-            FILE* fp = NULL;
-            controller->printf("    Start reading velocity_in_file:\n");
-            Open_File_Safely(&fp, controller[0].Command("velocity_in_file"),
-                             "r");
-
-            int atom_numbers = 0;
-            char lin[CHAR_LENGTH_MAX];
-            char* get_ret = fgets(lin, CHAR_LENGTH_MAX, fp);
-            int scanf_ret = sscanf(lin, "%d", &atom_numbers);
-            if (this->atom_numbers > 0 && this->atom_numbers != atom_numbers)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorConflictingCommand,
-                    "MD_INFORMATION::Read_Coordinate_And_Velocity",
-                    ATOM_NUMBERS_DISMATCH);
-            }
-            Malloc_Safely(
-                (void**)&velocity,
-                sizeof(VECTOR) * (this->atom_numbers +
-                                  no_direct_interaction_virtual_atom_numbers));
-            for (int i = 0; i < atom_numbers; i++)
-            {
-                scanf_ret = fscanf(fp, "%f %f %f", &velocity[i].x,
-                                   &velocity[i].y, &velocity[i].z);
-                if (scanf_ret != 3)
-                {
-                    std::string error_reason =
-                        "Reason:\n\tthe format of the velocity_in_file (";
-                    error_reason += controller->Command("velocity_in_file");
-                    error_reason +=
-                        ") is not right (missing the velocity of atom ";
-                    error_reason += i;
-                    error_reason += ")\n";
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorBadFileFormat,
-                        "MD_INFORMATION::Read_Coordinate_And_Velocity",
-                        error_reason.c_str());
-                }
-            }
-            Device_Malloc_And_Copy_Safely(
-                (void**)&vel, velocity,
-                sizeof(VECTOR) * (this->atom_numbers +
-                                  no_direct_interaction_virtual_atom_numbers));
-            controller->printf("    End reading velocity_in_file\n\n");
-            fclose(fp);
-        }
-        else
-        {
-            controller->printf("    Velocity is set to zero as default\n");
-            Malloc_Safely(
-                (void**)&velocity,
-                sizeof(VECTOR) * (this->atom_numbers +
-                                  no_direct_interaction_virtual_atom_numbers));
-            for (int i = 0; i < atom_numbers; i++)
-            {
-                velocity[i].x = 0;
-                velocity[i].y = 0;
-                velocity[i].z = 0;
-            }
-            Device_Malloc_And_Copy_Safely(
-                (void**)&vel, velocity,
-                sizeof(VECTOR) * (this->atom_numbers +
-                                  no_direct_interaction_virtual_atom_numbers));
-        }
-    }
-    else if (controller[0].Command_Exist("amber_rst7"))
-    {
-        output.amber_irest = 1;
-        if (controller[0].Command_Exist("amber_irest"))
-        {
-            output.amber_irest = controller->Get_Bool(
-                "amber_irest", "MD_INFORMATION::Read_Coordinate_And_Velocity");
-        }
-        Read_Rst7(controller[0].Command("amber_rst7"), output.amber_irest,
-                  controller[0]);
-    }
-    else
+    if (Xponge::system.atoms.coordinate.empty())
     {
         controller->Throw_SPONGE_Error(
             spongeErrorMissingCommand,
             "MD_INFORMATION::Read_Coordinate_And_Velocity",
-            "Reason:\n\tno coordinate information found");
+            "Reason:\n\tno coordinate information found in Xponge::system\n");
     }
-}
+    atom_numbers = Xponge_Atom_Numbers();
+    Malloc_Safely(
+        (void**)&coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_Safely(
+        (void**)&last_crd,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    deviceMemset(last_crd, 0,
+                 sizeof(VECTOR) * (this->atom_numbers +
+                                   no_direct_interaction_virtual_atom_numbers));
+    Malloc_Safely(
+        (void**)&velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
 
-void MD_INFORMATION::Read_Mass(CONTROLLER* controller)
-{
-    if (controller[0].Command_Exist("mass_in_file"))
+    for (int i = 0; i < atom_numbers; i++)
     {
-        FILE* fp = NULL;
-        controller->printf("    Start reading mass:\n");
-        Open_File_Safely(&fp, controller[0].Command("mass_in_file"), "r");
-        int atom_numbers = 0;
-        char lin[CHAR_LENGTH_MAX];
-        char* get_ret = fgets(lin, CHAR_LENGTH_MAX, fp);
-        int scanf_ret = sscanf(lin, "%d", &atom_numbers);
-        if (scanf_ret != 1)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorBadFileFormat,
-                "MD_INFORMATION::non_bond_information::Initial",
-                "The format of mass_in_file is not right\n");
-        }
-        if (this->atom_numbers > 0 && this->atom_numbers != atom_numbers)
-        {
-            controller->Throw_SPONGE_Error(spongeErrorConflictingCommand,
-                                           "MD_INFORMATION::Read_Mass",
-                                           ATOM_NUMBERS_DISMATCH);
-        }
-        else if (this->atom_numbers == 0)
-        {
-            this->atom_numbers = atom_numbers;
-        }
-        Malloc_Safely((void**)&h_mass, sizeof(float) * atom_numbers);
-        Malloc_Safely((void**)&h_mass_inverse, sizeof(float) * atom_numbers);
-        sys.total_mass = 0;
+        coordinate[i].x = Xponge::system.atoms.coordinate[3 * i];
+        coordinate[i].y = Xponge::system.atoms.coordinate[3 * i + 1];
+        coordinate[i].z = Xponge::system.atoms.coordinate[3 * i + 2];
+    }
+    if (!Xponge::system.atoms.velocity.empty())
+    {
         for (int i = 0; i < atom_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%f", &h_mass[i]);
-            if (scanf_ret != 1)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat,
-                    "MD_INFORMATION::non_bond_information::Initial",
-                    "The format of mass_in_file is not right\n");
-            }
-            sys.total_mass += h_mass[i];
-            if (h_mass[i] == 0)
-                h_mass_inverse[i] = 0;
-            else
-                h_mass_inverse[i] = 1.0 / h_mass[i];
-        }
-        controller->printf("    End reading mass\n\n");
-        fclose(fp);
-    }
-    else if (controller[0].Command_Exist("amber_parm7"))
-    {
-        FILE* parm = NULL;
-        Open_File_Safely(&parm, controller[0].Command("amber_parm7"), "r");
-        controller[0].printf("    Start reading mass from AMBER parm7:\n");
-        while (true)
-        {
-            char temps[CHAR_LENGTH_MAX];
-            char temp_first_str[CHAR_LENGTH_MAX];
-            char temp_second_str[CHAR_LENGTH_MAX];
-            if (fgets(temps, CHAR_LENGTH_MAX, parm) == NULL)
-            {
-                break;
-            }
-            if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-            {
-                continue;
-            }
-            // read in atomnumber atomljtypenumber
-            if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "POINTERS") == 0)
-            {
-                char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-                int atom_numbers = 0;
-                int scanf_ret = fscanf(parm, "%d", &atom_numbers);
-                if (scanf_ret != 1)
-                {
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorBadFileFormat,
-                        "MD_INFORMATION::non_bond_information::Initial",
-                        "The format of amber_parm7 is not right\n");
-                }
-                if (this->atom_numbers > 0 &&
-                    this->atom_numbers != atom_numbers)
-                {
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorConflictingCommand,
-                        "MD_INFORMATION::Read_Mass", ATOM_NUMBERS_DISMATCH);
-                }
-                else if (this->atom_numbers == 0)
-                {
-                    this->atom_numbers = atom_numbers;
-                }
-                Malloc_Safely((void**)&h_mass, sizeof(float) * atom_numbers);
-                Malloc_Safely((void**)&h_mass_inverse,
-                              sizeof(float) * atom_numbers);
-            }
-            if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "MASS") == 0)
-            {
-                char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-                double lin;
-                sys.total_mass = 0;
-                for (int i = 0; i < this->atom_numbers; i = i + 1)
-                {
-                    int scanf_ret = fscanf(parm, "%lf\n", &lin);
-                    if (scanf_ret != 1)
-                    {
-                        controller->Throw_SPONGE_Error(
-                            spongeErrorBadFileFormat,
-                            "MD_INFORMATION::non_bond_information::Initial",
-                            "The format of amber_parm7 is not right\n");
-                    }
-                    this->h_mass[i] = (float)lin;
-                    if (h_mass[i] == 0)
-                        h_mass_inverse[i] = 0;
-                    else
-                        h_mass_inverse[i] = 1.0f / h_mass[i];
-                    sys.total_mass += h_mass[i];
-                }
-            }
-        }
-        controller[0].printf("    End reading mass from AMBER parm7\n\n");
-        fclose(parm);
-    }
-    else if (atom_numbers > 0)
-    {
-        controller[0].printf("    mass is set to 20 as default\n");
-        sys.total_mass = 0;
-        Malloc_Safely((void**)&h_mass, sizeof(float) * atom_numbers);
-        Malloc_Safely((void**)&h_mass_inverse, sizeof(float) * atom_numbers);
-        for (int i = 0; i < atom_numbers; i++)
-        {
-            h_mass[i] = 20;
-            h_mass_inverse[i] = 1.0 / h_mass[i];
-            sys.total_mass += h_mass[i];
+            velocity[i].x = Xponge::system.atoms.velocity[3 * i];
+            velocity[i].y = Xponge::system.atoms.velocity[3 * i + 1];
+            velocity[i].z = Xponge::system.atoms.velocity[3 * i + 2];
         }
     }
     else
     {
-        controller->Throw_SPONGE_Error(spongeErrorMissingCommand,
-                                       "MD_INFORMATION::Read_Mass",
-                                       ATOM_NUMBERS_MISSING);
+        for (int i = 0; i < atom_numbers; i++)
+        {
+            velocity[i].x = 0;
+            velocity[i].y = 0;
+            velocity[i].z = 0;
+        }
+    }
+    if (Xponge::system.box.box_length.size() >= 3)
+    {
+        sys.box_length.x = Xponge::system.box.box_length[0];
+        sys.box_length.y = Xponge::system.box.box_length[1];
+        sys.box_length.z = Xponge::system.box.box_length[2];
+    }
+    if (Xponge::system.box.box_angle.size() >= 3)
+    {
+        sys.box_angle.x = Xponge::system.box.box_angle[0];
+        sys.box_angle.y = Xponge::system.box.box_angle[1];
+        sys.box_angle.z = Xponge::system.box.box_angle[2];
+    }
+    sys.start_time = Xponge::system.start_time;
+    Device_Malloc_And_Copy_Safely(
+        (void**)&crd, coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_And_Copy_Safely(
+        (void**)&vel, velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+}
+
+void MD_INFORMATION::Read_Mass(CONTROLLER* controller)
+{
+    if (Xponge::system.atoms.mass.empty())
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorMissingCommand, "MD_INFORMATION::Read_Mass",
+            "Reason:\n\tno mass information found in Xponge::system\n");
+    }
+    atom_numbers = Xponge_Atom_Numbers();
+    Malloc_Safely((void**)&h_mass, sizeof(float) * atom_numbers);
+    Malloc_Safely((void**)&h_mass_inverse, sizeof(float) * atom_numbers);
+    sys.total_mass = 0;
+    for (int i = 0; i < atom_numbers; i++)
+    {
+        h_mass[i] = Xponge::system.atoms.mass[i];
+        if (h_mass[i] == 0)
+            h_mass_inverse[i] = 0;
+        else
+            h_mass_inverse[i] = 1.0f / h_mass[i];
+        sys.total_mass += h_mass[i];
     }
     if (atom_numbers > 0)
     {
@@ -415,127 +295,17 @@ void MD_INFORMATION::Read_Mass(CONTROLLER* controller)
 
 void MD_INFORMATION::Read_Charge(CONTROLLER* controller)
 {
-    if (controller[0].Command_Exist("charge_in_file"))
+    if (Xponge::system.atoms.charge.empty())
     {
-        FILE* fp = NULL;
-        controller->printf("    Start reading charge:\n");
-        Open_File_Safely(&fp, controller[0].Command("charge_in_file"), "r");
-        int atom_numbers = 0;
-        char lin[CHAR_LENGTH_MAX];
-        char* get_ret = fgets(lin, CHAR_LENGTH_MAX, fp);
-        int scanf_ret = sscanf(lin, "%d", &atom_numbers);
-        if (scanf_ret != 1)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorBadFileFormat,
-                "MD_INFORMATION::non_bond_information::Initial",
-                "The format of charge_in_file is not right\n");
-        }
-        if (this->atom_numbers > 0 && this->atom_numbers != atom_numbers)
-        {
-            controller->Throw_SPONGE_Error(spongeErrorMissingCommand,
-                                           "MD_INFORMATION::Read_Charge",
-                                           ATOM_NUMBERS_DISMATCH);
-        }
-        else if (this->atom_numbers == 0)
-        {
-            this->atom_numbers = atom_numbers;
-        }
-        Malloc_Safely((void**)&h_charge, sizeof(float) * atom_numbers);
-        for (int i = 0; i < atom_numbers; i++)
-        {
-            scanf_ret = fscanf(fp, "%f", &h_charge[i]);
-            if (scanf_ret != 1)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat,
-                    "MD_INFORMATION::non_bond_information::Initial",
-                    "The format of charge_in_file is not right\n");
-            }
-        }
-        controller->printf("    End reading charge\n\n");
-        fclose(fp);
+        controller->Throw_SPONGE_Error(
+            spongeErrorMissingCommand, "MD_INFORMATION::Read_Charge",
+            "Reason:\n\tno charge information found in Xponge::system\n");
     }
-    else if (controller[0].Command_Exist("amber_parm7"))
+    atom_numbers = Xponge_Atom_Numbers();
+    Malloc_Safely((void**)&h_charge, sizeof(float) * atom_numbers);
+    for (int i = 0; i < atom_numbers; i++)
     {
-        FILE* parm = NULL;
-        Open_File_Safely(&parm, controller[0].Command("amber_parm7"), "r");
-        controller[0].printf("    Start reading charge from AMBER parm7:\n");
-        while (true)
-        {
-            char temps[CHAR_LENGTH_MAX];
-            char temp_first_str[CHAR_LENGTH_MAX];
-            char temp_second_str[CHAR_LENGTH_MAX];
-            if (fgets(temps, CHAR_LENGTH_MAX, parm) == NULL)
-            {
-                break;
-            }
-            if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-            {
-                continue;
-            }
-            // read in atomnumber atomljtypenumber
-            if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "POINTERS") == 0)
-            {
-                char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-                int atom_numbers = 0;
-                int scanf_ret = fscanf(parm, "%d", &atom_numbers);
-                if (scanf_ret != 1)
-                {
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorBadFileFormat,
-                        "MD_INFORMATION::non_bond_information::Initial",
-                        "The format of amber_parm7 is not right\n");
-                }
-                if (this->atom_numbers > 0 &&
-                    this->atom_numbers != atom_numbers)
-                {
-                    controller->Throw_SPONGE_Error(
-                        spongeErrorConflictingCommand,
-                        "MD_INFORMATION::Read_Charge", ATOM_NUMBERS_DISMATCH);
-                }
-                else if (this->atom_numbers == 0)
-                {
-                    this->atom_numbers = atom_numbers;
-                }
-                Malloc_Safely((void**)&h_charge, sizeof(float) * atom_numbers);
-            }
-            if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "CHARGE") == 0)
-            {
-                char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-                for (int i = 0; i < this->atom_numbers; i = i + 1)
-                {
-                    int scanf_ret = fscanf(parm, "%f", &h_charge[i]);
-                    if (scanf_ret != 1)
-                    {
-                        controller->Throw_SPONGE_Error(
-                            spongeErrorBadFileFormat,
-                            "MD_INFORMATION::non_bond_information::Initial",
-                            "The format of amber_parm7 is not right\n");
-                    }
-                }
-            }
-        }
-        controller[0].printf("    End reading charge from AMBER parm7\n\n");
-        fclose(parm);
-    }
-    else if (atom_numbers > 0)
-    {
-        controller[0].printf("    charge is set to 0 as default\n");
-        Malloc_Safely((void**)&h_charge, sizeof(float) * atom_numbers);
-        for (int i = 0; i < atom_numbers; i++)
-        {
-            h_charge[i] = 0;
-        }
-    }
-    else
-    {
-        controller->Throw_SPONGE_Error(spongeErrorMissingCommand,
-                                       "MD_INFORMATION::Read_Charge",
-                                       ATOM_NUMBERS_MISSING);
+        h_charge[i] = Xponge::system.atoms.charge[i];
     }
     if (atom_numbers > 0)
     {

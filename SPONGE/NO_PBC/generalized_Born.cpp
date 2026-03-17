@@ -1,5 +1,8 @@
 ﻿#include "generalized_Born.h"
 
+#include "../xponge/load/native/gb.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void Effective_Born_Radii_Factor_Device(
     const int atom_numbers, const VECTOR* crd, const float cutoff_square,
     const float* self_radius, const float* other_radius,
@@ -250,18 +253,29 @@ void GENERALIZED_BORN_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
             atof(controller->Command(this->module_name, "radii_cutoff"));
     }
 
-    if (controller->Command_Exist("gb_in_file"))
+    const auto& gb_system = Xponge::system.generalized_born;
+    Xponge::GeneralizedBorn local_gb;
+    const Xponge::GeneralizedBorn* gb_to_use = NULL;
+    if (module_name == NULL)
     {
-        FILE* fp;
-        Open_File_Safely(&fp, controller->Command("gb_in_file"), "r");
-        int scanf_ret = fscanf(fp, "%d", &atom_numbers);
+        gb_to_use = &gb_system;
+    }
+    else if (controller->Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_Generalized_Born(&local_gb, controller,
+                                             this->module_name);
+        gb_to_use = &local_gb;
+    }
+
+    if (gb_to_use != NULL && !gb_to_use->radius.empty())
+    {
+        atom_numbers = static_cast<int>(gb_to_use->radius.size());
         Malloc();
         for (int i = 0; i < atom_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%f %f", h_GB_self_radius + i,
-                               h_GB_other_radius + i);
-            h_GB_self_radius[i] -= radii_offset;
-            h_GB_other_radius[i] *= h_GB_self_radius[i];
+            h_GB_self_radius[i] = gb_to_use->radius[i] - radii_offset;
+            h_GB_other_radius[i] =
+                gb_to_use->scale_factor[i] * h_GB_self_radius[i];
         }
         deviceMemcpy(d_GB_self_radius, h_GB_self_radius,
                      sizeof(float) * atom_numbers, deviceMemcpyHostToDevice);

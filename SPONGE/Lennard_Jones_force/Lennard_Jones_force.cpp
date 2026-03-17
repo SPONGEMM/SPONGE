@@ -1,4 +1,7 @@
 ﻿#include "Lennard_Jones_force.h"
+
+#include "../xponge/load/native/lj.hpp"
+#include "../xponge/xponge.h"
 // #include "assert.h"
 
 // 由LJ坐标和转化系数求距离
@@ -192,13 +195,25 @@ void LENNARD_JONES_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
         strcpy(this->module_name, module_name);
     }
     controller->printf("START INITIALIZING LENNADR JONES INFORMATION:\n");
-    if (controller->Command_Exist(this->module_name, "in_file"))
+    const auto& lj = Xponge::system.classical_force_field.lj;
+    Xponge::LennardJones local_lj;
+    const Xponge::LennardJones* lj_to_use = NULL;
+    if (module_name == NULL)
     {
-        FILE* fp = NULL;
-        Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
-                         "r");
-
-        int scanf_ret = fscanf(fp, "%d %d", &atom_numbers, &atom_type_numbers);
+        lj_to_use = &lj;
+    }
+    else if (controller->Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_LJ(&local_lj, controller, 0, this->module_name);
+        lj_to_use = &local_lj;
+    }
+    if (lj_to_use != NULL)
+    {
+        atom_numbers = static_cast<int>(lj_to_use->atom_type.size());
+        atom_type_numbers = lj_to_use->atom_type_numbers;
+    }
+    if (atom_numbers > 0)
+    {
         controller->printf("    atom_numbers is %d\n", atom_numbers);
         controller->printf("    atom_LJ_type_number is %d\n",
                            atom_type_numbers);
@@ -207,26 +222,15 @@ void LENNARD_JONES_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
 
         for (int i = 0; i < pair_type_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%f", h_LJ_A + i);
-            h_LJ_A[i] *= 12.0f;
-        }
-        for (int i = 0; i < pair_type_numbers; i++)
-        {
-            scanf_ret = fscanf(fp, "%f", h_LJ_B + i);
-            h_LJ_B[i] *= 6.0f;
+            h_LJ_A[i] = lj_to_use->pair_A[i];
+            h_LJ_B[i] = lj_to_use->pair_B[i];
         }
         for (int i = 0; i < atom_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%d", h_atom_LJ_type + i);
+            h_atom_LJ_type[i] = lj_to_use->atom_type[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
-    }
-    else if (controller->Command_Exist("amber_parm7"))
-    {
-        Initial_From_AMBER_Parm(controller->Command("amber_parm7"),
-                                controller[0]);
     }
     if (is_initialized)
     {
@@ -334,83 +338,6 @@ void LENNARD_JONES_INFORMATION::Long_Range_Correction(int need_pressure,
             h_LJ_long_energy = long_range_factor / volume;
         }
     }
-}
-
-void LENNARD_JONES_INFORMATION::Initial_From_AMBER_Parm(const char* file_name,
-                                                        CONTROLLER controller)
-{
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-    controller.printf("    Start reading LJ information from AMBER file:\n");
-
-    while (true)
-    {
-        char temps[CHAR_LENGTH_MAX];
-        char temp_first_str[CHAR_LENGTH_MAX];
-        char temp_second_str[CHAR_LENGTH_MAX];
-        if (!fgets(temps, CHAR_LENGTH_MAX, parm))
-        {
-            break;
-        }
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "POINTERS") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            int scanf_ret = fscanf(parm, "%d\n", &atom_numbers);
-            controller.printf("        atom_numbers is %d\n", atom_numbers);
-            scanf_ret = fscanf(parm, "%d\n", &atom_type_numbers);
-            controller.printf("        atom_LJ_type_number is %d\n",
-                              atom_type_numbers);
-            pair_type_numbers = atom_type_numbers * (atom_type_numbers + 1) / 2;
-
-            LJ_Malloc();
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "ATOM_TYPE_INDEX") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            printf("        read atom LJ type index\n");
-            int atomljtype;
-            for (int i = 0; i < atom_numbers; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%d\n", &atomljtype);
-                h_atom_LJ_type[i] = atomljtype - 1;
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "LENNARD_JONES_ACOEF") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            printf("        read atom LJ A\n");
-            double lin;
-            for (int i = 0; i < pair_type_numbers; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%lf\n", &lin);
-                h_LJ_A[i] = 12.0f * lin;
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "LENNARD_JONES_BCOEF") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            printf("        read atom LJ B\n");
-            double lin;
-            for (int i = 0; i < pair_type_numbers; i = i + 1)
-            {
-                int scanf_ret = fscanf(parm, "%lf\n", &lin);
-                h_LJ_B[i] = (float)6. * lin;
-            }
-        }
-    }
-    controller.printf("    End reading LJ information from AMBER file:\n");
-    fclose(parm);
-    is_initialized = 1;
-    Parameter_Host_To_Device();
 }
 
 void LENNARD_JONES_INFORMATION::Parameter_Host_To_Device()

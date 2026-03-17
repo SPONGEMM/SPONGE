@@ -116,9 +116,6 @@ struct LENNARD_JONES_INFORMATION
     // 初始化
     void Initial(CONTROLLER* controller, float cutoff,
                  const char* module_name = NULL);
-    // 从amber的parm文件里读取
-    void Initial_From_AMBER_Parm(const char* file_name, CONTROLLER controller);
-
     // 分配内存
     void LJ_Malloc();
     // 参数传到GPU上

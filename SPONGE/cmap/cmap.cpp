@@ -1,5 +1,8 @@
 ﻿#include "cmap.h"
 
+#include "../xponge/load/native/cmap.hpp"
+#include "../xponge/xponge.h"
+
 // clang-format off
 // 由于求导带来的系数矩阵的逆矩阵A_inv
 static const float A_inv[16][16] =
@@ -23,7 +26,6 @@ static const float A_inv[16][16] =
 
 void CMAP::Initial(CONTROLLER* controller, const char* module_name)
 {
-    controller->printf("START INITIALIZING CMAP:\n");
     if (module_name == NULL)
     {
         strcpy(this->module_name, "cmap");
@@ -33,53 +35,65 @@ void CMAP::Initial(CONTROLLER* controller, const char* module_name)
         strcpy(this->module_name, module_name);
     }
 
-    if (controller->Command_Exist(this->module_name, "in_file"))
+    const auto& cmap = Xponge::system.classical_force_field.cmap;
+    Xponge::CMap local_cmap;
+    const Xponge::CMap* cmap_to_use = NULL;
+    const char* init_source = NULL;
+    if (module_name == NULL)
     {
-        FILE* fp = NULL;
-        Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
-                         "r");
+        cmap_to_use = &cmap;
+        init_source = "Xponge::system";
+    }
+    else if (controller->Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_CMap(&local_cmap, controller, this->module_name);
+        cmap_to_use = &local_cmap;
+    }
 
-        int ret = fscanf(fp, "%d", &tot_cmap_num);
-        ret = fscanf(fp, "%d", &uniq_cmap_num);
+    tot_cmap_num = 0;
+    uniq_cmap_num = 0;
+    uniq_gridpoint_num = 0;
+    if (cmap_to_use != NULL)
+    {
+        tot_cmap_num = static_cast<int>(cmap_to_use->atom_a.size());
+        uniq_cmap_num = cmap_to_use->unique_type_numbers;
+        uniq_gridpoint_num = cmap_to_use->unique_gridpoint_numbers;
+    }
+    if (tot_cmap_num > 0)
+    {
+        if (module_name == NULL)
+        {
+            controller->printf("START INITIALIZING CMAP (%s):\n", init_source);
+        }
+        else
+        {
+            controller->printf("START INITIALIZING CMAP (%s_in_file):\n",
+                               this->module_name);
+        }
         controller->printf(
             "    total CMAP number is %d\n    unique CMAP number is %d\n",
             tot_cmap_num, uniq_cmap_num);
         this->Memory_Allocate();
-        for (int i = 0; i < (uniq_cmap_num); i++)
-        {
-            ret = fscanf(fp, "%d", h_cmap_resolution + i);
-            type_offset[i] = 16 * uniq_gridpoint_num;
-            uniq_gridpoint_num += h_cmap_resolution[i] * h_cmap_resolution[i];
-        }
-
         Malloc_Safely((void**)&grid_value, sizeof(float) * uniq_gridpoint_num);
         Malloc_Safely((void**)&h_inter_coeff,
                       sizeof(float) * 16 * uniq_gridpoint_num);
-
-        for (int i = 0; i < uniq_gridpoint_num; i++)
+        for (int i = 0; i < uniq_cmap_num; i++)
         {
-            ret = fscanf(fp, "%f", grid_value + i);
+            h_cmap_resolution[i] = cmap_to_use->resolution[i];
+            type_offset[i] = cmap_to_use->type_offset[i];
         }
-
+        memcpy(grid_value, cmap_to_use->grid_value.data(),
+               sizeof(float) * uniq_gridpoint_num);
         for (int i = 0; i < tot_cmap_num; i++)
         {
-            // 数组原子编号从0记
-            ret = fscanf(fp, "%d", h_atom_a + i);
-            ret = fscanf(fp, "%d", h_atom_b + i);
-            ret = fscanf(fp, "%d", h_atom_c + i);
-            ret = fscanf(fp, "%d", h_atom_d + i);
-            ret = fscanf(fp, "%d", h_atom_e + i);
-            ret = fscanf(fp, "%d", h_cmap_type + i);
+            h_atom_a[i] = cmap_to_use->atom_a[i];
+            h_atom_b[i] = cmap_to_use->atom_b[i];
+            h_atom_c[i] = cmap_to_use->atom_c[i];
+            h_atom_d[i] = cmap_to_use->atom_d[i];
+            h_atom_e[i] = cmap_to_use->atom_e[i];
+            h_cmap_type[i] = cmap_to_use->cmap_type[i];
         }
-
-        fclose(fp);
         is_initialized = 1;
-    }
-
-    else if (controller->Command_Exist("amber_parm7") && module_name == NULL)
-    {
-        Read_Information_From_AMBERFILE(controller->Command("amber_parm7"),
-                                        controller);
     }
 
     if (is_initialized && !is_controller_printf_initialized)
@@ -99,141 +113,6 @@ void CMAP::Initial(CONTROLLER* controller, const char* module_name)
     else
     {
         controller->printf("CMAP IS NOT INITIALIZED\n\n");
-    }
-}
-
-void CMAP::Read_Information_From_AMBERFILE(const char* file_name,
-                                           CONTROLLER* controller)
-{
-    // 参数中的双二面角的信息
-
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-    controller->printf("    Reading CAMP information from AMBER file:\n");
-    char temps[CHAR_LENGTH_MAX];
-    char temp_first_str[CHAR_LENGTH_MAX];
-    char temp_second_str[CHAR_LENGTH_MAX];
-
-    // 中间/循环变量
-    int count = 0, temp = 0;
-
-    while (true)
-    {
-        if (fgets(temps, CHAR_LENGTH_MAX, parm) == NULL)
-        {
-            break;
-        }
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "CMAP_COUNT") == 0 ||
-            strcmp(temp_second_str, "CHARMM_CMAP_COUNT") == 0)
-        {
-            // 读取parm7中的"COMMENT ..."(如果存在)以及"%FORMAT(2I8)" 两行
-            char* get_value = fgets(temps, CHAR_LENGTH_MAX, parm);
-            if (strncmp(temps, "%COMMENT", 8) == 0)
-                get_value = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            // 读取CMAP个数
-            int ret = fscanf(parm, "%d", &(this->tot_cmap_num));
-            ret = fscanf(parm, "%d", &(this->uniq_cmap_num));
-
-            controller->printf(
-                "        total CMAP number is %d\n        unique CMAP number "
-                "is %d\n",
-                this->tot_cmap_num, this->uniq_cmap_num);
-            if (tot_cmap_num == 0)
-            {
-                fclose(parm);
-                return;
-            }
-            this->Memory_Allocate();
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "CMAP_RESOLUTION") == 0 ||
-            strcmp(temp_second_str, "CHARMM_CMAP_RESOLUTION") == 0)
-        {
-            // 读取到"%FORMAT(20I4)"一行
-            char* ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            if (strncmp(temps, "%COMMENT", 8) == 0)
-                ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            for (int i = 0; i < (this->uniq_cmap_num); i++)
-            {
-                int ret2 = fscanf(parm, "%d", h_cmap_resolution + i);
-                type_offset[i] = 16 * uniq_gridpoint_num;
-                uniq_gridpoint_num +=
-                    h_cmap_resolution[i] * h_cmap_resolution[i];
-            }
-            // 读入全部双二面角信息并选择使用到的进行插值
-            if (!Malloc_Safely((void**)&(this->grid_value),
-                               sizeof(float) * uniq_gridpoint_num))
-            {
-                printf(
-                    "        Error occurs when malloc CMAP grid values in "
-                    "CMAP::Read_Information_From_AMBERFILE");
-            }
-        }
-
-        // 循环读取插值格点处的值，并将插值得到的系数保存
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            (strncmp(temp_second_str, "CMAP_PARAMETER", 14) == 0 ||
-             strncmp(temp_second_str, "CHARMM_CMAP_PARAMETER", 15) == 0))
-        {
-            char* ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            if (strncmp(temps, "%COMMENT", 8) == 0)
-                ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            ////将所有格点值读取到一个数组中
-            for (int i = 0;
-                 i < h_cmap_resolution[count] * h_cmap_resolution[count]; i++)
-            {
-                int ret2 = fscanf(parm, "%f", grid_value + i + temp);
-            }
-
-            temp += pow(this->h_cmap_resolution[count], 2);
-            count += 1;
-        }
-
-        // 读取参与双二面角的原子编号
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-                strcmp(temp_second_str, "CMAP_INDEX") == 0 ||
-            strcmp(temp_second_str, "CHARMM_CMAP_INDEX") == 0)
-        {
-            char* ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            if (strncmp(temps, "%COMMENT", 8) == 0)
-                ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            for (int i = 0; i < (this->tot_cmap_num); i++)
-            {
-                // 数组原子编号从0记
-                int ret2 = fscanf(parm, "%d", h_atom_a + i);
-                h_atom_a[i] -= 1;
-                ret2 = fscanf(parm, "%d", h_atom_b + i);
-                h_atom_b[i] -= 1;
-                ret2 = fscanf(parm, "%d", h_atom_c + i);
-                h_atom_c[i] -= 1;
-                ret2 = fscanf(parm, "%d", h_atom_d + i);
-                h_atom_d[i] -= 1;
-                ret2 = fscanf(parm, "%d", h_atom_e + i);
-                h_atom_e[i] -= 1;
-                ret2 = fscanf(parm, "%d", h_cmap_type + i);
-                h_cmap_type[i] -= 1;
-            }
-        }
-    }
-
-    Malloc_Safely((void**)&(this->h_inter_coeff),
-                  sizeof(float) * 16 * uniq_gridpoint_num);
-
-    fclose(parm);
-    if (tot_cmap_num > 0)
-    {
-        is_initialized = 1;
     }
 }
 

@@ -1,4 +1,7 @@
 ﻿#include "nb14.h"
+
+#include "../xponge/load/native/nb14.hpp"
+#include "../xponge/xponge.h"
 #define TINY 1e-10
 
 static __global__ void
@@ -114,79 +117,52 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
     print_lj_name += "_LJ";
     print_ee_name = this->module_name;
     print_ee_name += "_EE";
-    char file_name_suffix[CHAR_LENGTH_MAX], file_name_suffix2[CHAR_LENGTH_MAX];
-    FILE *fp = NULL, *fp2 = NULL;
-    float h_lj_scale_factor = 0;
+    char file_name_suffix[CHAR_LENGTH_MAX];
+    const auto& nb14 = Xponge::system.classical_force_field.nb14;
+    Xponge::NB14 local_nb14;
+    const Xponge::NB14* nb14_to_use = NULL;
+    const char* init_source = NULL;
 
     sprintf(file_name_suffix, "in_file");
-    if (controller->Command_Exist(this->module_name, file_name_suffix))
+    if (module_name == NULL)
     {
-        if (LJ_type_A == NULL || LJ_type_B == NULL)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorConflictingCommand, "NON_BOND_14::Initial",
-                "Reason:\n\t'nb14_in_file' should be provided with initialized "
-                "LJ parameters\n");
-        }
-        Open_File_Safely(
-            &fp, controller->Command(this->module_name, file_name_suffix), "r");
-        int scanf_ret = fscanf(fp, "%d", &nb14_numbers);
+        nb14_to_use = &nb14;
+        init_source = "Xponge::system";
+    }
+    else if (controller->Command_Exist(this->module_name, file_name_suffix))
+    {
+        Xponge::Native_Load_NB14(&local_nb14, lj_atom_type, LJ_type_A,
+                                 LJ_type_B, controller, this->module_name);
+        nb14_to_use = &local_nb14;
     }
 
-    int extra_numbers = 0;
-    sprintf(file_name_suffix2, "extra_in_file");
-    if (controller->Command_Exist(this->module_name, file_name_suffix2))
+    if (nb14_to_use != NULL)
     {
-        Open_File_Safely(
-            &fp2, controller->Command(this->module_name, file_name_suffix2),
-            "r");
-        int scanf_ret = fscanf(fp2, "%d", &extra_numbers);
+        nb14_numbers = static_cast<int>(nb14_to_use->atom_a.size());
     }
-    nb14_numbers += extra_numbers;
     if (nb14_numbers > 0)
     {
-        controller->printf("START INITIALIZING NB14 (%s_%s):\n",
-                           this->module_name, file_name_suffix);
+        if (module_name == NULL)
+        {
+            controller->printf("START INITIALIZING NB14 (%s):\n", init_source);
+        }
+        else
+        {
+            controller->printf("START INITIALIZING NB14 (%s_%s):\n",
+                               this->module_name, file_name_suffix);
+        }
         controller->printf("    non-bond 14 numbers is %d\n", nb14_numbers);
         Memory_Allocate();
-        int smallertype, biggertype, temp;
-        for (int i = extra_numbers; i < nb14_numbers; i++)
+        for (int i = 0; i < nb14_numbers; i++)
         {
-            int scanf_ret =
-                fscanf(fp, "%d %d %f %f", h_atom_a + i, h_atom_b + i,
-                       &h_lj_scale_factor, h_cf_scale_factor + i);
-            smallertype = lj_atom_type[h_atom_a[i]];
-            biggertype = lj_atom_type[h_atom_b[i]];
-            if (smallertype > biggertype)
-            {
-                temp = smallertype;
-                smallertype = biggertype;
-                biggertype = temp;
-            }
-            temp = biggertype * (biggertype + 1) / 2 + smallertype;
-            h_A[i] = h_lj_scale_factor * LJ_type_A[temp];
-            h_B[i] = h_lj_scale_factor * LJ_type_B[temp];
+            h_atom_a[i] = nb14_to_use->atom_a[i];
+            h_atom_b[i] = nb14_to_use->atom_b[i];
+            h_A[i] = nb14_to_use->A[i];
+            h_B[i] = nb14_to_use->B[i];
+            h_cf_scale_factor[i] = nb14_to_use->cf_scale_factor[i];
         }
-        for (int i = 0; i < extra_numbers; i++)
-        {
-            int scanf_ret =
-                fscanf(fp2, "%d %d %f %f %f", h_atom_a + i, h_atom_b + i,
-                       h_A + i, h_B + i, h_cf_scale_factor + i);
-            h_A[i] *= 12;
-            h_B[i] *= 6;
-        }
-        if (fp != NULL) fclose(fp);
-        if (fp2 != NULL) fclose(fp2);
         Parameter_Host_To_Device();
         is_initialized = 1;
-    }
-    else if (controller->Command_Exist("amber_parm7") && module_name == NULL)
-    {
-        controller->printf("START INITIALIZING NB14 (amber_parm7):\n");
-        Read_Information_From_AMBERFILE(controller->Command("amber_parm7"),
-                                        controller[0], LJ_type_A, LJ_type_B,
-                                        lj_atom_type);
-        if (nb14_numbers > 0) is_initialized = 1;
     }
     else
     {
@@ -205,174 +181,6 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
     {
         controller->printf("END INITIALIZING NB14\n\n");
     }
-}
-
-void NON_BOND_14::Read_Information_From_AMBERFILE(const char* file_name,
-                                                  CONTROLLER controller,
-                                                  const float* LJ_type_A,
-                                                  const float* LJ_type_B,
-                                                  const int* lj_atom_type)
-{
-    int dihedral_numbers, dihedral_type_numbers, dihedral_with_hydrogen;
-    FILE* parm = NULL;
-    Open_File_Safely(&parm, file_name, "r");
-    char temps[CHAR_LENGTH_MAX];
-    char temp_first_str[CHAR_LENGTH_MAX];
-    char temp_second_str[CHAR_LENGTH_MAX];
-    int i, tempi, tempi2, tempa, tempb;
-    float *lj_scale_type_cpu = NULL, *cf_scale_type_cpu = NULL;
-    controller.printf("    Reading non-bond 14 information from AMBER file:\n");
-    while (true)
-    {
-        if (fgets(temps, CHAR_LENGTH_MAX, parm) == NULL)
-        {
-            break;
-        }
-        if (sscanf(temps, "%s %s", temp_first_str, temp_second_str) != 2)
-        {
-            continue;
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "POINTERS") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-
-            for (i = 0; i < 6; i++) int scanf_ret = fscanf(parm, "%d", &tempi);
-
-            int scanf_ret = fscanf(parm, "%d", &dihedral_with_hydrogen);
-            scanf_ret = fscanf(parm, "%d", &dihedral_numbers);
-            dihedral_numbers += dihedral_with_hydrogen;
-
-            for (i = 0; i < 9; i++) scanf_ret = fscanf(parm, "%d", &tempi);
-
-            scanf_ret = fscanf(parm, "%d", &dihedral_type_numbers);
-
-            nb14_numbers = dihedral_numbers;
-            Memory_Allocate();
-            nb14_numbers = 0;
-            Malloc_Safely((void**)&cf_scale_type_cpu,
-                          sizeof(float) * dihedral_type_numbers);
-            Malloc_Safely((void**)&lj_scale_type_cpu,
-                          sizeof(float) * dihedral_type_numbers);
-        }
-
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "SCEE_SCALE_FACTOR") == 0)
-        {
-            controller.printf("    read dihedral 1-4 CF scale factor\n");
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_type_numbers; i++)
-            {
-                int scanf_ret = fscanf(parm, "%f", &cf_scale_type_cpu[i]);
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "SCNB_SCALE_FACTOR") == 0)
-        {
-            controller.printf("    read dihedral 1-4 LJ scale factor\n");
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_type_numbers; i++)
-                int scanf_ret = fscanf(parm, "%f", &lj_scale_type_cpu[i]);
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRALS_INC_HYDROGEN") == 0)
-        {
-            float h_lj_scale_factor;
-            int smallertype, biggertype, temptype;
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            for (i = 0; i < dihedral_with_hydrogen; i++)
-            {
-                int scanf_ret = fscanf(parm, "%d\n", &tempa);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-                scanf_ret = fscanf(parm, "%d\n", &tempi2);
-                scanf_ret = fscanf(parm, "%d\n", &tempb);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-
-                tempi -= 1;
-                if (tempi2 > 0)
-                {
-                    h_atom_a[nb14_numbers] = tempa / 3;
-                    h_atom_b[nb14_numbers] = abs(tempb / 3);
-                    h_lj_scale_factor = lj_scale_type_cpu[tempi];
-
-                    if (h_lj_scale_factor != 0)
-                    {
-                        h_lj_scale_factor = 1.0f / h_lj_scale_factor;
-                    }
-                    h_cf_scale_factor[nb14_numbers] = cf_scale_type_cpu[tempi];
-                    if (h_cf_scale_factor[nb14_numbers] != 0)
-                        h_cf_scale_factor[nb14_numbers] =
-                            1.0f / h_cf_scale_factor[nb14_numbers];
-
-                    smallertype = lj_atom_type[h_atom_a[nb14_numbers]];
-                    biggertype = lj_atom_type[h_atom_b[nb14_numbers]];
-                    if (smallertype > biggertype)
-                    {
-                        temptype = smallertype;
-                        smallertype = biggertype;
-                        biggertype = temptype;
-                    }
-                    temptype = biggertype * (biggertype + 1) / 2 + smallertype;
-                    h_A[nb14_numbers] = h_lj_scale_factor * LJ_type_A[temptype];
-                    h_B[nb14_numbers] = h_lj_scale_factor * LJ_type_B[temptype];
-                    nb14_numbers += 1;
-                }
-            }
-        }
-        if (strcmp(temp_first_str, "%FLAG") == 0 &&
-            strcmp(temp_second_str, "DIHEDRALS_WITHOUT_HYDROGEN") == 0)
-        {
-            char* get_ret = fgets(temps, CHAR_LENGTH_MAX, parm);
-            float h_lj_scale_factor;
-            int smallertype, biggertype, temptype;
-            for (i = dihedral_with_hydrogen; i < dihedral_numbers; i++)
-            {
-                int scanf_ret = fscanf(parm, "%d\n", &tempa);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-                scanf_ret = fscanf(parm, "%d\n", &tempi2);
-                scanf_ret = fscanf(parm, "%d\n", &tempb);
-                scanf_ret = fscanf(parm, "%d\n", &tempi);
-
-                tempi -= 1;
-                if (tempi2 > 0)
-                {
-                    h_atom_a[nb14_numbers] = tempa / 3;
-                    h_atom_b[nb14_numbers] = abs(tempb / 3);
-                    h_lj_scale_factor = lj_scale_type_cpu[tempi];
-
-                    if (h_lj_scale_factor != 0)
-                    {
-                        h_lj_scale_factor = 1.0f / h_lj_scale_factor;
-                    }
-
-                    smallertype = lj_atom_type[h_atom_a[nb14_numbers]];
-                    biggertype = lj_atom_type[h_atom_b[nb14_numbers]];
-                    if (smallertype > biggertype)
-                    {
-                        temptype = smallertype;
-                        smallertype = biggertype;
-                        biggertype = temptype;
-                    }
-                    temptype = biggertype * (biggertype + 1) / 2 + smallertype;
-                    h_A[nb14_numbers] = h_lj_scale_factor * LJ_type_A[temptype];
-                    h_B[nb14_numbers] = h_lj_scale_factor * LJ_type_B[temptype];
-
-                    h_cf_scale_factor[nb14_numbers] = cf_scale_type_cpu[tempi];
-                    if (h_cf_scale_factor[nb14_numbers] != 0)
-                        h_cf_scale_factor[nb14_numbers] =
-                            1.0f / h_cf_scale_factor[nb14_numbers];
-                    nb14_numbers += 1;
-                }
-            }
-        }
-    }
-
-    free(lj_scale_type_cpu);
-    free(cf_scale_type_cpu);
-    fclose(parm);
-    controller.printf("        nb14_number is %d\n", nb14_numbers);
-    controller.printf("    End reading nb14 information from AMBER file\n");
-    Parameter_Host_To_Device();
 }
 
 void NON_BOND_14::Memory_Allocate()
