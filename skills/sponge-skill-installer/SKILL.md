@@ -23,10 +23,12 @@ description: >
 将需要的技能链接或复制至对应的AI助手目录，其中场景的AI助手的全局和项目目录包括：
 
 - claude: 全局 `~/.claude/skills`；项目 `./.claude/skills`
-- codex: 全局 `~/.agents/skills`；项目 `./.agents/skills`
+- codex: 全局 `~/.codex/skills`（新）或 `~/.agents/skills`（兼容旧目录）；项目 `./.codex/skills` 或 `./.agents/skills`
 - gemini: 全局 `~/.gemini/skills`；项目 `./.gemini/skills`
 - cursor：全局 `~/.cursor/skills`；项目 `./.cursor/skills`
 - qwen: 全局 `~/.qwen/skills`；项目 `./.qwen/skills`
+
+同一台机器上如果 `~/.codex/skills` 与 `~/.agents/skills` 同时存在，优先保持两者内容一致，或至少确认当前 Codex 实际加载的是哪个目录。
 
 ## 提供的 skills 内容
 
