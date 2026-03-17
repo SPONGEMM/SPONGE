@@ -461,6 +461,10 @@ void Main_Calculate_Force()
                                         &md_info.need_potential);
     press_baro.Ask_For_Calculate_Pressure(md_info.sys.steps,
                                           &md_info.need_pressure);
+    if (press_baro.is_initialized && md_info.output.Check_Mdout_Step())
+    {
+        md_info.need_pressure = 1;
+    }
     if (bd_thermo.is_initialized || bussi_thermo.is_initialized ||
         nhc.is_initialized)
     {
@@ -1114,6 +1118,10 @@ void Main_Print()
         deviceMemcpy(&md_info.sys.h_potential, md_info.sys.d_potential,
                      sizeof(float), deviceMemcpyDeviceToHost);
         controller.Step_Print("potential", md_info.sys.h_potential);
+        if (press_baro.is_initialized || mc_baro.is_initialized)
+        {
+            md_info.sys.Get_Density();
+        }
         controller.Step_Print("density", md_info.sys.density);
         controller.Print_To_Screen_And_Mdout();
     }
