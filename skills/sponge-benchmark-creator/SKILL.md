@@ -92,6 +92,7 @@ Runner.run_sponge(case_dir, timeout=timeout, mpi_np=mpi_np)
 
 - `comparison`
   应比较 energy、force、pressure、stress 等，并给出明确容差。
+  如果是单点能/单点力测试，不要打开 `constrain` 或 `settle/shake` 一类约束；这类测试应比较未约束体系的原始势能与力。
 - `validation`
   应验证功能行为，例如约束、生效范围、统计分布、边界条件、插件 hook。
 - `performance`
