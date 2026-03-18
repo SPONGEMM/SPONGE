@@ -128,7 +128,7 @@ static PyObject* Coordinate(PyObject* self, PyObject* args)
     void* crd = sponge_api == NULL || sponge_api->get_coordinate_ptr == NULL
                     ? NULL
                     : sponge_api->get_coordinate_ptr();
-    int64_t shape[2] = {3, atom_numbers};
+    int64_t shape[2] = {atom_numbers, 3};
     return create_dltensor(crd, 2, shape, NULL, kDLFloat);
 }
 
@@ -141,7 +141,7 @@ static PyObject* Force(PyObject* self, PyObject* args)
     void* frc = sponge_api == NULL || sponge_api->get_force_ptr == NULL
                     ? NULL
                     : sponge_api->get_force_ptr();
-    int64_t shape[2] = {3, atom_numbers};
+    int64_t shape[2] = {atom_numbers, 3};
     return create_dltensor(frc, 2, shape, NULL, kDLFloat);
 }
 
@@ -218,8 +218,9 @@ static PyObject* Local_Coordinate(PyObject* self, PyObject* args)
     }
     void* crd = sponge_api->get_local_coordinate_ptr();
     if (crd == NULL) return Py_BuildValue("");
-    int64_t shape[2] = {3, sponge_api->get_local_atom_numbers() +
-                               sponge_api->get_local_ghost_numbers()};
+    int64_t shape[2] = {sponge_api->get_local_atom_numbers() +
+                            sponge_api->get_local_ghost_numbers(),
+                        3};
     return create_dltensor(crd, 2, shape, NULL, kDLFloat);
 }
 
@@ -233,8 +234,9 @@ static PyObject* Local_Force(PyObject* self, PyObject* args)
     }
     void* frc = sponge_api->get_local_force_ptr();
     if (frc == NULL) return Py_BuildValue("");
-    int64_t shape[2] = {3, sponge_api->get_local_atom_numbers() +
-                               sponge_api->get_local_ghost_numbers()};
+    int64_t shape[2] = {sponge_api->get_local_atom_numbers() +
+                            sponge_api->get_local_ghost_numbers(),
+                        3};
     return create_dltensor(frc, 2, shape, NULL, kDLFloat);
 }
 

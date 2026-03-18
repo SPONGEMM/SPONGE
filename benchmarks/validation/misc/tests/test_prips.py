@@ -37,7 +37,10 @@ def _write_prips_script(case_dir, backend):
     script = (
         "from prips import Sponge\n"
         "\n"
-        f"Sponge.set_backend({backend!r})\n"
+        f"_requested_backend = {backend!r}\n"
+        "if _requested_backend == 'auto':\n"
+        "    _requested_backend = 'numpy' if Sponge._backend == 1 else 'pytorch'\n"
+        "Sponge.set_backend(_requested_backend)\n"
         "_force_delta = 1.25\n"
         "\n"
         "with open('prips_hook.log', 'w', encoding='utf-8') as f:\n"
@@ -108,8 +111,11 @@ def _write_prips_mdin(case_dir, plugin_path=None, *, step_limit=1):
 
 
 def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
-    backend = os.environ.get("PRIPS_TEST_BACKEND", "numpy")
-    assert backend in {"numpy", "jax", "cupy", "pytorch"}
+    backend = os.environ.get("PRIPS_TEST_BACKEND", "auto")
+    assert backend in {"auto", "numpy", "jax", "cupy", "pytorch"}
+    expected_backend = backend
+    if expected_backend == "auto":
+        expected_backend = "pytorch"
     plugin_path = _prips_plugin_path()
     case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
@@ -148,7 +154,7 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     sponge_forces = Extractor.extract_sponge_forces(case_dir, 1011)
 
     assert backend_line is not None
-    assert f"name={backend}" in backend_line
+    assert f"name={expected_backend}" in backend_line
     assert any(
         backend_line.startswith(f"backend device={value} ")
         for value in (1, 2, 10)
@@ -204,7 +210,7 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
 
     assert abs(step0_after - step0_before) < 1e-5
     assert abs(step0_delta) < 1e-5
-    if backend == "jax":
+    if expected_backend == "jax":
         assert abs(step1_after - step1_before) < 1e-5
         assert abs(step1_delta) < 1e-5
     else:
@@ -217,5 +223,5 @@ def test_tip3p_prips_plugin_hooks_run(statics_path, outputs_path, mpi_np):
     )
     assert final_force_match is not None
     final_force = float(final_force_match.group(1))
-    if backend != "jax":
+    if expected_backend != "jax":
         assert abs(sponge_forces[0, 0] - final_force) < 1e-5
