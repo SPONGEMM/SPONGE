@@ -56,11 +56,11 @@ class MD_INFORMATION:
 
     @property
     def crd(self) -> SpongeDLPackTensor:
-        "The atom coordinates"
+        "The atom coordinates with shape (atom_numbers, 3)"
 
     @property
     def frc(self) -> SpongeDLPackTensor:
-        "The atom forces"
+        "The atom forces with shape (atom_numbers, 3)"
 
 md_info = MD_INFORMATION()
 " Basic information instance for MD "
@@ -108,11 +108,11 @@ class DOMAIN_INFORMATION:
 
     @property
     def crd(self) -> SpongeDLPackTensor | None:
-        "Local plus ghost coordinates"
+        "Local plus ghost coordinates with shape (atom_numbers + ghost_numbers, 3)"
 
     @property
     def frc(self) -> SpongeDLPackTensor | None:
-        "Local plus ghost forces"
+        "Local plus ghost forces with shape (atom_numbers + ghost_numbers, 3)"
 
 dd: DOMAIN_INFORMATION | None
 " Domain decomposition interface, available after SPONGE finishes DD initialization "

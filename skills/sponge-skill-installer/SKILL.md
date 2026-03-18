@@ -32,3 +32,4 @@ description: >
 
 - sponge-skill-installer: 指导安装SPONGE skill的skill
 - sponge-benchmark-creator: 指导创建SPONGE benchmark的skill
+- sponge-prips-mlp: 指导使用 PRIPS 对接 MACE 等机器学习/神经网络势并在 SPONGE 中验证与 benchmark

@@ -11,9 +11,17 @@ def _main():
 
     sys.path.append(Path(__file__).parent)
     plugin_path = Path(__file__).parent / "_prips.so"
-
-    with open(Path(__file__).parent / "pylib.txt") as f:
-        pylib = f.read().strip()
+    if not plugin_path.exists():
+        for entry in map(Path, sys.path):
+            candidate = entry / "prips" / "_prips.so"
+            if candidate.exists():
+                plugin_path = candidate.resolve()
+                break
+    pylib_path = Path(__file__).parent / "pylib.txt"
+    if pylib_path.exists():
+        pylib = pylib_path.read_text(encoding="utf-8").strip()
+    else:
+        pylib = "unknown (editable install or pylib.txt missing)"
 
     message = """
     Usage:
