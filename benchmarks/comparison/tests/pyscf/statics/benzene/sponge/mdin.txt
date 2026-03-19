@@ -1,0 +1,13 @@
+benzene pyscf
+mode = nve
+dt = 0
+step_limit = 0
+print_zeroth_frame = 1
+coordinate_in_file = coordinate.txt
+qc_type_in_file = qc_type.txt
+mass_in_file = mass.txt
+charge_in_file = charge.txt
+thermostat = middle_langevin
+target_temperature = 300
+write_mdout_interval = 1
+write_trajectory_interval = 1

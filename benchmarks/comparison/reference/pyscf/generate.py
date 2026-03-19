@@ -19,6 +19,7 @@ REFERENCE_CASES = [
     ("he", "HF", "def2-tzvp", True),
     ("h2", "HF", "def2-tzvpp", True),
     ("he", "HF", "def2-qzvp", True),
+    ("benzene", "HF", "def2-qzvp", True),
     ("h2", "HF", "cc-pvdz", True),
     ("he", "HF", "cc-pvtz", True),
     # UHF
@@ -46,14 +47,16 @@ def get_repo_root() -> Path:
 
 
 def build_reference_entries(statics_path: Path):
+    repo_root = get_repo_root()
     tests_dir = (
-        get_repo_root()
+        repo_root
         / "benchmarks"
         / "comparison"
         / "tests"
         / "pyscf"
         / "tests"
     )
+    sys.path.insert(0, str(repo_root))
     sys.path.insert(0, str(tests_dir))
 
     from utils import load_case_definition, run_pyscf_energy_ha

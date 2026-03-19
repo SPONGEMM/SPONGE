@@ -4,11 +4,18 @@
   "pyscf_version": "2.12.1",
   "entries": [
     {
+      "case_name": "benzene",
+      "method_name": "HF",
+      "basis_name": "def2-qzvp",
+      "restricted": true,
+      "energy_ha": -230.79559011755344
+    },
+    {
       "case_name": "ch4",
       "method_name": "PBE0",
       "basis_name": "6-31g",
       "restricted": true,
-      "energy_ha": -40.449367044791956
+      "energy_ha": -40.44936704479185
     },
     {
       "case_name": "co2",
@@ -22,7 +29,7 @@
       "method_name": "HF",
       "basis_name": "6-311g*",
       "restricted": true,
-      "energy_ha": -1.1279883496411904
+      "energy_ha": -1.1279883496411902
     },
     {
       "case_name": "h2",
@@ -36,7 +43,7 @@
       "method_name": "HF",
       "basis_name": "6-31g**",
       "restricted": true,
-      "energy_ha": -1.1312938537238528
+      "energy_ha": -1.1312938537238522
     },
     {
       "case_name": "h2",
@@ -50,14 +57,14 @@
       "method_name": "HF",
       "basis_name": "def2-svp",
       "restricted": true,
-      "energy_ha": -1.1288936193512424
+      "energy_ha": -1.128893619351242
     },
     {
       "case_name": "h2",
       "method_name": "HF",
       "basis_name": "def2-tzvpp",
       "restricted": true,
-      "energy_ha": -1.1329717554729466
+      "energy_ha": -1.1329717554729453
     },
     {
       "case_name": "h2",
@@ -78,63 +85,63 @@
       "method_name": "HF",
       "basis_name": "3-21g",
       "restricted": true,
-      "energy_ha": -2.8356798736405673
+      "energy_ha": -2.835679873640567
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "6-311g",
       "restricted": true,
-      "energy_ha": -2.859895424569208
+      "energy_ha": -2.859895424569207
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "6-311g**",
       "restricted": true,
-      "energy_ha": -2.859895424569208
+      "energy_ha": -2.859895424569207
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "6-31g*",
       "restricted": true,
-      "energy_ha": -2.8551604261544457
+      "energy_ha": -2.8551604261544465
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "cc-pvtz",
       "restricted": true,
-      "energy_ha": -2.8611533447844204
+      "energy_ha": -2.861153344784419
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "def2-qzvp",
       "restricted": true,
-      "energy_ha": -2.861624839176281
+      "energy_ha": -2.8616248391762813
     },
     {
       "case_name": "he",
       "method_name": "HF",
       "basis_name": "def2-tzvp",
       "restricted": true,
-      "energy_ha": -2.8598954256844418
+      "energy_ha": -2.8598954256844413
     },
     {
       "case_name": "he",
       "method_name": "PBE",
       "basis_name": "6-31g",
       "restricted": true,
-      "energy_ha": -2.8844562627914003
+      "energy_ha": -2.8844562627913994
     },
     {
       "case_name": "no_doublet",
       "method_name": "HF",
       "basis_name": "3-21g",
       "restricted": false,
-      "energy_ha": -128.49963372455255
+      "energy_ha": -128.4996337245525
     },
     {
       "case_name": "no_doublet",
@@ -148,56 +155,56 @@
       "method_name": "B3LYP",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -75.02887981804142
+      "energy_ha": -75.02887981435556
     },
     {
       "case_name": "o_triplet",
       "method_name": "BLYP",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -75.04456193350853
+      "energy_ha": -75.04456163450162
     },
     {
       "case_name": "o_triplet",
       "method_name": "HF",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -74.78030989028838
+      "energy_ha": -74.7803098902884
     },
     {
       "case_name": "o_triplet",
       "method_name": "HF",
       "basis_name": "cc-pvdz",
       "restricted": false,
-      "energy_ha": -74.7921660582841
+      "energy_ha": -74.79216605828414
     },
     {
       "case_name": "o_triplet",
       "method_name": "LDA",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -74.48484368777947
+      "energy_ha": -74.48484368489272
     },
     {
       "case_name": "o_triplet",
       "method_name": "PBE",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -74.97125129688595
+      "energy_ha": -74.97125177409077
     },
     {
       "case_name": "o_triplet",
       "method_name": "PBE0",
       "basis_name": "6-31g",
       "restricted": false,
-      "energy_ha": -74.98250027868144
+      "energy_ha": -74.98250047994388
     },
     {
       "case_name": "oh2",
       "method_name": "BLYP",
       "basis_name": "6-31g",
       "restricted": true,
-      "energy_ha": -76.35572432680482
+      "energy_ha": -76.35572432680483
     }
   ]
 }
