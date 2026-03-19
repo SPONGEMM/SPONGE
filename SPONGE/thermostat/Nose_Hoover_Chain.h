@@ -15,7 +15,8 @@ struct NOSE_HOOVER_CHAIN_INFORMATION
     float* h_velocity = NULL;    // 拓展自由度的速度 host
     float* coordinate = NULL;    // 拓展自由度的坐标 device
     float* velocity = NULL;      // 拓展自由度的速度 device
-    float h_mass;                // 拓展自由度的质量
+    float target_temperature = 0.0f;
+    float h_mass;  // 拓展自由度的质量
     float kB_T = 0;
 
     float max_velocity = 0;                       // 最大速度
@@ -39,6 +40,7 @@ struct NOSE_HOOVER_CHAIN_INFORMATION
 
     void MD_Iteration_Leap_Frog(VECTOR* vel, VECTOR* crd, VECTOR* frc,
                                 VECTOR* acc, float dt, float Ek, int freedom);
+    void Set_Target_Temperature(float target_temperature_new);
 
     void Save_Restart_File();
 

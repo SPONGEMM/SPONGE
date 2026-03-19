@@ -115,6 +115,7 @@ void NOSE_HOOVER_CHAIN_INFORMATION::Initial(CONTROLLER* controller,
     }
     controller[0].printf("    time constant tau is %f ps\n", tauT);
     tauT *= CONSTANT_TIME_CONVERTION;
+    this->target_temperature = target_temperature;
     h_mass =
         tauT * tauT * target_temperature / 4.0f / CONSTANT_Pi / CONSTANT_Pi;
     kB_T = CONSTANT_kB * target_temperature;
@@ -265,6 +266,28 @@ void NOSE_HOOVER_CHAIN_INFORMATION::MD_Iteration_Leap_Frog(
                 max_velocity);
         }
     }
+}
+
+void NOSE_HOOVER_CHAIN_INFORMATION::Set_Target_Temperature(
+    float target_temperature_new)
+{
+    if (!is_initialized || !(target_temperature_new > 0.0f) ||
+        !(target_temperature > 0.0f))
+    {
+        return;
+    }
+    if (fabsf(target_temperature_new - target_temperature) <= FLT_EPSILON)
+    {
+        return;
+    }
+    const float ratio = target_temperature_new / target_temperature;
+    if (!(ratio > 0.0f) || !isfinite(ratio))
+    {
+        return;
+    }
+    h_mass *= ratio;
+    kB_T = CONSTANT_kB * target_temperature_new;
+    target_temperature = target_temperature_new;
 }
 
 void NOSE_HOOVER_CHAIN_INFORMATION::Save_Restart_File()
