@@ -92,7 +92,9 @@ def write_velocity_file_with_zero_mass_support(
 
     total_mass = sum(masses[idx] for idx in mobile_indices)
     if total_mass <= 0.0:
-        raise ValueError("No positive-mass atoms found for velocity initialization")
+        raise ValueError(
+            "No positive-mass atoms found for velocity initialization"
+        )
 
     for axis in range(3):
         center_velocity = (
@@ -235,8 +237,10 @@ def compute_oo_rdf(
                 hist += 2.0 * np.histogram(valid, bins=bin_edges)[0]
 
     radii = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    shell_volumes = (4.0 / 3.0) * math.pi * (
-        np.power(bin_edges[1:], 3) - np.power(bin_edges[:-1], 3)
+    shell_volumes = (
+        (4.0 / 3.0)
+        * math.pi
+        * (np.power(bin_edges[1:], 3) - np.power(bin_edges[:-1], 3))
     )
     number_density = oxygen_count / float(np.mean(volumes))
     normalization = frame_count * oxygen_count * number_density * shell_volumes

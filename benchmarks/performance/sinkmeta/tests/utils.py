@@ -110,7 +110,7 @@ def write_sinkmeta_mdin(
         "print_zeroth_frame = 1\n"
         'constrain_mode = "SHAKE"\n'
         f'restrain_atom_id = "{restrain_atom_id}"\n'
-        "restrain_refcoord_scaling = \"all\"\n"
+        'restrain_refcoord_scaling = "all"\n'
         f"restrain_single_weight = {restrain_single_weight}\n"
         "dont_check_input = 1\n"
     )
@@ -203,7 +203,9 @@ def reimage_xyz_to_axis(rows, axis_rows, box_lengths):
     deltas -= np.round(deltas / box_lengths) * box_lengths
     distances = np.linalg.norm(deltas, axis=2)
     nearest_index = np.argmin(distances, axis=1)
-    wrapped = axis_xyz[nearest_index] + deltas[np.arange(len(rows)), nearest_index]
+    wrapped = (
+        axis_xyz[nearest_index] + deltas[np.arange(len(rows)), nearest_index]
+    )
     nearest_distance = distances[np.arange(len(rows)), nearest_index]
     return wrapped, nearest_distance
 
@@ -224,7 +226,9 @@ def project_xyz_to_path_sr(rows, axis_rows, box_lengths):
         )
     )
     if axis_xyz.shape[0] < 2:
-        raise ValueError("At least two axis points are required for s-r projection")
+        raise ValueError(
+            "At least two axis points are required for s-r projection"
+        )
 
     segment_vectors = axis_xyz[1:] - axis_xyz[:-1]
     segment_vectors -= np.round(segment_vectors / box_lengths) * box_lengths
@@ -253,7 +257,9 @@ def project_xyz_to_path_sr(rows, axis_rows, box_lengths):
             if best_r2 is None or r2 < best_r2:
                 best_r2 = r2
                 best_wrapped = proj + radial
-                best_s = float(cumulative_s[seg_idx] + t * segment_lengths[seg_idx])
+                best_s = float(
+                    cumulative_s[seg_idx] + t * segment_lengths[seg_idx]
+                )
         wrapped_xyz[i] = best_wrapped
         s_values[i] = best_s
         r_values[i] = np.sqrt(best_r2)
@@ -268,7 +274,9 @@ def project_xyz_to_path_sr(rows, axis_rows, box_lengths):
     }
 
 
-def summarize_sinkmeta(rows, *, wrapped_xyz=None, axis_distance=None, s_values=None, r_values=None):
+def summarize_sinkmeta(
+    rows, *, wrapped_xyz=None, axis_distance=None, s_values=None, r_values=None
+):
     arrays = {
         "meta": np.asarray([row["meta"] for row in rows], dtype=float),
         "rbias": np.asarray([row["rbias"] for row in rows], dtype=float),
@@ -301,7 +309,9 @@ def summarize_sinkmeta(rows, *, wrapped_xyz=None, axis_distance=None, s_values=N
         }
 
     xyz = np.column_stack((arrays["cx"], arrays["cy"], arrays["cz"]))
-    _, unique_indices = np.unique(np.round(xyz, decimals=3), axis=0, return_index=True)
+    _, unique_indices = np.unique(
+        np.round(xyz, decimals=3), axis=0, return_index=True
+    )
     summary["unique_xyz_count_1e3"] = int(len(unique_indices))
     summary["finite_fraction"] = float(
         np.mean(np.all(np.isfinite(xyz), axis=1) & np.isfinite(arrays["meta"]))

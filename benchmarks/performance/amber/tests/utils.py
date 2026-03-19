@@ -170,16 +170,20 @@ def compute_oo_rdf(
 
             row_indices = np.arange(start, end)[:, None]
             col_indices = np.arange(start + 1, oxygen_count)[None, :]
-            valid_mask = (col_indices > row_indices) & (distances < r_max) & (
-                distances > 1e-8
+            valid_mask = (
+                (col_indices > row_indices)
+                & (distances < r_max)
+                & (distances > 1e-8)
             )
             valid = distances[valid_mask]
             if valid.size:
                 hist += 2.0 * np.histogram(valid, bins=bin_edges)[0]
 
     radii = 0.5 * (bin_edges[:-1] + bin_edges[1:])
-    shell_volumes = (4.0 / 3.0) * math.pi * (
-        np.power(bin_edges[1:], 3) - np.power(bin_edges[:-1], 3)
+    shell_volumes = (
+        (4.0 / 3.0)
+        * math.pi
+        * (np.power(bin_edges[1:], 3) - np.power(bin_edges[:-1], 3))
     )
     number_density = oxygen_count / float(np.mean(volumes))
     normalization = frame_count * oxygen_count * number_density * shell_volumes

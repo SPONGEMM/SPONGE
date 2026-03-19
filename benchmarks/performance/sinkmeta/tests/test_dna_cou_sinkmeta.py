@@ -58,7 +58,9 @@ def test_dna_cou_3d_positional_sinkmeta_long_nvt(
     potential_rows = parse_meta_potential(potential_path)
     axis_rows = parse_scatter_axis_file(axis_path)
     box_lengths = parse_box_lengths(box_path)
-    wrapped_xyz, axis_distance = reimage_xyz_to_axis(rows, axis_rows, box_lengths)
+    wrapped_xyz, axis_distance = reimage_xyz_to_axis(
+        rows, axis_rows, box_lengths
+    )
     sr_projection = project_xyz_to_path_sr(rows, axis_rows, box_lengths)
     summary = summarize_sinkmeta(
         rows,
@@ -95,9 +97,18 @@ def test_dna_cou_3d_positional_sinkmeta_long_nvt(
         ["FiniteFraction", f"{summary['finite_fraction']:.4f}"],
         ["UniqueXYZ@1e-3", str(summary["unique_xyz_count_1e3"])],
         ["MetaPotentialRows", str(summary["meta_potential_rows"])],
-        ["cx_range", f"{summary['cx']['min']:.4f} -> {summary['cx']['max']:.4f}"],
-        ["cy_range", f"{summary['cy']['min']:.4f} -> {summary['cy']['max']:.4f}"],
-        ["cz_range", f"{summary['cz']['min']:.4f} -> {summary['cz']['max']:.4f}"],
+        [
+            "cx_range",
+            f"{summary['cx']['min']:.4f} -> {summary['cx']['max']:.4f}",
+        ],
+        [
+            "cy_range",
+            f"{summary['cy']['min']:.4f} -> {summary['cy']['max']:.4f}",
+        ],
+        [
+            "cz_range",
+            f"{summary['cz']['min']:.4f} -> {summary['cz']['max']:.4f}",
+        ],
         [
             "meta_range",
             f"{summary['meta']['min']:.4f} -> {summary['meta']['max']:.4f}",

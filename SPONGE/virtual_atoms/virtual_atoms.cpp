@@ -131,12 +131,12 @@ static __global__ void v4_Coordinate_Refresh(const int atom_numbers,
     }
     for (int delta = warpSize >> 1; delta > 0; delta >>= 1)
     {
-        new_position.x += deviceShflDown(FULL_MASK, new_position.x, delta,
-                                         warpSize);
-        new_position.y += deviceShflDown(FULL_MASK, new_position.y, delta,
-                                         warpSize);
-        new_position.z += deviceShflDown(FULL_MASK, new_position.z, delta,
-                                         warpSize);
+        new_position.x +=
+            deviceShflDown(FULL_MASK, new_position.x, delta, warpSize);
+        new_position.y +=
+            deviceShflDown(FULL_MASK, new_position.y, delta, warpSize);
+        new_position.z +=
+            deviceShflDown(FULL_MASK, new_position.z, delta, warpSize);
     }
     if (threadIdx.x == 0)
     {

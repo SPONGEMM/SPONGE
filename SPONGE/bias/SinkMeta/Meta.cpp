@@ -1393,11 +1393,10 @@ void META::Initial(CONTROLLER* controller,
     sprintf(edge_file_name, "sumhill.log");
     if (cv_controller->Command_Exist(this->module_name, "edge_in_file"))
     {
-        strcpy(edge_file_name,
-               cv_controller
-                   ->Ask_For_String_Parameter(this->module_name,
-                                              "edge_in_file")[0]
-                   .c_str());
+        strcpy(edge_file_name, cv_controller
+                                   ->Ask_For_String_Parameter(this->module_name,
+                                                              "edge_in_file")[0]
+                                   .c_str());
     }
     if (cv_controller->Command_Exist(this->module_name, "subhill"))
     {

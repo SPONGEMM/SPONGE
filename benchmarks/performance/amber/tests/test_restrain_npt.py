@@ -376,7 +376,9 @@ def amber_equilibrated_case(statics_path, outputs_path, mpi_np):
     run_sponge_amber(case_dir, timeout=1200, mpi_np=mpi_np)
     shutil.copyfile(case_dir / "mdout.txt", case_dir / "mdout_unrestrained.txt")
     shutil.copyfile(case_dir / "mdbox.txt", case_dir / "mdbox_unrestrained.txt")
-    shutil.copyfile(case_dir / "restart.rst7", case_dir / "restart_equilibrated.rst7")
+    shutil.copyfile(
+        case_dir / "restart.rst7", case_dir / "restart_equilibrated.rst7"
+    )
 
     return {
         "case_dir": case_dir,
@@ -607,7 +609,9 @@ def test_restrain_npt_long_run_oo_rdf(
     timeout = max(2400, amber_steps // 20)
     run_sponge_amber(case_dir, timeout=timeout, mpi_np=mpi_np)
 
-    atom_count = _read_rst7_coords(case_dir / "restart_equilibrated.rst7").shape[0]
+    atom_count = _read_rst7_coords(
+        case_dir / "restart_equilibrated.rst7"
+    ).shape[0]
     trajectory = read_coordinate_trajectory(case_dir / "mdcrd.dat", atom_count)
     box_trajectory = read_box_trajectory(case_dir / "mdbox.txt")
     radii, rdf, sampled_oxygen_ids = compute_oo_rdf(
@@ -631,7 +635,10 @@ def test_restrain_npt_long_run_oo_rdf(
         ["StepLimit", str(amber_steps)],
         ["TrajectoryInterval", str(trajectory_interval)],
         ["FramesUsed", str(frame_count)],
-        ["WaterOxygenCount", str(len(amber_equilibrated_case["water_oxygen_ids"]))],
+        [
+            "WaterOxygenCount",
+            str(len(amber_equilibrated_case["water_oxygen_ids"])),
+        ],
         ["WaterOxygenSampled", str(len(sampled_oxygen_ids))],
         ["RDFPeakR(A)", f"{rdf_summary['rdf_peak_r']:.3f}"],
         ["RDFPeakG", f"{rdf_summary['rdf_peak_g']:.3f}"],

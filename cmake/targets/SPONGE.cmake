@@ -68,13 +68,15 @@ set(SPONGE_SOURCES
 set(SOURCES ${SPONGE_SOURCES})
 
 find_package(tomlplusplus CONFIG REQUIRED)
-add_library(sponge_toml STATIC
-            ${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml.cpp
-            ${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml_decode.cpp)
+add_library(
+  sponge_toml STATIC
+  ${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml.cpp
+  ${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml_decode.cpp)
 set_source_files_properties(${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml.cpp
                             PROPERTIES LANGUAGE CXX)
-set_source_files_properties(${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml_decode.cpp
-                            PROPERTIES LANGUAGE CXX)
+set_source_files_properties(
+  ${PROJECT_ROOT_DIR}/SPONGE/third_party/toml/toml_decode.cpp
+  PROPERTIES LANGUAGE CXX)
 target_include_directories(sponge_toml PUBLIC ${PROJECT_ROOT_DIR}/SPONGE)
 target_link_libraries(sponge_toml PUBLIC tomlplusplus::tomlplusplus)
 

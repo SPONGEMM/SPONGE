@@ -41,7 +41,9 @@ def resolve_prips_plugin_path():
 
 
 def read_atom_names(case_dir, prefix="tip3p"):
-    lines = (Path(case_dir) / f"{prefix}_atom_name.txt").read_text().splitlines()
+    lines = (
+        (Path(case_dir) / f"{prefix}_atom_name.txt").read_text().splitlines()
+    )
     return [line.strip() for line in lines[1:] if line.strip()]
 
 
@@ -50,7 +52,9 @@ def atom_names_to_symbols(atom_names):
     for atom_name in atom_names:
         match = re.match(r"[A-Za-z]+", atom_name.strip())
         if match is None:
-            raise ValueError(f"Failed to infer element from atom name: {atom_name}")
+            raise ValueError(
+                f"Failed to infer element from atom name: {atom_name}"
+            )
         token = match.group(0)
         if len(token) == 1:
             symbols.append(token.upper())
@@ -60,14 +64,21 @@ def atom_names_to_symbols(atom_names):
 
 
 def read_positions(case_dir, prefix="tip3p"):
-    lines = (Path(case_dir) / f"{prefix}_coordinate.txt").read_text().splitlines()
+    lines = (
+        (Path(case_dir) / f"{prefix}_coordinate.txt").read_text().splitlines()
+    )
     atom_count = int(lines[0].split()[0])
     coords = np.array(
-        [[float(value) for value in line.split()[:3]] for line in lines[1 : atom_count + 1]],
+        [
+            [float(value) for value in line.split()[:3]]
+            for line in lines[1 : atom_count + 1]
+        ],
         dtype=np.float64,
     )
     if coords.shape != (atom_count, 3):
-        raise ValueError(f"Invalid coordinate shape {coords.shape} in {prefix}_coordinate.txt")
+        raise ValueError(
+            f"Invalid coordinate shape {coords.shape} in {prefix}_coordinate.txt"
+        )
     return coords
 
 
@@ -91,7 +102,11 @@ def summarize_force_errors(lhs, rhs):
 def oxygen_indices_from_atom_names(case_dir, prefix="tip3p"):
     atom_names = read_atom_names(case_dir, prefix=prefix)
     return np.array(
-        [i for i, name in enumerate(atom_names) if name.strip().upper().startswith("O")],
+        [
+            i
+            for i, name in enumerate(atom_names)
+            if name.strip().upper().startswith("O")
+        ],
         dtype=np.int64,
     )
 
@@ -132,12 +147,16 @@ def compute_oo_rdf(
 
     box_lengths = np.asarray(box_lengths, dtype=np.float64)
     if box_lengths.ndim == 1:
-        box_lengths = np.repeat(box_lengths[None, :], trajectory.shape[0], axis=0)
+        box_lengths = np.repeat(
+            box_lengths[None, :], trajectory.shape[0], axis=0
+        )
     if box_lengths.shape[0] != trajectory.shape[0]:
         if box_lengths.shape[0] == 1:
             box_lengths = np.repeat(box_lengths, trajectory.shape[0], axis=0)
         else:
-            raise ValueError("Box frame count does not match trajectory frame count")
+            raise ValueError(
+                "Box frame count does not match trajectory frame count"
+            )
 
     edges = np.arange(0.0, r_max + bin_width, bin_width, dtype=np.float64)
     hist = np.zeros(edges.size - 1, dtype=np.float64)
@@ -286,7 +305,9 @@ def write_mdin(
     Path(case_dir, "mdin.spg.toml").write_text(mdin, encoding="utf-8")
 
 
-def write_mace_plugin_script(case_dir, *, family, model, device, prefix="tip3p"):
+def write_mace_plugin_script(
+    case_dir, *, family, model, device, prefix="tip3p"
+):
     script = f"""import json
 import time
 from pathlib import Path

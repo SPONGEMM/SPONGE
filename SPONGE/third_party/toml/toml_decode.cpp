@@ -1,8 +1,8 @@
-#define TOML_HEADER_ONLY 0
+﻿#define TOML_HEADER_ONLY 0
 #define TOML_IMPLEMENTATION
-#include <toml++/toml.h>
-
 #include "toml_decode.hpp"
+
+#include <toml++/toml.h>
 
 namespace sponge::toml_decode::detail
 {

@@ -81,7 +81,9 @@ def test_tip3p_mace_force_inference_perf(
     Runner.run_sponge(case_dir, timeout=3600, mpi_np=mpi_np)
 
     metrics = load_metrics(case_dir)
-    atom_count = Extractor.read_first_field_int(case_dir / "tip3p_coordinate.txt")
+    atom_count = Extractor.read_first_field_int(
+        case_dir / "tip3p_coordinate.txt"
+    )
     plugin_forces = load_plugin_forces(case_dir)
     plugin_positions = load_plugin_positions(case_dir)
     sponge_forces = Extractor.extract_sponge_forces(case_dir, atom_count)
@@ -121,9 +123,13 @@ def test_tip3p_mace_force_inference_perf(
     assert metrics["first_call_ms"] > 0.0
     assert metrics["mean_call_ms"] > 0.0
     assert metrics["steady_mean_call_ms"] > 0.0
-    assert all(math.isfinite(record["elapsed_s"]) for record in metrics["records"])
+    assert all(
+        math.isfinite(record["elapsed_s"]) for record in metrics["records"]
+    )
     assert all(record["elapsed_s"] > 0.0 for record in metrics["records"])
-    assert all(math.isfinite(record["force_l2"]) for record in metrics["records"])
+    assert all(
+        math.isfinite(record["force_l2"]) for record in metrics["records"]
+    )
     assert all(record["force_l2"] > 0.0 for record in metrics["records"])
     assert plugin_error["max_abs"] <= 5.0e-4
     assert output_error["max_abs"] <= 5.0e-4
@@ -170,7 +176,9 @@ def test_tip3p_mace_long_nvt_perf(
     Runner.run_sponge(case_dir, timeout=14400, mpi_np=mpi_np)
 
     metrics = load_metrics(case_dir)
-    atom_count = Extractor.read_first_field_int(case_dir / "tip3p_coordinate.txt")
+    atom_count = Extractor.read_first_field_int(
+        case_dir / "tip3p_coordinate.txt"
+    )
     initial_positions = build_atoms(case_dir).positions.copy()
     plugin_positions = load_plugin_positions(case_dir)
     plugin_forces = load_plugin_forces(case_dir)
@@ -236,9 +244,13 @@ def test_tip3p_mace_long_nvt_perf(
     assert metrics["mean_call_ms"] > 0.0
     assert metrics["steady_mean_call_ms"] > 0.0
     assert max_abs_displacement > 1.0e-4
-    assert all(math.isfinite(record["elapsed_s"]) for record in metrics["records"])
+    assert all(
+        math.isfinite(record["elapsed_s"]) for record in metrics["records"]
+    )
     assert all(record["elapsed_s"] > 0.0 for record in metrics["records"])
-    assert all(math.isfinite(record["force_l2"]) for record in metrics["records"])
+    assert all(
+        math.isfinite(record["force_l2"]) for record in metrics["records"]
+    )
     assert all(record["force_l2"] > 0.0 for record in metrics["records"])
     assert plugin_error["max_abs"] <= 5.0e-4
     assert output_error["max_abs"] <= 5.0e-4

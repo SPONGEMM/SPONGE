@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdint>
 #include <memory>
@@ -48,15 +48,9 @@ struct node
         return std::get_if<std::int64_t>(&storage);
     }
 
-    const double* as_floating() const
-    {
-        return std::get_if<double>(&storage);
-    }
+    const double* as_floating() const { return std::get_if<double>(&storage); }
 
-    const bool* as_bool() const
-    {
-        return std::get_if<bool>(&storage);
-    }
+    const bool* as_bool() const { return std::get_if<bool>(&storage); }
 
     const std::string* as_string() const
     {
@@ -89,11 +83,11 @@ struct field_descriptor
     using value_type = Value;
 
     std::string_view name;
-    Value Owner::*member;
+    Value Owner::* member;
 };
 
 template <class Owner, class Value>
-constexpr auto field(std::string_view name, Value Owner::*member)
+constexpr auto field(std::string_view name, Value Owner::* member)
     -> field_descriptor<Owner, Value>
 {
     return {name, member};
@@ -189,8 +183,7 @@ inline const node* find_node(const table& value, std::string_view key)
 
 [[noreturn]] inline void throw_type_error(std::string_view target)
 {
-    throw std::runtime_error("type mismatch: expected " +
-                             std::string(target));
+    throw std::runtime_error("type mismatch: expected " + std::string(target));
 }
 
 template <class T, class Desc>
@@ -330,49 +323,39 @@ T parse_file(std::string_view path)
 #define SPONGE_TOML_DECODE_FIELD_3(Type, key, member) \
     ::sponge::toml_decode::field(key, &Type::member)
 #define SPONGE_TOML_DECODE_FIELD_SELECT(_1, _2, _3, NAME, ...) NAME
-#define SPONGE_TOML_DECODE_FIELD(...)                                   \
-    SPONGE_TOML_DECODE_FIELD_SELECT(__VA_ARGS__,                        \
-                                    SPONGE_TOML_DECODE_FIELD_3,         \
-                                    SPONGE_TOML_DECODE_FIELD_2)         \
+#define SPONGE_TOML_DECODE_FIELD(...)                                        \
+    SPONGE_TOML_DECODE_FIELD_SELECT(__VA_ARGS__, SPONGE_TOML_DECODE_FIELD_3, \
+                                    SPONGE_TOML_DECODE_FIELD_2)              \
     (__VA_ARGS__)
 
-#define SPONGE_TOML_DECODE_PARSER_1(Type, a1)   \
-    namespace sponge::toml_decode               \
-    {                                           \
-    template <>                                 \
-    struct reflect<Type>                        \
-    {                                           \
-        static constexpr auto fields()          \
-        {                                       \
-            return std::make_tuple(a1);         \
-        }                                       \
-    };                                          \
+#define SPONGE_TOML_DECODE_PARSER_1(Type, a1)                          \
+    namespace sponge::toml_decode                                      \
+    {                                                                  \
+    template <>                                                        \
+    struct reflect<Type>                                               \
+    {                                                                  \
+        static constexpr auto fields() { return std::make_tuple(a1); } \
+    };                                                                 \
     }
 
-#define SPONGE_TOML_DECODE_PARSER_2(Type, a1, a2) \
-    namespace sponge::toml_decode                 \
-    {                                             \
-    template <>                                   \
-    struct reflect<Type>                          \
-    {                                             \
-        static constexpr auto fields()            \
-        {                                         \
-            return std::make_tuple(a1, a2);       \
-        }                                         \
-    };                                            \
+#define SPONGE_TOML_DECODE_PARSER_2(Type, a1, a2)                          \
+    namespace sponge::toml_decode                                          \
+    {                                                                      \
+    template <>                                                            \
+    struct reflect<Type>                                                   \
+    {                                                                      \
+        static constexpr auto fields() { return std::make_tuple(a1, a2); } \
+    };                                                                     \
     }
 
-#define SPONGE_TOML_DECODE_PARSER_3(Type, a1, a2, a3) \
-    namespace sponge::toml_decode                     \
-    {                                                 \
-    template <>                                       \
-    struct reflect<Type>                              \
-    {                                                 \
-        static constexpr auto fields()                \
-        {                                             \
-            return std::make_tuple(a1, a2, a3);       \
-        }                                             \
-    };                                                \
+#define SPONGE_TOML_DECODE_PARSER_3(Type, a1, a2, a3)                          \
+    namespace sponge::toml_decode                                              \
+    {                                                                          \
+    template <>                                                                \
+    struct reflect<Type>                                                       \
+    {                                                                          \
+        static constexpr auto fields() { return std::make_tuple(a1, a2, a3); } \
+    };                                                                         \
     }
 
 #define SPONGE_TOML_DECODE_PARSER_4(Type, a1, a2, a3, a4) \
@@ -440,15 +423,16 @@ T parse_file(std::string_view path)
     };                                                                    \
     }
 
-#define SPONGE_TOML_DECODE_GET_9TH_ARG(_1, _2, _3, _4, _5, _6, _7, _8, _9, ...) _9
+#define SPONGE_TOML_DECODE_GET_9TH_ARG(_1, _2, _3, _4, _5, _6, _7, _8, _9, \
+                                       ...)                                \
+    _9
 
-#define SPONGE_TOML_DECODE_PARSER_SELECT(...)                          \
-    SPONGE_TOML_DECODE_GET_9TH_ARG(                                    \
-        __VA_ARGS__, SPONGE_TOML_DECODE_PARSER_8,                      \
-        SPONGE_TOML_DECODE_PARSER_7, SPONGE_TOML_DECODE_PARSER_6,      \
-        SPONGE_TOML_DECODE_PARSER_5, SPONGE_TOML_DECODE_PARSER_4,      \
-        SPONGE_TOML_DECODE_PARSER_3, SPONGE_TOML_DECODE_PARSER_2,      \
-        SPONGE_TOML_DECODE_PARSER_1)
+#define SPONGE_TOML_DECODE_PARSER_SELECT(...)                                  \
+    SPONGE_TOML_DECODE_GET_9TH_ARG(                                            \
+        __VA_ARGS__, SPONGE_TOML_DECODE_PARSER_8, SPONGE_TOML_DECODE_PARSER_7, \
+        SPONGE_TOML_DECODE_PARSER_6, SPONGE_TOML_DECODE_PARSER_5,              \
+        SPONGE_TOML_DECODE_PARSER_4, SPONGE_TOML_DECODE_PARSER_3,              \
+        SPONGE_TOML_DECODE_PARSER_2, SPONGE_TOML_DECODE_PARSER_1)
 
 #define SPONGE_TOML_DECODE_PARSER(Type, ...) \
     SPONGE_TOML_DECODE_PARSER_SELECT(__VA_ARGS__)(Type, __VA_ARGS__)
