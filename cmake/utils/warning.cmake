@@ -1,8 +1,4 @@
 message(STATUS "Set compilation warnings from ${WARNING_FILE}")
-if(MSVC)
-  add_compile_options(/Zc:preprocessor)
-  message(STATUS "-- Enable conforming MSVC preprocessor")
-endif()
 if(PARALLEL_BACKEND STREQUAL "cuda")
   set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Xcudafe --diag_suppress=177")
   message(
