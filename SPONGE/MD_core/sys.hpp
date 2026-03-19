@@ -108,11 +108,19 @@ struct TomlSchedulePoint
     float value = 0.0f;
 };
 
+SPONGE_TOML_DECODE_PARSER(TomlSchedulePoint,
+                          SPONGE_TOML_DECODE_FIELD(TomlSchedulePoint, step),
+                          SPONGE_TOML_DECODE_FIELD(TomlSchedulePoint, value));
+
 struct TomlScheduleConfig
 {
     std::optional<std::string> mode;
     std::optional<std::vector<TomlSchedulePoint>> steps;
 };
+
+SPONGE_TOML_DECODE_PARSER(TomlScheduleConfig,
+                          SPONGE_TOML_DECODE_FIELD(TomlScheduleConfig, mode),
+                          SPONGE_TOML_DECODE_FIELD(TomlScheduleConfig, steps));
 
 struct TomlSystemScheduleInputs
 {
@@ -126,51 +134,20 @@ struct TomlSystemScheduleInputs
     std::optional<std::string> target_pressure_schedule_file;
 };
 
-namespace sponge::toml_decode
-{
-
-template <>
-struct reflect<TomlSchedulePoint>
-{
-    static constexpr auto fields()
-    {
-        return std::make_tuple(field("step", &TomlSchedulePoint::step),
-                               field("value", &TomlSchedulePoint::value));
-    }
-};
-
-template <>
-struct reflect<TomlScheduleConfig>
-{
-    static constexpr auto fields()
-    {
-        return std::make_tuple(field("mode", &TomlScheduleConfig::mode),
-                               field("steps", &TomlScheduleConfig::steps));
-    }
-};
-
-template <>
-struct reflect<TomlSystemScheduleInputs>
-{
-    static constexpr auto fields()
-    {
-        return std::make_tuple(
-            field("target_temperature_schedule_mode",
-                  &TomlSystemScheduleInputs::target_temperature_schedule_mode),
-            field("target_temperature_schedule_steps",
-                  &TomlSystemScheduleInputs::target_temperature_schedule_steps),
-            field("target_temperature_schedule_file",
-                  &TomlSystemScheduleInputs::target_temperature_schedule_file),
-            field("target_pressure_schedule_mode",
-                  &TomlSystemScheduleInputs::target_pressure_schedule_mode),
-            field("target_pressure_schedule_steps",
-                  &TomlSystemScheduleInputs::target_pressure_schedule_steps),
-            field("target_pressure_schedule_file",
-                  &TomlSystemScheduleInputs::target_pressure_schedule_file));
-    }
-};
-
-}  // namespace sponge::toml_decode
+SPONGE_TOML_DECODE_PARSER(
+    TomlSystemScheduleInputs,
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_temperature_schedule_mode),
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_temperature_schedule_steps),
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_temperature_schedule_file),
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_pressure_schedule_mode),
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_pressure_schedule_steps),
+    SPONGE_TOML_DECODE_FIELD(TomlSystemScheduleInputs,
+                             target_pressure_schedule_file));
 
 namespace
 {
