@@ -6,7 +6,7 @@ import pytest
 def pytest_addoption(parser):
     group = parser.getgroup("mace")
     group.addoption(
-        "--mace-steps",
+        "--steps",
         action="store",
         type=int,
         default=5000,
@@ -21,7 +21,7 @@ def statics_path():
 
 @pytest.fixture(scope="session")
 def mace_steps(request):
-    value = int(request.config.getoption("--mace-steps"))
+    value = int(request.config.getoption("--steps"))
     if value <= 0:
-        raise ValueError("--mace-steps must be positive")
+        raise ValueError("--steps must be positive")
     return value

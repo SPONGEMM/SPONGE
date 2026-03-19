@@ -4,7 +4,7 @@ import pytest
 def pytest_addoption(parser):
     group = parser.getgroup("sinkmeta")
     group.addoption(
-        "--sinkmeta-steps",
+        "--steps",
         action="store",
         type=int,
         default=50000,
@@ -14,7 +14,7 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope="session")
 def sinkmeta_steps(request):
-    value = int(request.config.getoption("--sinkmeta-steps"))
+    value = int(request.config.getoption("--steps"))
     if value <= 0:
-        raise ValueError("--sinkmeta-steps must be positive")
+        raise ValueError("--steps must be positive")
     return value
