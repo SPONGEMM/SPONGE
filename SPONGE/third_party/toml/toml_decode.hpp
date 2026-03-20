@@ -338,15 +338,15 @@ T parse_string(std::string_view content, std::string_view source_path)
 #define SPONGE_TOML_DECODE_NAMED_MEMBER(Type, key, member) \
     SPONGE_TOML_DECODE_FIELD_3(Type, key, member)
 
-#define SPONGE_TOML_DECODE_REFLECT(Type, ...)                     \
-    namespace sponge::toml_decode                                 \
-    {                                                             \
-    template <>                                                   \
-    struct reflect<Type>                                          \
-    {                                                             \
-        static constexpr auto fields()                            \
-        {                                                         \
-            return std::make_tuple(__VA_ARGS__);                  \
-        }                                                         \
-    };                                                            \
+#define SPONGE_TOML_DECODE_REFLECT(Type, ...)    \
+    namespace sponge::toml_decode                \
+    {                                            \
+    template <>                                  \
+    struct reflect<Type>                         \
+    {                                            \
+        static constexpr auto fields()           \
+        {                                        \
+            return std::make_tuple(__VA_ARGS__); \
+        }                                        \
+    };                                           \
     }

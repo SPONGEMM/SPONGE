@@ -131,12 +131,12 @@ namespace sponge::toml_decode
 
 }  // namespace sponge::toml_decode
 
-SPONGE_TOML_DECODE_REFLECT(
-    TomlSchedulePoint, SPONGE_TOML_DECODE_MEMBER(TomlSchedulePoint, step),
-    SPONGE_TOML_DECODE_MEMBER(TomlSchedulePoint, value))
-SPONGE_TOML_DECODE_REFLECT(
-    TomlScheduleConfig, SPONGE_TOML_DECODE_MEMBER(TomlScheduleConfig, mode),
-    SPONGE_TOML_DECODE_MEMBER(TomlScheduleConfig, steps))
+SPONGE_TOML_DECODE_REFLECT(TomlSchedulePoint,
+                           SPONGE_TOML_DECODE_MEMBER(TomlSchedulePoint, step),
+                           SPONGE_TOML_DECODE_MEMBER(TomlSchedulePoint, value))
+SPONGE_TOML_DECODE_REFLECT(TomlScheduleConfig,
+                           SPONGE_TOML_DECODE_MEMBER(TomlScheduleConfig, mode),
+                           SPONGE_TOML_DECODE_MEMBER(TomlScheduleConfig, steps))
 SPONGE_TOML_DECODE_REFLECT(
     TomlSystemScheduleInputs,
     SPONGE_TOML_DECODE_MEMBER(TomlSystemScheduleInputs,
