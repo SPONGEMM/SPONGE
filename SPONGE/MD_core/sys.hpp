@@ -1,4 +1,6 @@
 ﻿#pragma once
+
+#include "third_party/toml/toml_decode.hpp"
 static __global__ void MD_Atom_Ek(const int atom_numbers, float* ek,
                                   const VECTOR* atom_vel,
                                   const float* atom_mass)
@@ -100,6 +102,353 @@ static __global__ void Add_Sum_List(int n, float* atom_virial,
     Warp_Sum_To(sum_virial, temp, warpSize);
 }
 
+struct TomlSchedulePoint
+{
+    int step = 0;
+    float value = 0.0f;
+};
+
+struct TomlScheduleConfig
+{
+    std::optional<std::string> mode;
+    std::optional<std::vector<TomlSchedulePoint>> steps;
+};
+
+struct TomlSystemScheduleInputs
+{
+    std::optional<std::string> target_temperature_schedule_mode;
+    std::optional<std::vector<TomlSchedulePoint>>
+        target_temperature_schedule_steps;
+    std::optional<std::string> target_temperature_schedule_file;
+    std::optional<std::string> target_pressure_schedule_mode;
+    std::optional<std::vector<TomlSchedulePoint>>
+        target_pressure_schedule_steps;
+    std::optional<std::string> target_pressure_schedule_file;
+};
+
+namespace sponge::toml_decode
+{
+
+template <>
+struct reflect<TomlSchedulePoint>
+{
+    static constexpr auto fields()
+    {
+        return std::make_tuple(field("step", &TomlSchedulePoint::step),
+                               field("value", &TomlSchedulePoint::value));
+    }
+};
+
+template <>
+struct reflect<TomlScheduleConfig>
+{
+    static constexpr auto fields()
+    {
+        return std::make_tuple(field("mode", &TomlScheduleConfig::mode),
+                               field("steps", &TomlScheduleConfig::steps));
+    }
+};
+
+template <>
+struct reflect<TomlSystemScheduleInputs>
+{
+    static constexpr auto fields()
+    {
+        return std::make_tuple(
+            field("target_temperature_schedule_mode",
+                  &TomlSystemScheduleInputs::target_temperature_schedule_mode),
+            field("target_temperature_schedule_steps",
+                  &TomlSystemScheduleInputs::target_temperature_schedule_steps),
+            field("target_temperature_schedule_file",
+                  &TomlSystemScheduleInputs::target_temperature_schedule_file),
+            field("target_pressure_schedule_mode",
+                  &TomlSystemScheduleInputs::target_pressure_schedule_mode),
+            field("target_pressure_schedule_steps",
+                  &TomlSystemScheduleInputs::target_pressure_schedule_steps),
+            field("target_pressure_schedule_file",
+                  &TomlSystemScheduleInputs::target_pressure_schedule_file));
+    }
+};
+
+}  // namespace sponge::toml_decode
+
+namespace
+{
+constexpr const char* kSysScheduleErrorBy =
+    "MD_INFORMATION::system_information::Initial";
+
+void Throw_Schedule_Error(CONTROLLER* controller, const char* key,
+                          const std::string& reason)
+{
+    std::string error_reason = "Reason:\n\tinvalid '";
+    error_reason += key;
+    error_reason += "': ";
+    error_reason += reason;
+    error_reason += "\n";
+    controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
+                                   kSysScheduleErrorBy, error_reason.c_str());
+}
+
+bool Parse_Toml_Schedule_Mode(const std::string& value, int* mode_out)
+{
+    if (mode_out == nullptr) return false;
+    std::string mode = string_strip(value);
+    if (mode == "step")
+    {
+        *mode_out = MD_INFORMATION::system_information::TARGET_SCHEDULE::STEP;
+        return true;
+    }
+    if (mode == "linear")
+    {
+        *mode_out = MD_INFORMATION::system_information::TARGET_SCHEDULE::LINEAR;
+        return true;
+    }
+    return false;
+}
+
+std::optional<TomlSystemScheduleInputs> Parse_System_Schedule_Inputs(
+    CONTROLLER* controller, std::string* error_message)
+{
+    error_message->clear();
+    if (!controller->mdin_is_toml || controller->mdin_toml_content.empty())
+    {
+        return std::nullopt;
+    }
+    try
+    {
+        return ::sponge::toml_decode::parse_string<TomlSystemScheduleInputs>(
+            controller->mdin_toml_content, controller->mdin_toml_source_path);
+    }
+    catch (const std::exception& err)
+    {
+        *error_message = err.what();
+        return std::nullopt;
+    }
+}
+
+std::optional<std::string> Resolve_Schedule_File_Path(CONTROLLER* controller,
+                                                      const char* file_key,
+                                                      bool is_pressure)
+{
+    if (controller->Command_Exist(file_key))
+    {
+        return std::string(controller->Command(file_key));
+    }
+    if (!controller->Command_Exist("default_in_file_prefix"))
+    {
+        return std::nullopt;
+    }
+
+    const std::string prefix = controller->Command("default_in_file_prefix");
+    const std::vector<std::string> candidates = {
+        prefix + "." + (is_pressure ? "pres.spg.toml" : "temp.spg.toml"),
+        prefix + "_" + (is_pressure ? "pres.spg.toml" : "temp.spg.toml")};
+    for (const auto& candidate : candidates)
+    {
+        FILE* fp = fopen(candidate.c_str(), "r");
+        if (fp != NULL)
+        {
+            fclose(fp);
+            return candidate;
+        }
+    }
+    return std::nullopt;
+}
+
+bool Load_Schedule_Values_From_TomlPoints(
+    const std::vector<TomlSchedulePoint>& points,
+    MD_INFORMATION::system_information::TARGET_SCHEDULE* out)
+{
+    out->steps.clear();
+    out->values.clear();
+    out->steps.reserve(points.size());
+    out->values.reserve(points.size());
+    for (const auto& point : points)
+    {
+        out->steps.push_back(point.step);
+        out->values.push_back(point.value);
+    }
+    return !out->steps.empty();
+}
+
+float Evaluate_Target_Schedule(
+    const MD_INFORMATION::system_information::TARGET_SCHEDULE& schedule,
+    int current_step, float fallback_value)
+{
+    if (!schedule.enabled || schedule.steps.empty()) return fallback_value;
+    if (current_step <= schedule.steps.front()) return schedule.values.front();
+    if (current_step >= schedule.steps.back()) return schedule.values.back();
+
+    const int upper_idx =
+        (int)(std::upper_bound(schedule.steps.begin(), schedule.steps.end(),
+                               current_step) -
+              schedule.steps.begin());
+    const int left_idx = upper_idx - 1;
+    if (schedule.mode ==
+        MD_INFORMATION::system_information::TARGET_SCHEDULE::STEP)
+    {
+        return schedule.values[left_idx];
+    }
+    const int left_step = schedule.steps[left_idx];
+    const int right_step = schedule.steps[upper_idx];
+    const float left_value = schedule.values[left_idx];
+    const float right_value = schedule.values[upper_idx];
+    const float ratio =
+        (float)(current_step - left_step) / (float)(right_step - left_step);
+    return left_value + (right_value - left_value) * ratio;
+}
+
+void Load_Target_Schedule(
+    CONTROLLER* controller, const char* schedule_name, const char* mode_key,
+    const char* steps_key, const char* file_key, bool is_pressure,
+    MD_INFORMATION::system_information::TARGET_SCHEDULE* out)
+{
+    const bool has_mode = controller->Command_Exist(mode_key);
+    const bool explicit_file = controller->Command_Exist(file_key);
+    const bool command_has_steps = controller->Command_Exist(steps_key);
+
+    std::string parse_error;
+    const auto parsed_inputs =
+        Parse_System_Schedule_Inputs(controller, &parse_error);
+    if (!parse_error.empty())
+    {
+        Throw_Schedule_Error(controller, schedule_name,
+                             "failed to decode mdin TOML: " + parse_error);
+    }
+
+    std::optional<std::vector<TomlSchedulePoint>> inline_steps;
+    if (parsed_inputs.has_value())
+    {
+        inline_steps = is_pressure
+                           ? parsed_inputs->target_pressure_schedule_steps
+                           : parsed_inputs->target_temperature_schedule_steps;
+    }
+    else if (command_has_steps)
+    {
+        Throw_Schedule_Error(controller, steps_key,
+                             "inline schedule steps require TOML mdin input");
+    }
+
+    const auto schedule_file_path =
+        Resolve_Schedule_File_Path(controller, file_key, is_pressure);
+    const bool has_file = schedule_file_path.has_value();
+
+    out->enabled = false;
+    out->mode = MD_INFORMATION::system_information::TARGET_SCHEDULE::STEP;
+    out->steps.clear();
+    out->values.clear();
+    if (!has_mode && !inline_steps.has_value() && !has_file) return;
+
+    if (has_file && inline_steps.has_value())
+    {
+        Throw_Schedule_Error(
+            controller, schedule_name,
+            "cannot use inline schedule and schedule file at the same time");
+    }
+
+    if (has_mode)
+    {
+        if (controller->Command_Choice(mode_key, "step"))
+        {
+            out->mode =
+                MD_INFORMATION::system_information::TARGET_SCHEDULE::STEP;
+        }
+        else if (controller->Command_Choice(mode_key, "linear"))
+        {
+            out->mode =
+                MD_INFORMATION::system_information::TARGET_SCHEDULE::LINEAR;
+        }
+        else
+        {
+            Throw_Schedule_Error(controller, mode_key,
+                                 "mode must be 'step' or 'linear'");
+        }
+    }
+
+    if (has_file)
+    {
+        try
+        {
+            const auto file_config =
+                ::sponge::toml_decode::parse_file<TomlScheduleConfig>(
+                    *schedule_file_path);
+            if (!file_config.steps.has_value() ||
+                !Load_Schedule_Values_From_TomlPoints(*file_config.steps, out))
+            {
+                Throw_Schedule_Error(controller, file_key,
+                                     "schedule TOML must provide non-empty "
+                                     "'steps'");
+            }
+            if (!has_mode && file_config.mode.has_value() &&
+                !Parse_Toml_Schedule_Mode(*file_config.mode, &out->mode))
+            {
+                Throw_Schedule_Error(controller, file_key,
+                                     "schedule file mode must be 'step' or "
+                                     "'linear'");
+            }
+        }
+        catch (const std::exception& err)
+        {
+            Throw_Schedule_Error(
+                controller, file_key,
+                "invalid TOML schedule file: " + std::string(err.what()));
+        }
+    }
+    else if (inline_steps.has_value())
+    {
+        if (!Load_Schedule_Values_From_TomlPoints(*inline_steps, out))
+        {
+            Throw_Schedule_Error(controller, steps_key,
+                                 "must contain at least one {step, value} "
+                                 "object");
+        }
+    }
+    else
+    {
+        Throw_Schedule_Error(controller, schedule_name,
+                             "schedule exists but no points are provided");
+    }
+
+    if (out->steps.size() != out->values.size())
+    {
+        Throw_Schedule_Error(controller, schedule_name,
+                             "steps and values size mismatch");
+    }
+    if (out->steps.empty())
+    {
+        Throw_Schedule_Error(controller, schedule_name,
+                             "at least one point is required");
+    }
+    for (size_t i = 1; i < out->steps.size(); i++)
+    {
+        if (out->steps[i] <= out->steps[i - 1])
+        {
+            Throw_Schedule_Error(controller, schedule_name,
+                                 "steps must be strictly increasing");
+        }
+    }
+    if (!is_pressure)
+    {
+        for (float value : out->values)
+        {
+            if (!(value > 0.0f))
+            {
+                Throw_Schedule_Error(controller, schedule_name,
+                                     "temperature values must be > 0");
+            }
+        }
+    }
+    else
+    {
+        for (float& value : out->values)
+        {
+            value *= CONSTANT_PRES_CONVERTION_INVERSE;
+        }
+    }
+    out->enabled = true;
+}
+}  // namespace
+
 double MD_INFORMATION::system_information::Get_Current_Time(bool plus_one_step)
 {
     current_time = start_time + (double)dt_in_ps * (steps + plus_one_step);
@@ -144,6 +493,21 @@ float MD_INFORMATION::system_information::Get_Atom_Temperature()
 {
     h_temperature = Get_Total_Atom_Ek() * 2. / CONSTANT_kB / freedom;
     return h_temperature;
+}
+
+void MD_INFORMATION::system_information::Update_Targets_By_Schedule(
+    int current_step)
+{
+    if (target_temperature_schedule.enabled)
+    {
+        target_temperature = Evaluate_Target_Schedule(
+            target_temperature_schedule, current_step, target_temperature);
+    }
+    if (target_pressure_schedule.enabled)
+    {
+        target_pressure = Evaluate_Target_Schedule(
+            target_pressure_schedule, current_step, target_pressure);
+    }
 }
 
 void MD_INFORMATION::system_information::Get_Potential_to_stress(
@@ -237,6 +601,15 @@ void MD_INFORMATION::system_information::Initial(CONTROLLER* controller,
             target_pressure = atof(controller[0].Command("target_pressure"));
         }
         target_pressure *= CONSTANT_PRES_CONVERTION_INVERSE;
+        Load_Target_Schedule(controller, "target_temperature_schedule",
+                             "target_temperature_schedule_mode",
+                             "target_temperature_schedule_steps",
+                             "target_temperature_schedule_file", false,
+                             &target_temperature_schedule);
+        Load_Target_Schedule(
+            controller, "target_pressure_schedule",
+            "target_pressure_schedule_mode", "target_pressure_schedule_steps",
+            "target_pressure_schedule_file", true, &target_pressure_schedule);
     }
     else
     {

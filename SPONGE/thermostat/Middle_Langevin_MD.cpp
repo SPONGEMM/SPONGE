@@ -329,3 +329,33 @@ void MIDDLE_Langevin_INFORMATION::MD_Iteration_Leap_Frog(VECTOR* frc,
         }
     }
 }
+
+void MIDDLE_Langevin_INFORMATION::Set_Target_Temperature(
+    float target_temperature_new)
+{
+    if (!is_initialized || !(target_temperature_new > 0.0f) ||
+        !(target_temperature > 0.0f))
+    {
+        return;
+    }
+    if (fabsf(target_temperature_new - target_temperature) <= FLT_EPSILON)
+    {
+        return;
+    }
+    float scale = sqrtf(target_temperature_new / target_temperature);
+    if (!(scale > 0.0f) || !isfinite(scale))
+    {
+        return;
+    }
+
+    for (int i = 0; i < atom_numbers; i++)
+    {
+        h_sqrt_mass[i] *= scale;
+    }
+    Scale_List(d_sqrt_mass, scale, atom_numbers);
+    if (local_atom_numbers > 0)
+    {
+        Scale_List(d_sqrt_mass_local, scale, local_atom_numbers);
+    }
+    target_temperature = target_temperature_new;
+}

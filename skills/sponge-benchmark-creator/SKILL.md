@@ -100,6 +100,14 @@ Runner.run_sponge(case_dir, timeout=timeout, mpi_np=mpi_np)
 
 阈值要显式写出，不要埋魔法数字。具体验证指标需要合适，不一定局限于上述列举指标。
 
+## 统计帧过滤原则
+
+涉及时间序列统计（如 `density`、`temperature`、`pressure`）时，默认排除 `step = 0` 的初始化帧，除非测试目标就是验证初始化输出。
+
+- `step = 0` 常包含初始化路径或未充分平衡状态，直接纳入均值/区间断言会引入偏差。
+- 推荐先解析 `step` 列，再按 `step != 0` 过滤后做统计断言。
+- 如果必须包含 `step = 0`，在测试代码里显式说明原因，不要隐式依赖。
+
 ## 输出原则
 
 测试结束前尽量用 `Outputer.print_table(...)` 输出摘要，至少包含：
@@ -134,6 +142,7 @@ Runner.run_sponge(case_dir, timeout=timeout, mpi_np=mpi_np)
 4. 断言是否验证了真正的指标
 5. 输出表格是否可读
 6. 是否需要更新 `pixi.toml` 中的 task
+7. 统计类断言是否正确处理了 `step = 0`
 
 ## 一句话原则
 

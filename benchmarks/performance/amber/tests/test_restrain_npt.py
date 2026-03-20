@@ -21,7 +21,15 @@ from benchmarks.performance.amber.tests.utils import (
 )
 
 
-def parse_mdout_column(mdout_path, column_name):
+def parse_mdout_column(mdout_path, column_name, *, exclude_step0=False):
+    if exclude_step0:
+        rows = Extractor.parse_mdout_rows(
+            mdout_path,
+            ["step", column_name],
+            int_columns=("step",),
+        )
+        return [row[column_name] for row in rows if row["step"] != 0]
+
     rows = Extractor.parse_mdout_rows(mdout_path, [column_name], int_columns=())
     return [row[column_name] for row in rows]
 
@@ -429,11 +437,15 @@ def test_restrain_npt_after_minimization(amber_equilibrated_case):
     restrained_mdout = case_dir / "mdout_restrained.txt"
     unrestrained_mdout = case_dir / "mdout_unrestrained.txt"
 
-    restrained_density = parse_mdout_column(restrained_mdout, "density")
+    restrained_density = parse_mdout_column(
+        restrained_mdout, "density", exclude_step0=True
+    )
     restrained_temperature = parse_mdout_column(restrained_mdout, "temperature")
     restrained_pressure = parse_mdout_column(restrained_mdout, "pressure")
 
-    unrestrained_density = parse_mdout_column(unrestrained_mdout, "density")
+    unrestrained_density = parse_mdout_column(
+        unrestrained_mdout, "density", exclude_step0=True
+    )
     unrestrained_temperature = parse_mdout_column(
         unrestrained_mdout, "temperature"
     )

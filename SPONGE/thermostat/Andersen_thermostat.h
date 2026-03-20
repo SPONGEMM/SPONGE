@@ -45,4 +45,5 @@ struct ANDERSEN_THERMOSTAT_INFORMATION
 
     void MD_Iteration_Leap_Frog(VECTOR* vel, VECTOR* crd, VECTOR* frc,
                                 VECTOR* acc, float dt);
+    void Set_Target_Temperature(float target_temperature_new);
 };

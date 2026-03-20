@@ -50,4 +50,5 @@ struct MIDDLE_Langevin_INFORMATION
     // 迭代算法
     void MD_Iteration_Leap_Frog(VECTOR* frc, VECTOR* vel, VECTOR* acc,
                                 VECTOR* crd);
+    void Set_Target_Temperature(float target_temperature_new);
 };

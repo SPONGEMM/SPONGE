@@ -162,7 +162,9 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
         FILE* vfp = NULL;
         Open_File_Safely(&vfp, controller->Command("velocity_in_file"), "r");
         int vel_atom_numbers = 0;
-        if (fscanf(vfp, "%d", &vel_atom_numbers) != 1)
+        char vline[CHAR_LENGTH_MAX];
+        if (fgets(vline, CHAR_LENGTH_MAX, vfp) == NULL ||
+            sscanf(vline, "%d", &vel_atom_numbers) != 1)
         {
             controller->Throw_SPONGE_Error(
                 spongeErrorBadFileFormat,
