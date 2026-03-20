@@ -78,10 +78,10 @@ struct QC_SCF_WORKSPACE
     float* d_pair_density_exx = NULL;
     float* d_pair_density_exx_b = NULL;
 
-    // CPU direct SCF thread-private Fock accumulation buffers (double precision)
+    // CPU direct SCF thread-private Fock accumulation buffers
     int fock_thread_count = 1;
-    double* d_F_thread = NULL;
-    double* d_F_b_thread = NULL;
+    float* d_F_thread = NULL;
+    float* d_F_b_thread = NULL;
 
     // SCF 配置与每轮 Solve_SCF 写入的派生参数
     bool unrestricted = false;

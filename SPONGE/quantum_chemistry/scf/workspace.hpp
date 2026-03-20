@@ -84,7 +84,6 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     };
 
     alloc_zero_float(&scf_ws.d_norms, (int)nao);
-    // X = S^{-1/2} stored in double to preserve precision for large basis sets
     alloc_zero_double(&scf_ws.d_X, nao2);
     alloc_from_host_float(&scf_ws.d_W, scf_ws.h_W);
     alloc_from_host_float(&scf_ws.d_Work, scf_ws.h_Work);
@@ -146,10 +145,10 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     scf_ws.d_F_b_thread = NULL;
 #else
     scf_ws.fock_thread_count = std::max(1, omp_get_max_threads());
-    alloc_zero_double(&scf_ws.d_F_thread, scf_ws.fock_thread_count * nao2);
+    alloc_zero_float(&scf_ws.d_F_thread, scf_ws.fock_thread_count * nao2);
     if (unrestricted)
     {
-        alloc_zero_double(&scf_ws.d_F_b_thread, scf_ws.fock_thread_count * nao2);
+        alloc_zero_float(&scf_ws.d_F_b_thread, scf_ws.fock_thread_count * nao2);
     }
     else
     {

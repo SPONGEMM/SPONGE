@@ -49,6 +49,25 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
                          (mol.nbas + threads - 1) / threads, threads, 0, 0,
                          mol.nbas, mol.d_bas, mol.d_atm, mol.d_env,
                          mol.d_centers);
+#ifndef USE_GPU
+    if (CONTROLLER::MPI_rank == 0 && mol.natm > 0 && mol.nbas > 0)
+    {
+        const int md_idx = atom_local[0];
+        const int ptr_coord = mol.h_atm[1];
+        float env_xyz[3];
+        VECTOR center0;
+        deviceMemcpy(env_xyz, mol.d_env + ptr_coord, sizeof(env_xyz),
+                     deviceMemcpyDeviceToHost);
+        deviceMemcpy(&center0, mol.d_centers, sizeof(VECTOR),
+                     deviceMemcpyDeviceToHost);
+        printf(
+            "QC Coord Check | atom0 qc->md=%d | md(A)=(%.9f, %.9f, %.9f) | env(Bohr)=(%.9f, %.9f, %.9f) | center0(Bohr)=(%.9f, %.9f, %.9f)\n",
+            md_idx, crd[md_idx].x, crd[md_idx].y, crd[md_idx].z,
+            (double)env_xyz[0], (double)env_xyz[1], (double)env_xyz[2],
+            (double)center0.x, (double)center0.y, (double)center0.z);
+        fflush(stdout);
+    }
+#endif
 }
 
 // ========================== SCF 状态重置 =========================
@@ -102,18 +121,33 @@ void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
             mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm,
             mol.d_env, mol.natm, p_S, p_T, p_V, nao_c);
     }
-    // Dump Cartesian S for debugging
+    // Dump S_cart BEFORE cart2sph
 #ifndef USE_GPU
-    if (mol.is_spherical)
+    if (mol.is_spherical && CONTROLLER::MPI_rank == 0)
     {
         FILE* fp = fopen("/tmp/sponge_S_cart.bin", "wb");
-        fwrite(cart2sph.d_S_cart, sizeof(float), (size_t)nao_c * nao_c, fp);
+        fwrite(cart2sph.d_S_cart, sizeof(float),
+               (size_t)mol.nao_cart * mol.nao_cart, fp);
         fclose(fp);
-        printf("DUMPED S_cart to /tmp/sponge_S_cart.bin (nao_c=%d)\n", nao_c);
+        printf("DUMPED S_cart to /tmp/sponge_S_cart.bin (nao_c=%d)\n",
+               mol.nao_cart);
         fflush(stdout);
     }
 #endif
     Cart2Sph_OneE_Integrals();
+
+    // Dump S_sph AFTER cart2sph, BEFORE normalization
+#ifndef USE_GPU
+    if (mol.is_spherical && CONTROLLER::MPI_rank == 0)
+    {
+        FILE* fp = fopen("/tmp/sponge_S_sph_pre_norm.bin", "wb");
+        fwrite(scf_ws.d_S, sizeof(float), (size_t)mol.nao * mol.nao, fp);
+        fclose(fp);
+        printf("DUMPED S_sph (pre-norm) to /tmp/sponge_S_sph_pre_norm.bin (nao=%d)\n",
+               mol.nao);
+        fflush(stdout);
+    }
+#endif
 }
 
 // ============================ 核排斥能 ===========================
@@ -221,6 +255,17 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
             task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
             task_ctx.eri_prim_screen_tol);
     }
+
+#ifndef USE_GPU
+    if (CONTROLLER::MPI_rank == 0)
+    {
+        FILE* fp = fopen("/tmp/sponge_S_sph.bin", "wb");
+        fwrite(scf_ws.d_S, sizeof(float), (size_t)nao2, fp);
+        fclose(fp);
+        printf("DUMPED S_sph to /tmp/sponge_S_sph.bin (nao=%d)\n", nao);
+        fflush(stdout);
+    }
+#endif
 }
 
 // ========================= 重叠正交化矩阵 =========================
@@ -259,56 +304,28 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
     const int nao = mol.nao;
     const int nao2 = mol.nao2;
 
-#ifndef USE_GPU
-    // CPU: use dsyevd (double) for overlap diagonalization to get
-    // accurate X = S^{-1/2}. Float32 ssyevd eigenvectors cause
-    // X^T*S*X to deviate from identity by ~1%, which corrupts density.
-    {
-        std::vector<double> dS(nao2), dW(nao);
-        for (int i = 0; i < nao2; i++) dS[i] = (double)scf_ws.d_S[i];
-        int lw = -1, liw = -1;
-        double wq; lapack_int iwq;
-        // S is stored row-major, so row-major upper = col-major lower → use 'L'
-        LAPACKE_dsyevd_work(LAPACK_COL_MAJOR, 'V', 'L', (lapack_int)nao,
-                            dS.data(), (lapack_int)nao, dW.data(),
-                            &wq, lw, &iwq, liw);
-        lw = (int)wq; liw = iwq;
-        std::vector<double> dwork(lw);
-        std::vector<lapack_int> diwork(liw);
-        LAPACKE_dsyevd_work(LAPACK_COL_MAJOR, 'V', 'L', (lapack_int)nao,
-                            dS.data(), (lapack_int)nao, dW.data(),
-                            dwork.data(), (lapack_int)lw,
-                            diwork.data(), (lapack_int)liw);
-        // Build X = S^{-1/2} entirely in double precision
-        // X[i,j] = sum_k U[i,k] * U[j,k] / sqrt(W[k])
-        for (int i = 0; i < nao; i++)
-            for (int j = 0; j < nao; j++)
-            {
-                double sum = 0.0;
-                for (int k = 0; k < nao; k++)
-                {
-                    double wk = fmax(dW[k], (double)scf_ws.overlap_eig_floor);
-                    // dS now holds eigenvectors in col-major: U(i,k) = dS[i + k*nao]
-                    sum += dS[i + k * nao] * dS[j + k * nao] / sqrt(wk);
-                }
-                scf_ws.d_X[i * nao + j] = sum;  // store as double
-            }
-        // Also store float versions for diagnostics
-        for (int i = 0; i < nao2; i++) scf_ws.d_Work[i] = (float)dS[i];
-        for (int i = 0; i < nao; i++) scf_ws.d_W[i] = (float)dW[i];
-    }
-#else
     deviceMemcpy(scf_ws.d_Work, scf_ws.d_S, sizeof(float) * nao2,
                  deviceMemcpyDeviceToDevice);
     QC_Diagonalize(solver_handle, mol.nao, scf_ws.d_Work, scf_ws.d_W,
                    scf_ws.d_solver_work, scf_ws.lwork, scf_ws.d_solver_iwork,
                    scf_ws.liwork, scf_ws.d_info);
+
     const dim3 block2d(16, 16);
     const dim3 grid2d((nao + block2d.x - 1) / block2d.x,
                       (nao + block2d.y - 1) / block2d.y);
     Launch_Device_Kernel(QC_Build_X_From_EigCol_Kernel, grid2d, block2d, 0, 0,
                          nao, scf_ws.d_Work, scf_ws.d_W,
                          scf_ws.overlap_eig_floor, scf_ws.d_X);
+
+#ifndef USE_GPU
+    if (CONTROLLER::MPI_rank == 0)
+    {
+        FILE* fp = fopen("/tmp/sponge_X.bin", "wb");
+        fwrite(scf_ws.d_X, sizeof(double), (size_t)nao2, fp);
+        fclose(fp);
+        printf("DUMPED X to /tmp/sponge_X.bin (nao=%d)\n", nao);
+        fflush(stdout);
+    }
 #endif
 
     // Always print overlap eigenvalue diagnostics on CPU

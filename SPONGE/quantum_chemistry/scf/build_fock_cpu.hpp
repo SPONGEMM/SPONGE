@@ -671,7 +671,7 @@ static inline void QC_Build_Fock_Direct_CPU(
     const float shell_screen_tol, const float* P_coul, const float* P_exx_a,
     const float* P_exx_b, const float exx_scale_a, const float exx_scale_b,
     const int nao, const int nao_sph, const int is_spherical,
-    const float* cart2sph_mat, double* F_a, double* F_b,
+    const float* cart2sph_mat, float* F_a, float* F_b,
     float* global_hr_pool,
     int hr_base, int hr_size, int shell_buf_size, float prim_screen_tol,
     const int fock_thread_count, const bool profile_build_fock)
@@ -760,8 +760,8 @@ static inline void QC_Build_Fock_Direct_CPU(
 #pragma omp parallel num_threads(fock_thread_count)
     {
         const int tid = omp_get_thread_num();
-        double* F_a_accum = F_a + (size_t)tid * (size_t)nao2;
-        double* F_b_accum =
+        float* F_a_accum = F_a + (size_t)tid * (size_t)nao2;
+        float* F_b_accum =
             (F_b != NULL) ? (F_b + (size_t)tid * (size_t)nao2) : NULL;
         float* task_pool =
             global_hr_pool + (size_t)tid * (size_t)(hr_size + 2 * shell_buf_size);
@@ -1010,7 +1010,7 @@ static inline void QC_Build_Fock_Direct_CPU(
                                             dims_eff[2], dims_eff[3])];
                                     if (val == 0.0f) continue;
                                     thread_ao_unique_quartets++;
-                                    QC_Accumulate_Fock_Unique_Quartet_Double(
+                                    QC_Accumulate_Fock_Unique_Quartet(
                                         p, q, r, s, val, nao, P_coul,
                                         P_exx_a, P_exx_b, exx_scale_a,
                                         exx_scale_b, F_a_accum, F_b_accum);
@@ -1093,15 +1093,15 @@ static inline void QC_Build_Fock_Direct_CPU(
 
 static __global__ void QC_Reduce_Thread_Fock_Kernel(const int total,
                                                     const int n_threads,
-                                                    const double* F_thread,
+                                                    const float* F_thread,
                                                     float* F_out)
 {
     SIMPLE_DEVICE_FOR(idx, total)
     {
-        double sum = (double)F_out[idx];
+        float sum = F_out[idx];
         for (int tid = 0; tid < n_threads; tid++)
             sum += F_thread[(size_t)tid * (size_t)total + (size_t)idx];
-        F_out[idx] = (float)sum;
+        F_out[idx] = sum;
     }
 }
 #endif

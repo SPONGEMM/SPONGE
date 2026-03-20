@@ -422,3 +422,115 @@ RHF 分流回归结果：
 - **积分定义问题（至少 S 矩阵）已修正**
 - **小/中型 RHF regression 正常**
 - **大体系 SCF 问题仍在，主矛盾已从积分定义下沉到 SCF 行为本身**
+
+## 11. 2026-03-21 SCF 收敛继续排查
+
+### 11.1 已证实：全面对齐 PySCF 默认约定是正确方向
+
+之前 10.2 的修复用了 "s/p 壳层系数额外乘 `sqrt((2l+1)/(4π))`"
+的方案，让 `S_cart` 对角线 = 1.0，但 c2s 矩阵用 identity。
+
+这套方案在 two-electron（ERI）路径上不自洽。修复后统一改成：
+- 基组系数：直接用 PySCF `_env`（primitive norm + contraction norm）
+- 不做 s/p 额外缩放
+- cart2sph：s=`1/sqrt(4π)`，p=`sqrt(3/(4π))*I`
+- d/f/g 保持 PySCF 默认 `cart2sph(l)` 约定
+
+这部分现在视为 **Confirmed**，不再回退。
+
+### 11.2 已证实：对拍必须使用 SPONGE 实际坐标
+
+之前长期误判 `S_sph` 差 0.87，原因不是积分实现，而是对拍时
+PySCF 使用了不同的 benzene 坐标（旋转了 90 度）。
+
+**规则：所有 S/F/P/JK 对拍必须用 SPONGE `coordinate.txt` 构造 PySCF mol。**
+
+在使用 SPONGE 坐标后：
+- `S_sph` pre-norm vs PySCF `int1e_ovlp`：`max diff = 3.8e-5`
+- 说明 one-electron 的 `S/cart2sph` 主约定已经基本对齐
+
+### 11.3 已证实：当前最早显著分叉点在 iter 1 的 Fp / P0 链
+
+在同坐标、同体系下做闭合链对拍：
+- `F1 (= H_core, P=0)`：diff ≈ `0.0049`，基本一致
+- `S_sph`：diff ≈ `3.8e-5`
+- `X`：和 PySCF 有可见差异，但不足以单独解释后续全部问题
+- `P0`：SPONGE dump 和 PySCF 重建仍有差异（`max diff ≈ 0.16`）
+
+因此，当前**不能**把根因直接下沉到 ERI/JK 或 DIIS。
+最早需要继续闭环的链路是：
+
+`F1 -> Fp1 = X^T F1 X -> eig -> C -> P0`
+
+### 11.4 已证实：手写 double Fp 路径存在实现/布局问题
+
+之前为修精度加入的手写 double matmul（`diag_density.hpp`）
+确实存在严重的实现/布局问题：
+
+- `Fp1_dump` 和 Python 用同一份 `X_sp`、`F1_sp` 重建的
+  `X_sp^T @ F1_sp @ X_sp` 差到 `72`
+- 这不是数值精度问题，而是实现/存储约定问题
+
+这部分可以视为 **Confirmed bug**。
+
+但要注意：
+- 这并不自动等价于“当前所有 P0/SCF 问题都已被这个 bug 解释完”
+- 它只说明：`diag_density.hpp` 中那条手写 double Fp 路径不可信
+
+### 11.5 当前最佳判断（不是最终结论）
+
+截至目前，最稳的状态表述应为：
+
+**Confirmed**
+1. 基组 / c2s 的主约定已统一到 PySCF 默认约定
+2. 对拍必须使用 SPONGE 的实际坐标
+3. `S_sph` pre-norm 已基本正确
+4. `F1 (= H_core)` 基本正确
+5. 手写 double Fp 路径存在严重 bug
+
+**Current Best Hypothesis**
+1. 当前最早显著分叉点在 `iter 1` 的 `Fp1 / P0`
+2. `iter 2` 的 `JK` 误差是否是主根因，必须在 `P0` 完全对齐后再重新评估
+3. 小 HOMO-LUMO gap 会放大误差，但这是放大机制，不是根因结论
+
+**Invalidated**
+1. “问题已经完全缩到 ERI float32 累加”
+2. “问题已经完全缩到 DIIS 稳定性”
+3. “double Fock/dgemm/dsyevd 已经从根本上解决主问题”
+
+## 12. debug 教训（更新）
+
+### 12.1 对拍时必须用相同坐标
+
+SPONGE coordinate.txt 和 PySCF atom string 可能有不同的坐标
+（旋转、平移）。对拍 S/F/P 时必须从 SPONGE 的 coordinate.txt
+读取坐标构造 PySCF mol，否则会误判。
+
+### 12.2 不要猜 layout，用 BLAS
+
+手写 double matmul 容易搞混 row/col-major，导致 Fp diff = 72
+这样的灾难性错误。用 cblas_dgemm(CblasRowMajor, ...) 可以
+完全消除 layout 歧义。
+
+### 12.3 闭合链对拍
+
+对拍必须用 SPONGE dump 的实际中间量，不能用 PySCF 的 H_core
+代替 SPONGE 的 H_core，也不能用“假设某一步应该相同”代替实际 dump。
+如果链不闭合（用了错误的替代量），就无法正确定位分叉点。
+
+### 12.4 P_new max 恒定不变是重要信号
+
+`P_new max = 16687` 这种“长时间几乎不变”的现象本身是重要信号，
+但不能过早把它解释成单一根因。后续排查表明，至少有两条因素曾被
+混在一起：
+- 对拍坐标不一致
+- `diag_density.hpp` 手写 double Fp 路径存在 layout bug
+
+因此，看到“某个异常量长期不变”时，先把对拍口径和实现路径闭合，再下结论。
+
+## 13. 维护规则
+
+后面只要有新结果，就立刻更新这份文件，至少补三件事：
+- benchmark 数字
+- 具体改了什么
+- 正确性验证是否通过

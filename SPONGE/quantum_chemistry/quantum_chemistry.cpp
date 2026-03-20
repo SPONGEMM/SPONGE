@@ -540,8 +540,15 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                 basis_set_name.c_str(), sym.c_str());
         }
         const auto& shells = *shells_ptr;
+        static bool first_atom = true;
         for (const auto& shell : shells)
         {
+            if (first_atom && shell.l == 0 && shell.exps.size() > 1)
+            {
+                printf("DEBUG basis: %s first contracted s shell coeffs[0]=%.9f\n",
+                       sym.c_str(), shell.coeffs[0]);
+                first_atom = false;
+            }
             int ptr_exp = mol.h_env.size();
             mol.h_env.insert(mol.h_env.end(), shell.exps.begin(),
                              shell.exps.end());

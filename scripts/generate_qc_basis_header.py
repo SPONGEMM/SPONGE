@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import math
 from pathlib import Path
 
 from pyscf import gto
@@ -66,13 +65,6 @@ def build_shells(basis_name: str, symbol: str):
         ptr_coeff = int(mol._bas[ib, gto.PTR_COEFF])
         exps = [float(v) for v in mol._env[ptr_exp : ptr_exp + nprim]]
         coeffs = [float(v) for v in mol._env[ptr_coeff : ptr_coeff + nprim]]
-        if l <= 1:
-            # SPONGE's Cartesian integral kernels use solid-harmonic
-            # normalization for s/p shells. Scale the PySCF/libcint shell
-            # coefficients so the resulting Cartesian overlap matches
-            # PySCF's cart=True convention exactly.
-            shell_scale = math.sqrt((2 * l + 1) / (4.0 * math.pi))
-            coeffs = [v * shell_scale for v in coeffs]
         shells.append((l, exps, coeffs))
     return shells
 

@@ -112,15 +112,15 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
         switch (l)
         {
             case 0:  // s 轨道
-                cart2sph_mat[offset_c * nao_s + offset_s] = 1.0f;
+                cart2sph_mat[offset_c * nao_s + offset_s] = 0.28209479f;
                 break;
             case 1:  // p 轨道
-                // 球谐 p 顺序：p_y, p_z, p_x（m=-1,0,1）
-                // 笛卡尔 p 顺序：x, y, z
-                // 映射关系：球谐 0/1/2 -> 笛卡尔 1/2/0
-                cart2sph_mat[(offset_c + 1) * nao_s + (offset_s + 0)] = 1.0f;
-                cart2sph_mat[(offset_c + 2) * nao_s + (offset_s + 1)] = 1.0f;
-                cart2sph_mat[(offset_c + 0) * nao_s + (offset_s + 2)] = 1.0f;
+                cart2sph_mat[(offset_c + 0) * nao_s + (offset_s + 0)] =
+                    0.48860251f;
+                cart2sph_mat[(offset_c + 1) * nao_s + (offset_s + 1)] =
+                    0.48860251f;
+                cart2sph_mat[(offset_c + 2) * nao_s + (offset_s + 2)] =
+                    0.48860251f;
                 break;
             case 2:  // d 轨道
                 for (int i = 0; i < 6; i++)
@@ -170,6 +170,13 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
         deviceMemcpy(cart2sph.d_cart2sph_mat, cart2sph_mat.data(),
                      sizeof(float) * cart2sph_mat.size(),
                      deviceMemcpyHostToDevice);
+        // Dump c2s matrix for debugging
+        FILE* fp = fopen("/tmp/sponge_c2s_mat.bin", "wb");
+        fwrite(cart2sph_mat.data(), sizeof(float), cart2sph_mat.size(), fp);
+        fclose(fp);
+        printf("DUMPED c2s_mat: size=%zu (nao_c=%d nao_s=%d) c2s[0]=%f\n",
+               cart2sph_mat.size(), nao_c, nao_s, cart2sph_mat[0]);
+        fflush(stdout);
     }
 }
 
