@@ -347,3 +347,78 @@ benzene/def2-qzvp iter 2 Build_Fock = ~27 s（之前最佳 ~22 s）。
 - benchmark 数字
 - 具体改了什么
 - 正确性验证是否通过
+
+## 10. 2026-03-20 最新验证
+
+### 10.1 对第 6 节根因判断的修正
+
+第 6 节里“缺少 `sqrt(4π/(2l+1))` 的球谐归一化因子”这个表述不够准确。
+
+最新结论是：
+- **contracted shell normalization 确实缺失**
+- 但对 `S_cart` 的直接对拍表明，问题不是简单的“整体改成 PySCF `_env` 就结束”
+- SPONGE 当前 `one_e` 笛卡尔积分核对 `s/p` 壳层采用的 AO 约定，与
+  PySCF `cart=True` 不同
+- 要让 `S_cart` 和 PySCF `int1e_ovlp` 一一对应，需要同时满足：
+  - 坐标使用 **Bohr**
+  - `s/p` 壳层系数额外乘 `sqrt((2l+1)/(4π))`
+
+也就是说，当前头文件不应直接存 PySCF `cart=True` 的 coefficient；
+而应存**适配 SPONGE 现有 Cartesian overlap kernel 的 coefficient**。
+
+### 10.2 已完成修复
+
+新增脚本：
+- `scripts/generate_qc_basis_header.py`
+
+作用：
+- 从 PySCF basis 数据生成 `def2-svp` / `def2-qzvp` 头文件
+- 对 contracted shells 补上 contraction normalization
+- 对 `s/p` 壳层补上与 SPONGE 当前笛卡尔积分核匹配的角归一化缩放
+- 提供 `--check` 校验模式
+
+已重生成：
+- `SPONGE/quantum_chemistry/basis/basis_def2_svp.hpp`
+- `SPONGE/quantum_chemistry/basis/basis_def2_qzvp.hpp`
+
+并确认 `build-dev-cpu` 可以重新编译通过。
+
+### 10.3 S_cart 与 PySCF 直接对拍结果
+
+对拍对象：
+- `benzene / def2-qzvp`
+- PySCF: `mol = gto.M(..., cart=True)` + `int1e_ovlp`
+- SPONGE: 正式 `build-dev-cpu/SPONGE` 路径导出的 `/tmp/sponge_S_cart.bin`
+
+结果：
+- shape: `642 x 642`
+- `max_abs = 5.012287e-06`
+- `rms = 1.965067e-07`
+- `mean_abs = 4.813292e-08`
+
+可以认为 **SPONGE 的 Cartesian S overlap 已经和 PySCF 一一对应到
+float32 数值噪声量级**。
+
+### 10.4 comp-pyscf 回归现状
+
+RHF 分流回归结果：
+- `comp_rhf.py -k 'not ace_ala4_nme and not benzene'`
+- 结果：`14 passed, 2 deselected in 1.55s`
+
+说明：
+- 这次基组 / `S_cart` 修正**没有打坏已有小中型 RHF case**
+
+但两个大 case 还不能宣称恢复：
+- `benzene / HF / def2-qzvp`
+- `ace_ala4_nme / HF / def2-svp`
+
+当前观察：
+- `benzene / HF / def2-qzvp` 单独回归时，运行数分钟仍未刷出第一条
+  SCF 结果，已手动停止
+- `ace_ala4_nme / HF / def2-svp` 在整套 RHF 回归中仍然是重 case，
+  没有完成
+
+因此当前状态应表述为：
+- **积分定义问题（至少 S 矩阵）已修正**
+- **小/中型 RHF regression 正常**
+- **大体系 SCF 问题仍在，主矛盾已从积分定义下沉到 SCF 行为本身**
