@@ -1,0 +1,208 @@
+# build_fock 优化记录
+
+这份文件用于记录 Build_Fock CPU 路径已经做过的优化、已经证伪的方向、
+统一 benchmark 口径，以及当前最短路径判断。
+
+目的只有一个：避免后面重复优化、重复回退。
+
+## 1. 统一 benchmark 口径
+
+所有性能判断都以同一条 benzene 第 2 轮 `Build_Fock` 为准。
+
+- 体系：`benzene`
+- 方法：`HF/def2-qzvp`
+- 关注指标：SCF 第 2 轮 `Build_Fock`
+- 命令：
+
+```bash
+tmpdir=$(mktemp -d)
+cp -r benchmarks/comparison/tests/pyscf/statics/benzene/sponge/. "$tmpdir"
+cd "$tmpdir"
+/usr/bin/time -f 'PROCESS_ELAPSED=%E RSS=%MKB' \
+  /home/obuntu/research/SPONGE-Direct-Fock/.pixi/envs/dev-cpu/bin/SPONGE \
+  -mdin mdin.txt \
+  -qc_model_chemistry HF/def2-qzvp \
+  -qc_scf_print_iter 1 \
+  -qc_scf_profile_build_fock 1 \
+  -qc_scf_max_iter 2
+```
+
+### 正确性验证（必须通过）
+
+性能优化之前，必须确认 SCF 能收敛到正确答案：
+
+```bash
+# 小体系回归（快速）
+pixi run -e dev-cpu compile
+SPONGE_BIN=... pixi run -e dev-cpu python -X utf8 -m pytest \
+  'benchmarks/comparison/tests/pyscf/tests/comp_rhf.py::test_rhf[he_def2-qzvp]' -q
+
+# benzene 收敛性测试（完整 SCF）
+cd benchmarks/comparison/tests/pyscf/statics/benzene/sponge
+SPONGE -mdin mdin.txt -qc_model_chemistry "HF/6-31g" \
+  -qc_scf_max_iter 30 -qc_scf_print_iter 1
+# 预期：SCF 收敛到 E ≈ -230.62 Ha（PySCF 参考值 -230.6237 Ha）
+```
+
+## 2. e3004ce SCF 发散 bug 定位与修复
+
+### 现象
+
+benzene HF/6-31g（66 基函数）跑 SCF：
+- **cbecc52（重构前）**：正确收敛到 E = -230.57 Ha ✓
+- **e3004ce（重构后）**：DIIS 锁定在错误的 -204 Ha，不发散但不收敛 ✗
+
+### 排查过程
+
+1. PySCF 零密度初猜 cycle 1 也得到 E = -204.01 Ha →
+   第一轮 Build_Fock 结果正确（direct SCF 没问题）
+2. 逐个回退 e3004ce 修改的文件：
+   - 回退 build_fock_cpu.hpp 的 JK 快速路径 → 仍然 bug
+   - 回退 cart2sph 优化 → 仍然 bug
+   - **回退 mix_converge.hpp → bug 消失，正确收敛到 -230.62 Ha**
+3. 确认 bug 在 e3004ce 重写的 mix_converge.hpp 中
+
+### 根因
+
+e3004ce 的 mix_converge.hpp 新增了 `QC_Density_Diff_Accumulate_Kernel`
+（使用 `atomicAdd` 对 double 累加）和 `QC_Mat_Dot_Accumulate_Kernel`
+等诊断代码。这些 kernel 在 CPU OpenMP 并行环境下可能导致内存安全问题，
+破坏了 SCF 密度矩阵的更新。
+
+### 修复方案
+
+- 保留 e3004ce 的 direct SCF 代码（build_fock.hpp、build_fock_cpu.hpp、
+  build_fock_gpu.hpp 等）
+- 使用 cbecc52 的 mix_converge.hpp（安全的密度混合逻辑）
+- 在 mix_converge.hpp 末尾添加安全的 print_iter 功能：仅读取已有的
+  d_scf_energy 和 d_delta_e，不新增 kernel
+
+### 当前状态
+
+代码已修复。benzene/6-31g 100 轮收敛到 -230.6228 Ha（PySCF
+参考值 -230.6237，误差 < 0.001 Ha，float32 精度范围内）。
+he_def2-qzvp 回归测试通过。
+
+## 3. 已保留优化
+
+当前代码基于 e3004ce 的 direct SCF 重构 + 修复后的 mix_converge.hpp。
+CPU/GPU Build_Fock 已分离（build_fock_cpu.hpp / build_fock_gpu.hpp）。
+
+### 3.1 screening 和任务形状优化
+
+- shell-pair activity / exact screen 强化
+- active quartet / active partner 遍历
+- 把 ~145 s 压到 ~115 s
+- 继续加 screening 快速进入负收益
+
+### 3.2 CPU 执行形状修正
+
+- CPU/GPU 的 Build_Fock 分开
+- thread-private Fock + reduce
+- bra-side primitive cache
+- pair-flat / pair-geometry 预处理
+
+### 3.3 Cartesian ERI 主内核优化
+
+- hr_offset 预计算
+- bra/ket sparse term list
+- 低角动量快路径
+- shell buffer 连续指针推进
+- generic 高角动量路径改成 pair-view
+
+### 3.4 Shell-level JK 快路径（验证有效，需要重新适配）
+
+问题：
+- QC_Accumulate_Fock_Unique_Quartet 被调用 23.4 亿次
+- 每次构 8 个 permutation 数组 + 56 次 duplicate 比较
+
+做法：
+- 对 I≠J, K≠L, IJ≠KL 的 general case（~97% 的 quartets），
+  直接内联 8 个 J 和 8 个 K 贡献，无需 permutation 枚举
+- 特殊情况走 fallback（原始代码）
+
+效果：
+- jk 线程累计 137 s → 30 s
+- 墙钟省 ~3 s
+
+### 3.5 CPU 专用 cart2sph（验证有效，需要重新适配）
+
+做法：
+- 新增 QC_Cart2Sph_Step_CPU / QC_Cart2Sph_Shell_ERI_CPU
+- 预加载 cart2sph 子矩阵到局部数组（消除大步长全局访问）
+- float 累加替代 double
+- broadcast-multiply 循环顺序（可自动向量化）
+
+效果：
+- cart2sph 线程累计 130 s → 50 s
+- 墙钟省 ~5-8 s
+
+## 4. 已证伪 / 已回退方向
+
+### 4.1 更激进的 screening 参数
+
+- 更大 qc_eri_pair_dist_screen_scale、更激进 prim_screen_tol
+- wall time 反而更差
+- screening 已不是最短路径
+
+### 4.2 dense 半收缩中间量
+
+思路：先把 bra terms 和 HR 收成 dense T[sx][sy][sz]
+
+结果：cart 从 301 s 涨到 642 s。dense 中间量构造成本高于
+sparse term list 节省。对中低 AM 的大量 quartets 尤其不利。
+
+### 4.3 ket primitive / ket term 复用方案
+
+- ket primitive cache / ket primitive 外层遍历
+- 一直是负收益或接近无收益
+
+### 4.4 pair-view 增加更多缓存字段 / descriptor / SoA
+
+- benzene 第 2 轮大多数都变慢
+
+### 4.5 bra-outer / ket-outer 双 helper / helper 拆分
+
+- 编译器更难优化，内核形状变差
+
+### 4.6 OpenMP 调度策略微调
+
+- guided 等改法明显差于 dynamic
+
+### 4.7 generic 热循环小 patch
+
+- 更激进 unroll、小分支、restrict 提示等
+- 大多数只是噪声或负收益
+
+## 5. 正确性验证口径
+
+### PySCF 参考值
+
+| 体系 | 基组 | PySCF E(Ha) | SCF 轮数 |
+|------|------|-------------|---------|
+| benzene | 6-31g | -230.6237 | 8 |
+| benzene | def2-qzvp | -230.7957 | 8 |
+| he | def2-qzvp | （回归测试） | — |
+
+### 验证要求
+
+1. he_def2-qzvp 回归测试通过
+2. benzene/6-31g 能收敛到 E ≈ -230.6 Ha（误差 < 0.1 Ha）
+3. benzene/def2-qzvp iter 2 的 Build_Fock 基准不劣化
+
+缺少第 2 条验证就做性能优化是无效的——e3004ce 的教训。
+
+## 6. 当前最短路径
+
+1. 在 cbecc52 基线上重新实施 CPU/GPU 分离和优化
+2. 每一步改动都必须通过 benzene/6-31g 收敛性测试
+3. JK 快速路径和 cart2sph 优化已验证有效，可以重新适配
+4. 避免回到已证伪的方向（screening、dense 半收缩、pair-view
+   字段膨胀等）
+
+## 7. 维护规则
+
+后面只要有新结果，就立刻更新这份文件，至少补三件事：
+- benchmark 数字
+- 具体改了什么
+- 正确性验证是否通过
