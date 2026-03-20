@@ -167,33 +167,60 @@ sparse term list 节省。对中低 AM 的大量 quartets 尤其不利。
 
 ### SCF 收敛现状
 
-- **benzene/6-31g**：DIIS start=1，~100 轮收敛到 -230.622 Ha ✓
+- **benzene/6-31g**：DIIS start=2，~100 轮收敛到 -230.622 Ha ✓
   （float32 精度下收敛慢，最终精度 ~0.002 Ha）
-- **benzene/def2-qzvp**：DIIS start=1，**无法收敛** ✗
-  DIIS 锁定在 -181 Ha 后 iter 8 发散到 +21313 Ha。
-  大基组下 float32 Fock 矩阵误差太大，DIIS 外推放大误差。
+- **benzene/def2-qzvp**：**无法收敛** ✗（当前首要目标）
+  - 无 Kahan：DIIS 锁定在 -181 Ha，不改善
+  - 有 Kahan（JK only）：iter 3 从 -181 跳到 -296，iter 4 发散
+  - 有 Kahan（全路径）：iter 3 到 -312，iter 4 仍发散
+  - PySCF float64 零密度初猜：cycle 1=-181, cycle 3=-217, 13 轮收敛
+  - 说明 Kahan 在改善精度（iter 3 越来越好），但还不够
 - **he/def2-qzvp**：回归测试通过 ✓
+
+### DIIS 参数敏感性
+
+- DIIS start=1：he/def2-qzvp 收敛到错误值 -2.75（应为 -2.86）
+  → 第一轮密度太差导致 DIIS 锁定
+- DIIS start=2：he 正确，benzene/6-31g 正确
+- DIIS start=8：he 正确但需要更多轮
+- DIIS stagnation reset：对已收敛体系误判为锁定，破坏结果。已删除。
+- 当前默认：DIIS start=2
+
+### 精度改善实验记录
+
+Kahan 求和覆盖范围和 benzene/def2-qzvp iter 3 能量：
+
+| 覆盖范围 | iter 3 E(Ha) | 说明 |
+|----------|-------------|------|
+| 无 Kahan | -181（锁定）| DIIS 不外推 |
+| JK 快路径 only | -296 | 有外推但不够 |
+| JK + ERI + fallback + reduce | -312 | 进一步改善 |
+| PySCF float64 | -217 | 13 轮收敛到 -230.8 |
 
 ### 验证要求
 
 1. he_def2-qzvp 回归测试通过
 2. benzene/6-31g 能收敛到 E ≈ -230.6 Ha（误差 < 0.1 Ha）
-3. benzene/def2-qzvp iter 2 的 Build_Fock 基准不劣化
-
-注意：第 3 条是性能基准，不是收敛性测试。def2-qzvp 在 float32
-direct SCF 下 SCF 不收敛，但单轮 Build_Fock 结果可用于 benchmark。
+3. benzene/def2-qzvp SCF 能收敛（**当前首要目标**）
 
 ## 6. 当前最短路径
 
-性能方面：
-1. 当前 ~27 s，之前最佳 ~22 s，差距来自 term-count 派发内核
-2. 下一步：按 outer_term_count 派发到固定大小内核（1..8）
-3. 继续避免已证伪方向
+**首要目标：benzene/def2-qzvp SCF 收敛**
 
-正确性方面：
-1. benzene/def2-qzvp SCF 不收敛是 float32 精度限制
-2. 可能需要混合精度方案（ERI 用 float32，Fock 累加用 float64）
-3. 或者改进 DIIS 算法（更好的初始猜测、子空间重置策略）
+Kahan 求和改善了 Fock 精度但还不够。剩余精度瓶颈可能在：
+1. ERI 内层累加（val 的 bra×ket term 乘积求和）还是 float32
+2. HR 张量计算（Boys 函数、MD 系数）是 float32
+3. 密度矩阵构建（特征值分解、MO 系数）是 float32
+4. cart2sph 变换是 float32
+
+下一步方向：
+1. 把 Fock 累加从 Kahan float32 改成真正的 double 累加
+   （d_F_thread 改为 double*，最后 cast 回 float）
+2. 或者找到具体是哪个环节的精度损失最大，针对性改
+
+性能方面：
+- 当前 ~27 s，之前最佳 ~22 s
+- 等收敛问题解决后再继续 term-count 派发优化
 
 ## 7. debug 教训
 
