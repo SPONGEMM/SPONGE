@@ -105,6 +105,54 @@ static inline void QC_Kahan_Add(float* sum, float* comp, const float val)
     *sum = t;
 }
 
+static inline void QC_Accumulate_Fock_Unique_Quartet_Kahan(
+    const int p, const int q, const int r, const int s, const float value,
+    const int nao, const float* P_coul, const float* P_exx_a,
+    const float* P_exx_b, const float exx_scale_a, const float exx_scale_b,
+    float* F_a, float* F_b, float* C_a, float* C_b)
+{
+    const int j_terms[8][4] = {{p, q, r, s}, {q, p, r, s}, {p, q, s, r},
+                               {q, p, s, r}, {r, s, p, q}, {s, r, p, q},
+                               {r, s, q, p}, {s, r, q, p}};
+    for (int n = 0; n < 8; n++)
+    {
+        bool duplicate = false;
+        for (int prev = 0; prev < n; prev++)
+            if (QC_Same_Ordered_Fock_Term(j_terms[n], j_terms[prev]))
+            { duplicate = true; break; }
+        if (duplicate) continue;
+        const int ii = j_terms[n][0], jj = j_terms[n][1];
+        const int kk = j_terms[n][2], ll = j_terms[n][3];
+        const float j_val = P_coul[kk * nao + ll] * value;
+        QC_Kahan_Add(&F_a[ii * nao + jj], &C_a[ii * nao + jj], j_val);
+        if (F_b != NULL)
+            QC_Kahan_Add(&F_b[ii * nao + jj], &C_b[ii * nao + jj], j_val);
+    }
+    const int k_terms[8][4] = {{p, r, q, s}, {p, s, q, r}, {q, r, p, s},
+                               {q, s, p, r}, {r, p, s, q}, {r, q, s, p},
+                               {s, p, r, q}, {s, q, r, p}};
+    for (int n = 0; n < 8; n++)
+    {
+        bool duplicate = false;
+        for (int prev = 0; prev < n; prev++)
+            if (QC_Same_Ordered_Fock_Term(k_terms[n], k_terms[prev]))
+            { duplicate = true; break; }
+        if (duplicate) continue;
+        const int ii = k_terms[n][0], jj = k_terms[n][1];
+        const int kk = k_terms[n][2], ll = k_terms[n][3];
+        if (exx_scale_a != 0.0f)
+        {
+            const float exx_a = -exx_scale_a * P_exx_a[kk * nao + ll] * value;
+            QC_Kahan_Add(&F_a[ii * nao + jj], &C_a[ii * nao + jj], exx_a);
+        }
+        if (F_b != NULL && P_exx_b != NULL && exx_scale_b != 0.0f)
+        {
+            const float exx_b = -exx_scale_b * P_exx_b[kk * nao + ll] * value;
+            QC_Kahan_Add(&F_b[ii * nao + jj], &C_b[ii * nao + jj], exx_b);
+        }
+    }
+}
+
 struct QC_Angular_Term_CPU
 {
     unsigned short hr_offset;
@@ -315,6 +363,10 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
         dims_cart[0] * dims_cart[1] * dims_cart[2] * dims_cart[3];
     if (shell_size > shell_buf_size) return false;
     for (int i = 0; i < shell_size; i++) shell_eri[i] = 0.0f;
+    // Use shell_tmp as Kahan compensation for ERI accumulation
+    // (shell_tmp is only used later by cart2sph, so safe to reuse here)
+    float* eri_comp = shell_tmp;
+    for (int i = 0; i < shell_size; i++) eri_comp[i] = 0.0f;
     if (bra_prims.empty()) return true;
 
     const int shell_stride_k = dims_cart[3];
@@ -444,6 +496,7 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
                         if (btc == 0) continue;
                         const QC_Angular_Term_CPU* bt = ll_bra[ij];
                         float* eri_ij = shell_eri + bra_geom[ij].shell_offset;
+                        float* ec_ij = eri_comp + bra_geom[ij].shell_offset;
                         for (int kl = 0; kl < ket_pair_count; kl++)
                         {
                             const int ktc = ll_ket_tc[kl];
@@ -458,7 +511,8 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
                                     val += bc * kt[ki].coeff *
                                            hr_b[(int)kt[ki].hr_offset];
                             }
-                            eri_ij[ket_geom[kl].shell_offset] += val * n_abcd;
+                            const int ko = ket_geom[kl].shell_offset;
+                            QC_Kahan_Add(&eri_ij[ko], &ec_ij[ko], val * n_abcd);
                         }
                     }
                 }
@@ -482,6 +536,7 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
                         const QC_Angular_Term_CPU* bt =
                             bra_terms_buf + (size_t)ij * QC_MAX_PAIR_TERM_COUNT_CPU;
                         float* eri_ij = shell_eri + bra_geom[ij].shell_offset;
+                        float* ec_ij = eri_comp + bra_geom[ij].shell_offset;
                         for (int kl = 0; kl < ket_pair_count; kl++)
                         {
                             const int ktc = ket_term_counts[kl];
@@ -522,7 +577,8 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
                                     val += oc * ip->coeff *
                                            hr_o[(int)ip->hr_offset];
                             }
-                            eri_ij[ket_geom[kl].shell_offset] += val * n_abcd;
+                            const int ko = ket_geom[kl].shell_offset;
+                            QC_Kahan_Add(&eri_ij[ko], &ec_ij[ko], val * n_abcd);
                         }
                     }
                 }
@@ -971,10 +1027,11 @@ static inline void QC_Build_Fock_Direct_CPU(
                                             dims_eff[2], dims_eff[3])];
                                     if (val == 0.0f) continue;
                                     thread_ao_unique_quartets++;
-                                    QC_Accumulate_Fock_Unique_Quartet(
+                                    QC_Accumulate_Fock_Unique_Quartet_Kahan(
                                         p, q, r, s, val, nao, P_coul,
                                         P_exx_a, P_exx_b, exx_scale_a,
-                                        exx_scale_b, F_a_accum, F_b_accum);
+                                        exx_scale_b, F_a_accum, F_b_accum,
+                                        C_a, C_b);
                                 }
                             }
                         }
@@ -1059,12 +1116,12 @@ static __global__ void QC_Reduce_Thread_Fock_Kernel(const int total,
 {
     SIMPLE_DEVICE_FOR(idx, total)
     {
-        float sum = F_out[idx];
+        double sum = (double)F_out[idx];
         for (int tid = 0; tid < n_threads; tid++)
         {
-            sum += F_thread[(size_t)tid * (size_t)total + (size_t)idx];
+            sum += (double)F_thread[(size_t)tid * (size_t)total + (size_t)idx];
         }
-        F_out[idx] = sum;
+        F_out[idx] = (float)sum;
     }
 }
 #endif
