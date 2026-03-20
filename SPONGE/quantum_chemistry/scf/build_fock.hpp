@@ -627,23 +627,6 @@ void QUANTUM_CHEMISTRY::Build_Fock()
         scf_ws.d_pair_density_exx_b);
     if (scf_ws.profile_build_fock)
         pair_density_time += omp_get_wtime() - pair_density_t0;
-#ifndef USE_GPU
-    {
-        static int bf_call_p = 0;
-        if (++bf_call_p == 2 && CONTROLLER::MPI_rank == 0)
-        {
-            FILE* fp;
-            fp = fopen("/tmp/sponge_P0_iter2.bin", "wb");
-            fwrite(scf_ws.d_P, sizeof(float), (size_t)mol.nao2, fp);
-            fclose(fp);
-            fp = fopen("/tmp/sponge_norms.bin", "wb");
-            fwrite(scf_ws.d_norms, sizeof(float), (size_t)mol.nao, fp);
-            fclose(fp);
-            printf("DUMPED P0+norms for iter2 (nao=%d)\n", mol.nao);
-            fflush(stdout);
-        }
-    }
-#endif
     if (scf_ws.profile_build_fock)
     {
 #ifndef USE_GPU
@@ -726,27 +709,6 @@ void QUANTUM_CHEMISTRY::Build_Fock()
     }
     if (scf_ws.profile_build_fock) reduce_time += omp_get_wtime() - reduce_t0;
 
-    if (CONTROLLER::MPI_rank == 0)
-    {
-        static int build_fock_call = 0;
-        build_fock_call++;
-        if (build_fock_call == 1)
-        {
-            FILE* fp = fopen("/tmp/sponge_F1_iter1.bin", "wb");
-            fwrite(scf_ws.d_F, sizeof(float), (size_t)mol.nao2, fp);
-            fclose(fp);
-            printf("DUMPED F1(iter1=Hcore) nao=%d\n", mol.nao);
-            fflush(stdout);
-        }
-        if (build_fock_call == 2)
-        {
-            FILE* fp = fopen("/tmp/sponge_F_iter2_build.bin", "wb");
-            fwrite(scf_ws.d_F, sizeof(float), (size_t)mol.nao2, fp);
-            fclose(fp);
-            printf("DUMPED F(iter2) nao=%d\n", mol.nao);
-            fflush(stdout);
-        }
-    }
 #endif
 
     if (scf_ws.profile_build_fock)

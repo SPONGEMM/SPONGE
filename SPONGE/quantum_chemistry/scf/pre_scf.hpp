@@ -49,25 +49,6 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
                          (mol.nbas + threads - 1) / threads, threads, 0, 0,
                          mol.nbas, mol.d_bas, mol.d_atm, mol.d_env,
                          mol.d_centers);
-#ifndef USE_GPU
-    if (CONTROLLER::MPI_rank == 0 && mol.natm > 0 && mol.nbas > 0)
-    {
-        const int md_idx = atom_local[0];
-        const int ptr_coord = mol.h_atm[1];
-        float env_xyz[3];
-        VECTOR center0;
-        deviceMemcpy(env_xyz, mol.d_env + ptr_coord, sizeof(env_xyz),
-                     deviceMemcpyDeviceToHost);
-        deviceMemcpy(&center0, mol.d_centers, sizeof(VECTOR),
-                     deviceMemcpyDeviceToHost);
-        printf(
-            "QC Coord Check | atom0 qc->md=%d | md(A)=(%.9f, %.9f, %.9f) | env(Bohr)=(%.9f, %.9f, %.9f) | center0(Bohr)=(%.9f, %.9f, %.9f)\n",
-            md_idx, crd[md_idx].x, crd[md_idx].y, crd[md_idx].z,
-            (double)env_xyz[0], (double)env_xyz[1], (double)env_xyz[2],
-            (double)center0.x, (double)center0.y, (double)center0.z);
-        fflush(stdout);
-    }
-#endif
 }
 
 // ========================== SCF 状态重置 =========================
@@ -121,33 +102,7 @@ void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
             mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm,
             mol.d_env, mol.natm, p_S, p_T, p_V, nao_c);
     }
-    // Dump S_cart BEFORE cart2sph
-#ifndef USE_GPU
-    if (mol.is_spherical && CONTROLLER::MPI_rank == 0)
-    {
-        FILE* fp = fopen("/tmp/sponge_S_cart.bin", "wb");
-        fwrite(cart2sph.d_S_cart, sizeof(float),
-               (size_t)mol.nao_cart * mol.nao_cart, fp);
-        fclose(fp);
-        printf("DUMPED S_cart to /tmp/sponge_S_cart.bin (nao_c=%d)\n",
-               mol.nao_cart);
-        fflush(stdout);
-    }
-#endif
     Cart2Sph_OneE_Integrals();
-
-    // Dump S_sph AFTER cart2sph, BEFORE normalization
-#ifndef USE_GPU
-    if (mol.is_spherical && CONTROLLER::MPI_rank == 0)
-    {
-        FILE* fp = fopen("/tmp/sponge_S_sph_pre_norm.bin", "wb");
-        fwrite(scf_ws.d_S, sizeof(float), (size_t)mol.nao * mol.nao, fp);
-        fclose(fp);
-        printf("DUMPED S_sph (pre-norm) to /tmp/sponge_S_sph_pre_norm.bin (nao=%d)\n",
-               mol.nao);
-        fflush(stdout);
-    }
-#endif
 }
 
 // ============================ 核排斥能 ===========================
@@ -256,16 +211,6 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
             task_ctx.eri_prim_screen_tol);
     }
 
-#ifndef USE_GPU
-    if (CONTROLLER::MPI_rank == 0)
-    {
-        FILE* fp = fopen("/tmp/sponge_S_sph.bin", "wb");
-        fwrite(scf_ws.d_S, sizeof(float), (size_t)nao2, fp);
-        fclose(fp);
-        printf("DUMPED S_sph to /tmp/sponge_S_sph.bin (nao=%d)\n", nao);
-        fflush(stdout);
-    }
-#endif
 }
 
 // ========================= 重叠正交化矩阵 =========================
@@ -317,36 +262,6 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
                          nao, scf_ws.d_Work, scf_ws.d_W,
                          scf_ws.overlap_eig_floor, scf_ws.d_X);
 
-#ifndef USE_GPU
-    if (CONTROLLER::MPI_rank == 0)
-    {
-        FILE* fp = fopen("/tmp/sponge_X.bin", "wb");
-        fwrite(scf_ws.d_X, sizeof(double), (size_t)nao2, fp);
-        fclose(fp);
-        printf("DUMPED X to /tmp/sponge_X.bin (nao=%d)\n", nao);
-        fflush(stdout);
-    }
-#endif
-
-    // Always print overlap eigenvalue diagnostics on CPU
-#ifndef USE_GPU
-    if (CONTROLLER::MPI_rank == 0)
-    {
-        scf_ws.h_W.resize(nao);
-        deviceMemcpy(scf_ws.h_W.data(), scf_ws.d_W, sizeof(float) * nao,
-                     deviceMemcpyDeviceToHost);
-        printf("Overlap eigenvalues (smallest 10):");
-        for (int i = 0; i < std::min(nao, 10); i++)
-            printf(" %.6e", (double)scf_ws.h_W[i]);
-        printf("\n");
-        int n_below_floor = 0;
-        for (int i = 0; i < nao; i++)
-            if (scf_ws.h_W[i] < scf_ws.overlap_eig_floor) n_below_floor++;
-        printf("Overlap eig_floor=%.1e | n_below=%d | nao=%d\n",
-               (double)scf_ws.overlap_eig_floor, n_below_floor, nao);
-        fflush(stdout);
-    }
-#endif
     if (scf_ws.print_iter && CONTROLLER::MPI_rank == 0)
     {
         // Compute X^T * S * X in double to check orthogonality

@@ -170,13 +170,6 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
         deviceMemcpy(cart2sph.d_cart2sph_mat, cart2sph_mat.data(),
                      sizeof(float) * cart2sph_mat.size(),
                      deviceMemcpyHostToDevice);
-        // Dump c2s matrix for debugging
-        FILE* fp = fopen("/tmp/sponge_c2s_mat.bin", "wb");
-        fwrite(cart2sph_mat.data(), sizeof(float), cart2sph_mat.size(), fp);
-        fclose(fp);
-        printf("DUMPED c2s_mat: size=%zu (nao_c=%d nao_s=%d) c2s[0]=%f\n",
-               cart2sph_mat.size(), nao_c, nao_s, cart2sph_mat[0]);
-        fflush(stdout);
     }
 }
 
