@@ -237,8 +237,16 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
 {
     if (!scf_ws.use_diis || (iter + 1) < scf_ws.diis_start_iter) return;
 
-    // Check if DIIS is stagnating: energy not improving for several iters
-    // If so, reset DIIS subspace to let SCF escape local minimum
+    // After a DIIS reset, skip DIIS for a few iterations to let
+    // plain density mixing stabilize before DIIS re-engages
+    if (scf_ws.diis_cooldown > 0)
+    {
+        scf_ws.diis_cooldown--;
+        return;
+    }
+
+    // Check if DIIS is stagnating: energy not improving
+    // If so, reset DIIS subspace and enter cooldown
     {
         double h_energy = 0.0;
         deviceMemcpy(&h_energy, scf_ws.d_scf_energy, sizeof(double),
@@ -254,7 +262,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
             else
             {
                 scf_ws.diis_stagnant_count++;
-                if (scf_ws.diis_stagnant_count >= 5)
+                if (scf_ws.diis_stagnant_count >= 3)
                 {
                     QC_DIIS_Reset(scf_ws.diis_hist_count,
                                   scf_ws.diis_hist_head);
@@ -263,6 +271,8 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
                                       scf_ws.diis_hist_head_b);
                     scf_ws.diis_stagnant_count = 0;
                     scf_ws.diis_best_energy = h_energy;
+                    scf_ws.diis_cooldown = 3;
+                    return;
                 }
             }
         }

@@ -107,6 +107,7 @@ struct QC_SCF_WORKSPACE
     int diis_hist_head_b = 0;
     double diis_best_energy = 1e30;
     int diis_stagnant_count = 0;
+    int diis_cooldown = 0;
 };
 
 #endif
