@@ -4,6 +4,13 @@
   "pyscf_version": "2.12.1",
   "entries": [
     {
+      "case_name": "ace_ala4_nme",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -1227.4555965080644
+    },
+    {
       "case_name": "benzene",
       "method_name": "HF",
       "basis_name": "def2-qzvp",

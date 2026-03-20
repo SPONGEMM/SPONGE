@@ -19,6 +19,7 @@ REFERENCE_CASES = [
     ("he", "HF", "def2-tzvp", True),
     ("h2", "HF", "def2-tzvpp", True),
     ("he", "HF", "def2-qzvp", True),
+    ("ace_ala4_nme", "HF", "def2-svp", True),
     ("benzene", "HF", "def2-qzvp", True),
     ("h2", "HF", "cc-pvdz", True),
     ("he", "HF", "cc-pvtz", True),
