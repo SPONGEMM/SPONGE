@@ -14,7 +14,6 @@
 #include "basis/basis_def2_tzvp.hpp"
 #include "basis/basis_def2_tzvpp.hpp"
 #include "basis/basis_sto_3g.hpp"
-#include "internal/qc_compile_config.hpp"
 
 static inline bool Equals_Ignore_Case(const std::string& lhs, const char* rhs)
 {

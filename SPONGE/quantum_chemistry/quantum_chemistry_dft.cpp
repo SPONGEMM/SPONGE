@@ -1,6 +1,5 @@
 #include "quantum_chemistry.h"
 
-#include "internal/qc_compile_config.hpp"
 
 #include "dft/ao.hpp"
 #include "dft/dft.hpp"

@@ -10,6 +10,19 @@
 #include "structure/molecule.h"
 #include "structure/scf_workspace.h"
 
+// Compile-time constants for quantum chemistry
+#define ONE_E_BATCH_SIZE 4096
+#define PI_25 17.4934183276248628469f
+#define HR_BASE_MAX 17
+#define HR_SIZE_MAX 83521
+#define ONEE_MD_BASE 9
+#define ONEE_MD_IDX(t, u, v, n) \
+    ((((t) * ONEE_MD_BASE + (u)) * ONEE_MD_BASE + (v)) * ONEE_MD_BASE + (n))
+#define ERI_BATCH_SIZE 128
+#define MAX_CART_SHELL 15
+#define MAX_SHELL_ERI \
+    (MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL)
+
 struct QUANTUM_CHEMISTRY
 {
    public:

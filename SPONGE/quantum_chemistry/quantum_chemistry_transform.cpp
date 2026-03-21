@@ -1,6 +1,5 @@
 #include "quantum_chemistry.h"
 
-#include "internal/qc_compile_config.hpp"
 #include "scf/matrix.hpp"
 
 // 用于将归一化笛卡尔基映射到归一化实球谐基
