@@ -154,7 +154,11 @@ def _normalize_sponge_input_files_for_platform(sponge_dir: Path):
 
 
 def run_sponge_scf_energy_ha(
-    sponge_dir: Path, model_chemistry: str, restricted: bool, mpi_np=None
+    sponge_dir: Path,
+    model_chemistry: str,
+    restricted: bool,
+    mpi_np=None,
+    extra_sponge_args=None,
 ):
     output = Runner.run_sponge(
         sponge_dir,
@@ -162,7 +166,8 @@ def run_sponge_scf_energy_ha(
         mdin_name="mdin.txt",
         sponge_cmd=os.environ.get("SPONGE_BIN", "SPONGE"),
         extra_args=["-qc_model_chemistry", model_chemistry]
-        + ([] if restricted else ["-qc_restricted", "0"]),
+        + ([] if restricted else ["-qc_restricted", "0"])
+        + (extra_sponge_args or []),
     )
 
     matches = QC_ENERGY_PATTERN.findall(output)
@@ -406,6 +411,7 @@ def run_sponge_vs_pyscf(
     restricted: bool,
     run_prefix: str,
     mpi_np=None,
+    extra_sponge_args=None,
 ):
     model_chemistry = f"{method_name}/{basis_name}"
     run_name = "_".join(
@@ -430,6 +436,7 @@ def run_sponge_vs_pyscf(
         model_chemistry=model_chemistry,
         restricted=restricted,
         mpi_np=mpi_np,
+        extra_sponge_args=extra_sponge_args,
     )
     pyscf_energy_ha = get_pyscf_reference_energy_ha(
         statics_path=statics_path,
