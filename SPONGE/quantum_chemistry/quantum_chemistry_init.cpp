@@ -1,4 +1,4 @@
-﻿#include "quantum_chemistry.h"
+#include "quantum_chemistry.h"
 
 #include "basis/basis_3_21g.hpp"
 #include "basis/basis_631g.hpp"
@@ -14,25 +14,7 @@
 #include "basis/basis_def2_tzvp.hpp"
 #include "basis/basis_def2_tzvpp.hpp"
 #include "basis/basis_sto_3g.hpp"
-
-// 计算单电子积分的批大小
-#define ONE_E_BATCH_SIZE 4096
-
-#define PI_25 17.4934183276248628469f
-#define HR_BASE_MAX 17
-#define HR_SIZE_MAX 83521
-#define ONEE_MD_BASE 9
-#define ONEE_MD_IDX(t, u, v, n) \
-    ((((t) * ONEE_MD_BASE + (u)) * ONEE_MD_BASE + (v)) * ONEE_MD_BASE + (n))
-#define ERI_BATCH_SIZE 128
-#define MAX_CART_SHELL 15
-#define MAX_SHELL_ERI \
-    (MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL)
-
-#include "dft/dft.hpp"
-#include "integrals/eri.hpp"
-#include "integrals/one_e.hpp"
-#include "scf/matrix.hpp"
+#include "internal/qc_compile_config.hpp"
 
 static inline bool Equals_Ignore_Case(const std::string& lhs, const char* rhs)
 {
@@ -704,6 +686,7 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
 void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
                                 const VECTOR* crd, const char* module_name)
 {
+    (void)crd;
     if (module_name == NULL)
     {
         strcpy(this->module_name, "quantum_chemistry");
@@ -846,10 +829,3 @@ void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)
     }
     controller->Step_Print("QC", scf_energy * CONSTANT_HARTREE_TO_KCAL_MOL);
 }
-
-#include "dft/ao.hpp"
-#include "dft/grid.hpp"
-#include "dft/vxc.hpp"
-#include "dft/xc.hpp"
-#include "integrals/cart2sph.hpp"
-#include "scf/scf.hpp"

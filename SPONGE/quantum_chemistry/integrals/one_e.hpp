@@ -68,7 +68,7 @@ __forceinline__ static void QC_Get_Lxyz_Host(int l, int idx, int& lx, int& ly,
     lz = QC_COMP_LZ_HOST[offset + idx];
 }
 
-__device__ void get_overlap1d_arr(int l1, int l2, float PA, float PB,
+static __device__ void get_overlap1d_arr(int l1, int l2, float PA, float PB,
                                   float gamma, float res[6][6])
 {
     res[0][0] = sqrtf(CONSTANT_Pi / gamma);
@@ -94,7 +94,7 @@ __device__ void get_overlap1d_arr(int l1, int l2, float PA, float PB,
     }
 }
 
-__device__ float get_overlap1d_val(int l1, int l2, float PA, float PB,
+static __device__ float get_overlap1d_val(int l1, int l2, float PA, float PB,
                                    float gamma)
 {
     float res[6][6];
@@ -102,7 +102,7 @@ __device__ float get_overlap1d_val(int l1, int l2, float PA, float PB,
     return res[l1][l2];
 }
 
-__device__ float get_kin1d(int l1, int l2, float PA, float PB, float gamma,
+static __device__ float get_kin1d(int l1, int l2, float PA, float PB, float gamma,
                            float alpha, float beta, float res[6][6])
 {
     get_overlap1d_arr(l1 + 1, l2 + 1, PA, PB, gamma, res);
@@ -114,7 +114,7 @@ __device__ float get_kin1d(int l1, int l2, float PA, float PB, float gamma,
     return t;
 }
 
-__device__ void compute_boys(float* F, float t, int max_m)
+static __device__ void compute_boys(float* F, float t, int max_m)
 {
     float exp_t = expf(-t);
     if (t < 1e-7f)
@@ -139,7 +139,7 @@ __device__ void compute_boys(float* F, float t, int max_m)
 
 // Double-precision Boys function. Uses downward recursion for t ≤ 30,
 // upward in double for t > 30. Output stays double for R-tensor seeding.
-__device__ void compute_boys_double(double* F, float t, int max_m)
+static __device__ void compute_boys_double(double* F, float t, int max_m)
 {
     const double td = (double)t;
     if (td < 1e-15)
@@ -175,7 +175,7 @@ __device__ void compute_boys_double(double* F, float t, int max_m)
     }
 }
 
-__device__ void compute_boys_stable(float* F, float t, int max_m)
+static __device__ void compute_boys_stable(float* F, float t, int max_m)
 {
     if (t < 1e-8f)
     {
@@ -216,7 +216,7 @@ __device__ void compute_boys_stable(float* F, float t, int max_m)
     }
 }
 
-__device__ void compute_md_coeffs(float E[5][5][9], int la_max, int lb_max,
+static __device__ void compute_md_coeffs(float E[5][5][9], int la_max, int lb_max,
                                   float PA, float PB, float one_over_2p)
 {
     for (int i = 0; i < 5; i++)
@@ -256,7 +256,7 @@ __device__ void compute_md_coeffs(float E[5][5][9], int la_max, int lb_max,
     }
 }
 
-__device__ void compute_r_tensor_1e(float* R, double* F, float alpha,
+static __device__ void compute_r_tensor_1e(float* R, double* F, float alpha,
                                     float PC[3], int L_tot)
 {
     int total_size = ONEE_MD_BASE * ONEE_MD_BASE * ONEE_MD_BASE * ONEE_MD_BASE;

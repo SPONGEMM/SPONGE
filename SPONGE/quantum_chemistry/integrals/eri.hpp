@@ -2,7 +2,7 @@
 
 #include "one_e.hpp"
 
-__device__ void compute_hr_tensor(float* HR, float alpha, float PQ[3],
+static __device__ void compute_hr_tensor(float* HR, float alpha, float PQ[3],
                                   int L_tot, int hr_base, float t_arg)
 {
     // Use double Boys + double seeding to avoid (-2α)^n amplification

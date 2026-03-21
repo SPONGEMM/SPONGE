@@ -79,6 +79,9 @@ struct QUANTUM_CHEMISTRY
     void Compute_Nuclear_Repulsion(const VECTOR box_length);
     void Prepare_Integrals();
 
+    // DFT VXC 构建（在 dft.cpp 中实现）
+    void Build_DFT_VXC();
+
     // SCF 循环内部流程
     void Build_Fock();
     void Accumulate_SCF_Energy(int iter);
