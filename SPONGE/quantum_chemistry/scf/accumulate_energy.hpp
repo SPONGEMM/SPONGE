@@ -30,33 +30,25 @@ static __global__ void QC_Update_Convergence_Flag_Kernel(const int iter,
 
 void QUANTUM_CHEMISTRY::Accumulate_SCF_Energy(int iter)
 {
-    const int energy_threads = 256;
-    const int energy_blocks = (mol.nao2 + energy_threads - 1) / energy_threads;
-
     deviceMemset(scf_ws.d_e, 0, sizeof(double));
-    Launch_Device_Kernel(QC_Elec_Energy_Accumulate_Kernel, energy_blocks,
-                         energy_threads, 0, 0, mol.nao2, scf_ws.d_P,
-                         scf_ws.d_H_core, scf_ws.d_F, scf_ws.d_e);
+    QC_Elec_Energy_Accumulate(mol.nao2, scf_ws.d_P, scf_ws.d_H_core,
+                              scf_ws.d_F, scf_ws.d_e);
 
     if (scf_ws.unrestricted)
     {
         deviceMemset(scf_ws.d_e_b, 0, sizeof(double));
-        Launch_Device_Kernel(QC_Elec_Energy_Accumulate_Kernel, energy_blocks,
-                             energy_threads, 0, 0, mol.nao2, scf_ws.d_P_b,
-                             scf_ws.d_H_core, scf_ws.d_F_b, scf_ws.d_e_b);
+        QC_Elec_Energy_Accumulate(mol.nao2, scf_ws.d_P_b, scf_ws.d_H_core,
+                                  scf_ws.d_F_b, scf_ws.d_e_b);
     }
 
     deviceMemset(scf_ws.d_pvxc, 0, sizeof(double));
     if (dft.enable_dft)
     {
-        Launch_Device_Kernel(QC_Mat_Dot_Accumulate_Kernel, energy_blocks,
-                             energy_threads, 0, 0, mol.nao2, scf_ws.d_P,
-                             dft.d_Vxc, scf_ws.d_pvxc);
+        QC_Mat_Dot_Accumulate(mol.nao2, scf_ws.d_P, dft.d_Vxc, scf_ws.d_pvxc);
         if (scf_ws.unrestricted)
         {
-            Launch_Device_Kernel(QC_Mat_Dot_Accumulate_Kernel, energy_blocks,
-                                 energy_threads, 0, 0, mol.nao2, scf_ws.d_P_b,
-                                 dft.d_Vxc_beta, scf_ws.d_pvxc);
+            QC_Mat_Dot_Accumulate(mol.nao2, scf_ws.d_P_b, dft.d_Vxc_beta,
+                                  scf_ws.d_pvxc);
         }
     }
 

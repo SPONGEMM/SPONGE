@@ -30,10 +30,7 @@ bool QUANTUM_CHEMISTRY::Mix_And_Check_Convergence(int iter, int md_step)
             QC_Mix_Density_Kernel, (mol.nao2 + mix_threads - 1) / mix_threads,
             mix_threads, 0, 0, mol.nao2, iter, scf_ws.density_mixing,
             scf_ws.d_P_b_new, scf_ws.d_P_b);
-        Launch_Device_Kernel(QC_Add_Matrix_Kernel,
-                             (mol.nao2 + mix_threads - 1) / mix_threads,
-                             mix_threads, 0, 0, (int)mol.nao2, scf_ws.d_P,
-                             scf_ws.d_P_b, scf_ws.d_Ptot);
+        QC_Add_Matrix((int)mol.nao2, scf_ws.d_P, scf_ws.d_P_b, scf_ws.d_Ptot);
     }
 
     if (scf_ws.print_iter && scf_output_file != NULL && CONTROLLER::MPI_rank == 0)

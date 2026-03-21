@@ -8,6 +8,7 @@
 #include "structure/integral_tasks.h"
 #include "structure/method.h"
 #include "structure/molecule.h"
+#include "structure/matrix.h"
 #include "structure/scf_workspace.h"
 
 // Compile-time constants for quantum chemistry

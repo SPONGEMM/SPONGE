@@ -95,14 +95,10 @@ static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
                                        double* d_tmp3)
 {
     const int nao2 = nao * nao;
-    const int threads = 256;
-    const int blocks = (nao2 + threads - 1) / threads;
 
     // Promote P and S to double
-    Launch_Device_Kernel(QC_Float_To_Double_Kernel, blocks, threads, 0, 0,
-                         nao2, d_P, d_tmp1);  // d_tmp1 = dP
-    Launch_Device_Kernel(QC_Float_To_Double_Kernel, blocks, threads, 0, 0,
-                         nao2, d_S, d_tmp2);  // d_tmp2 = dS
+    QC_Float_To_Double(nao2, d_P, d_tmp1);  // d_tmp1 = dP
+    QC_Float_To_Double(nao2, d_S, d_tmp2);  // d_tmp2 = dS
 
     // d_tmp3 = F * P
     QC_Dgemm_NN(blas_handle, nao, nao, nao, d_F, nao, d_tmp1, nao, d_tmp3, nao);
@@ -113,8 +109,7 @@ static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
     // d_tmp1 = SP * F
     QC_Dgemm_NN(blas_handle, nao, nao, nao, d_tmp3, nao, d_F, nao, d_tmp1, nao);
     // d_err = FPS - SPF
-    Launch_Device_Kernel(QC_Double_Sub_Kernel, blocks, threads, 0, 0,
-                         nao2, d_err, d_tmp1, d_err);
+    QC_Double_Sub(nao2, d_err, d_tmp1, d_err);
 }
 
 static void QC_DIIS_History_Push_Double(int nao2, int diis_space,
@@ -153,7 +148,6 @@ static bool QC_DIIS_Extrapolate_Double(int nao, int diis_space, int hist_count,
     if (m < 2) return false;
     const int n = m + 1;
     const int nao2 = nao * nao;
-    const int threads = 256;
     auto hist_idx = [&](int logical_idx) -> int
     { return (hist_head + logical_idx) % diis_space; };
 
@@ -173,10 +167,8 @@ static bool QC_DIIS_Extrapolate_Double(int nao, int diis_space, int hist_count,
         for (int j = 0; j <= i; j++)
         {
             deviceMemset(d_accum, 0, sizeof(double));
-            Launch_Device_Kernel(QC_Double_Dot_Kernel,
-                                 (nao2 + threads - 1) / threads, threads, 0, 0,
-                                 nao2, d_e_hist[hist_idx(i)],
-                                 d_e_hist[hist_idx(j)], d_accum);
+            QC_Double_Dot(nao2, d_e_hist[hist_idx(i)],
+                         d_e_hist[hist_idx(j)], d_accum);
             double v;
             deviceMemcpy(&v, d_accum, sizeof(double), deviceMemcpyDeviceToHost);
             if (i == j) v += reg;
@@ -268,9 +260,7 @@ do_extrapolate:
     for (int i = 0; i < m; i++)
     {
         double c = h_rhs[i];
-        Launch_Device_Kernel(QC_Double_Axpy_Kernel,
-                             (nao2 + threads - 1) / threads, threads, 0, 0,
-                             nao2, c, d_f_hist[hist_idx(i)], d_f_out);
+        QC_Double_Axpy(nao2, c, d_f_hist[hist_idx(i)], d_f_out);
     }
     return true;
 }
@@ -293,7 +283,6 @@ static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
     const int m = std::min(adiis_count, diis_space);
     if (m < 2) return false;
     const int nao2 = nao * nao;
-    const int threads = 256;
     auto hist_idx = [&](int i) { return (adiis_head + i) % diis_space; };
 
     // df[i,j] = Tr(D_i * F_j) -- compute on device
@@ -303,10 +292,8 @@ static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
         for (int j = 0; j < m; j++)
         {
             deviceMemset(d_accum, 0, sizeof(double));
-            Launch_Device_Kernel(QC_Double_Dot_Kernel,
-                                 (nao2 + threads - 1) / threads, threads, 0, 0,
-                                 nao2, d_d_hist[hist_idx(i)],
-                                 d_f_hist[hist_idx(j)], d_accum);
+            QC_Double_Dot(nao2, d_d_hist[hist_idx(i)],
+                         d_f_hist[hist_idx(j)], d_accum);
             deviceMemcpy(&df[i * m + j], d_accum, sizeof(double),
                          deviceMemcpyDeviceToHost);
         }
@@ -374,9 +361,7 @@ static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
     for (int i = 0; i < m; i++)
     {
         double ci = c[i];
-        Launch_Device_Kernel(QC_Double_Axpy_Kernel,
-                             (nao2 + threads - 1) / threads, threads, 0, 0,
-                             nao2, ci, d_f_hist[hist_idx(i)], d_f_out);
+        QC_Double_Axpy(nao2, ci, d_f_hist[hist_idx(i)], d_f_out);
     }
     return true;
 }
@@ -388,7 +373,6 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     double* dF = scf_ws.d_F_double;
     if (!dF) return;
     const int nao2 = (int)mol.nao2;
-    const int threads = 256;
 
     // Compute DIIS error and its norm (device-side)
     QC_Build_DIIS_Error_Double(blas_handle, mol.nao, dF, scf_ws.d_P, scf_ws.d_S,
@@ -399,10 +383,8 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
 
     // Compute error norm on device
     deviceMemset(scf_ws.d_diis_accum, 0, sizeof(double));
-    Launch_Device_Kernel(QC_Double_Dot_Kernel,
-                         (nao2 + threads - 1) / threads, threads, 0, 0,
-                         nao2, scf_ws.d_diis_err, scf_ws.d_diis_err,
-                         scf_ws.d_diis_accum);
+    QC_Double_Dot(nao2, scf_ws.d_diis_err, scf_ws.d_diis_err,
+                  scf_ws.d_diis_accum);
     double enorm_sq;
     deviceMemcpy(&enorm_sq, scf_ws.d_diis_accum, sizeof(double),
                  deviceMemcpyDeviceToHost);
@@ -423,10 +405,8 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         if (ac < ws) ac++;
         else ah = (ah + 1) % ws;
         // Store density as double on device
-        Launch_Device_Kernel(QC_Float_To_Double_Copy_Kernel,
-                             (nao2 + threads - 1) / threads, threads, 0, 0,
-                             nao2, scf_ws.d_P,
-                             scf_ws.d_adiis_d_hist[write_idx]);
+        QC_Float_To_Double_Copy(nao2, scf_ws.d_P,
+                                scf_ws.d_adiis_d_hist[write_idx]);
     }
 
     bool extrapolated = false;
@@ -453,9 +433,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         if (extrapolated)
         {
             // Copy extrapolated double Fock back to float
-            Launch_Device_Kernel(QC_Double_To_Float_Kernel,
-                                 (nao2 + threads - 1) / threads, threads, 0, 0,
-                                 nao2, dF, scf_ws.d_F);
+            QC_Double_To_Float(nao2, dF, scf_ws.d_F);
         }
     }
 
@@ -481,9 +459,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
                 scf_ws.d_diis_e_hist_b.data(), scf_ws.diis_reg, dFb,
                 scf_ws.d_diis_accum))
         {
-            Launch_Device_Kernel(QC_Double_To_Float_Kernel,
-                                 (nao2 + threads - 1) / threads, threads, 0, 0,
-                                 nao2, dFb, scf_ws.d_F_b);
+            QC_Double_To_Float(nao2, dFb, scf_ws.d_F_b);
         }
     }
 }

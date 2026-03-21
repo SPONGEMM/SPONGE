@@ -3,5 +3,5 @@
 
 #include "integrals/eri.hpp"
 #include "integrals/one_e.hpp"
-#include "scf/matrix.hpp"
+#include "structure/matrix.h"
 #include "scf/scf.hpp"

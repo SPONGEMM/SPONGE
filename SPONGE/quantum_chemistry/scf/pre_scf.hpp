@@ -224,12 +224,9 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
 {
     const int nao = mol.nao;
     const int nao2 = mol.nao2;
-    const int threads = 256;
-    const int blocks = (nao2 + threads - 1) / threads;
 
     // Promote S (float) to double workspace
-    Launch_Device_Kernel(QC_Float_To_Double_Kernel, blocks, threads, 0, 0,
-                         nao2, scf_ws.d_S, scf_ws.d_dwork_nao2_1);
+    QC_Float_To_Double(nao2, scf_ws.d_S, scf_ws.d_dwork_nao2_1);
 
     // Diagonalize S in double: eigvecs overwrite d_dwork_nao2_1, eigenvals in d_dW_double
     int info = 0;
@@ -238,8 +235,7 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
                           scf_ws.lwork_double, &info);
 
     // Copy eigenvalues to float d_W
-    Launch_Device_Kernel(QC_Double_To_Float_Kernel, (nao + threads - 1) / threads,
-                         threads, 0, 0, nao, scf_ws.d_dW_double, scf_ws.d_W);
+    QC_Double_To_Float(nao, scf_ws.d_dW_double, scf_ws.d_W);
 
     // Count nao_eff on host (need eigenvalues on host for this)
     std::vector<double> h_W(nao);
@@ -253,8 +249,6 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
 
     // Build X on device
     deviceMemset(scf_ws.d_X, 0, sizeof(double) * nao2);
-    Launch_Device_Kernel(QC_Build_X_Canonical_Kernel,
-                         (nao + threads - 1) / threads, threads, 0, 0,
-                         nao, nao_eff, scf_ws.d_dwork_nao2_1,
+    QC_Build_X_Canonical(nao, nao_eff, scf_ws.d_dwork_nao2_1,
                          scf_ws.d_dW_double, lindep_thresh, scf_ws.d_X);
 }

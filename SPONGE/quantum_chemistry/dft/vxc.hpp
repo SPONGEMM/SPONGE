@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "../scf/matrix.hpp"
+#include "../structure/matrix.h"
 #include "dft.hpp"
 #include "grid.hpp"
 #include "xc.hpp"
