@@ -152,13 +152,6 @@ enum deviceEigMode_t
                 (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),    \
                 (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m, \
                 n, k, *(alpha), A, lda, B, ldb, *(beta), C, ldc)
-
-#define deviceBlasDgemm(handle, transa, transb, m, n, k, alpha, A, lda, B,   \
-                        ldb, beta, C, ldc)                                   \
-    cblas_dgemm(CblasColMajor,                                               \
-                (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),    \
-                (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m, \
-                n, k, *(alpha), A, lda, B, ldb, *(beta), C, ldc)
 #endif
 
 #endif  // BLAS_BACKEND_H

@@ -214,7 +214,6 @@ static inline deviceModuleResult_t deviceModuleLaunchKernel(
 #define deviceBlasDestroy cublasDestroy
 #define deviceBlasSgeam cublasSgeam
 #define deviceBlasSgemm cublasSgemm
-#define deviceBlasDgemm cublasDgemm
 
 #endif  // BLAS_BACKEND_H
 
@@ -233,7 +232,5 @@ static inline deviceModuleResult_t deviceModuleLaunchKernel(
 #define deviceSolverDestroy cusolverDnDestroy
 #define deviceSolverSsyevdBufferSize cusolverDnSsyevd_bufferSize
 #define deviceSolverSsyevd cusolverDnSsyevd
-#define deviceSolverDsyevdBufferSize cusolverDnDsyevd_bufferSize
-#define deviceSolverDsyevd cusolverDnDsyevd
 
 #endif  // SOLVER_BACKEND_H
