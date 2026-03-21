@@ -263,11 +263,6 @@ void QUANTUM_CHEMISTRY::Build_Overlap_X()
         if (dW[k] >= lindep_thresh) nao_eff++;
     const int n_discarded = nao - nao_eff;
     scf_ws.nao_eff = nao_eff;
-    if (n_discarded > 0)
-        printf("Canonical orthogonalization: discarded %d of %d eigenvectors "
-               "(threshold=%.1e, w_min_kept=%.6e)\n",
-               n_discarded, nao, lindep_thresh,
-               dW[nao - nao_eff]);
 
     // Build X[i, col] = U[i, k] / sqrt(W[k]) for kept eigenvectors
     // col runs 0..nao_eff-1, k runs over kept eigenvalues
