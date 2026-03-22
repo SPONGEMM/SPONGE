@@ -41,10 +41,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
           run-install: false
 
@@ -74,9 +74,6 @@ jobs:
 
       - name: Benchmark validation/thermostat
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat
-
-      - name: Benchmark validation/barostat
-        run: pixi run -e ${{ matrix.env_name }} vali-barostat
 
       - name: Benchmark validation/misc (except prips and minimization)
         run: >-
@@ -112,10 +109,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
           run-install: false
 
@@ -156,6 +153,89 @@ jobs:
           PRIPS_TEST_BACKEND: pytorch
           KMP_DUPLICATE_LIB_OK: ${{ matrix.target == 'win-64' && 'TRUE' || '' }}
 
+  benchmark-cpu-barostat:
+    name: benchmark-cpu-barostat (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+            shard: all
+            label: linux-aarch64
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+            shard: all
+            label: linux-64
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+            shard: andersen
+            label: win-64, andersen
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+            shard: bussi
+            label: win-64, bussi
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+            shard: berendsen
+            label: win-64, berendsen
+          - feature: cpu
+            env_name: dev-cpu
+            target: osx-arm64
+            runner: macos-14
+            shard: all
+            label: osx-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install dev-cpu environment
+        run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Configure SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Compile SPONGE-CPU
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Benchmark validation/barostat (full)
+        if: matrix.shard == 'all'
+        run: pixi run -e ${{ matrix.env_name }} vali-barostat
+
+      - name: Benchmark validation/barostat (regulate shard)
+        if: matrix.shard != 'all'
+        run: >-
+          pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
+          benchmarks/validation/barostat/tests/test_regulate.py -s --tb=short
+          -k ${{ matrix.shard }}_barostat
+
+      - name: Benchmark validation/barostat (schedule inputs once)
+        if: matrix.shard == 'andersen'
+        run: >-
+          pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
+          benchmarks/validation/barostat/tests/test_schedule_inputs.py -s
+          --tb=short
+
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
@@ -177,10 +257,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
           run-install: false
 
@@ -208,13 +288,84 @@ jobs:
       - name: Benchmark validation/thermostat (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat --mpi 2
 
-      - name: Benchmark validation/barostat (MPI np=2)
-        run: pixi run -e ${{ matrix.env_name }} vali-barostat --mpi 2
-
       - name: Benchmark validation/misc (walls and softcore, MPI np=2)
         run: >-
           pixi run -e ${{ matrix.env_name }} vali-misc --mpi 2 -k
           "walls or softcore"
+
+  benchmark-cpu-mpi-np2-barostat:
+    name: benchmark-cpu-mpi-np2-barostat (${{ matrix.label }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+            shard: all
+            label: linux-aarch64
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+            shard: andersen
+            label: linux-64, andersen
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+            shard: bussi
+            label: linux-64, bussi
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+            shard: berendsen
+            label: linux-64, berendsen
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install dev-cpu-mpi environment
+        run: pixi install -e ${{ matrix.env_name }}
+
+      - name: Format check
+        run: pixi run -e ${{ matrix.env_name }} format-check
+
+      - name: Configure SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Compile SPONGE-CPU-MPI
+        run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Benchmark validation/barostat (MPI np=2, full)
+        if: matrix.shard == 'all'
+        run: pixi run -e ${{ matrix.env_name }} vali-barostat --mpi 2
+
+      - name: Benchmark validation/barostat (MPI np=2, regulate shard)
+        if: matrix.shard != 'all'
+        run: >-
+          pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
+          benchmarks/validation/barostat/tests/test_regulate.py -s --tb=short
+          --mpi 2 -k ${{ matrix.shard }}_barostat
+
+      - name: Benchmark validation/barostat (MPI np=2, schedule inputs once)
+        if: matrix.shard == 'andersen'
+        run: >-
+          pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
+          benchmarks/validation/barostat/tests/test_schedule_inputs.py -s
+          --tb=short --mpi 2
 
   benchmark-cpu-mpi-np3:
     name: benchmark-cpu-mpi-np3 (${{ matrix.target }})
@@ -237,10 +388,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Pixi
-        uses: prefix-dev/setup-pixi@v0
+        uses: prefix-dev/setup-pixi@v0.9.4
         with:
           run-install: false
 

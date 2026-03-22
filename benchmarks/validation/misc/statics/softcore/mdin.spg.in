@@ -2,7 +2,6 @@ point energy validation for softcore
 
 mode = nvt
 velocity_max = 20
-constrain_mode = SHAKE
 dt = 0
 thermostat = middle_langevin
 target_temperature = 300

@@ -24,4 +24,5 @@ struct BERENDSEN_THERMOSTAT_INFORMATION
     void Scale_Velocity(int atom_numbers, VECTOR* vel);
 
     void Record_Temperature(float temperature, int freedom);
+    void Set_Target_Temperature(float target_temperature_new);
 };

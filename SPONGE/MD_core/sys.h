@@ -2,6 +2,19 @@
 
 struct system_information
 {
+    struct TARGET_SCHEDULE
+    {
+        enum MODE
+        {
+            STEP = 0,
+            LINEAR = 1
+        };
+        bool enabled = false;
+        int mode = STEP;
+        std::vector<int> steps;
+        std::vector<float> values;
+    };
+
     MD_INFORMATION* md_info = NULL;
     int freedom = 0;        // 体系自由度
     int steps = 0;          // 当前模拟的步数
@@ -51,6 +64,9 @@ struct system_information
     float* d_temperature = NULL;   // 体系温度 K
     float target_temperature;      // 外界热浴温度 K
     float Get_Atom_Temperature();  // 自由度还有问题
+    TARGET_SCHEDULE target_temperature_schedule;
+    TARGET_SCHEDULE target_pressure_schedule;
+    void Update_Targets_By_Schedule(int current_step);
 
     CONECT connectivity;               // 体系的连接性信息
     PAIR_DISTANCE connected_distance;  // 连接的原子的距离

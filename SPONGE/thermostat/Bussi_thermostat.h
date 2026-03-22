@@ -29,6 +29,7 @@ struct BUSSI_THERMOSTAT_INFORMATION
 
     // 按lambda缩放速度
     void Scale_Velocity(int atom_numbers, VECTOR* vel);
+    void Set_Target_Temperature(float target_temperature_new);
 };
 
 #endif

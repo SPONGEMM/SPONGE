@@ -68,6 +68,7 @@ void Main_Calculate_Force();
 void Main_Iteration();
 void Main_Print();
 void Main_Clear();
+void Main_Sync_Dynamic_Targets_To_Controllers();
 
 void Main_MC_Barostat();
 float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel);

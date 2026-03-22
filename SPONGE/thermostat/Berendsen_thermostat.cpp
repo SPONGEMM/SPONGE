@@ -94,3 +94,10 @@ void BERENDSEN_THERMOSTAT_INFORMATION::Scale_Velocity(int atom_numbers,
         Scale_List((float*)vel, lambda, 3 * atom_numbers);
     }
 }
+
+void BERENDSEN_THERMOSTAT_INFORMATION::Set_Target_Temperature(
+    float target_temperature_new)
+{
+    if (!is_initialized || !(target_temperature_new > 0.0f)) return;
+    target_temperature = target_temperature_new;
+}

@@ -1,5 +1,8 @@
 ﻿#pragma once
 
+#include "../../common.h"
+#include "../quantum_chemistry.h"
+
 static const int QC_COMP_LX_HOST[35] = {0, 1, 0, 0, 2, 1, 1, 0, 0, 0, 3, 2,
                                         2, 1, 1, 1, 0, 0, 0, 0, 4, 3, 3, 2,
                                         2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0};

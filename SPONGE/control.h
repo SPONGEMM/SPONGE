@@ -56,6 +56,9 @@ struct CONTROLLER
     CheckMap command_check;           // 检查输入是否都使用了
     CheckMap choice_check;            // 检查选项是否都使用了
     bool workspace_from_cli = false;  // 记录workspace是否由命令行设置
+    bool mdin_is_toml = false;        // 当前mdin是否为TOML输入
+    std::string mdin_toml_source_path;
+    std::string mdin_toml_content;
     void Get_Command(
         char* line,
         char* prefix);  // 内部解析argument时专用，设置命令，不外部调用

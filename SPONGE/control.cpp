@@ -285,6 +285,9 @@ static fs::path Resolve_Path_With_Base(const std::string& raw_path,
 void CONTROLLER::Commands_From_In_File(int argc, char** argv,
                                        const char* subpackage_hint)
 {
+    mdin_is_toml = false;
+    mdin_toml_source_path.clear();
+    mdin_toml_content.clear();
     const fs::path startup_cwd = fs::current_path();
     fs::path mdin_dir = startup_cwd;
     fs::path resolved_mdin_path;
@@ -342,6 +345,9 @@ void CONTROLLER::Commands_From_In_File(int argc, char** argv,
         mdin_dir = resolved_mdin_path.parent_path();
         mdin_found = true;
         mdin_path = resolved_mdin_path.string();
+        mdin_is_toml = true;
+        mdin_toml_source_path = mdin_path;
+        mdin_toml_content = toml_content;
         Load_Toml_Commands(toml_content, mdin_path, this,
                            "CONTROLLER::Commands_From_In_File");
     }

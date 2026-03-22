@@ -2,34 +2,32 @@
 
 #include <sstream>
 
-#if __has_include(<toml++/toml.hpp>)
-#include <toml++/toml.hpp>
-#elif __has_include(<toml++/toml.h>)
-#include <toml++/toml.h>
-#else
-#error "tomlplusplus headers not found. Please install tomlplusplus."
-#endif
+#include "toml_decode.hpp"
 
 namespace sponge::toml_wrap
 {
 namespace
 {
-std::string SerializeNodeCompact(const toml::node& node);
+using DecodeNode = sponge::toml_decode::node;
+using DecodeArray = sponge::toml_decode::array;
+using DecodeTable = sponge::toml_decode::table;
 
-bool RequiresStructuredSerialization(const toml::node& node)
+bool RequiresStructuredSerialization(const DecodeNode& node)
 {
-    if (node.is_table())
+    if (node.as_table() != nullptr)
     {
         return true;
     }
-    if (const auto* arr = node.as_array())
+    const auto* arr = node.as_array();
+    if (arr == nullptr)
     {
-        for (const auto& item : *arr)
+        return false;
+    }
+    for (const auto& item : *arr)
+    {
+        if (item.as_table() != nullptr || item.as_array() != nullptr)
         {
-            if (item.is_table() || item.is_array())
-            {
-                return true;
-            }
+            return true;
         }
     }
     return false;
@@ -71,7 +69,9 @@ std::string EscapeTomlBasicString(const std::string& input)
     return oss.str();
 }
 
-std::string SerializeArrayCompact(const toml::array& arr)
+std::string SerializeNodeCompact(const DecodeNode& node);
+
+std::string SerializeArrayCompact(const DecodeArray& arr)
 {
     std::ostringstream oss;
     oss << '[';
@@ -89,7 +89,7 @@ std::string SerializeArrayCompact(const toml::array& arr)
     return oss.str();
 }
 
-std::string SerializeTableCompact(const toml::table& table)
+std::string SerializeTableCompact(const DecodeTable& table)
 {
     std::ostringstream oss;
     oss << '{';
@@ -100,30 +100,30 @@ std::string SerializeTableCompact(const toml::table& table)
         {
             oss << ',';
         }
-        oss << std::string(key.str()) << '=' << SerializeNodeCompact(value);
+        oss << key << '=' << SerializeNodeCompact(value);
         first = false;
     }
     oss << '}';
     return oss.str();
 }
 
-std::string SerializeNodeCompact(const toml::node& node)
+std::string SerializeNodeCompact(const DecodeNode& node)
 {
-    if (auto val = node.value<std::string>())
+    if (const auto* val = node.as_string())
     {
         return "\"" + EscapeTomlBasicString(*val) + "\"";
     }
-    if (auto val = node.value<int64_t>())
+    if (const auto* val = node.as_integer())
     {
         return std::to_string(*val);
     }
-    if (auto val = node.value<double>())
+    if (const auto* val = node.as_floating())
     {
         std::ostringstream oss;
         oss << *val;
         return oss.str();
     }
-    if (auto val = node.value<bool>())
+    if (const auto* val = node.as_bool())
     {
         return *val ? "true" : "false";
     }
@@ -138,25 +138,25 @@ std::string SerializeNodeCompact(const toml::node& node)
     throw std::runtime_error("unsupported TOML node type for serialization");
 }
 
-std::string NodeValueToString(const toml::node& node,
+std::string NodeValueToString(const DecodeNode& node,
                               const std::string& full_key,
                               std::string* error_message)
 {
-    if (auto val = node.value<std::string>())
+    if (const auto* val = node.as_string())
     {
         return *val;
     }
-    if (auto val = node.value<int64_t>())
+    if (const auto* val = node.as_integer())
     {
         return std::to_string(*val);
     }
-    if (auto val = node.value<double>())
+    if (const auto* val = node.as_floating())
     {
         std::ostringstream oss;
         oss << *val;
         return oss.str();
     }
-    if (auto val = node.value<bool>())
+    if (const auto* val = node.as_bool())
     {
         return *val ? "true" : "false";
     }
@@ -193,35 +193,32 @@ std::string NodeValueToString(const toml::node& node,
     return "";
 }
 
-bool FlattenTable(const toml::table& table, const std::string& prefix,
+bool FlattenTable(const DecodeTable& table, const std::string& prefix,
                   std::map<std::string, std::string>* parsed_commands,
                   std::string* error_message)
 {
     for (const auto& [key, value] : table)
     {
-        const std::string key_str(key.str());
-        if (value.is_table())
+        if (const auto* nested = value.as_table())
         {
             const std::string next_prefix =
-                prefix.empty() ? key_str : prefix + "_" + key_str;
-            if (!FlattenTable(*value.as_table(), next_prefix, parsed_commands,
+                prefix.empty() ? key : prefix + "_" + key;
+            if (!FlattenTable(*nested, next_prefix, parsed_commands,
                               error_message))
             {
                 return false;
             }
+            continue;
         }
-        else
+
+        const std::string full_key = prefix.empty() ? key : prefix + "_" + key;
+        std::string value_str =
+            NodeValueToString(value, full_key, error_message);
+        if (!error_message->empty())
         {
-            const std::string full_key =
-                prefix.empty() ? key_str : prefix + "_" + key_str;
-            std::string value_str =
-                NodeValueToString(value, full_key, error_message);
-            if (!error_message->empty())
-            {
-                return false;
-            }
-            (*parsed_commands)[full_key] = value_str;
+            return false;
         }
+        (*parsed_commands)[full_key] = value_str;
     }
     return true;
 }
@@ -238,26 +235,16 @@ bool ParseAndFlatten(const std::string& content, const std::string& source_path,
     parsed_commands->clear();
     error_message->clear();
 
-#if TOML_EXCEPTIONS
-    toml::table config;
     try
     {
-        config = toml::parse(content, source_path);
+        const auto config = sponge::toml_decode::detail::parse_toml_string(
+            content, source_path);
+        return FlattenTable(config, "", parsed_commands, error_message);
     }
-    catch (const toml::parse_error& err)
+    catch (const std::exception& err)
     {
-        *error_message = err.description();
+        *error_message = err.what();
         return false;
     }
-    return FlattenTable(config, "", parsed_commands, error_message);
-#else
-    toml::parse_result result = toml::parse(content, source_path);
-    if (!result)
-    {
-        *error_message = result.error().description();
-        return false;
-    }
-    return FlattenTable(result.table(), "", parsed_commands, error_message);
-#endif
 }
 }  // namespace sponge::toml_wrap

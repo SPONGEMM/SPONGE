@@ -10,10 +10,11 @@ static __global__ void BSpline_interpolate1d(
 {
 #ifdef USE_GPU
     int ti = blockDim.x * blockIdx.x + threadIdx.x;
-    float y0 = NAN;
-    float dy_dx = NAN;
-    if (ti == 0)
+    __shared__ float shared_dy_dx;
+    if (threadIdx.x == 0)
     {
+        float y0 = NAN;
+        float dy_dx = NAN;
         float x0 = x[0] - min;
         if (x0 >= 0 && x0 <= max - min)
         {
@@ -29,13 +30,17 @@ static __global__ void BSpline_interpolate1d(
                      dBSpline_4_4(x0) * points[i + 2]) /
                     delta;
         }
-        y[0] = y0;
-        y_box_grads[0] = dy_dx * x_box_grads[0];
+        shared_dy_dx = dy_dx;
+        if (blockIdx.x == 0)
+        {
+            y[0] = y0;
+            y_box_grads[0] = dy_dx * x_box_grads[0];
+        }
     }
     __syncthreads();
     if (ti < atom_numbers)
     {
-        y_crd_grads[ti] = dy_dx * x_crd_grads[ti];
+        y_crd_grads[ti] = shared_dy_dx * x_crd_grads[ti];
     }
 #else
     float y0 = NAN;

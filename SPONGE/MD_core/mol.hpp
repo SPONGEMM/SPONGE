@@ -891,6 +891,12 @@ static void Move_Crd_Nearest_From_Connectivity(
 void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
 {
     if (!md_info->pbc.pbc) return;
+    if (controller->Command_Exist("force_whole_output"))
+    {
+        force_whole_output = controller->Get_Bool(
+            "force_whole_output",
+            "MD_INFORMATION::molecule_information::Initial");
+    }
     // 分子拓扑是一个无向图，邻接表进行描述，通过排除表形成
     CPP_ATOM_GROUP mol_atoms;
     std::vector<int> molecule_belongings(md_info->atom_numbers, 0);
@@ -1018,10 +1024,11 @@ void MD_INFORMATION::molecule_information::Molecule_Crd_Map(float scaler)
                          d_mass_inverse, d_center_of_mass);
 
     dim3 block_mol = {64, 16};
+    int* periodicity = force_whole_output ? (int*)NULL : d_periodicity;
     Launch_Device_Kernel(
         Map_Center_Of_Mass, (molecule_numbers + 63) / 64, block_mol, 0, NULL,
         molecule_numbers, d_atom_start, d_atom_end, scaler, d_center_of_mass,
-        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, d_periodicity);
+        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, periodicity);
 }
 
 void MD_INFORMATION::molecule_information::Molecule_Crd_Map(VECTOR scaler)
@@ -1038,8 +1045,9 @@ void MD_INFORMATION::molecule_information::Molecule_Crd_Map(VECTOR scaler)
                          md_info->res.d_center_of_mass, md_info->res.d_mass,
                          d_mass_inverse, d_center_of_mass);
     dim3 block_mol = {64, 16};
+    int* periodicity = force_whole_output ? (int*)NULL : d_periodicity;
     Launch_Device_Kernel(
         Map_Center_Of_Mass, (molecule_numbers + 63) / 64, block_mol, 0, NULL,
         molecule_numbers, d_atom_start, d_atom_end, scaler, d_center_of_mass,
-        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, d_periodicity);
+        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, periodicity);
 }

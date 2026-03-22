@@ -80,6 +80,7 @@ int main(int argc, char* argv[])
     for (md_info.sys.steps = 0; md_info.sys.steps <= md_info.sys.step_limit;
          md_info.sys.steps++)
     {
+        Main_Sync_Dynamic_Targets_To_Controllers();
         Main_Calculate_Force();
         Main_Iteration();
         Main_Print();
@@ -210,7 +211,8 @@ void Main_Initial(int argc, char* argv[])
                     md_info.sys.target_temperature, md_info.h_mass);
     }
     //------------------------- barostat initialization-----------------------
-    if (md_info.mode == md_info.NPT && !controller.Command_Exist("barostat"))
+    if (md_info.mode == md_info.NPT && !controller.Command_Exist("barostat") &&
+        !controller.Command_Exist("barostat_mode"))
     {
         controller.Throw_SPONGE_Error(
             spongeErrorMissingCommand, "Main_Initial",
@@ -1492,4 +1494,15 @@ void Main_MC_Barostat()
         mc_baro.Delta_Box_Length_Max_Update();
         dd.h_sum_ene_total = mc_baro.energy_old;  // 恢复能量值
     }
+}
+
+void Main_Sync_Dynamic_Targets_To_Controllers()
+{
+    md_info.sys.Update_Targets_By_Schedule(md_info.sys.steps);
+    const float target_temperature = md_info.sys.target_temperature;
+    bd_thermo.Set_Target_Temperature(target_temperature);
+    bussi_thermo.Set_Target_Temperature(target_temperature);
+    ad_thermo.Set_Target_Temperature(target_temperature);
+    middle_langevin.Set_Target_Temperature(target_temperature);
+    nhc.Set_Target_Temperature(target_temperature);
 }
