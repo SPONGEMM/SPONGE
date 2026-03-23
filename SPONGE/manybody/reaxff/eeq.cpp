@@ -226,9 +226,11 @@ void REAXFF_EEQ::Initial(CONTROLLER* controller, int atom_numbers,
 // =====================================================================
 
 static __global__ void EEQ_Matrix_Vector_Multiply(
-    int atom_numbers, const int* firstnbrs, const int* numnbrs,
-    const int* jlist, const float* h_val, const int* atom_types,
-    const float* eta, const float* p, float* Ap)
+    int atom_numbers, const int* __restrict__ firstnbrs,
+    const int* __restrict__ numnbrs, const int* __restrict__ jlist,
+    const float* __restrict__ h_val, const int* __restrict__ atom_types,
+    const float* __restrict__ eta, const float* __restrict__ p,
+    float* __restrict__ Ap)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -368,6 +370,92 @@ static __global__ void Elementwise_Multiply(int n, float* out, const float* a,
 {
     EEQ_SIMPLE_DEVICE_FOR(i, n) { out[i] = a[i] * b[i]; }
 }
+
+#ifndef USE_CPU
+
+static __device__ __forceinline__ float EEQ_Warp_Reduce_Sum(float value)
+{
+    for (int offset = warpSize >> 1; offset > 0; offset >>= 1)
+    {
+        value += __shfl_down_sync(0xffffffff, value, offset);
+    }
+    return value;
+}
+
+static __device__ __forceinline__ float EEQ_Block_Reduce_Sum(float value)
+{
+    __shared__ float warp_sums[32];
+    int lane = threadIdx.x & (warpSize - 1);
+    int warp_id = threadIdx.x >> 5;
+    int warp_count = (blockDim.x + warpSize - 1) / warpSize;
+
+    value = EEQ_Warp_Reduce_Sum(value);
+    if (lane == 0) warp_sums[warp_id] = value;
+    __syncthreads();
+
+    float block_sum = (threadIdx.x < warp_count) ? warp_sums[lane] : 0.0f;
+    if (warp_id == 0)
+    {
+        block_sum = EEQ_Warp_Reduce_Sum(block_sum);
+    }
+    return block_sum;
+}
+
+static __global__ void Dot_Product_Reduce_Kernel(int n, const float* a,
+                                                 const float* __restrict__ b,
+                                                 float* out)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    float value = 0.0f;
+    if (i < n) value = a[i] * b[i];
+    float block_sum = EEQ_Block_Reduce_Sum(value);
+    if (threadIdx.x == 0) atomicAdd(out, block_sum);
+}
+
+static __global__ void Initialize_Preconditioned_CG_State(
+    int n, const float* __restrict__ r, float* __restrict__ z,
+    float* __restrict__ p, const float* __restrict__ eta,
+    const int* __restrict__ atom_types, float* rz_out)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    float value = 0.0f;
+    if (i < n)
+    {
+        float diag = eta[atom_types[i]];
+        float zi = (diag != 0.0f) ? r[i] / diag : r[i];
+        z[i] = zi;
+        p[i] = zi;
+        value = r[i] * zi;
+    }
+    float block_sum = EEQ_Block_Reduce_Sum(value);
+    if (threadIdx.x == 0) atomicAdd(rz_out, block_sum);
+}
+
+static __global__ void Update_X_R_Precondition_Dot_Kernel(
+    int n, float* __restrict__ x, float* __restrict__ r,
+    const float* __restrict__ p, const float* __restrict__ Ap,
+    float* __restrict__ z, const float* __restrict__ eta,
+    const int* __restrict__ atom_types, const float* __restrict__ d_alpha,
+    float* rz_out)
+{
+    int i = blockDim.x * blockIdx.x + threadIdx.x;
+    float value = 0.0f;
+    float alpha = *d_alpha;
+    if (i < n)
+    {
+        float ri = r[i] - alpha * Ap[i];
+        x[i] += alpha * p[i];
+        r[i] = ri;
+        float diag = eta[atom_types[i]];
+        float zi = (diag != 0.0f) ? ri / diag : ri;
+        z[i] = zi;
+        value = ri * zi;
+    }
+    float block_sum = EEQ_Block_Reduce_Sum(value);
+    if (threadIdx.x == 0) atomicAdd(rz_out, block_sum);
+}
+
+#endif
 
 // Polynomial extrapolation coefficients (oldest-to-newest order)
 // nprev=k uses row k-1: Newton forward difference formula
@@ -596,7 +684,7 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
 {
     if (!is_initialized || fnl_d_nl == NULL) return;
 
-    dim3 blockSize = {CONTROLLER::device_max_thread};
+    dim3 blockSize = {std::min(160u, CONTROLLER::device_max_thread)};
     dim3 gridSize = {(atom_numbers + blockSize.x - 1) / blockSize.x};
 
     // ---- Build H matrix CSR ----
@@ -671,18 +759,9 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                                  atom_numbers, d_r, b_in, d_Ap);
         }
 
-        // z = M^{-1} * r (Jacobi preconditioner)
-        Launch_Device_Kernel(Jacobi_Precondition, gridSize, blockSize, 0, NULL,
-                             atom_numbers, d_z, d_r, d_eta, d_atom_type);
-
-        // p = z
-        Launch_Device_Kernel(Vector_Copy, gridSize, blockSize, 0, NULL,
-                             atom_numbers, d_p, d_z);
-
-        // rz_old = r·z -> d_rr_old
-        Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0,
-                             NULL, atom_numbers, d_q, d_r, d_z);
-        Sum_Of_List(d_q, d_rr_old, atom_numbers);
+        deviceMemset(d_rr_old, 0, sizeof(float));
+        Initialize_Preconditioned_CG_State<<<gridSize, blockSize>>>(
+            atom_numbers, d_r, d_z, d_p, d_eta, d_atom_type, d_rr_old);
 
         const int check_interval = 5;
         float h_rz = 0;
@@ -697,33 +776,22 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                 if (fabsf(h_rz) < tolerance * tolerance) break;
             }
 
-            // A*p
             Launch_Device_Kernel(EEQ_Matrix_Vector_Multiply, gridSize,
                                  blockSize, 0, NULL, atom_numbers,
                                  d_h_firstnbrs, d_h_numnbrs, d_h_jlist,
                                  d_h_val, d_atom_type, d_eta, d_p, d_Ap);
 
-            // p·Ap -> d_pAp_buf
-            Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0,
-                                 NULL, atom_numbers, d_q, d_p, d_Ap);
-            Sum_Of_List(d_q, d_pAp_buf, atom_numbers);
+            deviceMemset(d_pAp_buf, 0, sizeof(float));
+            Dot_Product_Reduce_Kernel<<<gridSize, blockSize>>>(
+                atom_numbers, d_p, d_Ap, d_pAp_buf);
 
             // alpha = rz_old / pAp (on device)
             CG_Compute_Alpha_Kernel<<<1, 1>>>(d_rr_old, d_pAp_buf, d_cg_alpha);
 
-            // x += alpha*p, r -= alpha*Ap
-            CG_Update_X_R_Kernel<<<gridSize, blockSize>>>(
-                atom_numbers, x, d_r, d_p, d_Ap, d_cg_alpha);
-
-            // z = M^{-1} * r
-            Launch_Device_Kernel(Jacobi_Precondition, gridSize, blockSize, 0,
-                                 NULL, atom_numbers, d_z, d_r, d_eta,
-                                 d_atom_type);
-
-            // rz_new = r·z -> d_rr_new
-            Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0,
-                                 NULL, atom_numbers, d_q, d_r, d_z);
-            Sum_Of_List(d_q, d_rr_new, atom_numbers);
+            deviceMemset(d_rr_new, 0, sizeof(float));
+            Update_X_R_Precondition_Dot_Kernel<<<gridSize, blockSize>>>(
+                atom_numbers, x, d_r, d_p, d_Ap, d_z, d_eta, d_atom_type,
+                d_cg_alpha, d_rr_new);
 
             // beta = rz_new/rz_old, rz_old = rz_new (on device)
             CG_Compute_Beta_Kernel<<<1, 1>>>(d_rr_old, d_rr_new, d_cg_beta);
