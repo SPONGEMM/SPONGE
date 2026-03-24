@@ -11,7 +11,9 @@ from benchmarks.performance.reaxff.tests.utils import (
 )
 
 
-def test_reaxff_petn_nve_throughput(statics_path, outputs_path, mpi_np, reaxff_steps):
+def test_reaxff_petn_nve_throughput(
+    statics_path, outputs_path, mpi_np, reaxff_steps
+):
     case_dir = Outputer.prepare_output_case(
         statics_path=statics_path,
         outputs_path=outputs_path,

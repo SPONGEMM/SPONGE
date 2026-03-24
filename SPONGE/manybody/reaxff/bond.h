@@ -1,4 +1,4 @@
-#ifndef REAXFF_BOND_H
+﻿#ifndef REAXFF_BOND_H
 #define REAXFF_BOND_H
 
 #include "../../common.h"

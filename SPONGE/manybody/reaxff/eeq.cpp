@@ -1,9 +1,9 @@
-#include "eeq.h"
+﻿#include "eeq.h"
 
 #define COULOMB_CONSTANT (332.05221729f)
 #ifdef USE_CPU
-#define EEQ_SIMPLE_DEVICE_FOR(i, N)                                \
-    PRAGMA(omp parallel for schedule(static) if ((N) >= 512))      \
+#define EEQ_SIMPLE_DEVICE_FOR(i, N)                           \
+    PRAGMA(omp parallel for schedule(static) if ((N) >= 512)) \
     for (int i = 0; i < N; i++)
 #else
 #define EEQ_SIMPLE_DEVICE_FOR(i, N) SIMPLE_DEVICE_FOR(i, N)
@@ -81,8 +81,8 @@ void REAXFF_EEQ::Initial(CONTROLLER* controller, int atom_numbers,
     Malloc_Safely((void**)&h_chi, sizeof(float) * n_atom_types);
     Malloc_Safely((void**)&h_eta, sizeof(float) * n_atom_types);
     Malloc_Safely((void**)&h_gamma, sizeof(float) * n_atom_types);
-    Malloc_Safely((void**)&h_shield, sizeof(float) * n_atom_types *
-                                         n_atom_types);
+    Malloc_Safely((void**)&h_shield,
+                  sizeof(float) * n_atom_types * n_atom_types);
 
     for (int i = 0; i < n_atom_types; i++)
     {
@@ -179,8 +179,7 @@ void REAXFF_EEQ::Initial(CONTROLLER* controller, int atom_numbers,
     Device_Malloc_And_Copy_Safely((void**)&d_gamma, h_gamma,
                                   sizeof(float) * n_atom_types);
     Device_Malloc_And_Copy_Safely((void**)&d_shield, h_shield,
-                                  sizeof(float) * n_atom_types *
-                                      n_atom_types);
+                                  sizeof(float) * n_atom_types * n_atom_types);
     Device_Malloc_And_Copy_Safely((void**)&d_atom_type, h_atom_type,
                                   sizeof(int) * atom_numbers);
 
@@ -211,9 +210,9 @@ void REAXFF_EEQ::Initial(CONTROLLER* controller, int atom_numbers,
 
     // Charge history for extrapolation
     Device_Malloc_Safely((void**)&d_s_hist,
-                          sizeof(float) * HIST_SIZE * atom_numbers);
+                         sizeof(float) * HIST_SIZE * atom_numbers);
     Device_Malloc_Safely((void**)&d_t_hist,
-                          sizeof(float) * HIST_SIZE * atom_numbers);
+                         sizeof(float) * HIST_SIZE * atom_numbers);
     nprev = 0;
 
     is_initialized = 1;
@@ -461,16 +460,15 @@ static __global__ void Update_X_R_Precondition_Dot_Kernel(
 // Polynomial extrapolation coefficients (oldest-to-newest order)
 // nprev=k uses row k-1: Newton forward difference formula
 static const float EXTRAP_COEFFS[5][5] = {
-    {1.0f, 0.0f, 0.0f, 0.0f, 0.0f},
-    {-1.0f, 2.0f, 0.0f, 0.0f, 0.0f},
-    {1.0f, -3.0f, 3.0f, 0.0f, 0.0f},
-    {-1.0f, 4.0f, -6.0f, 4.0f, 0.0f},
+    {1.0f, 0.0f, 0.0f, 0.0f, 0.0f},     {-1.0f, 2.0f, 0.0f, 0.0f, 0.0f},
+    {1.0f, -3.0f, 3.0f, 0.0f, 0.0f},    {-1.0f, 4.0f, -6.0f, 4.0f, 0.0f},
     {1.0f, -5.0f, 10.0f, -10.0f, 5.0f},
 };
 
-static __global__ void Extrapolate_Vector_Kernel(
-    int n, float* out, const float* hist, int stride, int nprev,
-    float c0, float c1, float c2, float c3, float c4)
+static __global__ void Extrapolate_Vector_Kernel(int n, float* out,
+                                                 const float* hist, int stride,
+                                                 int nprev, float c0, float c1,
+                                                 float c2, float c3, float c4)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, n)
     {
@@ -513,9 +511,8 @@ static __global__ void EEQ_Distribute_Energy_Kernel(
 static __global__ void EEQ_Calculate_Force_Kernel(
     int atom_numbers, const VECTOR* crd, const int* atom_types,
     const float* shield, int atom_type_numbers, const float* d_charge,
-    VECTOR* frc,
-    const ATOM_GROUP* nl, const LTMatrix3 cell, const LTMatrix3 rcell,
-    float cutoff, LTMatrix3* atom_virial)
+    VECTOR* frc, const ATOM_GROUP* nl, const LTMatrix3 cell,
+    const LTMatrix3 rcell, float cutoff, LTMatrix3* atom_virial)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -552,26 +549,24 @@ static __global__ void EEQ_Calculate_Force_Kernel(
                     float x7 = x6 * x;
 
                     // Taper: T(x) = 20x^7 - 70x^6 + 84x^5 - 35x^4 + 1
-                    float taper_val =
-                        20.0f * x7 - 70.0f * x6 + 84.0f * x5 - 35.0f * x4 +
-                        1.0f;
+                    float taper_val = 20.0f * x7 - 70.0f * x6 + 84.0f * x5 -
+                                      35.0f * x4 + 1.0f;
                     // dT/dr = (1/cutoff) * (140x^6 - 420x^5 + 420x^4 - 140x^3)
                     float x3 = x2 * x;
-                    float dtaper_dr = inv_cutoff *
-                                      (140.0f * x6 - 420.0f * x5 +
-                                       420.0f * x4 - 140.0f * x3);
+                    float dtaper_dr = inv_cutoff * (140.0f * x6 - 420.0f * x5 +
+                                                    420.0f * x4 - 140.0f * x3);
 
                     float shield_ij =
                         shield[type_i * atom_type_numbers + type_j];
                     float u = r2 * r + shield_ij;  // r^3 + shield
-                    float u_cbrt = cbrtf(u);        // u^(1/3)
+                    float u_cbrt = cbrtf(u);       // u^(1/3)
                     float inv_u_cbrt = 1.0f / u_cbrt;
 
                     // H = taper * C / u^(1/3)
                     // dH/dr = C * (dtaper/dr / u^(1/3) - taper * r^2 / u^(4/3))
-                    float dH_dr = COULOMB_CONSTANT *
-                                  (dtaper_dr * inv_u_cbrt -
-                                   taper_val * r2 * inv_u_cbrt / u);
+                    float dH_dr =
+                        COULOMB_CONSTANT * (dtaper_dr * inv_u_cbrt -
+                                            taper_val * r2 * inv_u_cbrt / u);
 
                     float force_mag = -qi * qj * dH_dr / r;
 
@@ -627,8 +622,8 @@ static __global__ void EEQ_Calculate_Eele_Kernel(int n, float* out,
 // =====================================================================
 #ifndef USE_CPU
 
-static __global__ void CG_Compute_Alpha_Kernel(
-    const float* rr_old, const float* pAp, float* alpha)
+static __global__ void CG_Compute_Alpha_Kernel(const float* rr_old,
+                                               const float* pAp, float* alpha)
 {
     if (threadIdx.x == 0 && blockIdx.x == 0)
     {
@@ -637,8 +632,8 @@ static __global__ void CG_Compute_Alpha_Kernel(
     }
 }
 
-static __global__ void CG_Compute_Beta_Kernel(
-    float* rr_old, const float* rr_new, float* beta)
+static __global__ void CG_Compute_Beta_Kernel(float* rr_old,
+                                              const float* rr_new, float* beta)
 {
     if (threadIdx.x == 0 && blockIdx.x == 0)
     {
@@ -649,9 +644,9 @@ static __global__ void CG_Compute_Beta_Kernel(
     }
 }
 
-static __global__ void CG_Update_X_R_Kernel(
-    int n, float* x, float* r, const float* p, const float* Ap,
-    const float* d_alpha)
+static __global__ void CG_Update_X_R_Kernel(int n, float* x, float* r,
+                                            const float* p, const float* Ap,
+                                            const float* d_alpha)
 {
     float alpha = *d_alpha;
     int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -662,8 +657,8 @@ static __global__ void CG_Update_X_R_Kernel(
     }
 }
 
-static __global__ void CG_Update_P_Kernel(
-    int n, float* p, const float* r, const float* d_beta)
+static __global__ void CG_Update_P_Kernel(int n, float* p, const float* r,
+                                          const float* d_beta)
 {
     float beta = *d_beta;
     int i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -756,8 +751,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
         {
             Launch_Device_Kernel(EEQ_Matrix_Vector_Multiply, gridSize,
                                  blockSize, 0, NULL, atom_numbers,
-                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist,
-                                 d_h_val, d_atom_type, d_eta, x, d_Ap);
+                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist, d_h_val,
+                                 d_atom_type, d_eta, x, d_Ap);
             Launch_Device_Kernel(Vector_Subtract, gridSize, blockSize, 0, NULL,
                                  atom_numbers, d_r, b_in, d_Ap);
         }
@@ -781,8 +776,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
 
             Launch_Device_Kernel(EEQ_Matrix_Vector_Multiply, gridSize,
                                  blockSize, 0, NULL, atom_numbers,
-                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist,
-                                 d_h_val, d_atom_type, d_eta, d_p, d_Ap);
+                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist, d_h_val,
+                                 d_atom_type, d_eta, d_p, d_Ap);
 
             deviceMemset(d_pAp_buf, 0, sizeof(float));
             Dot_Product_Reduce_Kernel<<<gridSize, blockSize>>>(
@@ -800,8 +795,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
             CG_Compute_Beta_Kernel<<<1, 1>>>(d_rr_old, d_rr_new, d_cg_beta);
 
             // p = z + beta*p
-            CG_Update_P_Kernel<<<gridSize, blockSize>>>(
-                atom_numbers, d_p, d_z, d_cg_beta);
+            CG_Update_P_Kernel<<<gridSize, blockSize>>>(atom_numbers, d_p, d_z,
+                                                        d_cg_beta);
         }
     };
 #else
@@ -818,8 +813,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
         {
             Launch_Device_Kernel(EEQ_Matrix_Vector_Multiply, gridSize,
                                  blockSize, 0, NULL, atom_numbers,
-                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist,
-                                 d_h_val, d_atom_type, d_eta, x, d_Ap);
+                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist, d_h_val,
+                                 d_atom_type, d_eta, x, d_Ap);
             Launch_Device_Kernel(Vector_Subtract, gridSize, blockSize, 0, NULL,
                                  atom_numbers, d_r, b_in, d_Ap);
         }
@@ -832,8 +827,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                      deviceMemcpyDeviceToDevice);
 
         float rz_old = 0, rz_new = 0;
-        Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0,
-                             NULL, atom_numbers, d_q, d_r, d_z);
+        Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0, NULL,
+                             atom_numbers, d_q, d_r, d_z);
         Sum_Of_List(d_q, d_temp_sum, atom_numbers);
         deviceMemcpy(&rz_old, d_temp_sum, sizeof(float),
                      deviceMemcpyDeviceToHost);
@@ -844,8 +839,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
 
             Launch_Device_Kernel(EEQ_Matrix_Vector_Multiply, gridSize,
                                  blockSize, 0, NULL, atom_numbers,
-                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist,
-                                 d_h_val, d_atom_type, d_eta, d_p, d_Ap);
+                                 d_h_firstnbrs, d_h_numnbrs, d_h_jlist, d_h_val,
+                                 d_atom_type, d_eta, d_p, d_Ap);
 
             float p_dot_Ap = 0;
             Launch_Device_Kernel(Elementwise_Multiply, gridSize, blockSize, 0,
@@ -915,14 +910,12 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
     {
         for (int k = 0; k < HIST_SIZE - 1; k++)
         {
-            deviceMemcpy(d_t_hist + k * atom_numbers,
-                         d_t_hist + (k + 1) * atom_numbers,
-                         sizeof(float) * atom_numbers,
-                         deviceMemcpyDeviceToDevice);
-            deviceMemcpy(d_s_hist + k * atom_numbers,
-                         d_s_hist + (k + 1) * atom_numbers,
-                         sizeof(float) * atom_numbers,
-                         deviceMemcpyDeviceToDevice);
+            deviceMemcpy(
+                d_t_hist + k * atom_numbers, d_t_hist + (k + 1) * atom_numbers,
+                sizeof(float) * atom_numbers, deviceMemcpyDeviceToDevice);
+            deviceMemcpy(
+                d_s_hist + k * atom_numbers, d_s_hist + (k + 1) * atom_numbers,
+                sizeof(float) * atom_numbers, deviceMemcpyDeviceToDevice);
         }
         deviceMemcpy(d_t_hist + (HIST_SIZE - 1) * atom_numbers, d_t,
                      sizeof(float) * atom_numbers, deviceMemcpyDeviceToDevice);
@@ -976,9 +969,8 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
     {
         Launch_Device_Kernel(EEQ_Calculate_Force_Kernel, gridSize, blockSize, 0,
                              NULL, atom_numbers, d_crd, d_atom_type, d_shield,
-                             atom_type_numbers, d_q, frc, fnl_d_nl, cell,
-                             rcell, cutoff,
-                             need_virial ? atom_virial : NULL);
+                             atom_type_numbers, d_q, frc, fnl_d_nl, cell, rcell,
+                             cutoff, need_virial ? atom_virial : NULL);
     }
 
     Launch_Device_Kernel(EEQ_Convert_Charge_Unit, gridSize, blockSize, 0, NULL,

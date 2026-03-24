@@ -1,4 +1,4 @@
-#include "bond_order.h"
+﻿#include "bond_order.h"
 
 // Use neighbor list instead of O(N^2) all-pairs scan
 static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
@@ -102,11 +102,11 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
     const float* ovc, const float* v13cor, const float* p_boc3,
     const float* p_boc4, const float* p_boc5, const int atom_type_numbers,
     const int atom_numbers, float gp_boc1, float gp_boc2, float bo_cut,
-    const float* total_bond_order, float* corrected_bo_s, float* corrected_bo_pi,
-    float* corrected_bo_pi2, float* dbo_s_dr, float* dbo_pi_dr,
-    float* dbo_pi2_dr, float* dbo_s_dDelta_i, float* dbo_pi_dDelta_i,
-    float* dbo_pi2_dDelta_i, float* dbo_s_dDelta_j, float* dbo_pi_dDelta_j,
-    float* dbo_pi2_dDelta_j, float* dbo_raw_total_dr)
+    const float* total_bond_order, float* corrected_bo_s,
+    float* corrected_bo_pi, float* corrected_bo_pi2, float* dbo_s_dr,
+    float* dbo_pi_dr, float* dbo_pi2_dr, float* dbo_s_dDelta_i,
+    float* dbo_pi_dDelta_i, float* dbo_pi2_dDelta_i, float* dbo_s_dDelta_j,
+    float* dbo_pi_dDelta_j, float* dbo_pi2_dDelta_j, float* dbo_raw_total_dr)
 {
     SIMPLE_DEVICE_FOR(idx, num_pairs)
     {
@@ -316,9 +316,9 @@ static __global__ void Reduce_Total_Corrected_Bond_Order_Kernel(
 
 // --- CSR build kernels ---
 static __global__ void Count_Bonds_Per_Atom_Kernel(int num_bonds,
-                                                    const int* bond_i,
-                                                    const int* bond_j,
-                                                    int* bond_count)
+                                                   const int* bond_i,
+                                                   const int* bond_j,
+                                                   int* bond_count)
 {
     SIMPLE_DEVICE_FOR(b, num_bonds)
     {
@@ -328,7 +328,7 @@ static __global__ void Count_Bonds_Per_Atom_Kernel(int num_bonds,
 }
 
 static __global__ void Exclusive_Prefix_Sum_Kernel(int n, const int* input,
-                                                    int* output)
+                                                   int* output)
 {
     // Simple sequential prefix sum (launched with 1 thread)
     SIMPLE_DEVICE_FOR(dummy, 1)
@@ -342,10 +342,10 @@ static __global__ void Exclusive_Prefix_Sum_Kernel(int n, const int* input,
 }
 
 static __global__ void Fill_Bond_CSR_Kernel(int num_bonds, const int* bond_i,
-                                             const int* bond_j,
-                                             const int* bond_offset,
-                                             int* fill_count, int* bond_nbr,
-                                             int* bond_idx)
+                                            const int* bond_j,
+                                            const int* bond_offset,
+                                            int* fill_count, int* bond_nbr,
+                                            int* bond_idx)
 {
     SIMPLE_DEVICE_FOR(b, num_bonds)
     {
@@ -367,12 +367,12 @@ static __global__ void Fill_Bond_CSR_Kernel(int num_bonds, const int* bond_i,
 // In sparse mode, dE_dBO is accumulated to a single bond index by all
 // consumers, so no need to sum [i*N+j] + [j*N+i].
 static __global__ void Calculate_CdDelta_Prime_Kernel(
-    int num_pairs, const int* pair_i, const int* pair_j,
-    const float* dE_dBO_s, const float* dE_dBO_pi, const float* dE_dBO_pi2,
-    const float* CdDelta, const float* dbo_s_dDelta_i,
-    const float* dbo_pi_dDelta_i, const float* dbo_pi2_dDelta_i,
-    const float* dbo_s_dDelta_j, const float* dbo_pi_dDelta_j,
-    const float* dbo_pi2_dDelta_j, float* CdDelta_prime)
+    int num_pairs, const int* pair_i, const int* pair_j, const float* dE_dBO_s,
+    const float* dE_dBO_pi, const float* dE_dBO_pi2, const float* CdDelta,
+    const float* dbo_s_dDelta_i, const float* dbo_pi_dDelta_i,
+    const float* dbo_pi2_dDelta_i, const float* dbo_s_dDelta_j,
+    const float* dbo_pi_dDelta_j, const float* dbo_pi2_dDelta_j,
+    float* CdDelta_prime)
 {
     SIMPLE_DEVICE_FOR(idx, num_pairs)
     {
@@ -422,8 +422,8 @@ static __global__ void REAXFF_Force_Projection_Kernel(
                           (de_dbo_pi_total + eff_cdd) * dbo_pi_dr[idx] +
                           (de_dbo_pi2_total + eff_cdd) * dbo_pi2_dr[idx];
 
-            de_dr += (CdDelta_prime[i] + CdDelta_prime[j]) *
-                     dbo_raw_total_dr[idx];
+            de_dr +=
+                (CdDelta_prime[i] + CdDelta_prime[j]) * dbo_raw_total_dr[idx];
 
             float force_mag = -de_dr;
 
@@ -875,10 +875,8 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
     Device_Malloc_Safely((void**)&d_pair_distances, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_num_pairs_ptr, sizeof(int));
 
-    Device_Malloc_Safely((void**)&d_corrected_bo_s,
-                         sizeof(float) * max_bonds);
-    Device_Malloc_Safely((void**)&d_corrected_bo_pi,
-                         sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_corrected_bo_s, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_corrected_bo_pi, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_corrected_bo_pi2,
                          sizeof(float) * max_bonds);
 
@@ -890,13 +888,11 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
     Device_Malloc_Safely((void**)&d_dbo_pi_dr, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_pi2_dr, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_s_dDelta_i, sizeof(float) * max_bonds);
-    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_i,
-                         sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_i, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_i,
                          sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_s_dDelta_j, sizeof(float) * max_bonds);
-    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_j,
-                         sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_j, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_j,
                          sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_dbo_raw_total_dr,
@@ -909,8 +905,8 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
 
 void REAXFF_BOND_ORDER::Calculate_Uncorrected_Bond_Orders_GPU(
     int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, const ATOM_GROUP* d_nl,
-    int* d_pair_i, int* d_pair_j, float* d_distances, int* d_num_pairs_ptr)
+    const LTMatrix3 rcell, float cutoff, const ATOM_GROUP* d_nl, int* d_pair_i,
+    int* d_pair_j, float* d_distances, int* d_num_pairs_ptr)
 {
     if (!is_initialized) return;
 
@@ -951,9 +947,9 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Orders_GPU(
         d_v13cor, d_p_boc3, d_p_boc4, d_p_boc5, atom_type_numbers, atom_numbers,
         gp_boc1, gp_boc2, gp_bo_cut, d_total_bond_order, d_corrected_bo_s,
         d_corrected_bo_pi, d_corrected_bo_pi2, d_dbo_s_dr, d_dbo_pi_dr,
-        d_dbo_pi2_dr, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i,
-        d_dbo_pi2_dDelta_i, d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
-        d_dbo_pi2_dDelta_j, d_dbo_raw_total_dr);
+        d_dbo_pi2_dr, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i, d_dbo_pi2_dDelta_i,
+        d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j, d_dbo_pi2_dDelta_j,
+        d_dbo_raw_total_dr);
 }
 
 void REAXFF_BOND_ORDER::Build_Bond_CSR(int atom_numbers, int num_bonds)
@@ -1034,7 +1030,6 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
                              d_bond_offset, d_bond_idx, d_corrected_bo_s,
                              d_corrected_bo_pi, d_corrected_bo_pi2,
                              d_total_corrected_bond_order);
-
     }
 }
 
@@ -1049,12 +1044,12 @@ void REAXFF_BOND_ORDER::Calculate_Forces(int atom_numbers, const VECTOR* d_crd,
     dim3 blockSize = {CONTROLLER::device_max_thread};
     dim3 gridSize = {(h_num_pairs + blockSize.x - 1) / blockSize.x};
 
-    Launch_Device_Kernel(
-        Calculate_CdDelta_Prime_Kernel, gridSize, blockSize, 0, NULL,
-        h_num_pairs, d_pair_i, d_pair_j, d_dE_dBO_s, d_dE_dBO_pi,
-        d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i,
-        d_dbo_pi2_dDelta_i, d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
-        d_dbo_pi2_dDelta_j, d_CdDelta_prime);
+    Launch_Device_Kernel(Calculate_CdDelta_Prime_Kernel, gridSize, blockSize, 0,
+                         NULL, h_num_pairs, d_pair_i, d_pair_j, d_dE_dBO_s,
+                         d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dDelta_i,
+                         d_dbo_pi_dDelta_i, d_dbo_pi2_dDelta_i,
+                         d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
+                         d_dbo_pi2_dDelta_j, d_CdDelta_prime);
 
     Launch_Device_Kernel(
         REAXFF_Force_Projection_Kernel, gridSize, blockSize, 0, NULL,

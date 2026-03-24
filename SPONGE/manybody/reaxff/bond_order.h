@@ -1,4 +1,4 @@
-#ifndef REAXFF_BOND_ORDER_H
+﻿#ifndef REAXFF_BOND_ORDER_H
 #define REAXFF_BOND_ORDER_H
 
 #include "../../common.h"
@@ -7,9 +7,11 @@
 // Device helper for sparse bond index lookup via CSR structure.
 // Given an atom and its neighbor, returns the canonical bond index,
 // or -1 if no bond exists between them.
-static __device__ __forceinline__ int find_bond_index(
-    int atom, int neighbor, const int* bond_count, const int* bond_offset,
-    const int* bond_nbr, const int* bond_idx)
+static __device__ __forceinline__ int find_bond_index(int atom, int neighbor,
+                                                      const int* bond_count,
+                                                      const int* bond_offset,
+                                                      const int* bond_nbr,
+                                                      const int* bond_idx)
 {
     int start = bond_offset[atom];
     int end = start + bond_count[atom];
@@ -97,23 +99,23 @@ struct REAXFF_BOND_ORDER
     int* d_bond_count = NULL;   // [N] number of bonds per atom
     int* d_bond_offset = NULL;  // [N+1] prefix sum offsets
     int* d_bond_nbr = NULL;     // [2*max_bonds] neighbor atom per CSR entry
-    int* d_bond_idx = NULL;     // [2*max_bonds] canonical bond index per CSR entry
-    int* d_fill_count = NULL;   // [N] temp counter for CSR fill phase
+    int* d_bond_idx = NULL;  // [2*max_bonds] canonical bond index per CSR entry
+    int* d_fill_count = NULL;  // [N] temp counter for CSR fill phase
 
     // Per-atom arrays
     float* d_total_bond_order = NULL;            // [N] 每个原子的总键级
     float* d_total_corrected_bond_order = NULL;  // [N]
 
     // Per-bond sparse arrays (indexed by bond/pair index)
-    int* d_pair_i = NULL;           // [max_bonds]
-    int* d_pair_j = NULL;           // [max_bonds]
-    float* d_pair_distances = NULL; // [max_bonds]
-    int* d_num_pairs_ptr = NULL;    // device counter
-    int h_num_pairs = 0;            // host copy
+    int* d_pair_i = NULL;            // [max_bonds]
+    int* d_pair_j = NULL;            // [max_bonds]
+    float* d_pair_distances = NULL;  // [max_bonds]
+    int* d_num_pairs_ptr = NULL;     // device counter
+    int h_num_pairs = 0;             // host copy
 
-    float* d_corrected_bo_s = NULL;   // [max_bonds] 修正后的sigma键级
-    float* d_corrected_bo_pi = NULL;  // [max_bonds] 修正后的pi键级
-    float* d_corrected_bo_pi2 = NULL; // [max_bonds] 修正后的pi-pi键级
+    float* d_corrected_bo_s = NULL;    // [max_bonds] 修正后的sigma键级
+    float* d_corrected_bo_pi = NULL;   // [max_bonds] 修正后的pi键级
+    float* d_corrected_bo_pi2 = NULL;  // [max_bonds] 修正后的pi-pi键级
 
     // Derivatives of total energy with respect to bond orders (accumulated from
     // all modules)
@@ -122,13 +124,13 @@ struct REAXFF_BOND_ORDER
     float* d_dE_dBO_pi2 = NULL;  // [max_bonds]
 
     // Derivatives of corrected bond orders w.r.t r, Delta_i, Delta_j
-    float* d_dbo_s_dr = NULL;          // [max_bonds]
+    float* d_dbo_s_dr = NULL;  // [max_bonds]
     float* d_dbo_pi_dr = NULL;
     float* d_dbo_pi2_dr = NULL;
-    float* d_dbo_s_dDelta_i = NULL;    // [max_bonds] d/d(Delta_{pair_i})
+    float* d_dbo_s_dDelta_i = NULL;  // [max_bonds] d/d(Delta_{pair_i})
     float* d_dbo_pi_dDelta_i = NULL;
     float* d_dbo_pi2_dDelta_i = NULL;
-    float* d_dbo_s_dDelta_j = NULL;    // [max_bonds] d/d(Delta_{pair_j})
+    float* d_dbo_s_dDelta_j = NULL;  // [max_bonds] d/d(Delta_{pair_j})
     float* d_dbo_pi_dDelta_j = NULL;
     float* d_dbo_pi2_dDelta_j = NULL;
     float* d_dbo_raw_total_dr = NULL;  // [max_bonds]
@@ -155,8 +157,7 @@ struct REAXFF_BOND_ORDER
     void Calculate_Uncorrected_Bond_Orders_GPU(
         int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
         const LTMatrix3 rcell, float cutoff, const ATOM_GROUP* d_nl,
-        int* d_pair_i, int* d_pair_j, float* d_distances,
-        int* d_num_pairs_ptr);
+        int* d_pair_i, int* d_pair_j, float* d_distances, int* d_num_pairs_ptr);
     void Calculate_Corrected_Bond_Orders_GPU(
         int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
         const LTMatrix3 rcell, float cutoff, int num_pairs, int* d_pair_i,

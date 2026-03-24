@@ -76,17 +76,17 @@ SPONGE_PLUGIN plugin;
 
 #ifdef USE_CPU
 static bool reaxff_cpu_profile_enabled = false;
-#define REAXFF_CPU_PROFILE_START(name)                                        \
-    do                                                                        \
-    {                                                                         \
-        if (reaxff_cpu_profile_enabled)                                       \
-            controller.Get_Time_Recorder(name)->Start();                      \
+#define REAXFF_CPU_PROFILE_START(name)                   \
+    do                                                   \
+    {                                                    \
+        if (reaxff_cpu_profile_enabled)                  \
+            controller.Get_Time_Recorder(name)->Start(); \
     } while (0)
-#define REAXFF_CPU_PROFILE_STOP(name)                                         \
-    do                                                                        \
-    {                                                                         \
-        if (reaxff_cpu_profile_enabled)                                       \
-            controller.Get_Time_Recorder(name)->Stop();                       \
+#define REAXFF_CPU_PROFILE_STOP(name)                   \
+    do                                                  \
+    {                                                   \
+        if (reaxff_cpu_profile_enabled)                 \
+            controller.Get_Time_Recorder(name)->Stop(); \
     } while (0)
 #else
 #define REAXFF_CPU_PROFILE_START(name) \
@@ -177,8 +177,8 @@ void Main_Initial(int argc, char* argv[])
 #ifdef USE_CPU
         if (controller.Command_Exist("REAXFF", "cpu_profile"))
         {
-            reaxff_cpu_profile_enabled = controller.Get_Bool(
-                "REAXFF", "cpu_profile", "Main_Initial");
+            reaxff_cpu_profile_enabled =
+                controller.Get_Bool("REAXFF", "cpu_profile", "Main_Initial");
         }
 #endif
     }
@@ -501,9 +501,9 @@ void Main_Calculate_Force()
         REAXFF_CPU_PROFILE_START("REAXFF_CPU_EEQ");
         reaxff_eeq.Calculate_Charges(dd.atom_numbers, md_info.d_charge, dd.crd,
                                      md_info.pbc.cell, md_info.pbc.rcell,
-                                     neighbor_list.full_neighbor_list.d_nl, md_info.nb.cutoff,
-                                     dd.d_energy, dd.frc, md_info.need_pressure,
-                                     dd.d_virial);
+                                     neighbor_list.full_neighbor_list.d_nl,
+                                     md_info.nb.cutoff, dd.d_energy, dd.frc,
+                                     md_info.need_pressure, dd.d_virial);
         REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_EEQ");
         if (CONTROLLER::PP_MPI_size == 1 && dd.d_charge != md_info.d_charge)
         {

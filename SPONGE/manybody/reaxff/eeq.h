@@ -1,4 +1,4 @@
-#ifndef REAXFF_EEQ_H
+﻿#ifndef REAXFF_EEQ_H
 #define REAXFF_EEQ_H
 
 #include "../../common.h"
@@ -55,7 +55,10 @@ struct REAXFF_EEQ
     float tolerance = 1e-4f;
     int max_iter = 1000;
     // Charge history for polynomial extrapolation (LAMMPS-style)
-    enum { HIST_SIZE = 5 };
+    enum
+    {
+        HIST_SIZE = 5
+    };
     int nprev = 0;
     float* d_s_hist = NULL;
     float* d_t_hist = NULL;

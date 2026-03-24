@@ -57,9 +57,8 @@ static __global__ void Calculate_Energy_Force_Prep_Kernel(
     float p_ovun3, float p_ovun4, float p_ovun6, float p_ovun7, float p_ovun8,
     const float* p_ovun2, const float* p_ovun5, float* d_dE_dBO_s,
     float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta, float* atom_energy,
-    float* d_energy_ovun_sum, float* d_energy_elp_sum,
-    const int* bond_count, const int* bond_offset, const int* bond_nbr,
-    const int* bond_idx_arr)
+    float* d_energy_ovun_sum, float* d_energy_elp_sum, const int* bond_count,
+    const int* bond_offset, const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {

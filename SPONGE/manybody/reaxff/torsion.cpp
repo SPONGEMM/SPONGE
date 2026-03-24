@@ -1,4 +1,5 @@
 ﻿#include "torsion.h"
+
 #include "bond_order.h"  // for find_bond_index
 
 static __global__ void Calculate_Torsion_Kernel(
@@ -9,11 +10,10 @@ static __global__ void Calculate_Torsion_Kernel(
     const REAXFF_TORSION_Entry* torsion_entries, int atom_type_numbers,
     const float* bo_s, const float* bo_pi, const float* bo_pi2,
     float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta,
-    const LTMatrix3 cell, const LTMatrix3 rcell,
-    float* atom_energy, VECTOR* frc, LTMatrix3* atom_virial,
-    float* d_energy_tor_sum, float* d_energy_cot_sum,
-    const int* bond_count, const int* bond_offset, const int* bond_nbr,
-    const int* bond_idx_arr)
+    const LTMatrix3 cell, const LTMatrix3 rcell, float* atom_energy,
+    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_tor_sum,
+    float* d_energy_cot_sum, const int* bond_count, const int* bond_offset,
+    const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(j, atom_numbers)
     {
@@ -54,8 +54,7 @@ static __global__ void Calculate_Torsion_Kernel(
                     int i = bond_nbr[bo_j + pi];
                     if (i == k) continue;
                     int type_i = atom_type[i];
-                    float bo_ij_val =
-                        bo_s[b_ij] + bo_pi[b_ij] + bo_pi2[b_ij];
+                    float bo_ij_val = bo_s[b_ij] + bo_pi[b_ij] + bo_pi2[b_ij];
                     if (bo_ij_val <= thb_cut) continue;
 
                     VECTOR ri = crd[i];
@@ -227,19 +226,16 @@ static __global__ void Calculate_Torsion_Kernel(
 
                             atomicAdd(&d_dE_dBO_s[b_ij], s_en_total.dval[0]);
                             atomicAdd(&d_dE_dBO_pi[b_ij], s_en_total.dval[0]);
-                            atomicAdd(&d_dE_dBO_pi2[b_ij],
-                                      s_en_total.dval[0]);
+                            atomicAdd(&d_dE_dBO_pi2[b_ij], s_en_total.dval[0]);
 
                             atomicAdd(&d_dE_dBO_s[b_jk], s_en_total.dval[1]);
                             atomicAdd(&d_dE_dBO_pi[b_jk],
                                       s_en_total.dval[1] + s_en_total.dval[5]);
-                            atomicAdd(&d_dE_dBO_pi2[b_jk],
-                                      s_en_total.dval[1]);
+                            atomicAdd(&d_dE_dBO_pi2[b_jk], s_en_total.dval[1]);
 
                             atomicAdd(&d_dE_dBO_s[b_kl], s_en_total.dval[2]);
                             atomicAdd(&d_dE_dBO_pi[b_kl], s_en_total.dval[2]);
-                            atomicAdd(&d_dE_dBO_pi2[b_kl],
-                                      s_en_total.dval[2]);
+                            atomicAdd(&d_dE_dBO_pi2[b_kl], s_en_total.dval[2]);
 
                             atomicAdd(&CdDelta[j], s_en_total.dval[3]);
                             atomicAdd(&CdDelta[k], s_en_total.dval[4]);
@@ -675,8 +671,7 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
     this->thb_cut = 0.001f;
     if (controller->Command_Exist(module_name, "thb_cutoff"))
     {
-        this->thb_cut =
-            atof(controller->Command(module_name, "thb_cutoff"));
+        this->thb_cut = atof(controller->Command(module_name, "thb_cutoff"));
     }
     is_initialized = 1;
 }

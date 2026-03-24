@@ -1,4 +1,5 @@
 ﻿#include "hydrogen_bond.h"
+
 #include "bond_order.h"  // for find_bond_index
 
 static __global__ void Calculate_HB_Kernel(

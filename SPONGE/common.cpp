@@ -3,8 +3,8 @@
 #include "control.h"
 
 #ifdef USE_CPU
-#define COMMON_SIMPLE_DEVICE_FOR(i, N)                             \
-    PRAGMA(omp parallel for schedule(static) if ((N) >= 512))      \
+#define COMMON_SIMPLE_DEVICE_FOR(i, N)                        \
+    PRAGMA(omp parallel for schedule(static) if ((N) >= 512)) \
     for (int i = 0; i < N; i++)
 #else
 #define COMMON_SIMPLE_DEVICE_FOR(i, N) SIMPLE_DEVICE_FOR(i, N)
@@ -135,19 +135,13 @@ void Free_Host_And_Device_Pointer(void** host_ptr, void** device_ptr)
 static __global__ void Reset_List_Device(const int element_numbers, int* list,
                                          const int replace_element)
 {
-    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers)
-    {
-        list[i] = replace_element;
-    }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
 }
 
 static __global__ void Reset_List_Device(const int element_numbers, float* list,
                                          const float replace_element)
 {
-    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers)
-    {
-        list[i] = replace_element;
-    }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
 }
 
 void Reset_List(int* list, const int replace_element, const int element_numbers,
@@ -169,10 +163,7 @@ void Reset_List(float* list, const float replace_element,
 static __global__ void Scale_List_Device(const int element_numbers, float* list,
                                          float scaler)
 {
-    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers)
-    {
-        list[i] = list[i] * scaler;
-    }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = list[i] * scaler; }
 }
 
 void Scale_List(float* list, const float scaler, const int element_numbers,
@@ -251,8 +242,8 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
     }
 #else
     float lin_x = 0.0f, lin_y = 0.0f, lin_z = 0.0f;
-#pragma omp parallel for reduction(+ : lin_x, lin_y, lin_z) \
-    if ((end - start) >= 512)
+#pragma omp parallel for reduction(+ : lin_x, lin_y, \
+                                       lin_z) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
     {
         lin_x += list[i].x;
@@ -285,8 +276,8 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
 #else
     float a11 = 0.0f, a21 = 0.0f, a22 = 0.0f;
     float a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
-#pragma omp parallel for reduction(+ : a11, a21, a22, a31, a32, a33) \
-    if ((end - start) >= 512)
+#pragma omp parallel for reduction(+ : a11, a21, a22, a31, a32, \
+                                       a33) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
     {
         a11 += list[i].a11;
@@ -323,9 +314,9 @@ static void Ensure_Sum_Of_List_Block_Sums_Capacity(int required)
     {
         deviceFree(s_sum_of_list_block_sums);
     }
-    int new_capacity =
-        s_sum_of_list_block_sums_capacity > 0 ? s_sum_of_list_block_sums_capacity
-                                              : 256;
+    int new_capacity = s_sum_of_list_block_sums_capacity > 0
+                           ? s_sum_of_list_block_sums_capacity
+                           : 256;
     while (new_capacity < required)
     {
         new_capacity *= 2;
