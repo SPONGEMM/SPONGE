@@ -1,0 +1,15 @@
+# PETN 16240 NVE throughput
+units real
+atom_style charge
+read_data data.reax
+replicate 7 8 5
+neighbor 2.0 bin
+neigh_modify every 1 delay 0 check yes
+pair_style reaxff NULL
+pair_coeff * * ffield.reax C H O N
+fix qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff maxiter 1000
+fix nve all nve
+thermo 100
+thermo_style custom step temp pe etotal press
+timestep 0.1
+run 100

@@ -10,6 +10,7 @@ from benchmarks.utils import (
 )
 
 CONSTANT_KB_KCAL_PER_MOL_K = 0.00198716
+SECONDS_PER_DAY = 86400.0
 
 
 def run_sponge(case_dir, mdin_name, timeout=2400, mpi_np=None):
@@ -21,16 +22,15 @@ def run_sponge(case_dir, mdin_name, timeout=2400, mpi_np=None):
     )
 
 
-def write_nve_long_mdin(
+def _rewrite_top_level_fields(
     case_dir,
     *,
-    source_nve_mdin="nve.spg.toml",
-    output_mdin="nve.long.spg.toml",
-    step_limit=20000,
-    write_information_interval=10,
-    rst="nve_long",
+    source_mdin,
+    output_mdin,
+    updates,
 ):
-    lines = Path(case_dir, source_nve_mdin).read_text().splitlines()
+    lines = Path(case_dir, source_mdin).read_text().splitlines()
+    updates = dict(updates)
 
     updated_lines = []
     in_reaxff_block = False
@@ -38,25 +38,46 @@ def write_nve_long_mdin(
         stripped = line.strip()
         if stripped.startswith("["):
             in_reaxff_block = stripped.lower() == "[reaxff]"
-        if not in_reaxff_block and stripped.startswith("step_limit"):
-            updated_lines.append(f"step_limit = {step_limit}")
-            continue
-        if not in_reaxff_block and stripped.startswith(
-            "write_information_interval"
-        ):
-            updated_lines.append(
-                f"write_information_interval = {write_information_interval}"
-            )
-            continue
-        if not in_reaxff_block and stripped.startswith("rst"):
-            updated_lines.append(f'rst = "{rst}"')
+        if not in_reaxff_block:
+            for key, value in updates.items():
+                if stripped.startswith(key):
+                    updated_lines.append(f"{key} = {value}")
+                    break
+            else:
+                updated_lines.append(line)
             continue
         updated_lines.append(line)
 
-    if not any(l.strip().startswith("rst") for l in updated_lines):
-        updated_lines.append(f'rst = "{rst}"')
+    for key, value in updates.items():
+        if any(l.strip().startswith(key) for l in updated_lines):
+            continue
+        updated_lines.append(f"{key} = {value}")
 
     Path(case_dir, output_mdin).write_text("\n".join(updated_lines) + "\n")
+
+
+def write_reaxff_perf_mdin(
+    case_dir,
+    *,
+    source_mdin="mdin.spg.toml",
+    output_mdin="perf.spg.toml",
+    step_limit=100,
+    write_information_interval=None,
+    rst="perf",
+):
+    if write_information_interval is None:
+        write_information_interval = max(1, step_limit)
+
+    _rewrite_top_level_fields(
+        case_dir,
+        source_mdin=source_mdin,
+        output_mdin=output_mdin,
+        updates={
+            "step_limit": step_limit,
+            "write_information_interval": write_information_interval,
+            "rst": json.dumps(rst),
+        },
+    )
 
 
 def read_atom_count_from_coordinate(coordinate_path):
@@ -112,6 +133,23 @@ def summarize_energy_stability(nve_rows, *, dof):
 
 def dump_summary_json(summary, out_path):
     Path(out_path).write_text(json.dumps(summary, indent=2, sort_keys=True))
+
+
+def summarize_runtime(mdout_rows, *, elapsed_s):
+    if elapsed_s <= 0.0:
+        raise ValueError(f"Invalid elapsed time: {elapsed_s}")
+
+    last = mdout_rows[-1]
+    total_steps = int(last["step"])
+    simulated_ps = float(last["time"])
+    return {
+        "samples": len(mdout_rows),
+        "total_steps": total_steps,
+        "simulated_ps": simulated_ps,
+        "elapsed_s": float(elapsed_s),
+        "steps_per_s": total_steps / elapsed_s,
+        "ns_per_day": simulated_ps * SECONDS_PER_DAY / elapsed_s / 1000.0,
+    }
 
 
 def save_energy_plots(nve_rows, *, dof, output_dir):

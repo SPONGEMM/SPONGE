@@ -1,0 +1,17 @@
+mode = "nve"
+dt = 0.0001
+step_limit = 1
+write_information_interval = 1
+
+cutoff = 10.0
+skin = 2.0
+coordinate_in_file = "coordinate.txt"
+mass_in_file = "mass.txt"
+frc = "frc.dat"
+print_zeroth_frame = 1
+print_pressure = 1
+
+[REAXFF]
+in_file = "ffield.reax"
+type_in_file = "type.txt"
+thb_cutoff = 0.001

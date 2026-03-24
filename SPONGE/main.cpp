@@ -74,6 +74,31 @@ REAXFF_HYDROGEN_BOND reaxff_hb;
 QUANTUM_CHEMISTRY qc;
 SPONGE_PLUGIN plugin;
 
+#ifdef USE_CPU
+static bool reaxff_cpu_profile_enabled = false;
+#define REAXFF_CPU_PROFILE_START(name)                                        \
+    do                                                                        \
+    {                                                                         \
+        if (reaxff_cpu_profile_enabled)                                       \
+            controller.Get_Time_Recorder(name)->Start();                      \
+    } while (0)
+#define REAXFF_CPU_PROFILE_STOP(name)                                         \
+    do                                                                        \
+    {                                                                         \
+        if (reaxff_cpu_profile_enabled)                                       \
+            controller.Get_Time_Recorder(name)->Stop();                       \
+    } while (0)
+#else
+#define REAXFF_CPU_PROFILE_START(name) \
+    do                                 \
+    {                                  \
+    } while (0)
+#define REAXFF_CPU_PROFILE_STOP(name) \
+    do                                \
+    {                                 \
+    } while (0)
+#endif
+
 int main(int argc, char* argv[])
 {
     Main_Initial(argc, argv);
@@ -116,19 +141,16 @@ void Main_Initial(int argc, char* argv[])
                                   &neighbor_list.cutoff_full);
         reaxff_bond.Initial(&controller, md_info.atom_numbers, "REAXFF",
                             &neighbor_list.is_needed_full);
+        reaxff_bond.d_bo_s = reaxff_bond_order.d_corrected_bo_s;
+        reaxff_bond.d_bo_pi = reaxff_bond_order.d_corrected_bo_pi;
+        reaxff_bond.d_bo_pi2 = reaxff_bond_order.d_corrected_bo_pi2;
         reaxff_bond.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
         reaxff_bond.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
         reaxff_bond.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-        reaxff_bond.d_dbo_s_dr = reaxff_bond_order.d_dbo_s_dr;
-        reaxff_bond.d_dbo_pi_dr = reaxff_bond_order.d_dbo_pi_dr;
-        reaxff_bond.d_dbo_pi2_dr = reaxff_bond_order.d_dbo_pi2_dr;
-        reaxff_bond.d_dbo_s_dDelta_i = reaxff_bond_order.d_dbo_s_dDelta_i;
-        reaxff_bond.d_dbo_pi_dDelta_i = reaxff_bond_order.d_dbo_pi_dDelta_i;
-        reaxff_bond.d_dbo_pi2_dDelta_i = reaxff_bond_order.d_dbo_pi2_dDelta_i;
-        reaxff_bond.d_dbo_s_dDelta_j = reaxff_bond_order.d_dbo_s_dDelta_j;
-        reaxff_bond.d_dbo_pi_dDelta_j = reaxff_bond_order.d_dbo_pi_dDelta_j;
-        reaxff_bond.d_dbo_pi2_dDelta_j = reaxff_bond_order.d_dbo_pi2_dDelta_j;
-        reaxff_bond.d_dbo_raw_total_dr = reaxff_bond_order.d_dbo_raw_total_dr;
+        reaxff_bond.d_bond_count = reaxff_bond_order.d_bond_count;
+        reaxff_bond.d_bond_offset = reaxff_bond_order.d_bond_offset;
+        reaxff_bond.d_bond_nbr = reaxff_bond_order.d_bond_nbr;
+        reaxff_bond.d_bond_idx = reaxff_bond_order.d_bond_idx;
 
         reaxff_vdw.Initial(&controller, md_info.atom_numbers, "REAXFF",
                            &neighbor_list.is_needed_full);
@@ -136,33 +158,12 @@ void Main_Initial(int argc, char* argv[])
         reaxff_ovun.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
         reaxff_ovun.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
         reaxff_ovun.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-        reaxff_ovun.d_dbo_s_dr = reaxff_bond_order.d_dbo_s_dr;
-        reaxff_ovun.d_dbo_pi_dr = reaxff_bond_order.d_dbo_pi_dr;
-        reaxff_ovun.d_dbo_pi2_dr = reaxff_bond_order.d_dbo_pi2_dr;
-        reaxff_ovun.d_dbo_s_dDelta_i = reaxff_bond_order.d_dbo_s_dDelta_i;
-        reaxff_ovun.d_dbo_pi_dDelta_i = reaxff_bond_order.d_dbo_pi_dDelta_i;
-        reaxff_ovun.d_dbo_pi2_dDelta_i = reaxff_bond_order.d_dbo_pi2_dDelta_i;
-        reaxff_ovun.d_dbo_s_dDelta_j = reaxff_bond_order.d_dbo_s_dDelta_j;
-        reaxff_ovun.d_dbo_pi_dDelta_j = reaxff_bond_order.d_dbo_pi_dDelta_j;
-        reaxff_ovun.d_dbo_pi2_dDelta_j = reaxff_bond_order.d_dbo_pi2_dDelta_j;
-        reaxff_ovun.d_dbo_raw_total_dr = reaxff_bond_order.d_dbo_raw_total_dr;
 
-        reaxff_bond.d_CdDelta = reaxff_ovun.d_CdDelta;
         reaxff_angle.Initial(&controller, md_info.atom_numbers, "REAXFF");
         reaxff_angle.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
         reaxff_angle.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
         reaxff_angle.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
         reaxff_angle.d_CdDelta = reaxff_ovun.d_CdDelta;
-        reaxff_angle.d_dbo_s_dr = reaxff_bond_order.d_dbo_s_dr;
-        reaxff_angle.d_dbo_pi_dr = reaxff_bond_order.d_dbo_pi_dr;
-        reaxff_angle.d_dbo_pi2_dr = reaxff_bond_order.d_dbo_pi2_dr;
-        reaxff_angle.d_dbo_s_dDelta_i = reaxff_bond_order.d_dbo_s_dDelta_i;
-        reaxff_angle.d_dbo_pi_dDelta_i = reaxff_bond_order.d_dbo_pi_dDelta_i;
-        reaxff_angle.d_dbo_pi2_dDelta_i = reaxff_bond_order.d_dbo_pi2_dDelta_i;
-        reaxff_angle.d_dbo_s_dDelta_j = reaxff_bond_order.d_dbo_s_dDelta_j;
-        reaxff_angle.d_dbo_pi_dDelta_j = reaxff_bond_order.d_dbo_pi_dDelta_j;
-        reaxff_angle.d_dbo_pi2_dDelta_j = reaxff_bond_order.d_dbo_pi2_dDelta_j;
-        reaxff_angle.d_dbo_raw_total_dr = reaxff_bond_order.d_dbo_raw_total_dr;
 
         reaxff_torsion.Initial(&controller, md_info.atom_numbers, "REAXFF");
         reaxff_torsion.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
@@ -173,6 +174,13 @@ void Main_Initial(int argc, char* argv[])
         reaxff_hb.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
         reaxff_hb.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
         reaxff_hb.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
+#ifdef USE_CPU
+        if (controller.Command_Exist("REAXFF", "cpu_profile"))
+        {
+            reaxff_cpu_profile_enabled = controller.Get_Bool(
+                "REAXFF", "cpu_profile", "Main_Initial");
+        }
+#endif
     }
 
     //------------------------- thermostat initialization-----------------------
@@ -490,51 +498,51 @@ void Main_Calculate_Force()
             neighbor_list.CONDITIONAL_UPDATE, md_info.nb.d_excluded_list_start,
             md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
 
-        reaxff_eeq.Calculate_Charges(
-            dd.atom_numbers, md_info.d_charge, dd.crd, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.d_nl, md_info.nb.cutoff,
-            dd.d_energy, dd.frc, md_info.need_pressure, dd.d_virial);
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_EEQ");
+        reaxff_eeq.Calculate_Charges(dd.atom_numbers, md_info.d_charge, dd.crd,
+                                     md_info.pbc.cell, md_info.pbc.rcell,
+                                     neighbor_list.full_neighbor_list.d_nl, md_info.nb.cutoff,
+                                     dd.d_energy, dd.frc, md_info.need_pressure,
+                                     dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_EEQ");
         if (CONTROLLER::PP_MPI_size == 1 && dd.d_charge != md_info.d_charge)
         {
             dd.Sync_Local_Charge_From_Global(md_info.d_charge);
         }
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_BOND_ORDER");
         reaxff_bond_order.Calculate_Bond_Order(
             dd.atom_numbers, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
             neighbor_list.full_neighbor_list.d_nl, md_info.nb.cutoff);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_BOND_ORDER");
 
         if (reaxff_bond_order.is_initialized)
         {
+            REAXFF_CPU_PROFILE_START("REAXFF_CPU_CLEAR_DERIV");
             reaxff_bond_order.Clear_Derivatives(dd.atom_numbers,
                                                 reaxff_ovun.d_CdDelta);
+            REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_CLEAR_DERIV");
         }
 
-        if (reaxff_bond.is_initialized && reaxff_bond_order.is_initialized)
-        {
-            deviceMemcpy(reaxff_bond.d_bo_s, reaxff_bond_order.d_corrected_bo_s,
-                         sizeof(float) * dd.atom_numbers * dd.atom_numbers,
-                         deviceMemcpyDeviceToDevice);
-            deviceMemcpy(reaxff_bond.d_bo_pi,
-                         reaxff_bond_order.d_corrected_bo_pi,
-                         sizeof(float) * dd.atom_numbers * dd.atom_numbers,
-                         deviceMemcpyDeviceToDevice);
-            deviceMemcpy(reaxff_bond.d_bo_pi2,
-                         reaxff_bond_order.d_corrected_bo_pi2,
-                         sizeof(float) * dd.atom_numbers * dd.atom_numbers,
-                         deviceMemcpyDeviceToDevice);
-        }
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_BOND");
         reaxff_bond.REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, neighbor_list.d_nl, md_info.need_potential,
             dd.d_energy, md_info.need_pressure, dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_BOND");
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_VDW");
         reaxff_vdw.REAXFF_VDW_Force_With_Atom_Energy_And_Virial(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, neighbor_list.d_nl, md_info.nb.cutoff,
             md_info.need_potential, dd.d_energy, md_info.need_pressure,
             dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_VDW");
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_OVUN");
         reaxff_ovun.Calculate_Over_Under_Energy_And_Force(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, &reaxff_bond_order, md_info.need_potential,
             dd.d_energy, md_info.need_pressure, dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_OVUN");
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_ANGLE");
         reaxff_angle.Calculate_Valence_Angle_Energy_And_Force(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
@@ -543,23 +551,30 @@ void Main_Calculate_Force()
             reaxff_ovun.d_dDelta_lp, reaxff_ovun.d_CdDelta,
             md_info.need_potential, dd.d_energy, md_info.need_pressure,
             dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_ANGLE");
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_TORSION");
         reaxff_torsion.Calculate_Torsion_Energy_And_Force(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
             &reaxff_bond_order, reaxff_ovun.d_Delta_boc, md_info.need_potential,
             dd.d_energy, md_info.need_pressure, dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_TORSION");
+        REAXFF_CPU_PROFILE_START("REAXFF_CPU_HB");
         reaxff_hb.Calculate_HB_Energy_And_Force(
             dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
             md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
             &reaxff_bond_order, md_info.need_potential, dd.d_energy,
             md_info.need_pressure, dd.d_virial);
+        REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_HB");
 
         if (reaxff_bond_order.is_initialized)
         {
+            REAXFF_CPU_PROFILE_START("REAXFF_CPU_FORCE_PROJ");
             reaxff_bond_order.Calculate_Forces(
                 dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
                 md_info.pbc.rcell, md_info.nb.cutoff, reaxff_ovun.d_CdDelta,
                 md_info.need_pressure, dd.d_virial);
+            REAXFF_CPU_PROFILE_STOP("REAXFF_CPU_FORCE_PROJ");
         }
 
         // NOPBC START

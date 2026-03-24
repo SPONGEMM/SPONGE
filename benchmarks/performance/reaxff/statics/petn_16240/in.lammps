@@ -1,0 +1,15 @@
+# PETN 16240 single-frame comparison
+units real
+atom_style charge
+read_data data.reax
+replicate 7 8 5
+neighbor 2.0 bin
+neigh_modify every 1 delay 0 check yes
+pair_style reaxff NULL
+pair_coeff * * ffield.reax C H O N
+fix qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff maxiter 1000
+thermo 1
+thermo_style custom step temp pe press pxx pyy pzz pxy pxz pyz etotal
+dump frc all custom 1 forces.dump id fx fy fz
+dump chg all custom 1 charges.dump id q
+run 0

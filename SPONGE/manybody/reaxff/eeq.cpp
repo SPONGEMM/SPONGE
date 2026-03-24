@@ -298,12 +298,13 @@ static __global__ void EEQ_Fill_H_Matrix(
             if (r < cutoff)
             {
                 float x = r / cutoff;
-                float taper = (((((20.0f * x - 70.0f) * x + 84.0f) * x -
-                                 35.0f) *
-                                    x *
-                                    x *
-                                    x) +
-                               1.0f);
+                float x2 = x * x;
+                float x4 = x2 * x2;
+                float x5 = x4 * x;
+                float x6 = x5 * x;
+                float x7 = x6 * x;
+                float taper =
+                    20.0f * x7 - 70.0f * x6 + 84.0f * x5 - 35.0f * x4 + 1.0f;
                 float shield_ij = shield[type_i * atom_type_numbers + type_j];
                 jlist[write_idx] = atom_j;
                 h_val[write_idx] =
@@ -545,17 +546,20 @@ static __global__ void EEQ_Calculate_Force_Kernel(
                     float inv_cutoff = 1.0f / cutoff;
                     float x = r * inv_cutoff;
                     float x2 = x * x;
-                    float x3 = x2 * x;
+                    float x4 = x2 * x2;
+                    float x5 = x4 * x;
+                    float x6 = x5 * x;
+                    float x7 = x6 * x;
 
-                    // Taper: T(x) = 20x^6 - 70x^5 + 84x^4 - 35x^3 + 1
+                    // Taper: T(x) = 20x^7 - 70x^6 + 84x^5 - 35x^4 + 1
                     float taper_val =
-                        ((((20.0f * x - 70.0f) * x + 84.0f) * x - 35.0f) *
-                             x * x * x) +
+                        20.0f * x7 - 70.0f * x6 + 84.0f * x5 - 35.0f * x4 +
                         1.0f;
-                    // dT/dr = (1/cutoff) * (120x^5 - 350x^4 + 336x^3 - 105x^2)
-                    float dtaper_dr =
-                        inv_cutoff * x2 *
-                        (((120.0f * x - 350.0f) * x + 336.0f) * x - 105.0f);
+                    // dT/dr = (1/cutoff) * (140x^6 - 420x^5 + 420x^4 - 140x^3)
+                    float x3 = x2 * x;
+                    float dtaper_dr = inv_cutoff *
+                                      (140.0f * x6 - 420.0f * x5 +
+                                       420.0f * x4 - 140.0f * x3);
 
                     float shield_ij =
                         shield[type_i * atom_type_numbers + type_j];
@@ -737,7 +741,6 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                              atom_type_numbers, fnl_d_nl, cell, rcell, cutoff,
                              d_h_firstnbrs, d_h_jlist, d_h_val);
     }
-
     // ---- CG solver ----
 #ifndef USE_CPU
     // GPU path: Jacobi-preconditioned CG, device-side scalars
@@ -962,7 +965,6 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                  deviceMemcpyDeviceToHost);
 
     h_energy = sum_epol + sum_eele;
-
     if (d_energy != NULL)
     {
         Launch_Device_Kernel(EEQ_Distribute_Energy_Kernel, gridSize, blockSize,
