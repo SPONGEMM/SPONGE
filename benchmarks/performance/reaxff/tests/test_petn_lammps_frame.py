@@ -1,11 +1,11 @@
 import math
+from pathlib import Path
 
 import numpy as np
 
 from benchmarks.utils import Extractor, Outputer, Runner
 
 from benchmarks.comparison.tests.lammps.tests.utils import (
-    extract_lammps_forces,
     extract_lammps_potential,
     extract_lammps_pressure,
     extract_lammps_stress,
@@ -48,6 +48,31 @@ def _extract_sponge_charges(charge_path):
     return charges
 
 
+def _extract_lammps_forces_from_dump(dump_path):
+    forces = {}
+    with open(dump_path, "r") as f:
+        lines = f.readlines()
+
+    start_idx = -1
+    for i, line in enumerate(lines):
+        if line.startswith("ITEM: ATOMS"):
+            start_idx = i + 1
+            break
+    if start_idx == -1:
+        raise ValueError(
+            f"Invalid LAMMPS force dump format: missing atomic section in {dump_path}"
+        )
+
+    for line in lines[start_idx:]:
+        parts = line.split()
+        if len(parts) >= 4:
+            forces[int(parts[0])] = np.array(
+                [float(parts[1]), float(parts[2]), float(parts[3])],
+                dtype=float,
+            )
+    return np.array([forces[i] for i in sorted(forces)], dtype=float)
+
+
 def test_reaxff_petn_single_frame_matches_lammps(
     statics_path, outputs_path, mpi_np
 ):
@@ -68,11 +93,6 @@ def test_reaxff_petn_single_frame_matches_lammps(
         rst="petn_frame",
     )
 
-    Runner.run_command(
-        ["lmp", "-in", "in.lammps", "-log", "log.lammps"],
-        cwd=case_dir,
-        timeout=2400,
-    )
     Runner.run_sponge(
         case_dir,
         mdin_name="petn.frame.spg.toml",
@@ -80,17 +100,36 @@ def test_reaxff_petn_single_frame_matches_lammps(
         mpi_np=mpi_np,
     )
 
+    reference_dir = case_dir / "reference"
+    if not reference_dir.exists():
+        raise FileNotFoundError(
+            f"Missing PETN LAMMPS reference directory: {reference_dir}"
+        )
+
+    reference_in = reference_dir / "in.lammps"
+    reference_log = reference_dir / "log.lammps"
+    reference_forces_dump = reference_dir / "forces.dump"
+    reference_charges_dump = reference_dir / "charges.dump"
+    for path in (
+        reference_in,
+        reference_log,
+        reference_forces_dump,
+        reference_charges_dump,
+    ):
+        if not path.exists():
+            raise FileNotFoundError(f"Missing PETN reference file: {path}")
+
     atom_count = read_atom_count_from_coordinate(case_dir / "coordinate.txt")
-    lammps_potential = extract_lammps_potential(case_dir / "log.lammps")
+    lammps_potential = extract_lammps_potential(reference_log)
     sponge_potential = Extractor.extract_sponge_potential(case_dir)
-    lammps_pressure = extract_lammps_pressure(case_dir / "log.lammps")
+    lammps_pressure = extract_lammps_pressure(reference_log)
     sponge_pressure = Extractor.extract_sponge_pressure(case_dir)
-    lammps_stress = extract_lammps_stress(case_dir / "log.lammps")
+    lammps_stress = extract_lammps_stress(reference_log)
     sponge_stress = Extractor.extract_sponge_stress(case_dir)
 
-    lammps_forces = extract_lammps_forces(case_dir)
+    lammps_forces = _extract_lammps_forces_from_dump(reference_forces_dump)
     sponge_forces = Extractor.extract_sponge_forces(case_dir, atom_count)
-    lammps_charges = _extract_lammps_charges(case_dir / "charges.dump")
+    lammps_charges = _extract_lammps_charges(reference_charges_dump)
     sponge_charges = _extract_sponge_charges(case_dir / "eeq_charges.txt")
 
     force_abs_diff = abs(lammps_forces - sponge_forces)
