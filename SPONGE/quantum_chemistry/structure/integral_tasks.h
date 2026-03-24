@@ -27,6 +27,7 @@ struct QC_INTEGRAL_TASKS
     int n_shell_pairs = 0;
     std::vector<QC_ONE_E_TASK> h_shell_pairs;
     QC_ONE_E_TASK* d_shell_pairs = NULL;
+    std::vector<float> h_shell_pair_bounds;
     float* d_shell_pair_bounds = NULL;
 
     // 双电子积分

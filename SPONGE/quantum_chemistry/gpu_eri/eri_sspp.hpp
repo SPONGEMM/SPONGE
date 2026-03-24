@@ -1,15 +1,28 @@
-﻿#pragma once
+#pragma once
 
-static __global__ void QC_Build_Fock_Direct_Kernel(
-    const int n_tasks, const QC_ERI_TASK* tasks, const int* atm, const int* bas,
-    const float* env, const int* ao_offsets_cart, const int* ao_offsets_sph,
-    const float* norms, const float* shell_pair_bounds,
-    const float* pair_density_coul, const float* pair_density_exx_a,
-    const float* pair_density_exx_b, const float shell_screen_tol,
-    const float* P_coul, const float* P_exx_a, const float* P_exx_b,
-    const float exx_scale_a, const float exx_scale_b, const int nao,
-    const int nao_sph, const int is_spherical, const float* cart2sph_mat,
-    float* F_a, float* F_b, float* global_hr_pool, int hr_base, int hr_size,
+// Specialized Fock kernel for (ss|pp)-type shell quartets (two s shells, two p shells).
+// Uses generic QC_Compute_Shell_Quartet_ERI_Buffer with scratch buffers.
+
+static __global__ void QC_Fock_sspp_Kernel(
+    const int n_tasks, const QC_ERI_TASK* __restrict__ tasks,
+    const int* __restrict__ atm, const int* __restrict__ bas,
+    const float* __restrict__ env,
+    const int* __restrict__ ao_offsets_cart,
+    const int* __restrict__ ao_offsets_sph,
+    const float* __restrict__ norms,
+    const float* __restrict__ shell_pair_bounds,
+    const float* __restrict__ pair_density_coul,
+    const float* __restrict__ pair_density_exx_a,
+    const float* __restrict__ pair_density_exx_b,
+    const float shell_screen_tol,
+    const float* __restrict__ P_coul,
+    const float* __restrict__ P_exx_a,
+    const float* __restrict__ P_exx_b,
+    const float exx_scale_a, const float exx_scale_b,
+    const int nao, const int nao_sph, const int is_spherical,
+    const float* __restrict__ cart2sph_mat,
+    float* __restrict__ F_a, float* __restrict__ F_b,
+    float* __restrict__ global_hr_pool, int hr_base, int hr_size,
     int shell_buf_size, float prim_screen_tol)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
@@ -38,20 +51,22 @@ static __global__ void QC_Build_Fock_Direct_Kernel(
             shell_bound *
             fmaxf(pair_density_coul[ij_pair], pair_density_coul[kl_pair]);
         const float exx_screen_a =
-            exx_scale_a == 0.0f ? 0.0f
-                                : shell_bound * exx_scale_a *
-                                      QC_Max4(pair_density_exx_a[ik_pair],
-                                              pair_density_exx_a[il_pair],
-                                              pair_density_exx_a[jk_pair],
-                                              pair_density_exx_a[jl_pair]);
+            exx_scale_a == 0.0f
+                ? 0.0f
+                : shell_bound * exx_scale_a *
+                      QC_Max4(pair_density_exx_a[ik_pair],
+                              pair_density_exx_a[il_pair],
+                              pair_density_exx_a[jk_pair],
+                              pair_density_exx_a[jl_pair]);
         float exx_screen_b = 0.0f;
         if (F_b != NULL && pair_density_exx_b != NULL && exx_scale_b != 0.0f)
         {
-            exx_screen_b = shell_bound * exx_scale_b *
-                           QC_Max4(pair_density_exx_b[ik_pair],
-                                   pair_density_exx_b[il_pair],
-                                   pair_density_exx_b[jk_pair],
-                                   pair_density_exx_b[jl_pair]);
+            exx_screen_b =
+                shell_bound * exx_scale_b *
+                QC_Max4(pair_density_exx_b[ik_pair],
+                        pair_density_exx_b[il_pair],
+                        pair_density_exx_b[jk_pair],
+                        pair_density_exx_b[jl_pair]);
         }
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)

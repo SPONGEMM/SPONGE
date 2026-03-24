@@ -122,7 +122,24 @@ struct QC_SCF_WORKSPACE
     int nao_eff = 0;  // effective AO count after removing linear deps
     double level_shift = 0.25;
     bool print_iter = false;
+    bool profile_stages = false;
+    bool bench_fock_only = false;
+    int bench_fock_repeats = 5;
+    bool fast_test_mode = false;
+    float fast_test_shell_screen_tol = 1.0e-5f;
+    float fast_test_prim_screen_tol = 1.0e-6f;
     float* d_P_coul = NULL;
+
+    // Lightweight profiling for fast iteration tests
+    double last_pre_scf_s = 0.0;
+    double last_build_fock_s = 0.0;
+    double last_fock_filter_s = 0.0;
+    double last_accumulate_energy_s = 0.0;
+    double last_apply_diis_s = 0.0;
+    double last_diag_density_s = 0.0;
+    double last_mix_converge_s = 0.0;
+    double last_fock_bench_total_s = 0.0;
+    int last_active_eri_tasks = 0;
 
     // DIIS 循环状态
     int diis_hist_count = 0;

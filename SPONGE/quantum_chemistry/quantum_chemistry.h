@@ -97,7 +97,7 @@ struct QUANTUM_CHEMISTRY
     void Build_DFT_VXC();
 
     // SCF 循环内部流程
-    void Build_Fock();
+    void Build_Fock(int iter);
     void Accumulate_SCF_Energy(int iter);
     void Apply_DIIS(int iter);
     void Diagonalize_And_Build_Density();

@@ -1,5 +1,46 @@
 ﻿#include "basis/basis.h"
 #include "quantum_chemistry.h"
+#include <fstream>
+#include <sstream>
+
+// Workaround: glibc 2.38+ redirects atoi/strtol to __isoc23_strtol
+// which the conda GCC 11.4 toolchain cannot resolve at link time.
+// We implement __isoc23_strtol without calling strtol (which would
+// recurse back to us via glibc's inline redirect).
+#ifdef __linux__
+#include <cerrno>
+extern "C" {
+    long __isoc23_strtol(const char* nptr, char** endptr, int base) {
+        const char* s = nptr;
+        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
+               *s == '\f' || *s == '\v') s++;
+        int sign = 1;
+        if (*s == '-') { sign = -1; s++; }
+        else if (*s == '+') { s++; }
+        if (base == 0) {
+            if (*s == '0' && (s[1] == 'x' || s[1] == 'X')) { base = 16; s += 2; }
+            else if (*s == '0') { base = 8; s++; }
+            else { base = 10; }
+        } else if (base == 16 && *s == '0' && (s[1] == 'x' || s[1] == 'X')) {
+            s += 2;
+        }
+        long result = 0;
+        const char* start = s;
+        while (*s) {
+            int digit;
+            if (*s >= '0' && *s <= '9') digit = *s - '0';
+            else if (*s >= 'a' && *s <= 'z') digit = *s - 'a' + 10;
+            else if (*s >= 'A' && *s <= 'Z') digit = *s - 'A' + 10;
+            else break;
+            if (digit >= base) break;
+            result = result * base + digit;
+            s++;
+        }
+        if (endptr) *endptr = (char*)(s == start ? nptr : s);
+        return result * sign;
+    }
+}
+#endif
 
 static inline bool Equals_Ignore_Case(const std::string& lhs, const char* rhs)
 {
@@ -358,30 +399,44 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     mol.is_spherical = basis->spherical ? 1 : 0;
 
     std::vector<std::string> atom_symbols;
-    FILE* fp = NULL;
-    Open_File_Safely(&fp, qc_type_file, "r");
-    if (fscanf(fp, "%d %d %d", &mol.natm, &mol.charge, &mol.multiplicity) != 3)
     {
-        Throw_QC_Initial_Error(controller, spongeErrorBadFileFormat,
-                               "Reason:\n    Failed to read first line of %s\n",
-                               qc_type_file);
-    }
-    atom_local.reserve(mol.natm);
-    for (int i = 0; i < mol.natm; i++)
-    {
-        int idx;
-        char sym[16];
-        if (fscanf(fp, "%d %s", &idx, sym) != 2)
+        std::ifstream ifs(qc_type_file);
+        if (!ifs.is_open())
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorBadFileFormat,
-                "Reason:\n    Failed to read atom line %d of %s\n", i,
-                qc_type_file);
+            Throw_QC_Initial_Error(controller, spongeErrorBadFileFormat,
+                                   "Reason:\n    Cannot open %s\n",
+                                   qc_type_file);
         }
-        atom_local.push_back(idx);
-        atom_symbols.push_back(std::string(sym));
+        std::string line;
+        std::getline(ifs, line);
+        {
+            std::istringstream iss(line);
+            if (!(iss >> mol.natm >> mol.charge >> mol.multiplicity))
+            {
+                Throw_QC_Initial_Error(
+                    controller, spongeErrorBadFileFormat,
+                    "Reason:\n    Failed to read first line of %s\n",
+                    qc_type_file);
+            }
+        }
+        atom_local.reserve(mol.natm);
+        for (int i = 0; i < mol.natm; i++)
+        {
+            std::getline(ifs, line);
+            std::istringstream iss(line);
+            int idx;
+            std::string sym;
+            if (!(iss >> idx >> sym))
+            {
+                Throw_QC_Initial_Error(
+                    controller, spongeErrorBadFileFormat,
+                    "Reason:\n    Failed to read atom line %d of %s\n", i,
+                    qc_type_file);
+            }
+            atom_local.push_back(idx);
+            atom_symbols.push_back(sym);
+        }
     }
-    fclose(fp);
 
     mol.nelectron = -mol.charge;
     mol.h_Z.resize(mol.natm);
