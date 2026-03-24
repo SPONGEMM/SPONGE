@@ -14,6 +14,9 @@
 #define __global__
 #define __forceinline__ inline
 #define __launch_bounds__(THREAD)
+#if defined(_MSC_VER) && !defined(__restrict__)
+#define __restrict__ __restrict
+#endif
 
 #define deviceStream_t int
 #define deviceStreamCreate(stream)
