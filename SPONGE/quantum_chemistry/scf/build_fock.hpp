@@ -981,121 +981,18 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     TIME_RECORDER DEBUG_bucket_sppp_timer;
     TIME_RECORDER DEBUG_bucket_pppp_timer;
     TIME_RECORDER DEBUG_bucket_generic_timer;
-    const double t_filter_begin = omp_get_wtime();
-    std::vector<float> h_pair_density_coul((size_t)task_ctx.n_shell_pairs);
-    std::vector<float> h_pair_density_exx((size_t)task_ctx.n_shell_pairs);
-    std::vector<float> h_pair_density_exx_b;
-    if (scf_ws.unrestricted)
-        h_pair_density_exx_b.resize((size_t)task_ctx.n_shell_pairs);
-    deviceMemcpy(h_pair_density_coul.data(), scf_ws.d_pair_density_coul,
-                 sizeof(float) * task_ctx.n_shell_pairs,
-                 deviceMemcpyDeviceToHost);
-    deviceMemcpy(h_pair_density_exx.data(), scf_ws.d_pair_density_exx,
-                 sizeof(float) * task_ctx.n_shell_pairs,
-                 deviceMemcpyDeviceToHost);
-    if (scf_ws.unrestricted)
-    {
-        deviceMemcpy(h_pair_density_exx_b.data(), scf_ws.d_pair_density_exx_b,
-                     sizeof(float) * task_ctx.n_shell_pairs,
-                     deviceMemcpyDeviceToHost);
-    }
+    // Pre-binned tasks on device, no host-side screening needed.
+    scf_ws.last_active_eri_tasks = task_ctx.n_eri_tasks;
+    const QC_ERI_TASK* d_tasks = task_ctx.d_eri_tasks;
 
-    std::vector<QC_ERI_TASK> h_active_eri_tasks;
-    const int n_eri_tasks = QC_Build_Filtered_ERI_Tasks_Host(
-        task_ctx, mol.nbas, task_ctx.h_shell_pair_bounds.data(),
-        h_pair_density_coul.data(), h_pair_density_exx.data(),
-        scf_ws.unrestricted ? h_pair_density_exx_b.data() : (const float*)nullptr,
-        shell_screen_tol, exx_scale_a, exx_scale_b,
-        h_active_eri_tasks);
-    scf_ws.last_active_eri_tasks = n_eri_tasks;
-
-    // --- Bin tasks by shell type and position ---
-    std::vector<QC_ERI_TASK> h_ssss_tasks;
-    std::vector<QC_ERI_TASK> h_3s1p_tasks[4];  // indexed by p-position
-    std::vector<QC_ERI_TASK> h_2s2p_tasks[6];  // indexed by (p0,p1) combo: 01,02,03,12,13,23
-    std::vector<QC_ERI_TASK> h_1s3p_tasks[4];  // indexed by s-position
-    std::vector<QC_ERI_TASK> h_pppp_tasks;
-    std::vector<QC_ERI_TASK> h_generic_tasks;
-    h_ssss_tasks.reserve(n_eri_tasks);
-    for (int i = 0; i < 4; i++) h_3s1p_tasks[i].reserve(n_eri_tasks / 8);
-    for (int i = 0; i < 6; i++) h_2s2p_tasks[i].reserve(n_eri_tasks / 8);
-    for (int i = 0; i < 4; i++) h_1s3p_tasks[i].reserve(n_eri_tasks / 8);
-    h_pppp_tasks.reserve(n_eri_tasks);
-    h_generic_tasks.reserve(n_eri_tasks);
-    for (int i = 0; i < n_eri_tasks; i++)
-    {
-        const QC_ERI_TASK& t = h_active_eri_tasks[i];
-        const int lx = mol.h_l_list[t.x];
-        const int ly = mol.h_l_list[t.y];
-        const int lz = mol.h_l_list[t.z];
-        const int lw = mol.h_l_list[t.w];
-        const int l_sum = lx + ly + lz + lw;
-        if (l_sum == 0)
-        {
-            h_ssss_tasks.push_back(t);
-        }
-        else if (l_sum == 1)
-        {
-            // 3s1p: bin by which position has the p shell
-            if (lx == 1)      h_3s1p_tasks[0].push_back(t);
-            else if (ly == 1) h_3s1p_tasks[1].push_back(t);
-            else if (lz == 1) h_3s1p_tasks[2].push_back(t);
-            else              h_3s1p_tasks[3].push_back(t);
-        }
-        else if (l_sum == 2 &&
-                 ((lx == 1) + (ly == 1) + (lz == 1) + (lw == 1) == 2))
-        {
-            // 2s2p: encode (p0,p1) pair as index 0-5
-            const int p0 = (lx==1)?0:(ly==1)?1:(lz==1)?2:3;
-            const int p1_start = (lx==1)?((ly==1)?1:(lz==1)?2:3):
-                                 (ly==1)?((lz==1)?2:3):3;
-            // Map (p0,p1) to 0-5: (0,1)=0 (0,2)=1 (0,3)=2 (1,2)=3 (1,3)=4 (2,3)=5
-            static const int pair_idx[4][4] = {{-1,0,1,2},{0,-1,3,4},{1,3,-1,5},{2,4,5,-1}};
-            h_2s2p_tasks[pair_idx[p0][p1_start]].push_back(t);
-        }
-        else if (l_sum == 3 &&
-                 ((lx == 1) + (ly == 1) + (lz == 1) + (lw == 1) == 3))
-        {
-            // 1s3p: bin by s-position
-            if (lx == 0)      h_1s3p_tasks[0].push_back(t);
-            else if (ly == 0) h_1s3p_tasks[1].push_back(t);
-            else if (lz == 0) h_1s3p_tasks[2].push_back(t);
-            else              h_1s3p_tasks[3].push_back(t);
-        }
-        else if (l_sum == 4 &&
-                 ((lx == 1) + (ly == 1) + (lz == 1) + (lw == 1) == 4))
-        {
-            h_pppp_tasks.push_back(t);
-        }
-        else
-        {
-            h_generic_tasks.push_back(t);
-        }
-    }
-    scf_ws.last_fock_filter_s = omp_get_wtime() - t_filter_begin;
-    {
-        int n_3s1p = 0, n_2s2p = 0, n_1s3p = 0;
-        for (int i = 0; i < 4; i++) n_3s1p += (int)h_3s1p_tasks[i].size();
-        for (int i = 0; i < 6; i++) n_2s2p += (int)h_2s2p_tasks[i].size();
-        for (int i = 0; i < 4; i++) n_1s3p += (int)h_1s3p_tasks[i].size();
-        fprintf(stderr,
-                "    [Fock dispatch] filtered=%d ssss=%d 3s1p=%d 2s2p=%d "
-                "1s3p=%d 4p=%d generic=%d\n",
-                n_eri_tasks, (int)h_ssss_tasks.size(), n_3s1p, n_2s2p,
-                n_1s3p, (int)h_pppp_tasks.size(), (int)h_generic_tasks.size());
-    }
-
-    // --- Launch ssss specialized kernel (register-only, single launch) ---
-    const int n_ssss = (int)h_ssss_tasks.size();
-    if (n_ssss > 0)
-    {
-        DEBUG_bucket_ssss_timer.Start();
-        deviceMemcpy(task_ctx.d_eri_tasks, h_ssss_tasks.data(),
-                     sizeof(QC_ERI_TASK) * n_ssss, deviceMemcpyHostToDevice);
+    // Helper: launch a kernel for bucket b (zero memcpy)
+    auto launch_bucket = [&](int b, auto kernel_func) {
+        const int n = task_ctx.bucket_count[b];
+        if (n == 0) return;
         Launch_Device_Kernel(
-            QC_Fock_ssss_Kernel,
-            (n_ssss + threads - 1) / threads, threads, 0, 0,
-            n_ssss, task_ctx.d_eri_tasks, mol.d_atm, mol.d_bas,
+            kernel_func,
+            (n + threads - 1) / threads, threads, 0, 0,
+            n, d_tasks + task_ctx.bucket_offset[b], mol.d_atm, mol.d_bas,
             mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
             scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
             scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
@@ -1108,44 +1005,24 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
             d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
             task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
             prim_screen_tol);
-        DEBUG_bucket_ssss_timer.Stop();
-    }
+    };
 
-    // --- Launch 3s1p kernels (4 permutations, single launch each) ---
+    // --- 4s (bucket 0) ---
+    DEBUG_bucket_ssss_timer.Start();
+    launch_bucket(0, QC_Fock_ssss_Kernel);
+    DEBUG_bucket_ssss_timer.Stop();
+
+    // --- 3s1p (buckets 1-4) ---
     {
-        using KernelFunc = decltype(&QC_Fock_psss_Kernel);
-        const KernelFunc kernels[4] = {
-            QC_Fock_psss_Kernel, QC_Fock_spss_Kernel,
-            QC_Fock_ssps_Kernel, QC_Fock_sssp_New_Kernel
-        };
+        using KF = decltype(&QC_Fock_psss_Kernel);
+        const KF k3s1p[4] = {QC_Fock_psss_Kernel, QC_Fock_spss_Kernel,
+                              QC_Fock_ssps_Kernel, QC_Fock_sssp_New_Kernel};
         DEBUG_bucket_sssp_timer.Start();
-        for (int p = 0; p < 4; p++)
-        {
-            const int n = (int)h_3s1p_tasks[p].size();
-            if (n == 0) continue;
-            deviceMemcpy(task_ctx.d_eri_tasks, h_3s1p_tasks[p].data(),
-                         sizeof(QC_ERI_TASK) * n, deviceMemcpyHostToDevice);
-            Launch_Device_Kernel(
-                kernels[p],
-                (n + threads - 1) / threads, threads, 0, 0,
-                n, task_ctx.d_eri_tasks, mol.d_atm, mol.d_bas,
-                mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-                scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
-                scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
-                scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
-                                    : (const float*)nullptr,
-                shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
-                scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
-                exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
-                mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
-                d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
-                task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
-                prim_screen_tol);
-        }
+        for (int p = 0; p < 4; p++) launch_bucket(1 + p, k3s1p[p]);
         DEBUG_bucket_sssp_timer.Stop();
     }
 
-    // --- Launch 2s2p kernels (6 permutations) ---
+    // --- 2s2p (buckets 5-10) ---
     {
         using KF = decltype(&QC_Fock_ppss_Kernel);
         const KF k2s2p[6] = {
@@ -1153,31 +1030,11 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
             QC_Fock_spps_Kernel, QC_Fock_spsp_Kernel, QC_Fock_sspp_New_Kernel
         };
         DEBUG_bucket_sspp_timer.Start();
-        for (int p = 0; p < 6; p++) {
-            const int n = (int)h_2s2p_tasks[p].size();
-            if (n == 0) continue;
-            deviceMemcpy(task_ctx.d_eri_tasks, h_2s2p_tasks[p].data(),
-                         sizeof(QC_ERI_TASK)*n, deviceMemcpyHostToDevice);
-            Launch_Device_Kernel(k2s2p[p],
-                (n+threads-1)/threads, threads, 0, 0,
-                n, task_ctx.d_eri_tasks, mol.d_atm, mol.d_bas,
-                mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-                scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
-                scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
-                scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
-                                    : (const float*)nullptr,
-                shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
-                scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
-                exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
-                mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
-                d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
-                task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
-                prim_screen_tol);
-        }
+        for (int p = 0; p < 6; p++) launch_bucket(5 + p, k2s2p[p]);
         DEBUG_bucket_sspp_timer.Stop();
     }
 
-    // --- Launch 1s3p kernels (4 permutations) ---
+    // --- 1s3p (buckets 11-14) ---
     {
         using KF = decltype(&QC_Fock_sppp_New_Kernel);
         const KF k1s3p[4] = {
@@ -1185,103 +1042,60 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
             QC_Fock_ppsp_Kernel, QC_Fock_ppps_Kernel
         };
         DEBUG_bucket_sppp_timer.Start();
-        for (int p = 0; p < 4; p++) {
-            const int n = (int)h_1s3p_tasks[p].size();
-            if (n == 0) continue;
-            deviceMemcpy(task_ctx.d_eri_tasks, h_1s3p_tasks[p].data(),
-                         sizeof(QC_ERI_TASK)*n, deviceMemcpyHostToDevice);
-            Launch_Device_Kernel(k1s3p[p],
-                (n+threads-1)/threads, threads, 0, 0,
-                n, task_ctx.d_eri_tasks, mol.d_atm, mol.d_bas,
-                mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-                scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
-                scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
-                scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
-                                    : (const float*)nullptr,
-                shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
-                scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
-                exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
-                mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
-                d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
-                task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
-                prim_screen_tol);
-        }
+        for (int p = 0; p < 4; p++) launch_bucket(11 + p, k1s3p[p]);
         DEBUG_bucket_sppp_timer.Stop();
     }
 
-    // --- Launch pppp specialized kernel (register-only, single launch) ---
-    const int n_pppp = (int)h_pppp_tasks.size();
-    if (n_pppp > 0)
+    // --- 4p (bucket 15) ---
+    DEBUG_bucket_pppp_timer.Start();
+    launch_bucket(15, QC_Fock_pppp_Kernel);
+    DEBUG_bucket_pppp_timer.Stop();
+
+    // --- generic (bucket 16) — still uses chunked launch with scratch buffer ---
     {
-        DEBUG_bucket_pppp_timer.Start();
-        deviceMemcpy(task_ctx.d_eri_tasks, h_pppp_tasks.data(),
-                     sizeof(QC_ERI_TASK) * n_pppp, deviceMemcpyHostToDevice);
-        Launch_Device_Kernel(
-            QC_Fock_pppp_Kernel,
-            (n_pppp + threads - 1) / threads, threads, 0, 0,
-            n_pppp, task_ctx.d_eri_tasks, mol.d_atm, mol.d_bas,
-            mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-            scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
-            scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
-            scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
-                                : (const float*)nullptr,
-            shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
-            scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
-            exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
-            mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
-            d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
-            task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
-            prim_screen_tol);
-        DEBUG_bucket_pppp_timer.Stop();
+        const int n_generic = task_ctx.bucket_count[16];
+        if (n_generic > 0)
+        {
+            DEBUG_bucket_generic_timer.Start();
+            const QC_ERI_TASK* gen_ptr = d_tasks + task_ctx.bucket_offset[16];
+            for (int i = 0; i < n_generic; i += chunk_size)
+            {
+                const int current_chunk = std::min(chunk_size, n_generic - i);
+                Launch_Device_Kernel(
+                    QC_Build_Fock_Direct_Kernel,
+                    (current_chunk + threads - 1) / threads, threads, 0, 0,
+                    current_chunk, gen_ptr + i, mol.d_atm, mol.d_bas,
+                    mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
+                    scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
+                    scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
+                    scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
+                                        : (const float*)nullptr,
+                    shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
+                    scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
+                    exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
+                    mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
+                    d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
+                    task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
+                    prim_screen_tol);
+            }
+            DEBUG_bucket_generic_timer.Stop();
+        }
     }
 
-    // --- Launch generic kernel for remaining tasks ---
-    const int n_generic = (int)h_generic_tasks.size();
-    if (n_generic > 0)
-    {
-        DEBUG_bucket_generic_timer.Start();
-        deviceMemcpy(task_ctx.d_eri_tasks, h_generic_tasks.data(),
-                     sizeof(QC_ERI_TASK) * n_generic, deviceMemcpyHostToDevice);
-        const QC_ERI_TASK* eri_tasks_ptr = task_ctx.d_eri_tasks;
-        for (int i = 0; i < n_generic; i += chunk_size)
-        {
-            const int current_chunk = std::min(chunk_size, n_generic - i);
-            Launch_Device_Kernel(
-                QC_Build_Fock_Direct_Kernel,
-                (current_chunk + threads - 1) / threads, threads, 0, 0,
-                current_chunk, eri_tasks_ptr + i, mol.d_atm, mol.d_bas,
-                mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-                scf_ws.d_norms, task_ctx.d_shell_pair_bounds,
-                scf_ws.d_pair_density_coul, scf_ws.d_pair_density_exx,
-                scf_ws.unrestricted ? scf_ws.d_pair_density_exx_b
-                                    : (const float*)nullptr,
-                shell_screen_tol, scf_ws.d_P_coul, scf_ws.d_P,
-                scf_ws.unrestricted ? scf_ws.d_P_b : (const float*)nullptr,
-                exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph,
-                mol.is_spherical, cart2sph.d_cart2sph_mat, d_F_build,
-                d_F_b_build, d_hr_pool, task_ctx.eri_hr_base,
-                task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
-                prim_screen_tol);
-        }
-        DEBUG_bucket_generic_timer.Stop();
-    }
-    {
-    int n_3s1p_t=0, n_2s2p_t=0, n_1s3p_t=0;
-    for(int i=0;i<4;i++) n_3s1p_t+=(int)h_3s1p_tasks[i].size();
-    for(int i=0;i<6;i++) n_2s2p_t+=(int)h_2s2p_tasks[i].size();
-    for(int i=0;i<4;i++) n_1s3p_t+=(int)h_1s3p_tasks[i].size();
     fprintf(stderr,
-            "    [DEBUG_FOCK_BUCKET_TIMING] iter=%d filtered=%d ssss=%d "
+            "    [DEBUG_FOCK_BUCKET_TIMING] iter=%d total=%d ssss=%d "
             "3s1p=%d 2s2p=%d 1s3p=%d 4p=%d generic=%d t_ssss=%.6fs "
             "t_3s1p=%.6fs t_2s2p=%.6fs t_1s3p=%.6fs t_4p=%.6fs "
             "t_generic=%.6fs\n",
-            iter + 1, n_eri_tasks, n_ssss, n_3s1p_t, n_2s2p_t, n_1s3p_t,
-            n_pppp, n_generic,
+            iter + 1, task_ctx.n_eri_tasks, task_ctx.bucket_count[0],
+            task_ctx.bucket_count[1]+task_ctx.bucket_count[2]+task_ctx.bucket_count[3]+task_ctx.bucket_count[4],
+            task_ctx.bucket_count[5]+task_ctx.bucket_count[6]+task_ctx.bucket_count[7]+task_ctx.bucket_count[8]+task_ctx.bucket_count[9]+task_ctx.bucket_count[10],
+            task_ctx.bucket_count[11]+task_ctx.bucket_count[12]+task_ctx.bucket_count[13]+task_ctx.bucket_count[14],
+            task_ctx.bucket_count[15], task_ctx.bucket_count[16],
             DEBUG_bucket_ssss_timer.time, DEBUG_bucket_sssp_timer.time,
             DEBUG_bucket_sspp_timer.time, DEBUG_bucket_sppp_timer.time,
             DEBUG_bucket_pppp_timer.time,
             DEBUG_bucket_generic_timer.time);
-    }
     if (scf_ws.d_F_double != NULL)
         QC_Float_To_Double_Copy(total, scf_ws.d_F, scf_ws.d_F_double);
     if (scf_ws.unrestricted && scf_ws.d_F_b_double != NULL)

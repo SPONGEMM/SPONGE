@@ -688,11 +688,83 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
     }
     task_ctx.n_eri_tasks = task_ctx.h_eri_tasks.size();
 
+    // Pre-bin ERI tasks by shell type and sort in-place.
+    // Bucket layout: 4s(1) | 3s1p×4 | 2s2p×6 | 1s3p×4 | 4p(1) | generic(1)
+    {
+        auto get_bucket = [&](const QC_ERI_TASK& t) -> int {
+            const int la = mol.h_l_list[t.x], lb = mol.h_l_list[t.y];
+            const int lc = mol.h_l_list[t.z], ld = mol.h_l_list[t.w];
+            const int l_sum = la + lb + lc + ld;
+            const int l_max = std::max({la, lb, lc, ld});
+            if (l_sum == 0) return 0; // 4s
+            if (l_sum == 1) {
+                // 3s1p: bucket 1-4 by p position
+                if (la == 1) return 1;
+                if (lb == 1) return 2;
+                if (lc == 1) return 3;
+                return 4;
+            }
+            if (l_sum == 2 && l_max <= 1) {
+                // 2s2p: bucket 5-10 by (p0,p1) pair
+                // positions of the two p shells
+                int p0 = (la==1)?0:(lb==1)?1:(lc==1)?2:3;
+                int p1 = (ld==1)?3:(lc==1&&p0!=2)?2:(lb==1&&p0!=1)?1:0;
+                // find p1 properly: second p position
+                int pp[2], pi = 0;
+                if (la==1) pp[pi++] = 0;
+                if (lb==1) pp[pi++] = 1;
+                if (lc==1) pp[pi++] = 2;
+                if (ld==1) pp[pi++] = 3;
+                static const int pair_idx[4][4] = {{-1,0,1,2},{0,-1,3,4},{1,3,-1,5},{2,4,5,-1}};
+                return 5 + pair_idx[pp[0]][pp[1]];
+            }
+            if (l_sum == 3 && l_max <= 1) {
+                // 1s3p: bucket 11-14 by s position
+                if (la == 0) return 11;
+                if (lb == 0) return 12;
+                if (lc == 0) return 13;
+                return 14;
+            }
+            if (l_sum == 4 && l_max <= 1) return 15; // 4p
+            return 16; // generic
+        };
+
+        // Count tasks per bucket
+        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
+            task_ctx.bucket_count[b] = 0;
+        for (const auto& t : task_ctx.h_eri_tasks)
+            task_ctx.bucket_count[get_bucket(t)]++;
+
+        // Compute offsets (prefix sum)
+        task_ctx.bucket_offset[0] = 0;
+        for (int b = 1; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
+            task_ctx.bucket_offset[b] = task_ctx.bucket_offset[b-1] + task_ctx.bucket_count[b-1];
+
+        // Sort by bucket using a temporary array
+        std::vector<QC_ERI_TASK> sorted(task_ctx.n_eri_tasks);
+        std::vector<int> pos(QC_INTEGRAL_TASKS::N_BUCKETS);
+        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
+            pos[b] = task_ctx.bucket_offset[b];
+        for (const auto& t : task_ctx.h_eri_tasks)
+            sorted[pos[get_bucket(t)]++] = t;
+        task_ctx.h_eri_tasks = std::move(sorted);
+
+        fprintf(stderr, "    [ERI pre-bin] total=%d", task_ctx.n_eri_tasks);
+        const char* names[] = {"4s","psss","spss","ssps","sssp",
+            "ppss","psps","pssp","spps","spsp","sspp",
+            "sppp","pspp","ppsp","ppps","4p","generic"};
+        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
+            if (task_ctx.bucket_count[b] > 0)
+                fprintf(stderr, " %s=%d", names[b], task_ctx.bucket_count[b]);
+        fprintf(stderr, "\n");
+    }
+
     for (int i = 0; i < mol.nbas; i++)
         for (int j = 0; j < mol.nbas; j++)
             task_ctx.h_1e_tasks.push_back({i, j});
     task_ctx.n_1e_tasks = task_ctx.h_1e_tasks.size();
 
+    // d_eri_tasks now holds the pre-sorted task list permanently
     Device_Malloc_And_Copy_Safely(
         (void**)&task_ctx.d_eri_tasks, (void*)task_ctx.h_eri_tasks.data(),
         sizeof(QC_ERI_TASK) * task_ctx.h_eri_tasks.size());

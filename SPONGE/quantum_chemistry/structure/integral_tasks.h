@@ -34,6 +34,12 @@ struct QC_INTEGRAL_TASKS
     int n_eri_tasks = 0;
     std::vector<QC_ERI_TASK> h_eri_tasks;
     QC_ERI_TASK* d_eri_tasks = NULL;
+
+    // 预分桶 (init 时按 shell type 排序，记录每个桶的 offset/count)
+    // bucket layout: 4s(1) | 3s1p(4) | 2s2p(6) | 1s3p(4) | 4p(1) | generic(1) = 17 buckets
+    static const int N_BUCKETS = 17;
+    int bucket_offset[N_BUCKETS] = {};
+    int bucket_count[N_BUCKETS] = {};
     int eri_hr_base = 13;
     int eri_hr_size = 28561;
     int eri_shell_buf_size = 50625;
