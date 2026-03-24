@@ -670,6 +670,51 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
         for (int j = 0; j <= i; j++) task_ctx.h_shell_pairs.push_back({i, j});
     task_ctx.n_shell_pairs = task_ctx.h_shell_pairs.size();
 
+    // Build pair type index for on-the-fly dispatch
+    {
+        const int max_l = *std::max_element(mol.h_l_list.begin(),
+                                             mol.h_l_list.begin() + mol.nbas);
+        const int stride = max_l + 1;
+        const int n_types = stride * stride;
+
+        // Count pairs per type
+        std::vector<std::vector<int>> type_lists(n_types);
+        for (int pid = 0; pid < task_ctx.n_shell_pairs; pid++)
+        {
+            const auto& p = task_ctx.h_shell_pairs[pid];
+            int tid = mol.h_l_list[p.x] * stride + mol.h_l_list[p.y];
+            type_lists[tid].push_back(pid);
+        }
+
+        // Build sorted pair ids and type boundaries
+        task_ctx.h_sorted_pair_ids.clear();
+        task_ctx.h_sorted_pair_ids.reserve(task_ctx.n_shell_pairs);
+        task_ctx.n_pair_types = 0;
+        for (int tid = 0; tid < n_types; tid++)
+        {
+            if (type_lists[tid].empty()) continue;
+            int slot = task_ctx.n_pair_types++;
+            task_ctx.pair_type_offset[slot] = (int)task_ctx.h_sorted_pair_ids.size();
+            task_ctx.pair_type_count[slot] = (int)type_lists[tid].size();
+            task_ctx.pair_type_l0[slot] = tid / stride;
+            task_ctx.pair_type_l1[slot] = tid % stride;
+            for (int pid : type_lists[tid])
+                task_ctx.h_sorted_pair_ids.push_back(pid);
+        }
+
+        fprintf(stderr, "    [Pair types] max_l=%d types=%d:", max_l, task_ctx.n_pair_types);
+        for (int t = 0; t < task_ctx.n_pair_types; t++)
+            fprintf(stderr, " (%d,%d)=%d", task_ctx.pair_type_l0[t],
+                    task_ctx.pair_type_l1[t], task_ctx.pair_type_count[t]);
+        fprintf(stderr, "\n");
+
+        Device_Malloc_And_Copy_Safely(
+            (void**)&task_ctx.d_sorted_pair_ids,
+            (void*)task_ctx.h_sorted_pair_ids.data(),
+            sizeof(int) * task_ctx.h_sorted_pair_ids.size());
+
+    }
+
     for (int i = 0; i < mol.nbas; i++)
     {
         for (int j = 0; j <= i; j++)
@@ -687,6 +732,12 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
         }
     }
     task_ctx.n_eri_tasks = task_ctx.h_eri_tasks.size();
+
+    // Allocate screening output buffer (sized to full task list as upper bound)
+    task_ctx.screened_buf_capacity = task_ctx.n_eri_tasks;
+    Device_Malloc_Safely((void**)&task_ctx.d_screened_tasks,
+                         sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
+    Device_Malloc_Safely((void**)&task_ctx.d_screen_count, sizeof(int));
 
     // Pre-bin ERI tasks by shell type and sort in-place.
     // Bucket layout: 4s(1) | 3s1p×4 | 2s2p×6 | 1s3p×4 | 4p(1) | generic(1)
