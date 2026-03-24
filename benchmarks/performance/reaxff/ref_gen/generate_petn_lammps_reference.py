@@ -31,7 +31,12 @@ def run_lammps(case_dir: Path):
 def main():
     repo_root = get_repo_root()
     case_root = (
-        repo_root / "benchmarks" / "performance" / "reaxff" / "statics" / "petn_16240"
+        repo_root
+        / "benchmarks"
+        / "performance"
+        / "reaxff"
+        / "statics"
+        / "petn_16240"
     )
     reference_root = case_root / "reference"
     reference_root.mkdir(parents=True, exist_ok=True)
