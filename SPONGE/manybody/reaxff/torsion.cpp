@@ -1,5 +1,7 @@
 ﻿#include "torsion.h"
 
+#include "bond_order.h"  // for find_bond_index
+
 static __global__ void Calculate_Torsion_Kernel(
     int atom_numbers, const VECTOR* crd, const int* atom_type,
     const float p_tor2, const float p_tor3, const float p_tor4,
@@ -8,9 +10,10 @@ static __global__ void Calculate_Torsion_Kernel(
     const REAXFF_TORSION_Entry* torsion_entries, int atom_type_numbers,
     const float* bo_s, const float* bo_pi, const float* bo_pi2,
     float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    float* atom_energy, VECTOR* frc, LTMatrix3* atom_virial,
-    float* d_energy_tor_sum, float* d_energy_cot_sum)
+    const LTMatrix3 cell, const LTMatrix3 rcell, float* atom_energy,
+    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_tor_sum,
+    float* d_energy_cot_sum, const int* bond_count, const int* bond_offset,
+    const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(j, atom_numbers)
     {
@@ -18,51 +21,54 @@ static __global__ void Calculate_Torsion_Kernel(
         if (type_j >= 0)
         {
             VECTOR rj = crd[j];
-            ATOM_GROUP nl_j = nl[j];
             float delta_j_val = Delta_boc[j];
 
             double en_tor = 0.0;
             double en_cot = 0.0;
 
-            for (int pk = 0; pk < nl_j.atom_numbers; pk++)
+            int bc_j = bond_count[j];
+            int bo_j = bond_offset[j];
+
+            for (int pk = 0; pk < bc_j; pk++)
             {
-                int k = nl_j.atom_serial[pk];
+                int b_jk = bond_idx_arr[bo_j + pk];
+                int k = bond_nbr[bo_j + pk];
                 if (j >= k) continue;
 
                 int type_k = atom_type[k];
-                int idx_jk = j * atom_numbers + k;
-                float bo_jk_val = bo_s[idx_jk] + bo_pi[idx_jk] + bo_pi2[idx_jk];
+                float bo_jk_val = bo_s[b_jk] + bo_pi[b_jk] + bo_pi2[b_jk];
                 if (bo_jk_val <= thb_cut) continue;
-                float bo_jk_pi_val = bo_pi[idx_jk];
+                float bo_jk_pi_val = bo_pi[b_jk];
 
                 VECTOR rk = crd[k];
                 VECTOR djk = Get_Periodic_Displacement(rj, rk, cell, rcell);
                 float r_jk = norm3df(djk.x, djk.y, djk.z);
                 float delta_k_val = Delta_boc[k];
-                ATOM_GROUP nl_k = nl[k];
 
-                for (int pi = 0; pi < nl_j.atom_numbers; pi++)
+                int bc_k = bond_count[k];
+                int bo_k = bond_offset[k];
+
+                for (int pi = 0; pi < bc_j; pi++)
                 {
-                    int i = nl_j.atom_serial[pi];
+                    int b_ij = bond_idx_arr[bo_j + pi];
+                    int i = bond_nbr[bo_j + pi];
                     if (i == k) continue;
                     int type_i = atom_type[i];
-                    int idx_ij = j * atom_numbers + i;
-                    float bo_ij_val =
-                        bo_s[idx_ij] + bo_pi[idx_ij] + bo_pi2[idx_ij];
+                    float bo_ij_val = bo_s[b_ij] + bo_pi[b_ij] + bo_pi2[b_ij];
                     if (bo_ij_val <= thb_cut) continue;
 
                     VECTOR ri = crd[i];
                     VECTOR dji = Get_Periodic_Displacement(rj, ri, cell, rcell);
                     float r_ij = norm3df(dji.x, dji.y, dji.z);
 
-                    for (int pl = 0; pl < nl_k.atom_numbers; pl++)
+                    for (int pl = 0; pl < bc_k; pl++)
                     {
-                        int l = nl_k.atom_serial[pl];
+                        int b_kl = bond_idx_arr[bo_k + pl];
+                        int l = bond_nbr[bo_k + pl];
                         if (l == j || l == i) continue;
                         int type_l = atom_type[l];
-                        int idx_kl = k * atom_numbers + l;
                         float bo_kl_val =
-                            bo_s[idx_kl] + bo_pi[idx_kl] + bo_pi2[idx_kl];
+                            bo_s[b_kl] + bo_pi[b_kl] + bo_pi2[b_kl];
                         if (bo_kl_val <= thb_cut) continue;
                         if (bo_ij_val * bo_jk_val * bo_kl_val <= thb_cut)
                             continue;
@@ -218,21 +224,18 @@ static __global__ void Calculate_Torsion_Kernel(
 
                             SADfloat<6> s_en_total = s_en_tor + s_en_cot;
 
-                            atomicAdd(&d_dE_dBO_s[idx_ij], s_en_total.dval[0]);
-                            atomicAdd(&d_dE_dBO_pi[idx_ij], s_en_total.dval[0]);
-                            atomicAdd(&d_dE_dBO_pi2[idx_ij],
-                                      s_en_total.dval[0]);
+                            atomicAdd(&d_dE_dBO_s[b_ij], s_en_total.dval[0]);
+                            atomicAdd(&d_dE_dBO_pi[b_ij], s_en_total.dval[0]);
+                            atomicAdd(&d_dE_dBO_pi2[b_ij], s_en_total.dval[0]);
 
-                            atomicAdd(&d_dE_dBO_s[idx_jk], s_en_total.dval[1]);
-                            atomicAdd(&d_dE_dBO_pi[idx_jk],
+                            atomicAdd(&d_dE_dBO_s[b_jk], s_en_total.dval[1]);
+                            atomicAdd(&d_dE_dBO_pi[b_jk],
                                       s_en_total.dval[1] + s_en_total.dval[5]);
-                            atomicAdd(&d_dE_dBO_pi2[idx_jk],
-                                      s_en_total.dval[1]);
+                            atomicAdd(&d_dE_dBO_pi2[b_jk], s_en_total.dval[1]);
 
-                            atomicAdd(&d_dE_dBO_s[idx_kl], s_en_total.dval[2]);
-                            atomicAdd(&d_dE_dBO_pi[idx_kl], s_en_total.dval[2]);
-                            atomicAdd(&d_dE_dBO_pi2[idx_kl],
-                                      s_en_total.dval[2]);
+                            atomicAdd(&d_dE_dBO_s[b_kl], s_en_total.dval[2]);
+                            atomicAdd(&d_dE_dBO_pi[b_kl], s_en_total.dval[2]);
+                            atomicAdd(&d_dE_dBO_pi2[b_kl], s_en_total.dval[2]);
 
                             atomicAdd(&CdDelta[j], s_en_total.dval[3]);
                             atomicAdd(&CdDelta[k], s_en_total.dval[4]);
@@ -413,7 +416,6 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
     p_tor3 = gp[24];
     p_tor4 = gp[25];
     p_cot2 = gp[27];
-    float gp_thb_cut = 0.01f * gp[29];
 
     read_line_or_throw(fp, parameter_in_file, "atom type count line");
     int n_atom_types = 0;
@@ -554,11 +556,11 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
                 (t1 - 1);
             int entry_idx = all_entries.size();
             all_entries.push_back(te.entry);
-            quartet_to_entries[q_idx].push_back(entry_idx);
+            quartet_to_entries[q_idx] = {entry_idx};
             tor_flag[q_idx] = 1;
             if (q_idx != q_idx_rev)
             {
-                quartet_to_entries[q_idx_rev].push_back(entry_idx);
+                quartet_to_entries[q_idx_rev] = {entry_idx};
                 tor_flag[q_idx_rev] = 1;
             }
         }
@@ -586,14 +588,14 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
                                     n_atom_types +
                                 (o);
                     if (tor_flag[q_idx] == 0)
-                        quartet_to_entries[q_idx].push_back(entry_idx);
+                        quartet_to_entries[q_idx] = {entry_idx};
                     int q_idx_rev =
                         (((o)*n_atom_types + (t3 - 1)) * n_atom_types +
                          (t2 - 1)) *
                             n_atom_types +
                         (p);
-                    if (tor_flag[q_idx_rev] == 0)
-                        quartet_to_entries[q_idx_rev].push_back(entry_idx);
+                    if (q_idx_rev != q_idx && tor_flag[q_idx_rev] == 0)
+                        quartet_to_entries[q_idx_rev] = {entry_idx};
                 }
             }
         }
@@ -663,7 +665,14 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
         sizeof(REAXFF_TORSION_Entry) * sorted_entries.size());
     Device_Malloc_Safely((void**)&d_energy_tor_sum, sizeof(float));
     Device_Malloc_Safely((void**)&d_energy_cot_sum, sizeof(float));
-    this->thb_cut = gp_thb_cut;
+    // thb_cutoff means the three-/four-body screening cutoff used by torsion
+    // and conjugation terms. It is a control parameter, not the bond-order
+    // cutoff in the force-field file.
+    this->thb_cut = 0.001f;
+    if (controller->Command_Exist(module_name, "thb_cutoff"))
+    {
+        this->thb_cut = atof(controller->Command(module_name, "thb_cutoff"));
+    }
     is_initialized = 1;
 }
 
@@ -685,8 +694,10 @@ void REAXFF_TORSION::Calculate_Torsion_Energy_And_Force(
         d_torsion_info, d_torsion_entries, atom_type_numbers,
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
-        d_CdDelta, cell, rcell, nl, atom_energy, frc,
-        need_virial ? atom_virial : NULL, d_energy_tor_sum, d_energy_cot_sum);
+        d_CdDelta, cell, rcell, atom_energy, frc,
+        need_virial ? atom_virial : NULL, d_energy_tor_sum, d_energy_cot_sum,
+        bo_module->d_bond_count, bo_module->d_bond_offset,
+        bo_module->d_bond_nbr, bo_module->d_bond_idx);
 }
 
 void REAXFF_TORSION::Step_Print(CONTROLLER* controller)

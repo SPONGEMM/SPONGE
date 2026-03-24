@@ -3,6 +3,14 @@
 #include "control.h"
 
 #ifdef USE_CPU
+#define COMMON_SIMPLE_DEVICE_FOR(i, N)                        \
+    PRAGMA(omp parallel for schedule(static) if ((N) >= 512)) \
+    for (int i = 0; i < N; i++)
+#else
+#define COMMON_SIMPLE_DEVICE_FOR(i, N) SIMPLE_DEVICE_FOR(i, N)
+#endif
+
+#ifdef USE_CPU
 float rnorm3df(float a, float b, float c)
 {
     return 1.0f / sqrtf(a * a + b * b + c * c);
@@ -127,13 +135,13 @@ void Free_Host_And_Device_Pointer(void** host_ptr, void** device_ptr)
 static __global__ void Reset_List_Device(const int element_numbers, int* list,
                                          const int replace_element)
 {
-    SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
 }
 
 static __global__ void Reset_List_Device(const int element_numbers, float* list,
                                          const float replace_element)
 {
-    SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = replace_element; }
 }
 
 void Reset_List(int* list, const int replace_element, const int element_numbers,
@@ -155,7 +163,7 @@ void Reset_List(float* list, const float replace_element,
 static __global__ void Scale_List_Device(const int element_numbers, float* list,
                                          float scaler)
 {
-    SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = list[i] * scaler; }
+    COMMON_SIMPLE_DEVICE_FOR(i, element_numbers) { list[i] = list[i] * scaler; }
 }
 
 void Scale_List(float* list, const float scaler, const int element_numbers,
@@ -181,7 +189,7 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
 #ifdef GPU_ARCH_NAME
     for (int i = threadIdx.x + start; i < end; i = i + blockDim.x)
 #else
-#pragma omp parallel for reduction(+ : lin)
+#pragma omp parallel for reduction(+ : lin) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
 #endif
     {
@@ -206,7 +214,7 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
 #ifdef GPU_ARCH_NAME
     for (int i = threadIdx.x + start; i < end; i = i + blockDim.x)
 #else
-#pragma omp parallel for reduction(+ : lin)
+#pragma omp parallel for reduction(+ : lin) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
 #endif
     {
@@ -234,7 +242,8 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
     }
 #else
     float lin_x = 0.0f, lin_y = 0.0f, lin_z = 0.0f;
-#pragma omp parallel for reduction(+ : lin_x, lin_y, lin_z)
+#pragma omp parallel for reduction(+ : lin_x, lin_y, \
+                                       lin_z) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
     {
         lin_x += list[i].x;
@@ -267,7 +276,8 @@ static __global__ void Sum_Of_List_Device(const int start, const int end,
 #else
     float a11 = 0.0f, a21 = 0.0f, a22 = 0.0f;
     float a31 = 0.0f, a32 = 0.0f, a33 = 0.0f;
-#pragma omp parallel for reduction(+ : a11, a21, a22, a31, a32, a33)
+#pragma omp parallel for reduction(+ : a11, a21, a22, a31, a32, \
+                                       a33) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
     {
         a11 += list[i].a11;
@@ -291,10 +301,34 @@ void Sum_Of_List(const int* list, int* sum, const int end, const int start,
 
 // 使用双精度 warp shuffle 归约的 float 求和，接口仍为 float
 #ifdef GPU_ARCH_NAME
+static double* s_sum_of_list_block_sums = nullptr;
+static int s_sum_of_list_block_sums_capacity = 0;
+
+static void Ensure_Sum_Of_List_Block_Sums_Capacity(int required)
+{
+    if (required <= s_sum_of_list_block_sums_capacity)
+    {
+        return;
+    }
+    if (s_sum_of_list_block_sums != nullptr)
+    {
+        deviceFree(s_sum_of_list_block_sums);
+    }
+    int new_capacity = s_sum_of_list_block_sums_capacity > 0
+                           ? s_sum_of_list_block_sums_capacity
+                           : 256;
+    while (new_capacity < required)
+    {
+        new_capacity *= 2;
+    }
+    deviceMalloc((void**)&s_sum_of_list_block_sums,
+                 sizeof(double) * new_capacity);
+    s_sum_of_list_block_sums_capacity = new_capacity;
+}
+
 static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
                                                const float* list,
-                                               double* block_sums,
-                                               const int warp_size)
+                                               double* block_sums)
 {
     extern __shared__ double warp_sums[];
     double partial = 0.0;
@@ -305,21 +339,21 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
         partial += static_cast<double>(list[i]);
     }
 
-    partial = LaneGroup::Reduce_Sum(partial, warp_size);
+    partial = LaneGroup::Reduce_Sum(partial);
 
-    int lane = threadIdx.x % warp_size;
-    int warp_id = threadIdx.x / warp_size;
+    int lane = threadIdx.x % warpSize;
+    int warp_id = threadIdx.x / warpSize;
     if (lane == 0)
     {
         warp_sums[warp_id] = partial;
     }
     __syncthreads();
 
-    const int warp_numbers = (blockDim.x + warp_size - 1) / warp_size;
+    const int warp_numbers = (blockDim.x + warpSize - 1) / warpSize;
     if (warp_id == 0)
     {
         double block_sum = (lane < warp_numbers) ? warp_sums[lane] : 0.0;
-        block_sum = LaneGroup::Reduce_Sum(block_sum, warp_size);
+        block_sum = LaneGroup::Reduce_Sum(block_sum);
         if (lane == 0)
         {
             block_sums[blockIdx.x] = block_sum;
@@ -329,7 +363,7 @@ static __global__ void Sum_Of_List_Float_Block(const int start, const int end,
 
 static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
                                                const int block_count,
-                                               float* sum, const int warp_size)
+                                               float* sum)
 {
     double partial = 0.0;
     int idx = threadIdx.x;
@@ -337,10 +371,10 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
     {
         partial += block_sums[i];
     }
-    partial = LaneGroup::Reduce_Sum(partial, warp_size);
+    partial = LaneGroup::Reduce_Sum(partial);
 
-    int lane = threadIdx.x % warp_size;
-    int warp_id = threadIdx.x / warp_size;
+    int lane = threadIdx.x % warpSize;
+    int warp_id = threadIdx.x / warpSize;
     __shared__ double warp_buf[32];  // 支持最多 32 个 warp（blockDim <= 1024）
     if (lane == 0)
     {
@@ -348,9 +382,9 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
     }
     __syncthreads();
 
-    int warp_numbers = (blockDim.x + warp_size - 1) / warp_size;
+    int warp_numbers = (blockDim.x + warpSize - 1) / warpSize;
     partial = (lane < warp_numbers) ? warp_buf[lane] : 0.0;
-    partial = LaneGroup::Reduce_Sum(partial, warp_size);
+    partial = LaneGroup::Reduce_Sum(partial);
     if (lane == 0)
     {
         sum[0] = static_cast<float>(partial);
@@ -361,38 +395,32 @@ static __global__ void Sum_Of_List_Float_Final(const double* block_sums,
 void Sum_Of_List(const float* list, float* sum, const int end, const int start,
                  int threads)
 {
-    Sum_Of_List(list, sum, end, start, threads, CONTROLLER::device_warp);
-}
-
-void Sum_Of_List(const float* list, float* sum, const int end, const int start,
-                 int threads, int warp_size)
-{
 #ifdef GPU_ARCH_NAME
-    if (warp_size < 1) warp_size = 32;
-    if (threads < warp_size) threads = warp_size;
+    int device_warp = static_cast<int>(CONTROLLER::device_warp);
+    if (device_warp < 1) device_warp = 32;
+    if (threads < device_warp) threads = device_warp;
     if (threads > 1024) threads = 1024;
-    threads = ((threads + warp_size - 1) / warp_size) * warp_size;
+    threads = ((threads + device_warp - 1) / device_warp) * device_warp;
 
     int grid = (end - start + threads - 1) / threads;
     if (grid < 1) grid = 1;
-    int warp_numbers = (threads + warp_size - 1) / warp_size;
+    int warp_numbers = (threads + device_warp - 1) / device_warp;
     size_t shared_memory_bytes = sizeof(double) * warp_numbers;
 
-    double* block_sums = nullptr;
-    deviceMalloc((void**)&block_sums, sizeof(double) * grid);
+    Ensure_Sum_Of_List_Block_Sums_Capacity(grid);
+    double* block_sums = s_sum_of_list_block_sums;
 
     Launch_Device_Kernel(Sum_Of_List_Float_Block, grid, threads,
                          shared_memory_bytes, NULL, start, end, list,
-                         block_sums, warp_size);
+                         block_sums);
 
     int final_threads = (grid < 256) ? grid : 256;
-    if (final_threads < warp_size) final_threads = warp_size;
-    final_threads = ((final_threads + warp_size - 1) / warp_size) * warp_size;
+    if (final_threads < device_warp) final_threads = device_warp;
+    final_threads =
+        ((final_threads + device_warp - 1) / device_warp) * device_warp;
     if (final_threads > 256) final_threads = 256;
     Launch_Device_Kernel(Sum_Of_List_Float_Final, 1, final_threads, 0, NULL,
-                         block_sums, grid, sum, warp_size);
-
-    deviceFree(block_sums);
+                         block_sums, grid, sum);
 #else
     double s = 0.0;
 #if defined(USE_SVE) || defined(USE_SVE2)
@@ -404,7 +432,7 @@ void Sum_Of_List(const float* list, float* sum, const int end, const int start,
         s += static_cast<double>(LaneGroup::Reduce_Sum(values));
     }
 #else
-#pragma omp parallel for reduction(+ : s)
+#pragma omp parallel for reduction(+ : s) if ((end - start) >= 512)
     for (int i = start; i < end; i += 1)
     {
         s += list[i];

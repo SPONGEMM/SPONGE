@@ -1,5 +1,7 @@
 ﻿#include "hydrogen_bond.h"
 
+#include "bond_order.h"  // for find_bond_index
+
 static __global__ void Calculate_HB_Kernel(
     int atom_numbers, const VECTOR* crd, const int* atom_type,
     const int* is_hydrogen, const REAXFF_HB_Info* hb_info,
@@ -7,7 +9,9 @@ static __global__ void Calculate_HB_Kernel(
     const float* bo_pi, const float* bo_pi2, float* d_dE_dBO_s,
     float* d_dE_dBO_pi, float* d_dE_dBO_pi2, const LTMatrix3 cell,
     const LTMatrix3 rcell, const ATOM_GROUP* nl, float* atom_energy,
-    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_hb_sum)
+    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_hb_sum,
+    const int* bond_count, const int* bond_offset, const int* bond_nbr,
+    const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(h, atom_numbers)
     {
@@ -19,12 +23,14 @@ static __global__ void Calculate_HB_Kernel(
 
             double en_hb = 0.0;
 
-            for (int pd = 0; pd < nl_h.atom_numbers; pd++)
+            int bc_h = bond_count[h];
+            int bo_h = bond_offset[h];
+            for (int pd = 0; pd < bc_h; pd++)
             {
-                int d = nl_h.atom_serial[pd];
+                int b_dh = bond_idx_arr[bo_h + pd];
+                int d = bond_nbr[bo_h + pd];
                 int type_d = atom_type[d];
-                int idx_dh = h * atom_numbers + d;
-                float bo_dh_val = bo_s[idx_dh] + bo_pi[idx_dh] + bo_pi2[idx_dh];
+                float bo_dh_val = bo_s[b_dh] + bo_pi[b_dh] + bo_pi2[b_dh];
                 if (bo_dh_val < 0.01f) continue;
 
                 VECTOR rd = crd[d];
@@ -76,9 +82,9 @@ static __global__ void Calculate_HB_Kernel(
                         SADfloat<1> s_en_total =
                             (float)param->p_hb1 * s_f_hb * exp_hb3 * sin_p4;
 
-                        atomicAdd(&d_dE_dBO_s[idx_dh], s_en_total.dval[0]);
-                        atomicAdd(&d_dE_dBO_pi[idx_dh], s_en_total.dval[0]);
-                        atomicAdd(&d_dE_dBO_pi2[idx_dh], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_s[b_dh], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_pi[b_dh], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_pi2[b_dh], s_en_total.dval[0]);
 
                         float dE_dr_ah = (float)param->p_hb1 * s_f_hb.val *
                                          sin_p4 * exp_hb3 *
@@ -435,7 +441,8 @@ void REAXFF_HYDROGEN_BOND::Calculate_HB_Energy_And_Force(
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
         cell, rcell, nl, atom_energy, frc, need_virial ? atom_virial : NULL,
-        d_energy_hb_sum);
+        d_energy_hb_sum, bo_module->d_bond_count, bo_module->d_bond_offset,
+        bo_module->d_bond_nbr, bo_module->d_bond_idx);
 }
 
 void REAXFF_HYDROGEN_BOND::Step_Print(CONTROLLER* controller)

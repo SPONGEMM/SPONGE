@@ -210,8 +210,6 @@ void Scale_List(float* list, const float scaler, const int element_numbers,
 // 对一个列表求和，并将和记录在sum中
 void Sum_Of_List(const float* list, float* sum, const int end, int start = 0,
                  int threads = 1024);
-void Sum_Of_List(const float* list, float* sum, const int end, int start,
-                 int threads, int warp_size);
 void Sum_Of_List(const int* list, int* sum, const int end, int start = 0,
                  int threads = 1024);
 void Sum_Of_List(const VECTOR* list, VECTOR* sum, const int end, int start = 0,

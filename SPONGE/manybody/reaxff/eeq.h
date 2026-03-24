@@ -14,10 +14,12 @@ struct REAXFF_EEQ
     float* h_chi = NULL;
     float* h_eta = NULL;
     float* h_gamma = NULL;
+    float* h_shield = NULL;
 
     float* d_chi = NULL;
     float* d_eta = NULL;
     float* d_gamma = NULL;
+    float* d_shield = NULL;
 
     int* h_atom_type = NULL;
     int* d_atom_type = NULL;
@@ -32,11 +34,34 @@ struct REAXFF_EEQ
     // Additional temporary arrays for CG
     float* d_s = NULL;
     float* d_t = NULL;
+    float* d_z = NULL;  // Jacobi preconditioner temporary
     float* d_temp_sum = NULL;
+    int* h_h_numnbrs = NULL;
+    int* h_h_firstnbrs = NULL;
+    int* d_h_numnbrs = NULL;
+    int* d_h_firstnbrs = NULL;
+    int* d_h_jlist = NULL;
+    float* d_h_val = NULL;
+    int h_matrix_capacity = 0;
+
+    // Device-side CG scalar buffers (GPU optimization: avoid host sync)
+    float* d_rr_old = NULL;
+    float* d_rr_new = NULL;
+    float* d_pAp_buf = NULL;
+    float* d_cg_alpha = NULL;
+    float* d_cg_beta = NULL;
 
     // Convergence parameters
-    float tolerance = 1e-6f;
+    float tolerance = 1e-4f;
     int max_iter = 1000;
+    // Charge history for polynomial extrapolation (LAMMPS-style)
+    enum
+    {
+        HIST_SIZE = 5
+    };
+    int nprev = 0;
+    float* d_s_hist = NULL;
+    float* d_t_hist = NULL;
 
     float h_energy = 0.0f;
 

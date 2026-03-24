@@ -25,10 +25,7 @@ struct REAXFF_BOND
     float* h_twobody_params = NULL;  // indexed by [type_i * ntypes + type_j]
     float* d_twobody_params = NULL;
 
-    // Bond order data (from bond order calculation)
-    float* h_bo_s = NULL;    // sigma bond order
-    float* h_bo_pi = NULL;   // pi bond order
-    float* h_bo_pi2 = NULL;  // pi-pi bond order
+    // Bond order data (sparse per-bond arrays from bond_order module)
     float* d_bo_s = NULL;
     float* d_bo_pi = NULL;
     float* d_bo_pi2 = NULL;
@@ -37,17 +34,11 @@ struct REAXFF_BOND
     float* d_dE_dBO_pi = NULL;
     float* d_dE_dBO_pi2 = NULL;
 
-    float* d_dbo_s_dr = NULL;
-    float* d_dbo_pi_dr = NULL;
-    float* d_dbo_pi2_dr = NULL;
-    float* d_dbo_s_dDelta_i = NULL;
-    float* d_dbo_pi_dDelta_i = NULL;
-    float* d_dbo_pi2_dDelta_i = NULL;
-    float* d_dbo_s_dDelta_j = NULL;
-    float* d_dbo_pi_dDelta_j = NULL;
-    float* d_dbo_pi2_dDelta_j = NULL;
-    float* d_dbo_raw_total_dr = NULL;
-    float* d_CdDelta = NULL;
+    // CSR bond lookup (set from bond_order module)
+    int* d_bond_count = NULL;
+    int* d_bond_offset = NULL;
+    int* d_bond_nbr = NULL;
+    int* d_bond_idx = NULL;
 
     float* h_energy_atom = NULL;
     float h_energy_sum = 0;

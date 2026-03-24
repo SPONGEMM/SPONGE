@@ -57,7 +57,8 @@ static __global__ void Calculate_Energy_Force_Prep_Kernel(
     float p_ovun3, float p_ovun4, float p_ovun6, float p_ovun7, float p_ovun8,
     const float* p_ovun2, const float* p_ovun5, float* d_dE_dBO_s,
     float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta, float* atom_energy,
-    float* d_energy_ovun_sum, float* d_energy_elp_sum)
+    float* d_energy_ovun_sum, float* d_energy_elp_sum, const int* bond_count,
+    const int* bond_offset, const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -69,13 +70,15 @@ static __global__ void Calculate_Energy_Force_Prep_Kernel(
         float s_ovun1 = 0.0f;
         float s_ovun2 = 0.0f;
 
-        for (int j = 0; j < atom_numbers; j++)
+        int start = bond_offset[i];
+        int end = start + bond_count[i];
+        for (int kk = start; kk < end; kk++)
         {
-            if (i == j) continue;
-            int idx = i * atom_numbers + j;
-            float b_s = bo_s[idx];
-            float b_pi = bo_pi[idx];
-            float b_pi2 = bo_pi2[idx];
+            int j = bond_nbr[kk];
+            int b = bond_idx_arr[kk];
+            float b_s = bo_s[b];
+            float b_pi = bo_pi[b];
+            float b_pi2 = bo_pi2[b];
             float bo_total = b_s + b_pi + b_pi2;
 
             if (bo_total < 1e-10f) continue;
@@ -156,13 +159,13 @@ static __global__ void Calculate_Energy_Force_Prep_Kernel(
                          CEunder2;
         float CE_sum_4 = CEover4 + CEunder4;
 
-        for (int j = 0; j < atom_numbers; j++)
+        for (int kk = start; kk < end; kk++)
         {
-            if (i == j) continue;
-            int idx = i * atom_numbers + j;
-            float b_s = bo_s[idx];
-            float b_pi = bo_pi[idx];
-            float b_pi2 = bo_pi2[idx];
+            int j = bond_nbr[kk];
+            int b = bond_idx_arr[kk];
+            float b_s = bo_s[b];
+            float b_pi = bo_pi[b];
+            float b_pi2 = bo_pi2[b];
             float bo_total = b_s + b_pi + b_pi2;
 
             if (bo_total < 1e-10f) continue;
@@ -175,9 +178,9 @@ static __global__ void Calculate_Energy_Force_Prep_Kernel(
                 de_dbo_s + CE_sum_4 * (Delta[j] - dfvl * Delta_lp_temp[j]);
             float de_dbo_pi2 = de_dbo_pi;
 
-            atomicAdd(&d_dE_dBO_s[idx], de_dbo_s);
-            atomicAdd(&d_dE_dBO_pi[idx], de_dbo_pi);
-            atomicAdd(&d_dE_dBO_pi2[idx], de_dbo_pi2);
+            atomicAdd(&d_dE_dBO_s[b], de_dbo_s);
+            atomicAdd(&d_dE_dBO_pi[b], de_dbo_pi);
+            atomicAdd(&d_dE_dBO_pi2[b], de_dbo_pi2);
 
             float dfvl_j = (mass[type_j] > 21.0f) ? 0.0f : 1.0f;
             float term =
@@ -496,7 +499,8 @@ void REAXFF_OVER_UNDER::Calculate_Over_Under_Energy_And_Force(
         d_p_lp2, d_valency, p_ovun3, p_ovun4, p_ovun6, p_ovun7, p_ovun8,
         d_p_ovun2, d_p_ovun5, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta,
         need_atom_energy ? atom_energy : NULL, d_energy_ovun_sum,
-        d_energy_elp_sum);
+        d_energy_elp_sum, bo_module->d_bond_count, bo_module->d_bond_offset,
+        bo_module->d_bond_nbr, bo_module->d_bond_idx);
 }
 
 void REAXFF_OVER_UNDER::Step_Print(CONTROLLER* controller)

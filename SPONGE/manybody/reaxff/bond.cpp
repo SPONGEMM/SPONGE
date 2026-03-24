@@ -1,5 +1,7 @@
 ﻿#include "bond.h"
 
+#include "bond_order.h"  // for find_bond_index
+
 static const int De_s = 0;
 static const int De_p = 1;
 static const int De_PP = 2;
@@ -32,7 +34,9 @@ static __global__ void REAXFF_Bond_Force_CUDA(
     const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
     int* atom_types, float* params, int ntypes, float* bo_s, float* bo_pi,
     float* bo_pi2, float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2,
-    float* atom_energy, LTMatrix3* atom_virial, float* d_energy_sum)
+    float* atom_energy, LTMatrix3* atom_virial, float* d_energy_sum,
+    const int* bond_count, const int* bond_offset, const int* bond_nbr,
+    const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -47,13 +51,16 @@ static __global__ void REAXFF_Bond_Force_CUDA(
 
             if (j <= i) continue;
 
+            int b = find_bond_index(i, j, bond_count, bond_offset, bond_nbr,
+                                    bond_idx_arr);
+            if (b < 0) continue;
+
             int param_idx = type_i * ntypes + atom_types[j];
             const float* param = params + param_idx * PARAM_STRIDE;
 
-            int dense_idx = i * atom_numbers + j;
-            float BO_s_ij = bo_s[dense_idx];
-            float BO_pi_ij = bo_pi[dense_idx];
-            float BO_pi2_ij = bo_pi2[dense_idx];
+            float BO_s_ij = bo_s[b];
+            float BO_pi_ij = bo_pi[b];
+            float BO_pi2_ij = bo_pi2[b];
 
             if (BO_s_ij + BO_pi_ij + BO_pi2_ij < 1e-10f) continue;
 
@@ -64,9 +71,9 @@ static __global__ void REAXFF_Bond_Force_CUDA(
             SADfloat<3> energy_sad =
                 reax_bond_energy_sad(BO_s_sad, BO_pi_sad, BO_pi2_sad, param);
 
-            atomicAdd(&d_dE_dBO_s[dense_idx], energy_sad.dval[0]);
-            atomicAdd(&d_dE_dBO_pi[dense_idx], energy_sad.dval[1]);
-            atomicAdd(&d_dE_dBO_pi2[dense_idx], energy_sad.dval[2]);
+            atomicAdd(&d_dE_dBO_s[b], energy_sad.dval[0]);
+            atomicAdd(&d_dE_dBO_pi[b], energy_sad.dval[1]);
+            atomicAdd(&d_dE_dBO_pi2[b], energy_sad.dval[2]);
 
             if (atom_energy)
             {
@@ -287,17 +294,6 @@ void REAXFF_BOND::Initial(CONTROLLER* controller, int atom_numbers,
 
     Device_Malloc_And_Copy_Safely((void**)&d_atom_type, h_atom_type,
                                   sizeof(int) * atom_numbers);
-    Device_Malloc_Safely((void**)&d_bo_s,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_bo_pi,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_bo_pi2,
-                         sizeof(float) * atom_numbers * atom_numbers);
-
-    deviceMemset(d_bo_s, 0, sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_bo_pi, 0, sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_bo_pi2, 0, sizeof(float) * atom_numbers * atom_numbers);
-
     Device_Malloc_Safely((void**)&d_energy_sum, sizeof(float));
     Device_Malloc_Safely((void**)&d_energy_atom, sizeof(float) * atom_numbers);
     deviceMemset(d_energy_sum, 0, sizeof(float));
@@ -332,7 +328,8 @@ void REAXFF_BOND::REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
                          atom_numbers, crd, frc, cell, rcell, nl, d_atom_type,
                          d_twobody_params, atom_type_numbers, d_bo_s, d_bo_pi,
                          d_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
-                         atom_energy, atom_virial, d_energy_sum);
+                         atom_energy, atom_virial, d_energy_sum, d_bond_count,
+                         d_bond_offset, d_bond_nbr, d_bond_idx);
 }
 
 void REAXFF_BOND::Step_Print(CONTROLLER* controller)

@@ -1,13 +1,14 @@
 ﻿#include "bond_order.h"
 
+// Use neighbor list instead of O(N^2) all-pairs scan
 static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
     int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
     const LTMatrix3 rcell, float cutoff, const int* atom_type, const float* r_s,
     const float* r_p, const float* r_pp, const float* bo_1, const float* bo_2,
     const float* bo_3, const float* bo_4, const float* bo_5, const float* bo_6,
     const float* ro_pi, const float* ro_pi2, const int atom_type_numbers,
-    float bo_cut, float* total_bond_order, int* pair_i, int* pair_j,
-    float* distances, int max_pairs, int* num_pairs)
+    float bo_cut, float* total_bond_order, const ATOM_GROUP* nl, int* pair_i,
+    int* pair_j, float* distances, int max_pairs, int* num_pairs)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -15,9 +16,13 @@ static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
         if (type_i >= 0 && type_i < atom_type_numbers)
         {
             VECTOR ri = crd[i];
+            ATOM_GROUP nl_i = nl[i];
 
-            for (int j = i + 1; j < atom_numbers; j++)
+            for (int nn = 0; nn < nl_i.atom_numbers; nn++)
             {
+                int j = nl_i.atom_serial[nn];
+                if (j <= i) continue;  // only process each pair once
+
                 int type_j = atom_type[j];
                 if (type_j < 0 || type_j >= atom_type_numbers) continue;
 
@@ -86,6 +91,7 @@ static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
     }
 }
 
+// Writes corrected BO and derivatives directly to sparse per-bond arrays
 static __global__ void Apply_Bond_Order_Corrections_Kernel(
     int num_pairs, int* pair_i, int* pair_j, float* distances,
     const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
@@ -96,7 +102,7 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
     const float* ovc, const float* v13cor, const float* p_boc3,
     const float* p_boc4, const float* p_boc5, const int atom_type_numbers,
     const int atom_numbers, float gp_boc1, float gp_boc2, float bo_cut,
-    const float* total_bond_order, float* corrected_bo, float* corrected_bo_s,
+    const float* total_bond_order, float* corrected_bo_s,
     float* corrected_bo_pi, float* corrected_bo_pi2, float* dbo_s_dr,
     float* dbo_pi_dr, float* dbo_pi2_dr, float* dbo_s_dDelta_i,
     float* dbo_pi_dDelta_i, float* dbo_pi2_dDelta_i, float* dbo_s_dDelta_j,
@@ -162,9 +168,6 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
             float total_bo_raw = bo_s_raw_val + bo_p_val + bo_p2_val;
             float dbo_raw_total_dr_val =
                 dbo_s_raw_dr + dbo_p_raw_dr + dbo_p2_raw_dr;
-
-            int dense_idx = i * atom_numbers + j;
-            int dense_idx_ji = j * atom_numbers + i;
 
             if (total_bo_raw >= bo_cut)
             {
@@ -238,100 +241,220 @@ static __global__ void Apply_Bond_Order_Corrections_Kernel(
                 if (s_corrected_bo_s.val < 0)
                     s_corrected_bo_s = SADfloat<5>(0.0f);
 
-                corrected_bo_s[dense_idx] = s_corrected_bo_s.val;
-                corrected_bo_pi[dense_idx] = s_corrected_bo_pi.val;
-                corrected_bo_pi2[dense_idx] = s_corrected_bo_pi2.val;
+                // Write to sparse per-bond arrays (one entry per bond)
+                corrected_bo_s[idx] = s_corrected_bo_s.val;
+                corrected_bo_pi[idx] = s_corrected_bo_pi.val;
+                corrected_bo_pi2[idx] = s_corrected_bo_pi2.val;
 
-                corrected_bo_s[dense_idx_ji] = s_corrected_bo_s.val;
-                corrected_bo_pi[dense_idx_ji] = s_corrected_bo_pi.val;
-                corrected_bo_pi2[dense_idx_ji] = s_corrected_bo_pi2.val;
+                dbo_s_dr[idx] = s_corrected_bo_s.dval[0] * dbo_s_raw_dr +
+                                s_corrected_bo_s.dval[1] * dbo_p_raw_dr +
+                                s_corrected_bo_s.dval[2] * dbo_p2_raw_dr;
 
-                dbo_s_dr[dense_idx] = dbo_s_dr[dense_idx_ji] =
-                    s_corrected_bo_s.dval[0] * dbo_s_raw_dr +
-                    s_corrected_bo_s.dval[1] * dbo_p_raw_dr +
-                    s_corrected_bo_s.dval[2] * dbo_p2_raw_dr;
+                dbo_pi_dr[idx] = s_corrected_bo_pi.dval[0] * dbo_s_raw_dr +
+                                 s_corrected_bo_pi.dval[1] * dbo_p_raw_dr +
+                                 s_corrected_bo_pi.dval[2] * dbo_p2_raw_dr;
 
-                dbo_pi_dr[dense_idx] = dbo_pi_dr[dense_idx_ji] =
-                    s_corrected_bo_pi.dval[0] * dbo_s_raw_dr +
-                    s_corrected_bo_pi.dval[1] * dbo_p_raw_dr +
-                    s_corrected_bo_pi.dval[2] * dbo_p2_raw_dr;
+                dbo_pi2_dr[idx] = s_corrected_bo_pi2.dval[0] * dbo_s_raw_dr +
+                                  s_corrected_bo_pi2.dval[1] * dbo_p_raw_dr +
+                                  s_corrected_bo_pi2.dval[2] * dbo_p2_raw_dr;
 
-                dbo_pi2_dr[dense_idx] = dbo_pi2_dr[dense_idx_ji] =
-                    s_corrected_bo_pi2.dval[0] * dbo_s_raw_dr +
-                    s_corrected_bo_pi2.dval[1] * dbo_p_raw_dr +
-                    s_corrected_bo_pi2.dval[2] * dbo_p2_raw_dr;
+                // dDelta_i: derivative w.r.t. Delta of pair_i[idx]
+                dbo_s_dDelta_i[idx] = s_corrected_bo_s.dval[3];
+                dbo_pi_dDelta_i[idx] = s_corrected_bo_pi.dval[3];
+                dbo_pi2_dDelta_i[idx] = s_corrected_bo_pi2.dval[3];
 
-                dbo_s_dDelta_i[dense_idx] = s_corrected_bo_s.dval[3];
-                dbo_pi_dDelta_i[dense_idx] = s_corrected_bo_pi.dval[3];
-                dbo_pi2_dDelta_i[dense_idx] = s_corrected_bo_pi2.dval[3];
+                // dDelta_j: derivative w.r.t. Delta of pair_j[idx]
+                dbo_s_dDelta_j[idx] = s_corrected_bo_s.dval[4];
+                dbo_pi_dDelta_j[idx] = s_corrected_bo_pi.dval[4];
+                dbo_pi2_dDelta_j[idx] = s_corrected_bo_pi2.dval[4];
 
-                dbo_s_dDelta_j[dense_idx] = s_corrected_bo_s.dval[4];
-                dbo_pi_dDelta_j[dense_idx] = s_corrected_bo_pi.dval[4];
-                dbo_pi2_dDelta_j[dense_idx] = s_corrected_bo_pi2.dval[4];
-
-                dbo_s_dDelta_i[dense_idx_ji] = s_corrected_bo_s.dval[4];
-                dbo_pi_dDelta_i[dense_idx_ji] = s_corrected_bo_pi.dval[4];
-                dbo_pi2_dDelta_i[dense_idx_ji] = s_corrected_bo_pi2.dval[4];
-
-                dbo_s_dDelta_j[dense_idx_ji] = s_corrected_bo_s.dval[3];
-                dbo_pi_dDelta_j[dense_idx_ji] = s_corrected_bo_pi.dval[3];
-                dbo_pi2_dDelta_j[dense_idx_ji] = s_corrected_bo_pi2.dval[3];
-
-                dbo_raw_total_dr[dense_idx] = dbo_raw_total_dr[dense_idx_ji] =
-                    dbo_raw_total_dr_val;
-
-                corrected_bo[idx] = s_corrected_bo_s.val +
-                                    s_corrected_bo_pi.val +
-                                    s_corrected_bo_pi2.val;
+                dbo_raw_total_dr[idx] = dbo_raw_total_dr_val;
             }
             else
             {
-                corrected_bo[idx] = 0.0f;
-                corrected_bo_s[dense_idx] = corrected_bo_s[dense_idx_ji] = 0.0f;
-                corrected_bo_pi[dense_idx] = corrected_bo_pi[dense_idx_ji] =
-                    0.0f;
-                corrected_bo_pi2[dense_idx] = corrected_bo_pi2[dense_idx_ji] =
-                    0.0f;
+                corrected_bo_s[idx] = 0.0f;
+                corrected_bo_pi[idx] = 0.0f;
+                corrected_bo_pi2[idx] = 0.0f;
 
-                dbo_s_dr[dense_idx] = dbo_s_dr[dense_idx_ji] = 0.0f;
-                dbo_pi_dr[dense_idx] = dbo_pi_dr[dense_idx_ji] = 0.0f;
-                dbo_pi2_dr[dense_idx] = dbo_pi2_dr[dense_idx_ji] = 0.0f;
+                dbo_s_dr[idx] = 0.0f;
+                dbo_pi_dr[idx] = 0.0f;
+                dbo_pi2_dr[idx] = 0.0f;
 
-                dbo_s_dDelta_i[dense_idx] = dbo_s_dDelta_i[dense_idx_ji] = 0.0f;
-                dbo_pi_dDelta_i[dense_idx] = dbo_pi_dDelta_i[dense_idx_ji] =
-                    0.0f;
-                dbo_pi2_dDelta_i[dense_idx] = dbo_pi2_dDelta_i[dense_idx_ji] =
-                    0.0f;
+                dbo_s_dDelta_i[idx] = 0.0f;
+                dbo_pi_dDelta_i[idx] = 0.0f;
+                dbo_pi2_dDelta_i[idx] = 0.0f;
 
-                dbo_s_dDelta_j[dense_idx] = dbo_s_dDelta_j[dense_idx_ji] = 0.0f;
-                dbo_pi_dDelta_j[dense_idx] = dbo_pi_dDelta_j[dense_idx_ji] =
-                    0.0f;
-                dbo_pi2_dDelta_j[dense_idx] = dbo_pi2_dDelta_j[dense_idx_ji] =
-                    0.0f;
+                dbo_s_dDelta_j[idx] = 0.0f;
+                dbo_pi_dDelta_j[idx] = 0.0f;
+                dbo_pi2_dDelta_j[idx] = 0.0f;
 
-                dbo_raw_total_dr[dense_idx] = dbo_raw_total_dr[dense_idx_ji] =
-                    0.0f;
+                dbo_raw_total_dr[idx] = 0.0f;
             }
         }
     }
 }
 
+// Reduce corrected bond orders per atom using CSR bond list
 static __global__ void Reduce_Total_Corrected_Bond_Order_Kernel(
-    int atom_numbers, const float* bo_s, const float* bo_pi,
+    int atom_numbers, const int* bond_count, const int* bond_offset,
+    const int* bond_idx, const float* bo_s, const float* bo_pi,
     const float* bo_pi2, float* total_bo)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
         float sum = 0.0f;
-        for (int j = 0; j < atom_numbers; j++)
+        int start = bond_offset[i];
+        int end = start + bond_count[i];
+        for (int k = start; k < end; k++)
         {
-            if (i == j) continue;
-            int idx = i * atom_numbers + j;
-            sum += bo_s[idx] + bo_pi[idx] + bo_pi2[idx];
+            int b = bond_idx[k];
+            sum += bo_s[b] + bo_pi[b] + bo_pi2[b];
         }
         total_bo[i] = sum;
     }
 }
+
+// --- CSR build kernels ---
+static __global__ void Count_Bonds_Per_Atom_Kernel(int num_bonds,
+                                                   const int* bond_i,
+                                                   const int* bond_j,
+                                                   int* bond_count)
+{
+    SIMPLE_DEVICE_FOR(b, num_bonds)
+    {
+        atomicAdd(&bond_count[bond_i[b]], 1);
+        atomicAdd(&bond_count[bond_j[b]], 1);
+    }
+}
+
+static __global__ void Exclusive_Prefix_Sum_Kernel(int n, const int* input,
+                                                   int* output)
+{
+    // Simple sequential prefix sum (launched with 1 thread)
+    SIMPLE_DEVICE_FOR(dummy, 1)
+    {
+        output[0] = 0;
+        for (int i = 0; i < n; i++)
+        {
+            output[i + 1] = output[i] + input[i];
+        }
+    }
+}
+
+static __global__ void Fill_Bond_CSR_Kernel(int num_bonds, const int* bond_i,
+                                            const int* bond_j,
+                                            const int* bond_offset,
+                                            int* fill_count, int* bond_nbr,
+                                            int* bond_idx)
+{
+    SIMPLE_DEVICE_FOR(b, num_bonds)
+    {
+        int i = bond_i[b];
+        int j = bond_j[b];
+        // Entry for atom i: neighbor is j
+        int pos_i = bond_offset[i] + atomicAdd(&fill_count[i], 1);
+        bond_nbr[pos_i] = j;
+        bond_idx[pos_i] = b;
+        // Entry for atom j: neighbor is i
+        int pos_j = bond_offset[j] + atomicAdd(&fill_count[j], 1);
+        bond_nbr[pos_j] = i;
+        bond_idx[pos_j] = b;
+    }
+}
+
+// --- Force projection kernels (sparse) ---
+
+// In sparse mode, dE_dBO is accumulated to a single bond index by all
+// consumers, so no need to sum [i*N+j] + [j*N+i].
+static __global__ void Calculate_CdDelta_Prime_Kernel(
+    int num_pairs, const int* pair_i, const int* pair_j, const float* dE_dBO_s,
+    const float* dE_dBO_pi, const float* dE_dBO_pi2, const float* CdDelta,
+    const float* dbo_s_dDelta_i, const float* dbo_pi_dDelta_i,
+    const float* dbo_pi2_dDelta_i, const float* dbo_s_dDelta_j,
+    const float* dbo_pi_dDelta_j, const float* dbo_pi2_dDelta_j,
+    float* CdDelta_prime)
+{
+    SIMPLE_DEVICE_FOR(idx, num_pairs)
+    {
+        int i = pair_i[idx];
+        int j = pair_j[idx];
+
+        float de_dbo_s_total = dE_dBO_s[idx];
+        float de_dbo_pi_total = dE_dBO_pi[idx];
+        float de_dbo_pi2_total = dE_dBO_pi2[idx];
+
+        float eff_cdd = CdDelta[i] + CdDelta[j];
+
+        float term_i = (de_dbo_s_total + eff_cdd) * dbo_s_dDelta_i[idx] +
+                       (de_dbo_pi_total + eff_cdd) * dbo_pi_dDelta_i[idx] +
+                       (de_dbo_pi2_total + eff_cdd) * dbo_pi2_dDelta_i[idx];
+        atomicAdd(&CdDelta_prime[i], term_i);
+
+        float term_j = (de_dbo_s_total + eff_cdd) * dbo_s_dDelta_j[idx] +
+                       (de_dbo_pi_total + eff_cdd) * dbo_pi_dDelta_j[idx] +
+                       (de_dbo_pi2_total + eff_cdd) * dbo_pi2_dDelta_j[idx];
+        atomicAdd(&CdDelta_prime[j], term_j);
+    }
+}
+
+static __global__ void REAXFF_Force_Projection_Kernel(
+    int num_pairs, const int* pair_i, const int* pair_j, const float* distances,
+    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
+    const float* dE_dBO_s, const float* dE_dBO_pi, const float* dE_dBO_pi2,
+    const float* CdDelta, const float* dbo_s_dr, const float* dbo_pi_dr,
+    const float* dbo_pi2_dr, const float* dbo_raw_total_dr,
+    const float* CdDelta_prime, VECTOR* frc, LTMatrix3* atom_virial)
+{
+    SIMPLE_DEVICE_FOR(idx, num_pairs)
+    {
+        int i = pair_i[idx];
+        int j = pair_j[idx];
+        float r_val = distances[idx];
+        if (r_val >= 0.0001f)
+        {
+            float de_dbo_s_total = dE_dBO_s[idx];
+            float de_dbo_pi_total = dE_dBO_pi[idx];
+            float de_dbo_pi2_total = dE_dBO_pi2[idx];
+
+            float eff_cdd = CdDelta[i] + CdDelta[j];
+
+            float de_dr = (de_dbo_s_total + eff_cdd) * dbo_s_dr[idx] +
+                          (de_dbo_pi_total + eff_cdd) * dbo_pi_dr[idx] +
+                          (de_dbo_pi2_total + eff_cdd) * dbo_pi2_dr[idx];
+
+            de_dr +=
+                (CdDelta_prime[i] + CdDelta_prime[j]) * dbo_raw_total_dr[idx];
+
+            float force_mag = -de_dr;
+
+            VECTOR ri = crd[i];
+            VECTOR rj = crd[j];
+            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+
+            float fx = force_mag * drij.x / r_val;
+            float fy = force_mag * drij.y / r_val;
+            float fz = force_mag * drij.z / r_val;
+
+            atomicAdd(&frc[i].x, fx);
+            atomicAdd(&frc[i].y, fy);
+            atomicAdd(&frc[i].z, fz);
+            atomicAdd(&frc[j].x, -fx);
+            atomicAdd(&frc[j].y, -fy);
+            atomicAdd(&frc[j].z, -fz);
+
+            if (atom_virial)
+            {
+                VECTOR fij = {fx, fy, fz};
+                atomicAdd(atom_virial + i,
+                          Get_Virial_From_Force_Dis(fij, drij));
+            }
+        }
+    }
+}
+
+// ============================================================
+// Implementation
+// ============================================================
 
 void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
                                 const char* parameter_in_file,
@@ -391,9 +514,6 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
     gp_boc1 = gen_params[0];
     gp_boc2 = gen_params[1];
     if (n_gen_params > 29) gp_bo_cut = 0.01f * gen_params[29];
-    controller->printf("Debug: gp_boc1 = %f, gp_boc2 = %f, gp_bo_cut = %f\n",
-                       gp_boc1, gp_boc2, gp_bo_cut);
-
     read_line_or_throw(fp_p, parameter_in_file, "atom type count line");
     int n_atom_types = 0;
     if (sscanf(line, "%d", &n_atom_types) != 1 || n_atom_types <= 0)
@@ -402,8 +522,6 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
                          "failed to parse number of atom types");
     }
     this->atom_type_numbers = n_atom_types;
-    controller->printf("Debug: n_atom_types = %d\n", n_atom_types);
-
     read_line_or_throw(fp_p, parameter_in_file, "atom type header line 1");
     read_line_or_throw(fp_p, parameter_in_file, "atom type header line 2");
     read_line_or_throw(fp_p, parameter_in_file, "atom type header line 3");
@@ -473,8 +591,6 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
         }
         h_valency_val[i] = valency_val;
     }
-    controller->printf("Debug: Atom params read.\n");
-
     read_line_or_throw(fp_p, parameter_in_file, "bond parameter count line");
     int n_bond_params = 0;
     if (sscanf(line, "%d", &n_bond_params) != 1 || n_bond_params < 0)
@@ -482,8 +598,6 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
         throw_bad_format(parameter_in_file,
                          "failed to parse number of bond parameters");
     }
-    controller->printf("Debug: n_bond_params = %d\n", n_bond_params);
-
     Malloc_Safely((void**)&h_bo_1, sizeof(float) * n_atom_types * n_atom_types);
     Malloc_Safely((void**)&h_bo_2, sizeof(float) * n_atom_types * n_atom_types);
     Malloc_Safely((void**)&h_bo_3, sizeof(float) * n_atom_types * n_atom_types);
@@ -735,71 +849,64 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
     Device_Malloc_And_Copy_Safely((void**)&d_atom_type, h_atom_type,
                                   sizeof(int) * atom_numbers);
 
-    Device_Malloc_Safely((void**)&d_bo_s,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_bo_p,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_bo_p2,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_total_bo_raw,
-                         sizeof(float) * atom_numbers * atom_numbers);
+    // Sparse bond storage: allocate for max_bonds = atom_numbers * 32
+    // (supports up to 64 bonds per atom on average)
+    max_bonds = atom_numbers * 32;
+
+    // Per-atom arrays
     Device_Malloc_Safely((void**)&d_total_bond_order,
                          sizeof(float) * atom_numbers);
     Device_Malloc_Safely((void**)&d_total_corrected_bond_order,
                          sizeof(float) * atom_numbers);
-    Device_Malloc_Safely((void**)&d_corrected_bo,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_corrected_bo_s,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_corrected_bo_pi,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_corrected_bo_pi2,
-                         sizeof(float) * atom_numbers * atom_numbers);
-
-    Device_Malloc_Safely((void**)&d_dE_dBO_s,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dE_dBO_pi,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dE_dBO_pi2,
-                         sizeof(float) * atom_numbers * atom_numbers);
-
-    Device_Malloc_Safely((void**)&d_dbo_s_dr,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi_dr,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi2_dr,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_s_dDelta_i,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_i,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_i,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_s_dDelta_j,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_j,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_j,
-                         sizeof(float) * atom_numbers * atom_numbers);
-    Device_Malloc_Safely((void**)&d_dbo_raw_total_dr,
-                         sizeof(float) * atom_numbers * atom_numbers);
     Device_Malloc_Safely((void**)&d_CdDelta_prime,
                          sizeof(float) * atom_numbers);
 
-    int max_pairs = atom_numbers * (atom_numbers - 1) / 2;
-    Device_Malloc_Safely((void**)&d_pair_i, sizeof(int) * max_pairs);
-    Device_Malloc_Safely((void**)&d_pair_j, sizeof(int) * max_pairs);
-    Device_Malloc_Safely((void**)&d_pair_distances, sizeof(float) * max_pairs);
+    // CSR structure
+    Device_Malloc_Safely((void**)&d_bond_count, sizeof(int) * atom_numbers);
+    Device_Malloc_Safely((void**)&d_bond_offset,
+                         sizeof(int) * (atom_numbers + 1));
+    Device_Malloc_Safely((void**)&d_bond_nbr, sizeof(int) * 2 * max_bonds);
+    Device_Malloc_Safely((void**)&d_bond_idx, sizeof(int) * 2 * max_bonds);
+    Device_Malloc_Safely((void**)&d_fill_count, sizeof(int) * atom_numbers);
+
+    // Per-bond sparse arrays
+    Device_Malloc_Safely((void**)&d_pair_i, sizeof(int) * max_bonds);
+    Device_Malloc_Safely((void**)&d_pair_j, sizeof(int) * max_bonds);
+    Device_Malloc_Safely((void**)&d_pair_distances, sizeof(float) * max_bonds);
     Device_Malloc_Safely((void**)&d_num_pairs_ptr, sizeof(int));
 
+    Device_Malloc_Safely((void**)&d_corrected_bo_s, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_corrected_bo_pi, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_corrected_bo_pi2,
+                         sizeof(float) * max_bonds);
+
+    Device_Malloc_Safely((void**)&d_dE_dBO_s, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dE_dBO_pi, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dE_dBO_pi2, sizeof(float) * max_bonds);
+
+    Device_Malloc_Safely((void**)&d_dbo_s_dr, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi_dr, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi2_dr, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_s_dDelta_i, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_i, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_i,
+                         sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_s_dDelta_j, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi_dDelta_j, sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_pi2_dDelta_j,
+                         sizeof(float) * max_bonds);
+    Device_Malloc_Safely((void**)&d_dbo_raw_total_dr,
+                         sizeof(float) * max_bonds);
+
     is_initialized = 1;
+    controller->printf("  Sparse bond storage: max_bonds = %d\n", max_bonds);
     controller->printf("END INITIALIZING REAXFF_BOND_ORDER\n\n");
 }
 
 void REAXFF_BOND_ORDER::Calculate_Uncorrected_Bond_Orders_GPU(
     int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, int* d_pair_i, int* d_pair_j,
-    float* d_distances, int* d_num_pairs_ptr)
+    const LTMatrix3 rcell, float cutoff, const ATOM_GROUP* d_nl, int* d_pair_i,
+    int* d_pair_j, float* d_distances, int* d_num_pairs_ptr)
 {
     if (!is_initialized) return;
 
@@ -816,8 +923,8 @@ void REAXFF_BOND_ORDER::Calculate_Uncorrected_Bond_Orders_GPU(
         Calculate_Uncorrected_Bond_Orders_Kernel, gridSize, blockSize, 0, NULL,
         atom_numbers, d_crd, cell, rcell, cutoff, d_atom_type, d_r_s, d_r_p,
         d_r_pp, d_bo_1, d_bo_2, d_bo_3, d_bo_4, d_bo_5, d_bo_6, d_ro_pi,
-        d_ro_pi2, atom_type_numbers, gp_bo_cut, d_total_bond_order, d_pair_i,
-        d_pair_j, d_distances, atom_numbers * atom_numbers, d_num_pairs_ptr);
+        d_ro_pi2, atom_type_numbers, gp_bo_cut, d_total_bond_order, d_nl,
+        d_pair_i, d_pair_j, d_distances, max_bonds, d_num_pairs_ptr);
 }
 
 void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Orders_GPU(
@@ -838,11 +945,39 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Orders_GPU(
         d_atom_type, d_r_s, d_r_p, d_r_pp, d_bo_1, d_bo_2, d_bo_3, d_bo_4,
         d_bo_5, d_bo_6, d_ro_pi, d_ro_pi2, d_valency, d_valency_val, d_ovc,
         d_v13cor, d_p_boc3, d_p_boc4, d_p_boc5, atom_type_numbers, atom_numbers,
-        gp_boc1, gp_boc2, gp_bo_cut, d_total_bond_order, d_corrected_bo,
-        d_corrected_bo_s, d_corrected_bo_pi, d_corrected_bo_pi2, d_dbo_s_dr,
-        d_dbo_pi_dr, d_dbo_pi2_dr, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i,
-        d_dbo_pi2_dDelta_i, d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
-        d_dbo_pi2_dDelta_j, d_dbo_raw_total_dr);
+        gp_boc1, gp_boc2, gp_bo_cut, d_total_bond_order, d_corrected_bo_s,
+        d_corrected_bo_pi, d_corrected_bo_pi2, d_dbo_s_dr, d_dbo_pi_dr,
+        d_dbo_pi2_dr, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i, d_dbo_pi2_dDelta_i,
+        d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j, d_dbo_pi2_dDelta_j,
+        d_dbo_raw_total_dr);
+}
+
+void REAXFF_BOND_ORDER::Build_Bond_CSR(int atom_numbers, int num_bonds)
+{
+    if (num_bonds <= 0)
+    {
+        deviceMemset(d_bond_count, 0, sizeof(int) * atom_numbers);
+        deviceMemset(d_bond_offset, 0, sizeof(int) * (atom_numbers + 1));
+        return;
+    }
+
+    dim3 blockSize = {CONTROLLER::device_max_thread};
+    dim3 gridSize_bonds = {(num_bonds + blockSize.x - 1) / blockSize.x};
+
+    // Phase 1: Count bonds per atom
+    deviceMemset(d_bond_count, 0, sizeof(int) * atom_numbers);
+    Launch_Device_Kernel(Count_Bonds_Per_Atom_Kernel, gridSize_bonds, blockSize,
+                         0, NULL, num_bonds, d_pair_i, d_pair_j, d_bond_count);
+
+    // Phase 2: Exclusive prefix sum
+    Launch_Device_Kernel(Exclusive_Prefix_Sum_Kernel, dim3(1), dim3(1), 0, NULL,
+                         atom_numbers, d_bond_count, d_bond_offset);
+
+    // Phase 3: Fill CSR
+    deviceMemset(d_fill_count, 0, sizeof(int) * atom_numbers);
+    Launch_Device_Kernel(Fill_Bond_CSR_Kernel, gridSize_bonds, blockSize, 0,
+                         NULL, num_bonds, d_pair_i, d_pair_j, d_bond_offset,
+                         d_fill_count, d_bond_nbr, d_bond_idx);
 }
 
 void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
@@ -859,29 +994,22 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
         return;
     }
 
-    FILE* fp = fopen("reaxff_bond_order.txt", "w");
-    if (!fp)
-    {
-        printf("ERROR: Failed to open reaxff_bond_order.txt\n");
-        return;
-    }
-
-    deviceMemset(d_corrected_bo, 0,
-                 sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_corrected_bo_s, 0,
-                 sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_corrected_bo_pi, 0,
-                 sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_corrected_bo_pi2, 0,
-                 sizeof(float) * atom_numbers * atom_numbers);
-
     Calculate_Uncorrected_Bond_Orders_GPU(atom_numbers, d_crd, cell, rcell,
-                                          cutoff, d_pair_i, d_pair_j,
+                                          cutoff, fnl_d_nl, d_pair_i, d_pair_j,
                                           d_pair_distances, d_num_pairs_ptr);
 
     deviceMemcpy(&h_num_pairs, d_num_pairs_ptr, sizeof(int),
                  deviceMemcpyDeviceToHost);
     int num_pairs = h_num_pairs;
+
+    if (num_pairs > max_bonds)
+    {
+        printf(
+            "WARNING: REAXFF_BOND_ORDER - num_pairs (%d) exceeds max_bonds "
+            "(%d), results may be incorrect!\n",
+            num_pairs, max_bonds);
+        num_pairs = max_bonds;
+    }
 
     if (num_pairs > 0)
     {
@@ -889,142 +1017,19 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
                                             cutoff, num_pairs, d_pair_i,
                                             d_pair_j, d_pair_distances);
 
+        // Build CSR bond neighbor lookup
+        Build_Bond_CSR(atom_numbers, num_pairs);
+
+        // Reduce corrected BO per atom using CSR
         dim3 blockSize = {CONTROLLER::device_max_thread};
         dim3 gridSize = {(atom_numbers + blockSize.x - 1) / blockSize.x};
         deviceMemset(d_total_corrected_bond_order, 0,
                      sizeof(float) * atom_numbers);
         Launch_Device_Kernel(Reduce_Total_Corrected_Bond_Order_Kernel, gridSize,
-                             blockSize, 0, NULL, atom_numbers, d_corrected_bo_s,
+                             blockSize, 0, NULL, atom_numbers, d_bond_count,
+                             d_bond_offset, d_bond_idx, d_corrected_bo_s,
                              d_corrected_bo_pi, d_corrected_bo_pi2,
                              d_total_corrected_bond_order);
-
-        int* h_pair_i = (int*)malloc(sizeof(int) * num_pairs);
-        int* h_pair_j = (int*)malloc(sizeof(int) * num_pairs);
-        float* h_corrected_bo = (float*)malloc(sizeof(float) * num_pairs);
-
-        deviceMemcpy(h_pair_i, d_pair_i, sizeof(int) * num_pairs,
-                     deviceMemcpyDeviceToHost);
-        deviceMemcpy(h_pair_j, d_pair_j, sizeof(int) * num_pairs,
-                     deviceMemcpyDeviceToHost);
-        deviceMemcpy(h_corrected_bo, d_corrected_bo, sizeof(float) * num_pairs,
-                     deviceMemcpyDeviceToHost);
-
-        for (int idx = 0; idx < num_pairs; idx++)
-        {
-            int i = h_pair_i[idx];
-            int j = h_pair_j[idx];
-            float corrected_bond_order = h_corrected_bo[idx];
-
-            if (corrected_bond_order > 1e-10f)
-            {
-                fprintf(fp, "%d %d %f\n", i + 1, j + 1, corrected_bond_order);
-            }
-        }
-
-        free(h_pair_i);
-        free(h_pair_j);
-        free(h_corrected_bo);
-    }
-
-    fclose(fp);
-}
-
-static __global__ void Calculate_CdDelta_Prime_Kernel(
-    int num_pairs, const int* pair_i, const int* pair_j, const int atom_numbers,
-    const float* dE_dBO_s, const float* dE_dBO_pi, const float* dE_dBO_pi2,
-    const float* CdDelta, const float* dbo_s_dDelta_i,
-    const float* dbo_pi_dDelta_i, const float* dbo_pi2_dDelta_i,
-    const float* dbo_s_dDelta_j, const float* dbo_pi_dDelta_j,
-    const float* dbo_pi2_dDelta_j, float* CdDelta_prime)
-{
-    SIMPLE_DEVICE_FOR(idx, num_pairs)
-    {
-        int i = pair_i[idx];
-        int j = pair_j[idx];
-        int dense_idx = i * atom_numbers + j;
-        int dense_idx_ji = j * atom_numbers + i;
-
-        float de_dbo_s_total = dE_dBO_s[dense_idx] + dE_dBO_s[dense_idx_ji];
-        float de_dbo_pi_total = dE_dBO_pi[dense_idx] + dE_dBO_pi[dense_idx_ji];
-        float de_dbo_pi2_total =
-            dE_dBO_pi2[dense_idx] + dE_dBO_pi2[dense_idx_ji];
-
-        float term_i = (de_dbo_s_total + CdDelta[i] + CdDelta[j]) *
-                           dbo_s_dDelta_i[dense_idx] +
-                       (de_dbo_pi_total + CdDelta[i] + CdDelta[j]) *
-                           dbo_pi_dDelta_i[dense_idx] +
-                       (de_dbo_pi2_total + CdDelta[i] + CdDelta[j]) *
-                           dbo_pi2_dDelta_i[dense_idx];
-        atomicAdd(&CdDelta_prime[i], term_i);
-
-        float term_j = (de_dbo_s_total + CdDelta[j] + CdDelta[i]) *
-                           dbo_s_dDelta_j[dense_idx] +
-                       (de_dbo_pi_total + CdDelta[j] + CdDelta[i]) *
-                           dbo_pi_dDelta_j[dense_idx] +
-                       (de_dbo_pi2_total + CdDelta[j] + CdDelta[i]) *
-                           dbo_pi2_dDelta_j[dense_idx];
-        atomicAdd(&CdDelta_prime[j], term_j);
-    }
-}
-
-static __global__ void REAXFF_Force_Projection_Kernel(
-    int num_pairs, const int* pair_i, const int* pair_j, const float* distances,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const int atom_numbers, const float* dE_dBO_s, const float* dE_dBO_pi,
-    const float* dE_dBO_pi2, const float* CdDelta, const float* dbo_s_dr,
-    const float* dbo_pi_dr, const float* dbo_pi2_dr,
-    const float* dbo_raw_total_dr, const float* CdDelta_prime, VECTOR* frc,
-    LTMatrix3* atom_virial)
-{
-    SIMPLE_DEVICE_FOR(idx, num_pairs)
-    {
-        int i = pair_i[idx];
-        int j = pair_j[idx];
-        float r_val = distances[idx];
-        if (r_val >= 0.0001f)
-        {
-            int dense_idx = i * atom_numbers + j;
-            int dense_idx_ji = j * atom_numbers + i;
-
-            float de_dbo_s_total = dE_dBO_s[dense_idx] + dE_dBO_s[dense_idx_ji];
-            float de_dbo_pi_total =
-                dE_dBO_pi[dense_idx] + dE_dBO_pi[dense_idx_ji];
-            float de_dbo_pi2_total =
-                dE_dBO_pi2[dense_idx] + dE_dBO_pi2[dense_idx_ji];
-
-            float eff_cdd = CdDelta[i] + CdDelta[j];
-
-            float de_dr = (de_dbo_s_total + eff_cdd) * dbo_s_dr[dense_idx] +
-                          (de_dbo_pi_total + eff_cdd) * dbo_pi_dr[dense_idx] +
-                          (de_dbo_pi2_total + eff_cdd) * dbo_pi2_dr[dense_idx];
-
-            de_dr += (CdDelta_prime[i] + CdDelta_prime[j]) *
-                     dbo_raw_total_dr[dense_idx];
-
-            float force_mag = -de_dr;
-
-            VECTOR ri = crd[i];
-            VECTOR rj = crd[j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
-
-            float fx = force_mag * drij.x / r_val;
-            float fy = force_mag * drij.y / r_val;
-            float fz = force_mag * drij.z / r_val;
-
-            atomicAdd(&frc[i].x, fx);
-            atomicAdd(&frc[i].y, fy);
-            atomicAdd(&frc[i].z, fz);
-            atomicAdd(&frc[j].x, -fx);
-            atomicAdd(&frc[j].y, -fy);
-            atomicAdd(&frc[j].z, -fz);
-
-            if (atom_virial)
-            {
-                VECTOR fij = {fx, fy, fz};
-                atomicAdd(atom_virial + i,
-                          Get_Virial_From_Force_Dis(fij, drij));
-            }
-        }
     }
 }
 
@@ -1039,27 +1044,28 @@ void REAXFF_BOND_ORDER::Calculate_Forces(int atom_numbers, const VECTOR* d_crd,
     dim3 blockSize = {CONTROLLER::device_max_thread};
     dim3 gridSize = {(h_num_pairs + blockSize.x - 1) / blockSize.x};
 
-    Launch_Device_Kernel(
-        Calculate_CdDelta_Prime_Kernel, gridSize, blockSize, 0, NULL,
-        h_num_pairs, d_pair_i, d_pair_j, atom_numbers, d_dE_dBO_s, d_dE_dBO_pi,
-        d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dDelta_i, d_dbo_pi_dDelta_i,
-        d_dbo_pi2_dDelta_i, d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
-        d_dbo_pi2_dDelta_j, d_CdDelta_prime);
+    Launch_Device_Kernel(Calculate_CdDelta_Prime_Kernel, gridSize, blockSize, 0,
+                         NULL, h_num_pairs, d_pair_i, d_pair_j, d_dE_dBO_s,
+                         d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dDelta_i,
+                         d_dbo_pi_dDelta_i, d_dbo_pi2_dDelta_i,
+                         d_dbo_s_dDelta_j, d_dbo_pi_dDelta_j,
+                         d_dbo_pi2_dDelta_j, d_CdDelta_prime);
 
     Launch_Device_Kernel(
         REAXFF_Force_Projection_Kernel, gridSize, blockSize, 0, NULL,
         h_num_pairs, d_pair_i, d_pair_j, d_pair_distances, d_crd, cell, rcell,
-        atom_numbers, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta,
-        d_dbo_s_dr, d_dbo_pi_dr, d_dbo_pi2_dr, d_dbo_raw_total_dr,
-        d_CdDelta_prime, d_frc, need_virial ? atom_virial : NULL);
+        d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dr,
+        d_dbo_pi_dr, d_dbo_pi2_dr, d_dbo_raw_total_dr, d_CdDelta_prime, d_frc,
+        need_virial ? atom_virial : NULL);
 }
 
 void REAXFF_BOND_ORDER::Clear_Derivatives(int atom_numbers, float* d_CdDelta)
 {
     if (!is_initialized) return;
-    deviceMemset(d_dE_dBO_s, 0, sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_dE_dBO_pi, 0, sizeof(float) * atom_numbers * atom_numbers);
-    deviceMemset(d_dE_dBO_pi2, 0, sizeof(float) * atom_numbers * atom_numbers);
+    int num = h_num_pairs > 0 ? h_num_pairs : max_bonds;
+    deviceMemset(d_dE_dBO_s, 0, sizeof(float) * num);
+    deviceMemset(d_dE_dBO_pi, 0, sizeof(float) * num);
+    deviceMemset(d_dE_dBO_pi2, 0, sizeof(float) * num);
     if (d_CdDelta)
     {
         deviceMemset(d_CdDelta, 0, sizeof(float) * atom_numbers);

@@ -1,5 +1,7 @@
 ﻿#include "valence_angle.h"
 
+#include "bond_order.h"  // for find_bond_index
+
 static __global__ void Calculate_Valence_Angle_Kernel(
     int atom_numbers, const VECTOR* crd, const int* atom_type,
     const float* Delta_boc, const float* Delta, const float* Delta_val,
@@ -9,10 +11,11 @@ static __global__ void Calculate_Valence_Angle_Kernel(
     const float* bo_s, const float* bo_pi, const float* bo_pi2,
     const float* total_bo, const float* nlp, const float* vlpex,
     const float* dDelta_lp, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const ATOM_GROUP* nl, float* d_dE_dBO_s, float* d_dE_dBO_pi,
-    float* d_dE_dBO_pi2, float* CdDelta, float* atom_energy, VECTOR* frc,
-    LTMatrix3* atom_virial, float* d_energy_ang_sum, float* d_energy_pen_sum,
-    float* d_energy_coa_sum)
+    float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta,
+    float* atom_energy, VECTOR* frc, LTMatrix3* atom_virial,
+    float* d_energy_ang_sum, float* d_energy_pen_sum, float* d_energy_coa_sum,
+    const int* bond_count, const int* bond_offset, const int* bond_nbr,
+    const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(j, atom_numbers)
     {
@@ -20,7 +23,6 @@ static __global__ void Calculate_Valence_Angle_Kernel(
         if (type_j >= 0)
         {
             VECTOR rj = crd[j];
-            ATOM_GROUP nl_j = nl[j];
 
             float p_val3_j = p_val3[type_j];
             float p_val5_j = p_val5[type_j];
@@ -29,13 +31,14 @@ static __global__ void Calculate_Valence_Angle_Kernel(
             float delta_val_j_val = Delta_val[j];
 
             float SBOp = 0, prod_SBO = 1.0f;
-            for (int t = 0; t < nl_j.atom_numbers; t++)
+            int bc_j = bond_count[j];
+            int bo_j = bond_offset[j];
+            for (int t = 0; t < bc_j; t++)
             {
-                int atom_t = nl_j.atom_serial[t];
-                int idx_jt = j * atom_numbers + atom_t;
-                float bo_jt = bo_s[idx_jt] + bo_pi[idx_jt] + bo_pi2[idx_jt];
+                int b_jt = bond_idx_arr[bo_j + t];
+                float bo_jt = bo_s[b_jt] + bo_pi[b_jt] + bo_pi2[b_jt];
 
-                SBOp += (bo_pi[idx_jt] + bo_pi2[idx_jt]);
+                SBOp += (bo_pi[b_jt] + bo_pi2[b_jt]);
                 float bo_jt_sq = bo_jt * bo_jt;
                 float bo_jt_p4 = bo_jt_sq * bo_jt_sq;
                 prod_SBO *= expf(-bo_jt_p4 * bo_jt_p4);
@@ -73,12 +76,12 @@ static __global__ void Calculate_Valence_Angle_Kernel(
                 CSBO2 = 0.0f;
             }
 
-            for (int pi = 0; pi < nl_j.atom_numbers; pi++)
+            for (int bi = 0; bi < bc_j; bi++)
             {
-                int i = nl_j.atom_serial[pi];
+                int b_ij = bond_idx_arr[bo_j + bi];
+                int i = bond_nbr[bo_j + bi];
                 int type_i = atom_type[i];
-                int idx_ij = j * atom_numbers + i;
-                float bo_ij_val = bo_s[idx_ij] + bo_pi[idx_ij] + bo_pi2[idx_ij];
+                float bo_ij_val = bo_s[b_ij] + bo_pi[b_ij] + bo_pi2[b_ij];
                 float boa_ij_val = bo_ij_val - p.thb_cut;
 
                 if (boa_ij_val <= 0) continue;
@@ -87,13 +90,12 @@ static __global__ void Calculate_Valence_Angle_Kernel(
                 VECTOR dji = Get_Periodic_Displacement(rj, ri, cell, rcell);
                 float r_ij = norm3df(dji.x, dji.y, dji.z);
 
-                for (int pk = pi + 1; pk < nl_j.atom_numbers; pk++)
+                for (int bk = bi + 1; bk < bc_j; bk++)
                 {
-                    int k = nl_j.atom_serial[pk];
+                    int b_kj = bond_idx_arr[bo_j + bk];
+                    int k = bond_nbr[bo_j + bk];
                     int type_k = atom_type[k];
-                    int idx_kj = j * atom_numbers + k;
-                    float bo_jk_val =
-                        bo_s[idx_kj] + bo_pi[idx_kj] + bo_pi2[idx_kj];
+                    float bo_jk_val = bo_s[b_kj] + bo_pi[b_kj] + bo_pi2[b_kj];
                     float boa_jk_val = bo_jk_val - p.thb_cut;
 
                     if (boa_jk_val <= 0) continue;
@@ -194,13 +196,13 @@ static __global__ void Calculate_Valence_Angle_Kernel(
 
                         SADfloat<3> s_en_total = s_en_ang + s_en_pen + s_en_coa;
 
-                        atomicAdd(&d_dE_dBO_s[idx_ij], s_en_total.dval[0]);
-                        atomicAdd(&d_dE_dBO_pi[idx_ij], s_en_total.dval[0]);
-                        atomicAdd(&d_dE_dBO_pi2[idx_ij], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_s[b_ij], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_pi[b_ij], s_en_total.dval[0]);
+                        atomicAdd(&d_dE_dBO_pi2[b_ij], s_en_total.dval[0]);
 
-                        atomicAdd(&d_dE_dBO_s[idx_kj], s_en_total.dval[1]);
-                        atomicAdd(&d_dE_dBO_pi[idx_kj], s_en_total.dval[1]);
-                        atomicAdd(&d_dE_dBO_pi2[idx_kj], s_en_total.dval[1]);
+                        atomicAdd(&d_dE_dBO_s[b_kj], s_en_total.dval[1]);
+                        atomicAdd(&d_dE_dBO_pi[b_kj], s_en_total.dval[1]);
+                        atomicAdd(&d_dE_dBO_pi2[b_kj], s_en_total.dval[1]);
 
                         atomicAdd(&CdDelta[j], s_en_total.dval[2]);
 
@@ -215,22 +217,21 @@ static __global__ void Calculate_Valence_Angle_Kernel(
                         float CEval7 = CEval5 * dSBO2;
                         atomicAdd(&CdDelta[j], CEval7);
 
-                        for (int pt = 0; pt < nl_j.atom_numbers; pt++)
+                        for (int pt = 0; pt < bc_j; pt++)
                         {
-                            int atom_t = nl_j.atom_serial[pt];
-                            int idx_jt = j * atom_numbers + atom_t;
+                            int b_jt = bond_idx_arr[bo_j + pt];
                             float bo_jt =
-                                bo_s[idx_jt] + bo_pi[idx_jt] + bo_pi2[idx_jt];
+                                bo_s[b_jt] + bo_pi[b_jt] + bo_pi2[b_jt];
                             if (bo_jt <= 0.0f) continue;
                             float bo_jt_2 = bo_jt * bo_jt;
                             float bo_jt_4 = bo_jt_2 * bo_jt_2;
                             float bo_jt_7 = bo_jt_4 * bo_jt_2 * bo_jt;
                             float dE_dbo_total = CEval6 * bo_jt_7;
 
-                            atomicAdd(&d_dE_dBO_s[idx_jt], dE_dbo_total);
-                            atomicAdd(&d_dE_dBO_pi[idx_jt],
+                            atomicAdd(&d_dE_dBO_s[b_jt], dE_dbo_total);
+                            atomicAdd(&d_dE_dBO_pi[b_jt],
                                       dE_dbo_total + CEval5);
-                            atomicAdd(&d_dE_dBO_pi2[idx_jt],
+                            atomicAdd(&d_dE_dBO_pi2[b_jt],
                                       dE_dbo_total + CEval5);
                         }
 
@@ -378,7 +379,14 @@ void REAXFF_VALENCE_ANGLE::Initial(CONTROLLER* controller, int atom_numbers,
     params.p_coa4 = gp[30];
     params.p_val8 = gp[33];
     params.p_coa3 = gp[38];
-    params.thb_cut = 0.01f * gp[29];
+    // thb_cutoff means the three-body screening cutoff used by angle/torsion
+    // style terms. It is a control parameter, not the bond-order cutoff in
+    // the force-field file.
+    params.thb_cut = 0.001f;
+    if (controller->Command_Exist(module_name, "thb_cutoff"))
+    {
+        params.thb_cut = atof(controller->Command(module_name, "thb_cutoff"));
+    }
     params.thb_cutsq = params.thb_cut * params.thb_cut;
 
     read_line_or_throw(fp, parameter_in_file, "atom type count line");
@@ -632,10 +640,11 @@ void REAXFF_VALENCE_ANGLE::Calculate_Valence_Angle_Energy_And_Force(
         d_p_val5, params, d_thbp_info, d_thbp_entries, atom_type_numbers,
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, bo_module->d_total_corrected_bond_order,
-        nlp, vlpex, dDelta_lp, cell, rcell, nl, d_dE_dBO_s, d_dE_dBO_pi,
+        nlp, vlpex, dDelta_lp, cell, rcell, d_dE_dBO_s, d_dE_dBO_pi,
         d_dE_dBO_pi2, CdDelta, need_atom_energy ? atom_energy : NULL, frc,
         need_virial ? atom_virial : NULL, d_energy_ang_sum, d_energy_pen_sum,
-        d_energy_coa_sum);
+        d_energy_coa_sum, bo_module->d_bond_count, bo_module->d_bond_offset,
+        bo_module->d_bond_nbr, bo_module->d_bond_idx);
 
 #ifdef USE_GPU
     deviceError_t err = deviceGetLastError();

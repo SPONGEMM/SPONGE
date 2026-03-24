@@ -1,0 +1,108 @@
+LAMMPS (2 Apr 2025)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread. (src/comm.cpp:99)
+  using 1 OpenMP thread(s) per MPI task
+# PETN 16240 single-frame comparison
+units real
+atom_style charge
+read_data data.reax
+Reading data file ...
+  orthogonal box = (0 0 0) to (9.491065 9.491065 6.99123)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  58 atoms
+  read_data CPU = 0.001 seconds
+replicate 7 8 5
+Replication is creating a 7x8x5 = 280 times larger system...
+  orthogonal box = (0 0 0) to (66.437455 75.92852 34.95615)
+  1 by 1 by 1 MPI processor grid
+  16240 atoms
+  replicate CPU = 0.001 seconds
+neighbor 2.0 bin
+neigh_modify every 1 delay 0 check yes
+pair_style reaxff NULL
+pair_coeff * * ffield.reax C H O N
+WARNING: Changed valency_val to valency_boc for X (src/REAXFF/reaxff_ffield.cpp:300)
+fix qeq all qeq/reaxff 1 0.0 10.0 1.0e-6 reaxff maxiter 1000
+thermo 1
+thermo_style custom step temp pe press pxx pyy pzz pxy pxz pyz etotal
+dump frc all custom 1 forces.dump id fx fy fz
+dump chg all custom 1 charges.dump id q
+run 0
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+Your simulation uses code contributions which should be cited:
+
+- pair reaxff command: doi:10.1016/j.parco.2011.08.005
+
+@Article{Aktulga12,
+ author = {H. M. Aktulga and J. C. Fogarty and S. A. Pandit and A. Y. Grama},
+ title = {Parallel Reactive Molecular Dynamics: {N}umerical Methods and Algorithmic Techniques},
+ journal = {Parallel Computing},
+ year =    2012,
+ volume =  38,
+ number =  {4--5},
+ pages =   {245--259}
+}
+
+- fix qeq/reaxff command: doi:10.1016/j.parco.2011.08.005
+
+@Article{Aktulga12,
+ author = {H. M. Aktulga and J. C. Fogarty and S. A. Pandit and A. Y. Grama},
+ title = {Parallel Reactive Molecular Dynamics: {N}umerical Methods and Algorithmic Techniques},
+ journal = {Parallel Computing},
+ year =    2012,
+ volume =  38,
+ pages =   {245--259}
+}
+
+CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE-CITE
+
+WARNING: No fixes with time integration, atoms won't move
+For more information see https://docs.lammps.org/err0028 (src/verlet.cpp:60)
+Neighbor list info ...
+  update: every = 1 steps, delay = 0 steps, check = yes
+  max neighbors/atom: 2000, page size: 100000
+  master list distance cutoff = 12
+  ghost atom cutoff = 12
+  binsize = 6, bins = 12 13 6
+  2 neighbor lists, perpetual/occasional/extra = 2 0 0
+  (1) pair reaxff, perpetual
+      attributes: half, newton off, ghost
+      pair build: half/bin/ghost/newtoff
+      stencil: full/ghost/bin/3d
+      bin: standard
+  (2) fix qeq/reaxff, perpetual, copy from (1)
+      attributes: half, newton off
+      pair build: copy
+      stencil: none
+      bin: none
+Per MPI rank memory allocation (min/avg/max) = 884.2 | 884.2 | 884.2 Mbytes
+   Step          Temp          PotEng         Press           Pxx            Pyy            Pzz            Pxy            Pxz            Pyz           TotEng    
+         0   0             -1616070.4     -3850.6491      19048.443     -33137.049      2536.6585     -1851.729       1082.8413      6062.3247     -1616070.4    
+Loop time of 9.52e-07 on 1 procs for 0 steps with 16240 atoms
+
+210.1% CPU use with 1 MPI tasks x 1 OpenMP threads
+
+MPI task timing breakdown:
+Section |  min time  |  avg time  |  max time  |%varavg| %total
+---------------------------------------------------------------
+Pair    | 0          | 0          | 0          |   0.0 |  0.00
+Neigh   | 0          | 0          | 0          |   0.0 |  0.00
+Comm    | 0          | 0          | 0          |   0.0 |  0.00
+Output  | 0          | 0          | 0          |   0.0 |  0.00
+Modify  | 0          | 0          | 0          |   0.0 |  0.00
+Other   |            | 9.52e-07   |            |       |100.00
+
+Nlocal:          16240 ave       16240 max       16240 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:          32428 ave       32428 max       32428 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    6.69975e+06 ave 6.69975e+06 max 6.69975e+06 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 6699752
+Ave neighs/atom = 412.54631
+Neighbor list builds = 0
+Dangerous builds = 0
+Total wall time: 0:00:01
