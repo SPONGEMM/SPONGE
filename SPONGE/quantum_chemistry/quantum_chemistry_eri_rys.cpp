@@ -12,8 +12,10 @@
 #include "gpu_eri/eri_screen_compact.hpp"
 
 // Rys per-L_sum kernels (L2..L16)
+// ERI_MAX_G = max (ij_am+1)*(kl_am+1) over all (la,lb,lc,ld) with la+lb+lc+ld=L_sum
+// = ceil((L+2)/2) * floor((L+2)/2)  (constrained by l_max=4 → ij,kl <= 8)
 #define ERI_NRYS 2
-#define ERI_MAX_G 3
+#define ERI_MAX_G 4
 #define ERI_MAX_CART 6
 #define KERNEL_NAME QC_Fock_Rys_L2_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -76,7 +78,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 5
-#define ERI_MAX_G 18
+#define ERI_MAX_G 30
 #define ERI_MAX_CART 2160
 #define KERNEL_NAME QC_Fock_Rys_L9_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -85,7 +87,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 6
-#define ERI_MAX_G 27
+#define ERI_MAX_G 36
 #define ERI_MAX_CART 3600
 #define KERNEL_NAME QC_Fock_Rys_L10_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -94,7 +96,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 6
-#define ERI_MAX_G 36
+#define ERI_MAX_G 42
 #define ERI_MAX_CART 6000
 #define KERNEL_NAME QC_Fock_Rys_L11_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -103,7 +105,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 7
-#define ERI_MAX_G 45
+#define ERI_MAX_G 49
 #define ERI_MAX_CART 10000
 #define KERNEL_NAME QC_Fock_Rys_L12_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -112,7 +114,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 7
-#define ERI_MAX_G 54
+#define ERI_MAX_G 56
 #define ERI_MAX_CART 15000
 #define KERNEL_NAME QC_Fock_Rys_L13_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"
@@ -121,7 +123,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 #define ERI_NRYS 8
-#define ERI_MAX_G 63
+#define ERI_MAX_G 64
 #define ERI_MAX_CART 22500
 #define KERNEL_NAME QC_Fock_Rys_L14_Kernel
 #include "gpu_eri/eri_rys_Lsum.hpp"

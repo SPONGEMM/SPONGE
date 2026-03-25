@@ -1,9 +1,12 @@
-
-
 // Rys quadrature Fock kernel (per-L_sum, compile-time sized).
-// Expected macros: KERNEL_NAME, ERI_LSUM, ERI_NRYS, ERI_MAX_G, ERI_MAX_CART
+// Expected macros: KERNEL_NAME, ERI_NRYS, ERI_MAX_G, ERI_MAX_CART
 // No #pragma once — designed for multiple inclusion.
+//
+// Uses factored HRR: precomputes Ix_full[ax0][ax1][ax2][ax3] for each axis
+// before the Cartesian assembly loop, avoiding redundant bra-HRR recomputation.
 
+// Max factored HRR array size per axis: (l_max+1)^4 = 5^4 = 625 for g-shells
+#define ERI_MAX_IX 625
 
 __global__ void KERNEL_NAME(
     const int n_tasks, const QC_ERI_TASK* __restrict__ tasks,
@@ -82,8 +85,8 @@ __global__ void KERNEL_NAME(
             RC[i][0] = env[ptr_R]; RC[i][1] = env[ptr_R+1]; RC[i][2] = env[ptr_R+2];
             off[i] = is_spherical ? ao_offsets_sph[sh[i]] : ao_offsets_cart[sh[i]];
         }
-        const int ij_am = l[0] + l[1]; // max 4 for dd pair
-        const int kl_am = l[2] + l[3]; // max 4 for dd pair
+        const int ij_am = l[0] + l[1];
+        const int kl_am = l[2] + l[3];
         const int g_stride = kl_am + 1;
 
         const float rab2 = (RC[0][0]-RC[1][0])*(RC[0][0]-RC[1][0]) +
@@ -96,8 +99,15 @@ __global__ void KERNEL_NAME(
         const float CD[3] = {RC[2][0]-RC[3][0], RC[2][1]-RC[3][1], RC[2][2]-RC[3][2]};
 
         const int n_cart = dim_cart[0]*dim_cart[1]*dim_cart[2]*dim_cart[3];
-        float eri_cart[ERI_MAX_CART]; // max 6^4 for dddd
+        float eri_cart[ERI_MAX_CART];
         for (int i = 0; i < n_cart; i++) eri_cart[i] = 0.0f;
+
+        // Strides for Ix_full indexing: Ix[ax0][ax1][ax2][ax3]
+        // Each axis index ranges 0..l[i], so stride for axis i = product of (l[j]+1) for j>i
+        const int ix_d3 = 1;
+        const int ix_d2 = (l[3] + 1);
+        const int ix_d1 = (l[2] + 1) * ix_d2;
+        const int ix_d0 = (l[1] + 1) * ix_d1;
 
         // ---- Primitive loop ----
         for (int ip = 0; ip < np[0]; ip++) {
@@ -133,10 +143,10 @@ __global__ void KERNEL_NAME(
             double rys_r[ERI_NRYS], rys_w[ERI_NRYS];
             rys_roots_weights(ERI_NRYS, (double)T, rys_r, rys_w);
 
-            // For each Rys root: build Gx, Gy, Gz via VRR, then HRR to get ERI
+            // For each Rys root: VRR → factored HRR → accumulate
             for (int ir = 0; ir < ERI_NRYS; ir++)
             {
-                const float u = (float)rys_r[ir]; // t_i^2
+                const float u = (float)rys_r[ir];
                 const float w = (float)rys_w[ir];
                 const float factor = u / (p_val + q_val);
                 const float B00 = 0.5f * factor;
@@ -144,7 +154,7 @@ __global__ void KERNEL_NAME(
                 const float B01 = 0.5f/q_val * (1.0f - p_val*factor);
 
                 // VRR for each axis
-                float Gx[ERI_MAX_G], Gy[ERI_MAX_G], Gz[ERI_MAX_G]; // max (4+1)*(4+1) = 25
+                float Gx[ERI_MAX_G], Gy[ERI_MAX_G], Gz[ERI_MAX_G];
                 const float Cx_bra[3] = {
                     PA[0] - factor*q_val*PQ[0],
                     PA[1] - factor*q_val*PQ[1],
@@ -161,7 +171,69 @@ __global__ void KERNEL_NAME(
                 rys_vrr_2d(Gz, ij_am, kl_am, g_stride,
                            Cx_bra[2], Cx_ket[2], B00, B10, B01);
 
-                // HRR + assembly: for each Cartesian component, extract the ERI
+                // ---- Factored HRR: precompute Ix_full[ax0][ax1][ax2][ax3] ----
+                // Step 1: Bra HRR for all (ax, bx) pairs on each axis
+                // Step 2: Ket HRR to get full factored integrals
+                float Ix_full[ERI_MAX_IX], Iy_full[ERI_MAX_IX], Iz_full[ERI_MAX_IX];
+
+                // X-axis
+                for (int ax0 = 0; ax0 <= l[0]; ax0++)
+                    for (int ax1 = 0; ax1 <= l[1]; ax1++)
+                    {
+                        // Bra HRR: G[i][j] for i=0..ij_am, j=0..kl_am → H[j] for j=0..kl_am
+                        float h_bra[9]; // kl_am max = 8
+                        for (int j = 0; j <= kl_am; j++)
+                        {
+                            float col[9]; // ij_am max = 8
+                            for (int i = 0; i <= ij_am; i++)
+                                col[i] = Gx[i * g_stride + j];
+                            h_bra[j] = rys_hrr_1d(col, ax0, ax1, AB[0]);
+                        }
+                        // Ket HRR: H[j] for j=0..kl_am → I[ax2][ax3]
+                        for (int ax2 = 0; ax2 <= l[2]; ax2++)
+                            for (int ax3 = 0; ax3 <= l[3]; ax3++)
+                                Ix_full[ax0*ix_d0 + ax1*ix_d1 + ax2*ix_d2 + ax3] =
+                                    rys_hrr_1d(h_bra, ax2, ax3, CD[0]);
+                    }
+
+                // Y-axis
+                for (int ay0 = 0; ay0 <= l[0]; ay0++)
+                    for (int ay1 = 0; ay1 <= l[1]; ay1++)
+                    {
+                        float h_bra[9];
+                        for (int j = 0; j <= kl_am; j++)
+                        {
+                            float col[9];
+                            for (int i = 0; i <= ij_am; i++)
+                                col[i] = Gy[i * g_stride + j];
+                            h_bra[j] = rys_hrr_1d(col, ay0, ay1, AB[1]);
+                        }
+                        for (int ay2 = 0; ay2 <= l[2]; ay2++)
+                            for (int ay3 = 0; ay3 <= l[3]; ay3++)
+                                Iy_full[ay0*ix_d0 + ay1*ix_d1 + ay2*ix_d2 + ay3] =
+                                    rys_hrr_1d(h_bra, ay2, ay3, CD[1]);
+                    }
+
+                // Z-axis
+                for (int az0 = 0; az0 <= l[0]; az0++)
+                    for (int az1 = 0; az1 <= l[1]; az1++)
+                    {
+                        float h_bra[9];
+                        for (int j = 0; j <= kl_am; j++)
+                        {
+                            float col[9];
+                            for (int i = 0; i <= ij_am; i++)
+                                col[i] = Gz[i * g_stride + j];
+                            h_bra[j] = rys_hrr_1d(col, az0, az1, AB[2]);
+                        }
+                        for (int az2 = 0; az2 <= l[2]; az2++)
+                            for (int az3 = 0; az3 <= l[3]; az3++)
+                                Iz_full[az0*ix_d0 + az1*ix_d1 + az2*ix_d2 + az3] =
+                                    rys_hrr_1d(h_bra, az2, az3, CD[2]);
+                    }
+
+                // ---- Accumulate into eri_cart using factored Ix*Iy*Iz ----
+                const float wn = n_abcd * w;
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_cart[0]; c0++) {
                     int ax0, ay0, az0;
@@ -176,62 +248,18 @@ __global__ void KERNEL_NAME(
                     int ax3, ay3, az3;
                     QC_Get_Lxyz_Device(l[3], c3, ax3, ay3, az3);
 
-                    // Extract G columns for HRR
-                    float gx_col[9], gy_col[5], gz_col[5];
-                    for (int i = 0; i <= ij_am; i++) {
-                        gx_col[i] = Gx[i*g_stride + ax2+ax3];
-                        gy_col[i] = Gy[i*g_stride + ay2+ay3];
-                        gz_col[i] = Gz[i*g_stride + az2+az3];
-                    }
+                    const int ix_idx = ax0*ix_d0 + ax1*ix_d1 + ax2*ix_d2 + ax3;
+                    const int iy_idx = ay0*ix_d0 + ay1*ix_d1 + ay2*ix_d2 + ay3;
+                    const int iz_idx = az0*ix_d0 + az1*ix_d1 + az2*ix_d2 + az3;
 
-                    // Bra HRR: distribute (ax0+ax1) → (ax0, ax1)
-                    float Ix = rys_hrr_1d(gx_col, ax0, ax1, AB[0]);
-                    float Iy = rys_hrr_1d(gy_col, ay0, ay1, AB[1]);
-                    float Iz = rys_hrr_1d(gz_col, az0, az1, AB[2]);
-
-                    // Ket HRR: extract column at (kl) index = ax2+ax3
-                    // Then distribute to (ax2, ax3)
-                    // Wait - for ket HRR we need G[ij_final][j] for j=0..kl_am
-                    // But we already extracted at j=ax2+ax3. We need to do ket HRR too.
-
-                    // Actually, let me redo: extract G[i][j] for needed ij and all j,
-                    // do bra HRR on ij, then ket HRR on kl.
-
-                    // Bra HRR for x: from G[0..ij_am][kl_j] → I(ax0, ax1, kl_j)
-                    // Then Ket HRR: from I(ax0, ax1, 0..kl_am) → I(ax0, ax1, ax2, ax3)
-
-                    // Recompute properly:
-                    float gx_bra[9]; // result after bra HRR, indexed by kl
-                    for (int j = 0; j <= kl_am; j++) {
-                        float col[9];
-                        for (int i = 0; i <= ij_am; i++) col[i] = Gx[i*g_stride + j];
-                        gx_bra[j] = rys_hrr_1d(col, ax0, ax1, AB[0]);
-                    }
-                    Ix = rys_hrr_1d(gx_bra, ax2, ax3, CD[0]);
-
-                    float gy_bra[9];
-                    for (int j = 0; j <= kl_am; j++) {
-                        float col[9];
-                        for (int i = 0; i <= ij_am; i++) col[i] = Gy[i*g_stride + j];
-                        gy_bra[j] = rys_hrr_1d(col, ay0, ay1, AB[1]);
-                    }
-                    Iy = rys_hrr_1d(gy_bra, ay2, ay3, CD[1]);
-
-                    float gz_bra[9];
-                    for (int j = 0; j <= kl_am; j++) {
-                        float col[9];
-                        for (int i = 0; i <= ij_am; i++) col[i] = Gz[i*g_stride + j];
-                        gz_bra[j] = rys_hrr_1d(col, az0, az1, AB[2]);
-                    }
-                    Iz = rys_hrr_1d(gz_bra, az2, az3, CD[2]);
-
-                    eri_cart[idx] += n_abcd * w * Ix * Iy * Iz;
+                    eri_cart[idx] += wn *
+                        Ix_full[ix_idx] * Iy_full[iy_idx] * Iz_full[iz_idx];
                     idx++;
                 }}}}
             } // end Rys roots
         }}}} // end primitives
 
-        // ---- Cart2sph (same as MD version) ----
+        // ---- Cart2sph (same as before) ----
         const int n_eff = dim_eff[0]*dim_eff[1]*dim_eff[2]*dim_eff[3];
         float eri_out[ERI_MAX_CART];
         if (is_spherical)
@@ -273,7 +301,7 @@ __global__ void KERNEL_NAME(
         else
             for (int i = 0; i < n_cart; i++) eri_out[i] = eri_cart[i];
 
-        // ---- Norms + Fock (same as MD version) ----
+        // ---- Norms + Fock ----
         {
             int idx = 0;
             for (int c0 = 0; c0 < dim_eff[0]; c0++)
