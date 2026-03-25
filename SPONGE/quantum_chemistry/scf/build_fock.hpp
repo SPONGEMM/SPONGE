@@ -42,22 +42,16 @@ static __device__ __forceinline__ float QC_Max4(const float a, const float b,
 }
 
 static inline float QC_Effective_Shell_Screen_Tol(const float base_tol,
-                                                  const int iter,
-                                                  const bool fast_test_mode,
-                                                  const float fast_test_tol)
+                                                  const int iter)
 {
-    if (fast_test_mode && iter <= 1) return std::max(base_tol, fast_test_tol);
     if (iter <= 0) return std::max(base_tol, 1.0e-7f);
     if (iter == 1) return std::max(base_tol, 1.0e-8f);
     return base_tol;
 }
 
 static inline float QC_Effective_Prim_Screen_Tol(const float base_tol,
-                                                 const int iter,
-                                                 const bool fast_test_mode,
-                                                 const float fast_test_tol)
+                                                 const int iter)
 {
-    if (fast_test_mode && iter <= 1) return std::max(base_tol, fast_test_tol);
     if (iter <= 0) return std::max(base_tol, 1.0e-7f);
     if (iter == 1) return std::max(base_tol, 1.0e-8f);
     return base_tol;
@@ -828,7 +822,6 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 {
     const int threads = 256;
     const int total = mol.nao2;
-    scf_ws.last_active_eri_tasks = task_ctx.n_eri_tasks;
 
     if (dft.enable_dft) Build_DFT_VXC();
 
@@ -878,21 +871,12 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     const float exx_scale_a =
         scf_ws.unrestricted ? dft.exx_fraction : (0.5f * dft.exx_fraction);
     const float exx_scale_b = scf_ws.unrestricted ? dft.exx_fraction : 0.0f;
-    const bool fast_test_mode = scf_ws.fast_test_mode || scf_ws.bench_fock_only;
     const float shell_screen_tol = QC_Effective_Shell_Screen_Tol(
-        task_ctx.eri_shell_screen_tol, iter, fast_test_mode,
-        scf_ws.fast_test_shell_screen_tol);
+        task_ctx.eri_shell_screen_tol, iter);
     const float prim_screen_tol = QC_Effective_Prim_Screen_Tol(
-        task_ctx.direct_eri_prim_screen_tol, iter, fast_test_mode,
-        scf_ws.fast_test_prim_screen_tol);
+        task_ctx.direct_eri_prim_screen_tol, iter);
 #ifdef USE_GPU
-    int chunk_size = ERI_BATCH_SIZE;
-    TIME_RECORDER DEBUG_screen_timer;
-    TIME_RECORDER DEBUG_eri_timer;
-    scf_ws.last_active_eri_tasks = task_ctx.n_eri_tasks;
     // ===== Single-launch screening + per-combo ERI dispatch =====
-
-    DEBUG_screen_timer.Start();
 
     // 1. Zero all per-combo counters
     deviceMemset(task_ctx.d_screen_counts, 0, sizeof(int) * task_ctx.n_combos);
@@ -923,14 +907,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     deviceMemcpy(h_counts, task_ctx.d_screen_counts,
                  sizeof(int) * task_ctx.n_combos, deviceMemcpyDeviceToHost);
 
-    int total_screened = 0;
-    for (int ci = 0; ci < task_ctx.n_combos; ci++)
-        total_screened += h_counts[ci];
-
-    DEBUG_screen_timer.Stop();
-
     // 4. Launch ERI kernels per combo (no sync between them)
-    DEBUG_eri_timer.Start();
 
     // Helper: launch ERI kernel for a given combo
     // launch_eri: calls a wrapper function that launches the kernel
@@ -1096,19 +1073,11 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         }
     }
 
-    DEBUG_eri_timer.Stop();
-
-    fprintf(stderr,
-            "    [DEBUG_FOCK] iter=%d screened=%d t_screen=%.6fs t_eri=%.6fs\n",
-            iter + 1, total_screened, DEBUG_screen_timer.time,
-            DEBUG_eri_timer.time);
     if (scf_ws.d_F_double != NULL)
         QC_Float_To_Double_Copy(total, scf_ws.d_F, scf_ws.d_F_double);
     if (scf_ws.unrestricted && scf_ws.d_F_b_double != NULL)
         QC_Float_To_Double_Copy(total, scf_ws.d_F_b, scf_ws.d_F_b_double);
 #else
-    scf_ws.last_active_eri_tasks = task_ctx.n_eri_tasks;
-    scf_ws.last_fock_filter_s = 0.0;
     QC_Build_Fock_Direct_CPU(
         task_ctx, mol.nbas, mol.d_atm, mol.d_bas, mol.d_env, mol.d_ao_offsets,
         mol.d_ao_offsets_sph, scf_ws.d_norms, task_ctx.d_shell_pair_bounds,

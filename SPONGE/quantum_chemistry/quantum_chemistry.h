@@ -11,7 +11,6 @@
 #include "structure/molecule.h"
 #include "structure/scf_workspace.h"
 
-// Compile-time constants for quantum chemistry
 #define ONE_E_BATCH_SIZE 4096
 #define PI_25 17.4934183276248628469f
 #define HR_BASE_MAX 17

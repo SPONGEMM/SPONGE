@@ -16,13 +16,11 @@ struct QC_SCF_WORKSPACE
 
     // 重叠正交化与本征分解工作区
     std::vector<float> h_X;
-    std::vector<double> h_X_double;
     double* d_X = NULL;
     std::vector<float> h_W;
     float* d_W = NULL;
     std::vector<float> h_Work;
     float* d_Work = NULL;
-    std::vector<float> h_U;
     float* d_solver_work = NULL;
     int* d_solver_iwork = NULL;
     float* d_norms = NULL;
@@ -54,8 +52,6 @@ struct QC_SCF_WORKSPACE
     std::vector<float> h_C_b;
     float* d_C_b = NULL;
     std::vector<float> h_W_b;
-    std::vector<float> h_Work_b;
-    std::vector<float> h_Tmp_b;
 
     // DIIS 误差与历史向量缓冲（double 精度）
     double* d_diis_err = NULL;
@@ -74,9 +70,9 @@ struct QC_SCF_WORKSPACE
 
     // 能量累计、收敛状态与线性求解信息
     double *d_e = NULL, *d_e_b = NULL, *d_pvxc = NULL, *d_prev_energy = NULL,
-           *d_delta_e = NULL, *d_density_residual = NULL, *d_diis_accum = NULL,
-           *d_diis_B = NULL, *d_diis_rhs = NULL;
-    int *d_converged = NULL, *d_diis_info = NULL, *d_info = NULL;
+           *d_delta_e = NULL, *d_density_residual = NULL,
+           *d_diis_accum = NULL;
+    int* d_converged = NULL;
     int lwork = 0;
     int liwork = 0;
 
@@ -117,38 +113,17 @@ struct QC_SCF_WORKSPACE
     int diis_space = 6;
     double diis_reg = 1e-10;
     double energy_tol = 1e-6;
-    float overlap_eig_floor = 1e-10f;
     double lindep_threshold = 1e-6;  // canonical orthogonalization threshold
     int nao_eff = 0;  // effective AO count after removing linear deps
     double level_shift = 0.25;
     bool print_iter = false;
-    bool profile_stages = false;
-    bool bench_fock_only = false;
-    int bench_fock_repeats = 5;
-    bool fast_test_mode = false;
-    float fast_test_shell_screen_tol = 1.0e-5f;
-    float fast_test_prim_screen_tol = 1.0e-6f;
     float* d_P_coul = NULL;
-
-    // Lightweight profiling for fast iteration tests
-    double last_pre_scf_s = 0.0;
-    double last_build_fock_s = 0.0;
-    double last_fock_filter_s = 0.0;
-    double last_accumulate_energy_s = 0.0;
-    double last_apply_diis_s = 0.0;
-    double last_diag_density_s = 0.0;
-    double last_mix_converge_s = 0.0;
-    double last_fock_bench_total_s = 0.0;
-    int last_active_eri_tasks = 0;
 
     // DIIS 循环状态
     int diis_hist_count = 0;
     int diis_hist_head = 0;
     int diis_hist_count_b = 0;
     int diis_hist_head_b = 0;
-    double diis_best_energy = 1e30;
-    int diis_stagnant_count = 0;
-    int diis_cooldown = 0;
 };
 
 #endif

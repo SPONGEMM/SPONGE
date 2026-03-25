@@ -1,92 +1,5 @@
 ﻿#pragma once
 
-static __global__ void QC_DIIS_Init_System_Kernel(const int n, const int m,
-                                                  double* B, double* rhs)
-{
-    for (int i = 0; i < n; i++)
-    {
-        rhs[i] = 0.0;
-        for (int j = 0; j < n; j++) B[i * n + j] = 0.0;
-    }
-    rhs[m] = -1.0;
-    for (int i = 0; i < m; i++)
-    {
-        B[i * n + m] = -1.0;
-        B[m * n + i] = -1.0;
-    }
-    B[m * n + m] = 0.0;
-}
-
-static __global__ void QC_DIIS_Set_B_From_Accum_Kernel(const int n, const int i,
-                                                       const int j,
-                                                       const double reg,
-                                                       const double* d_accum,
-                                                       double* B)
-{
-    const double v = d_accum[0] + ((i == j) ? reg : 0.0);
-    B[i * n + j] = v;
-    B[j * n + i] = v;
-}
-
-static __global__ void QC_DIIS_Solve_Linear_System_Kernel(const int n,
-                                                          double* A, double* b,
-                                                          int* info)
-{
-    info[0] = 0;
-    for (int k = 0; k < n; k++)
-    {
-        int pivot = k;
-        double max_abs = fabs(A[k * n + k]);
-        for (int i = k + 1; i < n; i++)
-        {
-            const double v = fabs(A[i * n + k]);
-            if (v > max_abs)
-            {
-                max_abs = v;
-                pivot = i;
-            }
-        }
-        if (max_abs < 1e-18)
-        {
-            info[0] = k + 1;
-            return;
-        }
-        if (pivot != k)
-        {
-            for (int j = k; j < n; j++)
-            {
-                const double tmp = A[k * n + j];
-                A[k * n + j] = A[pivot * n + j];
-                A[pivot * n + j] = tmp;
-            }
-            const double tb = b[k];
-            b[k] = b[pivot];
-            b[pivot] = tb;
-        }
-        const double diag = A[k * n + k];
-        for (int i = k + 1; i < n; i++)
-        {
-            const double factor = A[i * n + k] / diag;
-            A[i * n + k] = 0.0;
-            for (int j = k + 1; j < n; j++)
-                A[i * n + j] -= factor * A[k * n + j];
-            b[i] -= factor * b[k];
-        }
-    }
-    for (int i = n - 1; i >= 0; i--)
-    {
-        double sum = b[i];
-        for (int j = i + 1; j < n; j++) sum -= A[i * n + j] * b[j];
-        const double diag = A[i * n + i];
-        if (fabs(diag) < 1e-18)
-        {
-            info[0] = i + 1;
-            return;
-        }
-        b[i] = sum / diag;
-    }
-}
-
 // Compute DIIS error e = FPS - SPF in double precision (device-side)
 static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
                                        const double* d_F, const float* d_P,
@@ -268,12 +181,6 @@ do_extrapolate:
     return true;
 }
 
-static void QC_DIIS_Reset(int& hist_count, int& hist_head)
-{
-    hist_count = 0;
-    hist_head = 0;
-}
-
 // ADIIS: minimize energy estimate over convex combination of stored Fock
 // matrices Ref: JCP 132, 054109 (2010)
 static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
@@ -303,12 +210,11 @@ static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
     }
 
     // Build ADIIS quadratic form (small, on host)
-    std::vector<double> dd_fn(m), dn_f(m);
+    std::vector<double> dd_fn(m);
     double dn_fn = df[(m - 1) * m + (m - 1)];
     for (int i = 0; i < m; i++)
     {
         dd_fn[i] = df[i * m + (m - 1)] - dn_fn;
-        dn_f[i] = df[(m - 1) * m + i];
     }
     std::vector<double> df_adj(m * m);
     for (int i = 0; i < m; i++)

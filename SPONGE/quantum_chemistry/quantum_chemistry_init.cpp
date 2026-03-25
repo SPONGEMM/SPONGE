@@ -4,74 +4,6 @@
 #include "basis/basis.h"
 #include "quantum_chemistry.h"
 
-// Workaround: glibc 2.38+ redirects atoi/strtol to __isoc23_strtol
-// which the conda GCC 11.4 toolchain cannot resolve at link time.
-// We implement __isoc23_strtol without calling strtol (which would
-// recurse back to us via glibc's inline redirect).
-#ifdef __linux__
-#include <cerrno>
-extern "C"
-{
-    long __isoc23_strtol(const char* nptr, char** endptr, int base)
-    {
-        const char* s = nptr;
-        while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r' ||
-               *s == '\f' || *s == '\v')
-            s++;
-        int sign = 1;
-        if (*s == '-')
-        {
-            sign = -1;
-            s++;
-        }
-        else if (*s == '+')
-        {
-            s++;
-        }
-        if (base == 0)
-        {
-            if (*s == '0' && (s[1] == 'x' || s[1] == 'X'))
-            {
-                base = 16;
-                s += 2;
-            }
-            else if (*s == '0')
-            {
-                base = 8;
-                s++;
-            }
-            else
-            {
-                base = 10;
-            }
-        }
-        else if (base == 16 && *s == '0' && (s[1] == 'x' || s[1] == 'X'))
-        {
-            s += 2;
-        }
-        long result = 0;
-        const char* start = s;
-        while (*s)
-        {
-            int digit;
-            if (*s >= '0' && *s <= '9')
-                digit = *s - '0';
-            else if (*s >= 'a' && *s <= 'z')
-                digit = *s - 'a' + 10;
-            else if (*s >= 'A' && *s <= 'Z')
-                digit = *s - 'A' + 10;
-            else
-                break;
-            if (digit >= base) break;
-            result = result * base + digit;
-            s++;
-        }
-        if (endptr) *endptr = (char*)(s == start ? nptr : s);
-        return result * sign;
-    }
-}
-#endif
-
 static inline bool Equals_Ignore_Case(const std::string& lhs, const char* rhs)
 {
     return is_str_equal(lhs.c_str(), rhs, 0);
@@ -324,22 +256,6 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
                 controller, spongeErrorValueErrorCommand,
                 "Reason:\n    qc_scf_energy_tol must be > 0, got \"%s\"\n",
                 controller->Command("qc_scf_energy_tol"));
-        }
-    }
-
-    scf_ws.overlap_eig_floor = 1e-10f;
-    if (controller->Command_Exist("qc_overlap_eig_floor"))
-    {
-        controller->Check_Float("qc_overlap_eig_floor",
-                                "QUANTUM_CHEMISTRY::Initial");
-        scf_ws.overlap_eig_floor =
-            atof(controller->Command("qc_overlap_eig_floor"));
-        if (scf_ws.overlap_eig_floor <= 0.0f)
-        {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
-                "Reason:\n    qc_overlap_eig_floor must be > 0, got \"%s\"\n",
-                controller->Command("qc_overlap_eig_floor"));
         }
     }
 
@@ -733,13 +649,6 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
                 task_ctx.h_sorted_pair_ids.push_back(pid);
         }
 
-        fprintf(stderr, "    [Pair types] max_l=%d types=%d:", max_l,
-                task_ctx.n_pair_types);
-        for (int t = 0; t < task_ctx.n_pair_types; t++)
-            fprintf(stderr, " (%d,%d)=%d", task_ctx.pair_type_l0[t],
-                    task_ctx.pair_type_l1[t], task_ctx.pair_type_count[t]);
-        fprintf(stderr, "\n");
-
         Device_Malloc_And_Copy_Safely(
             (void**)&task_ctx.d_sorted_pair_ids,
             (void*)task_ctx.h_sorted_pair_ids.data(),
@@ -750,7 +659,6 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
     {
         const int npt = task_ctx.n_pair_types;
         task_ctx.n_combos = 0;
-        int output_off = 0;
         for (int tA = 0; tA < npt; tA++)
         {
             for (int tB = 0; tB <= tA; tB++)
@@ -782,9 +690,6 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
             task_ctx.combo_prefix[i + 1] =
                 task_ctx.combo_prefix[i] + task_ctx.h_combos[i].n_quartets;
         task_ctx.total_quartets = task_ctx.combo_prefix[task_ctx.n_combos];
-
-        fprintf(stderr, "    [Screen combos] %d combos, %d total quartets\n",
-                task_ctx.n_combos, task_ctx.total_quartets);
 
         // Allocate device buffers
         Device_Malloc_And_Copy_Safely(
@@ -869,12 +774,6 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
             {
                 // 2s2p: bucket 5-10 by (p0,p1) pair
                 // positions of the two p shells
-                int p0 = (la == 1) ? 0 : (lb == 1) ? 1 : (lc == 1) ? 2 : 3;
-                int p1 = (ld == 1)              ? 3
-                         : (lc == 1 && p0 != 2) ? 2
-                         : (lb == 1 && p0 != 1) ? 1
-                                                : 0;
-                // find p1 properly: second p position
                 int pp[2], pi = 0;
                 if (la == 1) pp[pi++] = 0;
                 if (lb == 1) pp[pi++] = 1;
@@ -917,14 +816,6 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
             sorted[pos[get_bucket(t)]++] = t;
         task_ctx.h_eri_tasks = std::move(sorted);
 
-        fprintf(stderr, "    [ERI pre-bin] total=%d", task_ctx.n_eri_tasks);
-        const char* names[] = {"4s",   "psss", "spss", "ssps", "sssp",   "ppss",
-                               "psps", "pssp", "spps", "spsp", "sspp",   "sppp",
-                               "pspp", "ppsp", "ppps", "4p",   "generic"};
-        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
-            if (task_ctx.bucket_count[b] > 0)
-                fprintf(stderr, " %s=%d", names[b], task_ctx.bucket_count[b]);
-        fprintf(stderr, "\n");
     }
 
     for (int i = 0; i < mol.nbas; i++)

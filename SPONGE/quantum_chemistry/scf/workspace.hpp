@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include <stdexcept>
+
 void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
 {
     const int nao = mol.nao;
@@ -15,7 +17,6 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     scf_ws.h_P_new.resize(nao2);
     scf_ws.h_W.resize((int)nao);
     scf_ws.h_Work.resize(nao2);
-    scf_ws.h_U.resize(nao2);
     scf_ws.h_Fp.resize(nao2);
     scf_ws.h_Tmp.resize(nao2);
     if (unrestricted)
@@ -25,9 +26,7 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.h_P_b.resize(nao2);
         scf_ws.h_P_b_new.resize(nao2);
         scf_ws.h_W_b.resize((int)nao);
-        scf_ws.h_Work_b.resize(nao2);
         scf_ws.h_Fp_b.resize(nao2);
-        scf_ws.h_Tmp_b.resize(nao2);
     }
     else
     {
@@ -36,9 +35,7 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.h_P_b.clear();
         scf_ws.h_P_b_new.clear();
         scf_ws.h_W_b.clear();
-        scf_ws.h_Work_b.clear();
         scf_ws.h_Fp_b.clear();
-        scf_ws.h_Tmp_b.clear();
     }
 
     auto alloc_zero_float = [](float** ptr, int count)
@@ -127,7 +124,6 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     alloc_zero_double(&scf_ws.d_delta_e, 1);
     alloc_zero_double(&scf_ws.d_density_residual, 1);
     alloc_zero_int(&scf_ws.d_converged, 1);
-    alloc_zero_int(&scf_ws.d_info, 1);
     alloc_zero_float(&scf_ws.d_pair_density_coul, task_ctx.n_shell_pairs);
     alloc_zero_float(&scf_ws.d_pair_density_exx, task_ctx.n_shell_pairs);
     if (unrestricted)
@@ -192,11 +188,7 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         (void**)&scf_ws.d_solver_iwork, &scf_ws.lwork, &scf_ws.liwork);
     if (solver_stat != 0 || scf_ws.lwork <= 0)
     {
-        printf(
-            "ERROR: QC_Diagonalize_Workspace_Size failed, status=%d, "
-            "lwork=%d, liwork=%d\n",
-            solver_stat, scf_ws.lwork, scf_ws.liwork);
-        exit(1);
+        throw std::runtime_error("QC_Diagonalize_Workspace_Size failed");
     }
 
     scf_ws.d_diis_f_hist.clear();
@@ -211,11 +203,6 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_zero_float(&scf_ws.d_diis_w3, nao2);
         alloc_zero_float(&scf_ws.d_diis_w4, nao2);
         alloc_zero_double(&scf_ws.d_diis_accum, 1);
-        alloc_zero_double(&scf_ws.d_diis_B,
-                          (int)(diis_space + 1) * (int)(diis_space + 1));
-        alloc_zero_double(&scf_ws.d_diis_rhs, (int)(diis_space + 1));
-        alloc_zero_int(&scf_ws.d_diis_info, 1);
-
         scf_ws.d_diis_f_hist.assign((int)diis_space, nullptr);
         scf_ws.d_diis_e_hist.assign((int)diis_space, nullptr);
         for (int i = 0; i < diis_space; i++)
@@ -250,9 +237,6 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.d_diis_w3 = NULL;
         scf_ws.d_diis_w4 = NULL;
         scf_ws.d_diis_accum = NULL;
-        scf_ws.d_diis_B = NULL;
-        scf_ws.d_diis_rhs = NULL;
-        scf_ws.d_diis_info = NULL;
     }
 
     scf_ws.n_alpha = (mol.nelectron + (unrestricted ? spin_e : 0)) / 2;

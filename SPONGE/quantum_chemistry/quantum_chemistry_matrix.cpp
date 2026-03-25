@@ -1,4 +1,6 @@
-﻿#include "quantum_chemistry.h"
+﻿#include <stdexcept>
+
+#include "quantum_chemistry.h"
 #include "structure/matrix.h"
 
 // ====================== Float BLAS/Solver wrappers ======================
@@ -551,8 +553,8 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
                             CART2SPH_MAT_G[i][j];
                 break;
             default:
-                printf("Error: l=%d not supported in Cart2Sph transform\n", l);
-                exit(1);
+                throw std::runtime_error(
+                    "Unsupported l in Cart2Sph transform");
         }
         offset_c += dim_c;
         offset_s += dim_s;
