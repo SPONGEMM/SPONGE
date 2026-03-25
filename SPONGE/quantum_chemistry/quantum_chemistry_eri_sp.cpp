@@ -121,5 +121,4 @@ DEFINE_ERI_LAUNCH(QC_Launch_ppsp, QC_Fock_ppsp_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_ppps, QC_Fock_ppps_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_pppp, QC_Fock_pppp_Kernel)
 
-void QC_Launch_test_dummy(int x) { (void)x; }
 

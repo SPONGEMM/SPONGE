@@ -759,16 +759,7 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
         Device_Malloc_And_Copy_Safely(
             (void**)&task_ctx.d_combos, (void*)task_ctx.h_combos,
             sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos);
-        // Assign output offsets: equally divide buffer among combos
-        // Total buffer = n_eri_tasks (post-screening active tasks can't exceed this)
-        const int per_combo = std::max(1, task_ctx.n_eri_tasks / std::max(1, task_ctx.n_combos));
-        for (int i = 0; i < task_ctx.n_combos; i++)
-            task_ctx.h_combos[i].output_offset = i * per_combo;
-        task_ctx.screened_buf_capacity = task_ctx.n_eri_tasks;
-        Device_Malloc_Safely((void**)&task_ctx.d_screened_tasks,
-                             sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
-        Device_Malloc_Safely((void**)&task_ctx.d_screen_counts,
-                             sizeof(int) * QC_INTEGRAL_TASKS::MAX_COMBOS);
+        // Output offsets and buffer allocated after task list (see below)
     }
 
     for (int i = 0; i < mol.nbas; i++)
@@ -788,6 +779,29 @@ void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
         }
     }
     task_ctx.n_eri_tasks = task_ctx.h_eri_tasks.size();
+
+    // Allocate screening output buffer and assign per-combo offsets.
+    // Each combo reserves its n_quartets as worst-case capacity.
+    // Total buffer = sum of all combo n_quartets = total_quartets.
+    {
+        // Compute output offsets (prefix sum of n_quartets per combo)
+        int output_off = 0;
+        for (int i = 0; i < task_ctx.n_combos; i++)
+        {
+            task_ctx.h_combos[i].output_offset = output_off;
+            output_off += task_ctx.h_combos[i].n_quartets;
+        }
+        task_ctx.screened_buf_capacity = output_off; // = total_quartets
+        Device_Malloc_Safely((void**)&task_ctx.d_screened_tasks,
+                             sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
+        Device_Malloc_Safely((void**)&task_ctx.d_screen_counts,
+                             sizeof(int) * QC_INTEGRAL_TASKS::MAX_COMBOS);
+        // Re-upload combos with updated offsets
+        if (task_ctx.d_combos != NULL)
+            deviceMemcpy(task_ctx.d_combos, task_ctx.h_combos,
+                sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos,
+                deviceMemcpyHostToDevice);
+    }
 
     // Build screening combos from pair types (after pair type index is ready)
     // Deferred to after pair type construction below.
