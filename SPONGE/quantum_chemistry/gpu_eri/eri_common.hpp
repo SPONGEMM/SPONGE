@@ -31,16 +31,17 @@ static __device__ __forceinline__ void eri_boys(
     const double st = sqrt(td);
     const double f0 = 0.5 * 1.7724538509055159 * erf(st) / st;
 
-    if (max_m <= 4 && td > 1.0)
+    if (td > 30.0)
     {
-        // Upward recursion — fast, accurate for small max_m and not-tiny T
+        // Upward recursion — stable for large T (exp(-T) is tiny, no cancellation)
         F[0] = f0;
         for (int m = 0; m < max_m; m++)
             F[m + 1] = ((2.0 * m + 1.0) * F[m] - exp_t) / (2.0 * td);
         return;
     }
 
-    // Downward recursion (Miller's algorithm) — stable for any max_m and T
+    // Downward recursion (Miller's algorithm) — stable for T <= 30
+    // For large T, exp(-T) underflows and work[] becomes all-zero → scale = inf → NaN.
     const int m_top = max_m + 25;
     double work[48]; // max_m <= 16 → m_top <= 41
     work[m_top] = 0.0;

@@ -987,7 +987,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
                 const int l_sum = combo.l0 + combo.l1 + combo.l2 + combo.l3;
                 if (l_max <= 2)
                 {
-                    // d-containing: MD per-L_sum (faster than Rys for d)
+                    // d-containing: MD per-L_sum
                     switch (l_sum)
                     {
                         case 2: launch_eri(ci, QC_Launch_D_L2); break;
