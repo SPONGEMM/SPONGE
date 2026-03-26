@@ -1,4 +1,4 @@
-﻿/**
+/**
  * @file
  * @author
  * - Zhijun Pan

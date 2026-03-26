@@ -1,10 +1,10 @@
-﻿/**
+/**
  * @file
  * @author
  * - Zhijun Pan
  */
 
-#include "SwitchFunction.h"
+#include "switch_function.h"
 
 #include <cmath>
 using namespace std;

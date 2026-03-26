@@ -1,11 +1,13 @@
-﻿/**
+#pragma once
+
+/**
  * @file
  * @author
  * - Zhijun Pan
  */
 
 // clang-format off
-#include "GridBase.h"
+#include "grid_base.h"
 #include <fstream>
 #include <istream>
 #include <vector>
@@ -498,10 +500,3 @@ size_t Grid<T>::mapTo1d(const vector<int> &indices) const
 }
 template <typename T>
 Grid<T>::~Grid(void) {}
-
-template class Grid<int>;
-template class Grid<int>::GridIterator<int>;
-template class Grid<float>;
-template class Grid<float>::GridIterator<float>;
-template class Grid<float *>;
-template class Grid<float *>::GridIterator<float *>;

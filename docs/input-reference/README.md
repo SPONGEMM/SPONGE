@@ -16,6 +16,7 @@ SPONGE -mdin mdin.spg.toml
 - [Neighbor List](neighbor-list.md) — neighbor list configuration
 - [PME Electrostatics](pme.md) — Particle Mesh Ewald
 - [Enhanced Sampling](enhanced-sampling.md) — CV, MetaD, SITS
+- [SinkMeta](sinkmeta.md) — detailed `meta` / SinkMeta parameter reference
 - [Advanced](advanced.md) — device, wall constraints, ReaxFF, plugins
 
 ## Quick Examples

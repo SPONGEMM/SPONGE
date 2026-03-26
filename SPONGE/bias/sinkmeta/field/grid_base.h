@@ -1,4 +1,4 @@
-﻿/**
+/**
  * This file is from SSAGES
  */
 #ifndef __GRIDBASE_H__

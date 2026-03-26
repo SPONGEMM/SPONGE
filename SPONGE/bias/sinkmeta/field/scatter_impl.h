@@ -1,10 +1,12 @@
-﻿/**
+#pragma once
+
+/**
  * @file
  * @author
  * - Zhijun Pan
  */
 
-#include "Scatter.h"
+#include "scatter.h"
 
 #include <fstream>
 #include <istream>
@@ -467,10 +469,3 @@ template <typename T>
 Scatter<T>::~Scatter(void)
 {
 }
-
-template class Scatter<int>;
-template class Scatter<int>::SIterator<int>;
-template class Scatter<float>;
-template class Scatter<float>::SIterator<float>;
-template class Scatter<float*>;
-template class Scatter<float*>::SIterator<float*>;

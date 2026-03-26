@@ -1,6 +1,6 @@
 # SinkMeta/meta Input Parameters
 
-This list is derived from `META::Initial()` in `SPONGE/SPONGE/bias/SinkMeta/Meta.cpp` and default values in `SPONGE/SPONGE/bias/SinkMeta/Meta.h`.
+This list is derived from `META::Initial()` in `SPONGE/bias/sinkmeta/config/config.cpp` and default values in `SPONGE/bias/sinkmeta/meta.h`.
 
 ## Parameters (module: `meta`)
 
