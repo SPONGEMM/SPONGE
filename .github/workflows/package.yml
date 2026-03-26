@@ -81,7 +81,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find conda/outputs -maxdepth 1 -name '*.conda' | head -n 1)"
+          package_path="$(python - <<'PY'
+from pathlib import Path
+matches = sorted(Path("conda/outputs").glob("*.conda"))
+print(matches[0].resolve())
+PY
+)"
           pixi global install --environment verify-pixi \
             --path "${package_path}" \
             --expose SPONGE \
@@ -93,32 +98,59 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find conda/outputs -maxdepth 1 -name '*.conda' | head -n 1)"
-          pixi global install --environment verify-conda-exe conda --force-reinstall
+          package_path="$(python - <<'PY'
+from pathlib import Path
+matches = sorted(Path("conda/outputs").glob("*.conda"))
+print(matches[0].resolve())
+PY
+)"
+          pixi global install --environment verify-conda-exe \
+            --expose conda \
+            conda \
+            --force-reinstall
           conda_env_dir="$(mktemp -d "${RUNNER_TEMP}/sponge-conda-env-XXXXXX")"
           conda create -y -p "${conda_env_dir}" "${package_path}"
+          pixi global uninstall verify-conda-exe || true
 
       - name: Verify package install with mamba
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find conda/outputs -maxdepth 1 -name '*.conda' | head -n 1)"
-          pixi global install --environment verify-mamba-exe mamba --force-reinstall
+          package_path="$(python - <<'PY'
+from pathlib import Path
+matches = sorted(Path("conda/outputs").glob("*.conda"))
+print(matches[0].resolve())
+PY
+)"
+          pixi global install --environment verify-mamba-exe \
+            --expose mamba \
+            mamba \
+            --force-reinstall
           mamba_env_dir="$(mktemp -d "${RUNNER_TEMP}/sponge-mamba-env-XXXXXX")"
           mamba_pkgs_dir="$(mktemp -d "${RUNNER_TEMP}/sponge-mamba-pkgs-XXXXXX")"
           CONDA_PKGS_DIRS="${mamba_pkgs_dir}" \
             mamba create -y -p "${mamba_env_dir}" "${package_path}"
+          pixi global uninstall verify-mamba-exe || true
 
       - name: Verify package install with micromamba
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(find conda/outputs -maxdepth 1 -name '*.conda' | head -n 1)"
-          pixi global install --environment verify-micromamba-exe micromamba --force-reinstall
+          package_path="$(python - <<'PY'
+from pathlib import Path
+matches = sorted(Path("conda/outputs").glob("*.conda"))
+print(matches[0].resolve())
+PY
+)"
+          pixi global install --environment verify-micromamba-exe \
+            --expose micromamba \
+            micromamba \
+            --force-reinstall
           micromamba_root_dir="$(mktemp -d "${RUNNER_TEMP}/sponge-micromamba-root-XXXXXX")"
           micromamba_env_dir="$(mktemp -d "${RUNNER_TEMP}/sponge-micromamba-env-XXXXXX")"
           MAMBA_ROOT_PREFIX="${micromamba_root_dir}" \
             micromamba create -y -p "${micromamba_env_dir}" "${package_path}"
+          pixi global uninstall verify-micromamba-exe || true
 
       - name: Upload conda artifacts
         uses: actions/upload-artifact@v6
