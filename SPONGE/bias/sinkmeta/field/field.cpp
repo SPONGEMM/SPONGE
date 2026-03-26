@@ -6,6 +6,8 @@ void META::Setgrid(CONTROLLER* controller)  //
     std::vector<bool> isperiodic;
     border_upper.resize(ndim);
     border_lower.resize(ndim);
+    est_values_.resize(ndim);
+    est_sum_force_.resize(ndim);
     for (size_t i = 0; i < ndim; ++i)
     {
         ngrid.push_back(n_grids[i]);
@@ -14,142 +16,131 @@ void META::Setgrid(CONTROLLER* controller)  //
         periodic.push_back(cv_periods[i]);
         isperiodic.push_back(cv_periods[i] > 0 ? true : false);
     }
-    normal_force = new Grid<Gdata>(ngrid, lower, upper, isperiodic);
-    normal_lse = new Grid<float>(ngrid, lower, upper, isperiodic);
-    normal_force->data_ = vector<Gdata>(normal_force->size(), Gdata(ndim, 0.0));
-    potential_grid = new Grid<float>(ngrid, lower, upper, isperiodic);
-    potential_grid->data_ = vector<float>(potential_grid->size(), 0.0);
+    mgrid = new MetaGrid();
+    mgrid->Initial(ngrid, lower, upper, isperiodic);
+    mgrid->normal_force.assign(mgrid->total_size * ndim, 0.0f);
+    mgrid->potential.assign(mgrid->total_size, 0.0f);
     if (usegrid)
     {
-        grid = new Grid<Gdata>(ngrid, lower, upper, isperiodic);
-        grid->data_ =
-            vector<Gdata>(grid->size(), Gdata(grid->GetDimension(), 0.0));
+        mgrid->force.assign(mgrid->total_size * ndim, 0.0f);
         float normalization = 1.0;
         float sqrtpi = sqrtf(CONSTANT_Pi);
         for (int i = 0; i < ndim; i++)
         {
             normalization /= cv_deltas[i] * sigmas[i] / sqrtpi;
         }
-        normal_lse->data_ =
-            vector<float>(normal_lse->size(), log(normalization));
-        scatter = nullptr;
-        potential_scatter = nullptr;
+        mgrid->normal_lse.assign(mgrid->total_size, log(normalization));
+        mscatter = nullptr;
         Sumhills(history_freq);
+        mgrid->Alloc_Device();
     }
     else if (use_scatter)
     {
         if (mask > 0)
         {
-            grid = new Grid<Gdata>(ngrid, lower, upper, isperiodic);
-            grid->data_ =
-                vector<Gdata>(grid->size(), Gdata(grid->GetDimension(), 0.0));
-        }
-        else
-        {
-            grid = nullptr;
-            potential_scatter = nullptr;
+            mgrid->force.assign(mgrid->total_size * ndim, 0.0f);
         }
         std::vector<int> nscatter;
-        int oldsize = 1;  // cvs[0]->point->size();
+        int oldsize = 1;
         for (size_t i = 0; i < ndim; ++i)
         {
             nscatter.push_back(n_grids[i]);
             oldsize *= n_grids[i];
         }
-        max_index = floor(scatter_size / 2);  /// initial at the middle point!
+        max_index = floor(scatter_size / 2);
         if (oldsize < scatter_size)
         {
             printf("Error, scatter size %d larger than grid %d!\n",
                    scatter_size, oldsize);
-            grid = nullptr;
-            potential_scatter = nullptr;
-            scatter = nullptr;
-            potential_scatter = nullptr;
+            mscatter = nullptr;
             controller->Throw_SPONGE_Error(spongeErrorConflictingCommand,
                                            "Meta::SetGrid()\n");
             return;
         }
-        std::vector<std::vector<float>> coor;  //(oldsize);
+        std::vector<std::vector<float>> coor;
         for (size_t j = 0; j < scatter_size; ++j)
         {
             std::vector<float> p;
             for (size_t i = 0; i < ndim; ++i)
             {
-                // printf("Coordinate of (%d,%d) is %f\n",i,j,pp);
                 p.push_back(tcoor[i][j]);
             }
             coor.push_back(p);
         }
-        scatter = new Scatter<Gdata>(nscatter, periodic, coor);
-        potential_scatter = new Scatter<float>(nscatter, periodic, coor);
-        scatter->data_ =
-            vector<Gdata>(scatter_size, Gdata(scatter->GetDimension(), 0.0));
-        potential_scatter->data_ =
-            vector<float>(potential_scatter->size(), 0.0);
+        mscatter = new MetaScatter();
+        mscatter->Initial(nscatter, periodic, coor);
+        mscatter->force.assign(scatter_size * ndim, 0.0f);
+        mscatter->potential.assign(scatter_size, 0.0f);
         if (catheter)
         {
-            // Method 3 use s and v only
-            rotate_v = new Scatter<Gdata>(nscatter, periodic, coor);
-            rotate_v->data_ = vector<Gdata>(scatter_size, Gdata(ndim, 0.0));
-            for (size_t index = 0; index < scatter_size - 1;
-                 ++index)  // : indices)
+            mscatter->rotate_v.assign(scatter_size * ndim, 0.0f);
+            for (size_t index = 0; index < scatter_size - 1; ++index)
             {
-                Axis values = rotate_v->GetCoordinate(index);
-                Axis neighbor = rotate_v->GetCoordinate(index + 1);
-                // Gdata data: Tangent Vector normalized as unit vector;
-                Gdata& data = rotate_v->data()[index];
-                double temp_s = TangVector(data, values, neighbor);
-            }
-            double temp_sp =
-                TangVector(rotate_v->data()[scatter_size - 1],
-                           rotate_v->GetCoordinate(scatter_size - 2),
-                           rotate_v->GetCoordinate(scatter_size - 1));
-
-            rotate_matrix = new Scatter<Gdata>(nscatter, periodic, coor);
-            rotate_matrix->data_ =
-                vector<Gdata>(scatter_size, Gdata(ndim * ndim, 0.0));
-            // Rotate matrix is special orthogonal matrix: R^{-1}=R^T
-            for (size_t index = 0; index < scatter_size - 1;
-                 ++index)  // : indices)
-            {
-                Gdata data;
-                Axis values = rotate_matrix->GetCoordinate(index);
-                Axis neighbor = rotate_matrix->GetCoordinate(index + 1);
-                Axis tang_vector(ndim, 0.);  // TANGENTIAL
-                double segment_s = TangVector(tang_vector, values, neighbor);
-                for (auto t : tang_vector)
+                const Axis& values = mscatter->Get_Coordinate(index);
+                const Axis& neighbor = mscatter->Get_Coordinate(index + 1);
+                Gdata tang(ndim, 0.0f);
+                double temp_s = TangVector(tang, values, neighbor);
+                for (int d = 0; d < ndim; ++d)
                 {
-                    data.push_back(t);
+                    mscatter->rotate_v[index * ndim + d] = tang[d];
+                }
+            }
+            {
+                Gdata tang(ndim, 0.0f);
+                double temp_sp =
+                    TangVector(tang,
+                               mscatter->Get_Coordinate(scatter_size - 2),
+                               mscatter->Get_Coordinate(scatter_size - 1));
+                for (int d = 0; d < ndim; ++d)
+                {
+                    mscatter->rotate_v[(scatter_size - 1) * ndim + d] = tang[d];
+                }
+            }
+
+            mscatter->rotate_matrix.assign(scatter_size * ndim * ndim, 0.0f);
+            for (size_t index = 0; index < scatter_size - 1; ++index)
+            {
+                const Axis& values = mscatter->Get_Coordinate(index);
+                const Axis& neighbor = mscatter->Get_Coordinate(index + 1);
+                Axis tang_vector(ndim, 0.);
+                double segment_s = TangVector(tang_vector, values, neighbor);
+                int base = index * ndim * ndim;
+                int pos = 0;
+                for (int d = 0; d < ndim; ++d)
+                {
+                    mscatter->rotate_matrix[base + pos++] = tang_vector[d];
                 }
                 Axis normal_vector = RotateVector(tang_vector, false);
-                for (auto n : normal_vector)
+                for (int d = 0; d < ndim; ++d)
                 {
-                    data.push_back(n);
+                    mscatter->rotate_matrix[base + pos++] = normal_vector[d];
                 }
                 if (ndim == 3)
                 {
                     Axis binormal_vector =
                         normalize(crossProduct(tang_vector, normal_vector));
-                    for (auto b : binormal_vector)
+                    for (int d = 0; d < ndim; ++d)
                     {
-                        data.push_back(b);
+                        mscatter->rotate_matrix[base + pos++] = binormal_vector[d];
                     }
                 }
-                rotate_matrix->data()[index] = data;
             }
-            rotate_matrix->data()[scatter_size - 1] =
-                rotate_matrix->data()[scatter_size - 2];
+            int rm_stride = ndim * ndim;
+            for (int j = 0; j < rm_stride; ++j)
+            {
+                mscatter->rotate_matrix[(scatter_size - 1) * rm_stride + j] =
+                    mscatter->rotate_matrix[(scatter_size - 2) * rm_stride + j];
+            }
         }
         EdgeEffect(1, scatter_size);
         Sumhills(history_freq);
+        mgrid->Alloc_Device();
+        mscatter->Alloc_Device();
     }
     else
     {
         printf("Warning! No grid version is very slow\n");
-        grid = nullptr;
-        potential_scatter = nullptr;
-        scatter = nullptr;
-        potential_scatter = nullptr;
+        mscatter = nullptr;
     }
 }
 void META::Estimate(const Axis& values, const bool need_potential,
@@ -167,28 +158,31 @@ void META::Estimate(const Axis& values, const bool need_potential,
         }
         new_max = Normalization(values, shift, true);
     }
-    float force_max = 0.0;  // Add the edge's force
+    float force_max = 0.0;
     float normalforce_sum = 0.0;
-    Gdata sum_force(ndim, 0.);
+    for (size_t i = 0; i < ndim; ++i)
+    {
+        est_sum_force_[i] = 0.0f;
+    }
+    int nf_idx = mgrid->Get_Flat_Index(values);
     for (size_t i = 0; i < ndim; ++i)
     {
         Dpotential_local[i] = 0.0;
-        force_max += fabs(normal_force->at(values)[i]);
+        force_max += fabs(mgrid->normal_force[nf_idx * ndim + i]);
     }
     if (force_max > maxforce && need_force && mask)
     {
         exit_tag += 1.0;
     }
-    Hill hill = Hill(values, sigmas, periods, 1.0);
     if (use_scatter)
     {
         if (subhill)
         {
-            vector<Gdata> derivative;
+            Hill hill = Hill(values, sigmas, periods, 1.0);
             vector<int> indices;
             if (do_cutoff)
             {
-                indices = potential_scatter->GetNeighbor(values, cutoff);
+                indices = mscatter->Get_Neighbor(values, cutoff);
             }
             else
             {
@@ -197,16 +191,17 @@ void META::Estimate(const Axis& values, const bool need_potential,
             }
             for (auto index : indices)
             {
-                Axis neighbor = potential_scatter->GetCoordinate(index);
-                Gdata tder = hill.CalcHill(neighbor);
+                const Axis& neighbor = mscatter->Get_Coordinate(index);
+                const Gdata& tder = hill.CalcHill(neighbor);
                 normalforce_sum += hill.potential;
-                float factor = (mask > 0) ? potential_grid->at(neighbor)
-                                          : potential_scatter->data()[index];
+                float factor = (mask > 0)
+                                    ? mgrid->potential[mgrid->Get_Flat_Index(neighbor)]
+                                    : mscatter->potential[index];
                 if (need_force)
                 {
                     for (size_t i = 0; i < ndim; ++i)
                     {
-                        sum_force[i] += tder[i];
+                        est_sum_force_[i] += tder[i];
                         Dpotential_local[i] -= (factor)*tder[i];
                     }
                 }
@@ -215,17 +210,20 @@ void META::Estimate(const Axis& values, const bool need_potential,
         }
         else
         {
-            potential_backup = (mask > 0) ? potential_grid->at(values)
-                                          : potential_scatter->at(values);
+            int sidx = mscatter->Get_Index(values);
+            potential_backup = (mask > 0)
+                                    ? mgrid->potential[mgrid->Get_Flat_Index(values)]
+                                    : mscatter->potential[sidx];
             potential_local = potential_backup - CalcVshift(values);
             if (need_force)
             {
+                int fidx = (mask > 0) ? mgrid->Get_Flat_Index(values) : sidx;
                 for (int i = 0; i < cvs.size(); ++i)
                 {
                     Dpotential_local[i] +=
                         (mask > 0)
-                            ? grid->at(values)[i]
-                            : scatter->at(values)[i];
+                            ? mgrid->force[fidx * ndim + i]
+                            : mscatter->force[fidx * ndim + i];
                 }
             }
         }
@@ -234,29 +232,29 @@ void META::Estimate(const Axis& values, const bool need_potential,
     {
         if (subhill)
         {
-            Axis vminus, vplus;
+            Hill hill = Hill(values, sigmas, periods, 1.0);
+            Axis vminus(ndim), vplus(ndim);
             for (size_t i = 0; i < ndim; ++i)
             {
                 float lower = values[i] - cutoff[i];
                 float upper = values[i] + cutoff[i] + 0.000001;
                 if (periods[i] > 0)
                 {
-                    vminus.push_back(lower);
-                    vplus.push_back(upper);
+                    vminus[i] = lower;
+                    vplus[i] = upper;
                 }
                 else
                 {
-                    vminus.push_back(std::fmax(lower, cv_mins[i]));
-                    vplus.push_back(std::fmin(upper, cv_maxs[i]));
+                    vminus[i] = std::fmax(lower, cv_mins[i]);
+                    vplus[i] = std::fmin(upper, cv_maxs[i]);
                 }
             }
             Axis loop_flag = vminus;
             int index = 0;
             while (index >= 0)
             {
-                //++sum_count;
-                Gdata tder = hill.CalcHill(loop_flag);
-                float factor = potential_grid->at(loop_flag);
+                const Gdata& tder = hill.CalcHill(loop_flag);
+                float factor = mgrid->potential[mgrid->Get_Flat_Index(loop_flag)];
                 potential_backup += factor * hill.potential;
                 if (need_force)
                 {
@@ -265,7 +263,6 @@ void META::Estimate(const Axis& values, const bool need_potential,
                         Dpotential_local[i] -= (factor - new_max) * tder[i];
                     }
                 }
-                // another dimension!
                 index = ndim - 1;
                 while (index >= 0)
                 {
@@ -284,12 +281,13 @@ void META::Estimate(const Axis& values, const bool need_potential,
         }
         else
         {
-            potential_backup = potential_grid->at(values);
+            int gidx = mgrid->Get_Flat_Index(values);
+            potential_backup = mgrid->potential[gidx];
             if (need_force)
             {
                 for (int i = 0; i < cvs.size(); ++i)
                 {
-                    Dpotential_local[i] += grid->at(values)[i];
+                    Dpotential_local[i] += mgrid->force[gidx * ndim + i];
                 }
             }
         }
@@ -310,18 +308,19 @@ void META::Estimate(const Axis& values, const bool need_potential,
     {
         if (subhill)
         {
-            float f0 = new_max * normal_force->at(values)[0];
+            float f0 = new_max * mgrid->normal_force[nf_idx * ndim + 0];
             if (convmeta)
             {
                 new_max =
                     shift *
-                    expf(-normal_lse->at(scatter->GetCoordinate(max_index)));
+                    expf(-mgrid->normal_lse[mgrid->Get_Flat_Index(
+                        mscatter->Get_Coordinate(max_index))]);
             }
             else
             {
                 new_max = shift / normalforce_sum;
             }
-            float f1 = new_max * sum_force[0];
+            float f1 = new_max * est_sum_force_[0];
             if (fabs(f0 - f1) > shift)
             {
                 printf("The shift, kde & histogram:%f: %f vs %f\n", shift, f1,
@@ -329,14 +328,14 @@ void META::Estimate(const Axis& values, const bool need_potential,
             }
             for (int i = 0; i < cvs.size(); ++i)
             {
-                Dpotential_local[i] += new_max * sum_force[i];
+                Dpotential_local[i] += new_max * est_sum_force_[i];
             }
         }
         else
         {
             for (int i = 0; i < cvs.size(); ++i)
             {
-                Dpotential_local[i] += new_max * normal_force->at(values)[i];
+                Dpotential_local[i] += new_max * mgrid->normal_force[nf_idx * ndim + i];
             }
         }
     }

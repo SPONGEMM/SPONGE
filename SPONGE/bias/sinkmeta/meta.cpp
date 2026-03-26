@@ -4,40 +4,42 @@ META::Hill::Hill(const Axis& centers, const Axis& inv_w, const Axis& period,
                  const float& theight)
     : height(theight)
 {
-    for (int i = 0; i < centers.size(); ++i)
+    const int n = static_cast<int>(centers.size());
+    gsf.reserve(n);
+    for (int i = 0; i < n; ++i)
     {
         gsf.push_back(GaussianSF(centers[i], inv_w[i], period[i]));
     }
+    dx_.resize(n);
+    df_.resize(n);
+    tder_.resize(n);
 }
 
-META::Gdata META::Hill::CalcHill(const Axis& values)
+const META::Gdata& META::Hill::CalcHill(const Axis& values)
 {
-    const size_t& n = values.size();
-    Axis dx(n, 0.0), df(n, 1.0);
-    for (size_t i = 0; i < n; ++i)
+    const int n = static_cast<int>(values.size());
+    for (int i = 0; i < n; ++i)
     {
-        GaussianSF g = gsf[i];
-        dx[i] = g.Evaluate(values[i], df[i]);
+        dx_[i] = gsf[i].Evaluate(values[i], df_[i]);
     }
-
-    Gdata tder(n, 1.0);
     potential = 1.0;
-    for (size_t i = 0; i < n; ++i)
+    for (int i = 0; i < n; ++i)
     {
-        potential *= dx[i];
-        for (size_t j = 0; j < n; ++j)
+        tder_[i] = 1.0;
+        potential *= dx_[i];
+        for (int j = 0; j < n; ++j)
         {
             if (j != i)
             {
-                tder[i] *= dx[j];
+                tder_[i] *= dx_[j];
             }
             else
             {
-                tder[i] *= df[j];
+                tder_[i] *= df_[j];
             }
         }
     }
-    return tder;
+    return tder_;
 }
 
 #ifdef USE_GPU
@@ -125,13 +127,12 @@ void META::Potential_and_derivative(const int need_potential)
     {
         return;
     }
-    Axis values;
     for (int i = 0; i < cvs.size(); ++i)
     {
-        values.push_back(cvs[i]->value);
+        est_values_[i] = cvs[i]->value;
         Dpotential_local[i] = 0.f;
     }
-    Estimate(values, need_potential, true);
+    Estimate(est_values_, need_potential, true);
 }
 
 void META::Border_derivative(float* border_upper, float* border_lower,

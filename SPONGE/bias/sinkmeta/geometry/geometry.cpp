@@ -120,19 +120,14 @@ void META::Cartesian2Path(const Axis& Cartesian_values, Axis& Path_values)
 {
     double cumulative_s = 0.0;
     bool do_debug = false;
-    Axis values, neighbor;
     Axis tang_vector(ndim, 0.);
-    int index = scatter->GetIndex(Cartesian_values);
-    if (index < scatter_size - 1)
-    {
-        values = scatter->GetCoordinate(index);
-        neighbor = scatter->GetCoordinate(index + 1);
-    }
-    else
-    {
-        values = scatter->GetCoordinate(index - 1);
-        neighbor = scatter->GetCoordinate(index);
-    }
+    int index = mscatter->Get_Index(Cartesian_values);
+    const Axis& values = (index < scatter_size - 1)
+        ? mscatter->Get_Coordinate(index)
+        : mscatter->Get_Coordinate(index - 1);
+    const Axis& neighbor = (index < scatter_size - 1)
+        ? mscatter->Get_Coordinate(index + 1)
+        : mscatter->Get_Coordinate(index);
     TangVector(tang_vector, values, neighbor);
     double projected_last =
         ProjectToPath(tang_vector, neighbor, Cartesian_values);

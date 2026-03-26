@@ -61,15 +61,15 @@ void META::Write_Potential(void)
                         potential_local, potential_backup);
                 if (!kde)
                 {
-                    if (potential_grid != nullptr)
+                    if (mgrid != nullptr)
                     {
                         fprintf(temp_file, "\t%f",
-                                potential_grid->at(loop_flag));
+                                mgrid->potential[mgrid->Get_Flat_Index(loop_flag)]);
                     }
-                    else if (potential_scatter != nullptr)
+                    else if (mscatter != nullptr)
                     {
                         fprintf(temp_file, "\t%f",
-                                potential_scatter->at(loop_flag));
+                                mscatter->potential[mscatter->Get_Index(loop_flag)]);
                     }
                 }
                 fprintf(temp_file, "\n");
@@ -90,27 +90,27 @@ void META::Write_Potential(void)
                 }
             }
         }
-        else if (potential_grid != nullptr)
+        else if (mgrid != nullptr)
         {
             fprintf(temp_file, "# ");
             Write_CV_Header(temp_file, ndim, cvs);
             fprintf(temp_file, "potential_raw\tpotential_shifted\tvshift\n");
-            for (Grid<float>::iterator g_iter = potential_grid->begin();
-                 g_iter != potential_grid->end(); ++g_iter)
+            for (int idx = 0; idx < mgrid->total_size; ++idx)
             {
                 ostringstream ss;
-                const Axis coor = g_iter.coordinates();
+                const Axis coor = mgrid->Get_Coordinates(idx);
                 float vshift = CalcVshift(coor);
                 for (const float& v : coor)
                 {
                     ss << v << "\t";
                 }
-                fprintf(temp_file, "%s%f\t%f\t%f\n", ss.str().c_str(), *g_iter,
-                        *g_iter - vshift, vshift);
+                fprintf(temp_file, "%s%f\t%f\t%f\n", ss.str().c_str(),
+                        mgrid->potential[idx],
+                        mgrid->potential[idx] - vshift, vshift);
             }
         }
         // In case of pure scattering point!
-        else if (potential_scatter != nullptr)
+        else if (mscatter != nullptr)
         {
             fprintf(temp_file, "# ");
             Write_CV_Header(temp_file, ndim, cvs);
@@ -118,15 +118,15 @@ void META::Write_Potential(void)
             for (int iter = 0; iter < scatter_size; ++iter)
             {
                 ostringstream ss;
-                const Axis coor = potential_scatter->GetCoordinate(iter);
+                const Axis& coor = mscatter->Get_Coordinate(iter);
                 float vshift = CalcVshift(coor);
                 for (auto& v : coor)
                 {
                     ss << v << "\t";
                 }
                 fprintf(temp_file, "%s%f\t%f\n", ss.str().c_str(),
-                        potential_scatter->data_[iter],
-                        potential_scatter->data_[iter] - vshift);
+                        mscatter->potential[iter],
+                        mscatter->potential[iter] - vshift);
             }
         }
         fclose(temp_file);
@@ -174,13 +174,13 @@ void META::Write_Directly(void)
             fprintf(temp_file, " %d\t", num_grid);
             gridsize *= num_grid;
         }
-        if (potential_scatter != nullptr)
+        if (mscatter != nullptr)
         {
             fprintf(temp_file, "%d\n", scatter_size);
             for (int iter = 0; iter < scatter_size; ++iter)
             {
                 ostringstream ss;
-                vector<float> coor = potential_scatter->GetCoordinate(iter);
+                const Axis& coor = mscatter->Get_Coordinate(iter);
                 Estimate(coor, true, false);  // get potential
                 for (auto& v : coor)
                 {
@@ -190,43 +190,42 @@ void META::Write_Directly(void)
                 {
                     fprintf(temp_file, "%s%f\t%f\t%f\n", ss.str().c_str(),
                             potential_local, potential_backup,
-                            potential_scatter->data_[iter]);
+                            mscatter->potential[iter]);
                 }
                 else  // restart of catheter will replace the result!
                 {
                     float result;
                     result = potential_local;
                     fprintf(temp_file, "%s%f\t", ss.str().c_str(), result);
-                    Gdata& data = scatter->data_[iter];
+                    float* data = &mscatter->force[iter * ndim];
                     for (int i = 0; i < ndim; ++i)
                     {
                         fprintf(temp_file, "%f\t", data[i]);
                     }
-                    fprintf(temp_file, "%f\n", potential_scatter->data_[iter]);
+                    fprintf(temp_file, "%f\n", mscatter->potential[iter]);
                 }
             }
         }
-        else if (potential_grid != nullptr)
+        else if (mgrid != nullptr)
         {
-            fprintf(temp_file, "%zu\n", potential_grid->size());
-            for (Grid<float>::iterator g_iter = potential_grid->begin();
-                 g_iter != potential_grid->end(); ++g_iter)
+            fprintf(temp_file, "%d\n", mgrid->total_size);
+            for (int idx = 0; idx < mgrid->total_size; ++idx)
             {
                 ostringstream ss;
-                vector<float> coor = g_iter.coordinates();
+                vector<float> coor = mgrid->Get_Coordinates(idx);
                 Estimate(coor, true, false);  // get potential
                 for (auto& v : coor)
                 {
                     ss << v << "\t";
                 }
                 fprintf(temp_file, "%s%f\t", ss.str().c_str(),
-                        potential_local);  // potential_grid->data_[index]);
-                Gdata& data = grid->at(coor);
+                        potential_local);
+                float* data = &mgrid->force[idx * ndim];
                 for (int i = 0; i < ndim; ++i)
                 {
                     fprintf(temp_file, "%f\t", data[i]);
                 }
-                fprintf(temp_file, "%f\n", *g_iter);
+                fprintf(temp_file, "%f\n", mgrid->potential[idx]);
             }
         }
         fclose(temp_file);
@@ -330,48 +329,54 @@ void META::Read_Potential(CONTROLLER* controller)
     potential_max = *max_it;
     if (usegrid)
     {
-        potential_grid->data_ = potential_from_file;  // potential
+        mgrid->potential = potential_from_file;  // potential
         // calculate derivative force dpotential
         if (!subhill)
         {
-            int index = 0;
-            for (Grid<float>::iterator it = potential_grid->begin();
-                 it != potential_grid->end(); ++it)
+            for (int idx = 0; idx < mgrid->total_size; ++idx)
             {
-                for (int i = 0; i < ndim; ++i)
+                for (int d = 0; d < ndim; ++d)
                 {
-                    Axis coord = it.coordinates();
-                    grid->at(coord)[i] = force_from_file[index][i];
+                    mgrid->force[idx * ndim + d] = force_from_file[idx][d];
                 }
-                ++index;
             }
         }
     }
     else if (use_scatter)
     {
-        potential_scatter->data_ = potential_from_file;
+        mscatter->potential = potential_from_file;
         if (convmeta)
         {
             max_index = distance(potential_from_file.begin(), max_it);
         }
         if (!subhill)
         {
-            scatter->data_ = force_from_file;
+            mscatter->force.resize(scatter_size * ndim);
+            for (int idx = 0; idx < scatter_size; ++idx)
+            {
+                for (int d = 0; d < ndim; ++d)
+                {
+                    mscatter->force[idx * ndim + d] = force_from_file[idx][d];
+                }
+            }
         }
         if (mask)
         {
-            for (int index = 0; index < potential_scatter->size(); ++index)
+            for (int index = 0; index < mscatter->size(); ++index)
             {
-                Axis coor = potential_scatter->GetCoordinate(index);
-                potential_grid->at(coor) = potential_from_file[index];
+                const Axis& coor = mscatter->Get_Coordinate(index);
+                int gidx = mgrid->Get_Flat_Index(coor);
+                mgrid->potential[gidx] = potential_from_file[index];
 
-                for (int i = 0; i < ndim; ++i)
+                for (int d = 0; d < ndim; ++d)
                 {
-                    grid->at(coor)[i] = force_from_file[index][i];
+                    mgrid->force[gidx * ndim + d] = force_from_file[index][d];
                 }
             }
         }
     }
+    if (mgrid != nullptr) mgrid->Sync_To_Device();
+    if (mscatter != nullptr) mscatter->Sync_To_Device();
 }
 
 void META::Step_Print(CONTROLLER* controller)

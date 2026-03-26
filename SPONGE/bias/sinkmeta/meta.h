@@ -3,9 +3,7 @@
 
 #include "../../common.h"
 #include "../../control.h"
-#include "field/grid.h"
-#include "field/scatter.h"
-#include "field/scatter_impl.h"
+#include "field/meta_grid.h"
 #include "field/switch_function.h"
 #include "../../collective_variable/collective_variable.h"
 
@@ -38,10 +36,12 @@ struct META
     {
         Hill(const Axis& centers, const Axis& inv_w, const Axis& period,
              const float& theight);
-        Gdata CalcHill(const Axis& values);
+        const Gdata& CalcHill(const Axis& values);
         std::vector<GaussianSF> gsf;
         float height;
         float potential;
+        Axis dx_, df_;
+        Gdata tder_;
     };
 
     CV_LIST cvs;
@@ -56,14 +56,8 @@ struct META
     std::vector<float> cv_deltas;
     float* cutoff;
 
-    Grid<Gdata>* normal_force = nullptr;
-    Grid<float>* normal_lse = nullptr;
-    Grid<Gdata>* grid = nullptr;
-    Grid<float>* potential_grid = nullptr;
-    Scatter<Gdata>* rotate_v = nullptr;
-    Scatter<Gdata>* rotate_matrix = nullptr;
-    Scatter<Gdata>* scatter = nullptr;
-    Scatter<float>* potential_scatter = nullptr;
+    MetaGrid* mgrid = nullptr;
+    MetaScatter* mscatter = nullptr;
 
     std::vector<Hill> hills;
     Axis vsink;
@@ -109,6 +103,9 @@ struct META
     float maxforce = 0.1;
     float exit_tag;
 
+    Axis est_values_;
+    Gdata est_sum_force_;
+
     float rct = 0.;
     float rbias = 0.;
     float bias = 0.;
@@ -141,7 +138,7 @@ struct META
     void Read_Potential(CONTROLLER* controller);
 
     bool ReadEdgeFile(const char* file_name, std::vector<float>& potential);
-    void PickScatter(const std::string fn, Grid<float>* data);
+    void PickScatter(const std::string fn);
     int LoadHills(const std::string& fn);
     float CalcHill(const Axis& values, const int i);
     float Sumhills(int history_freq);
