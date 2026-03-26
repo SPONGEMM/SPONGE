@@ -39,25 +39,29 @@ void QC_Build_Fock_Direct_GPU(
     const int nao_sph, const int is_spherical, const float* cart2sph_mat,
     float* F_a, float* F_b, float* global_hr_pool, const float prim_screen_tol)
 {
-    deviceMemset(task_ctx.d_screen_counts, 0, sizeof(int) * task_ctx.n_combos);
+    deviceMemset(task_ctx.buffers.d_screen_counts, 0,
+                 sizeof(int) * task_ctx.topo.n_combos);
 
     int* d_combo_prefix = NULL;
     Device_Malloc_And_Copy_Safely((void**)&d_combo_prefix,
-                                  (void*)task_ctx.combo_prefix,
-                                  sizeof(int) * (task_ctx.n_combos + 1));
+                                  (void*)task_ctx.topo.combo_prefix,
+                                  sizeof(int) * (task_ctx.topo.n_combos + 1));
 
-    QC_Launch_Screen(task_ctx.total_quartets, task_ctx.d_combos, d_combo_prefix,
-                     task_ctx.n_combos, task_ctx.d_sorted_pair_ids,
-                     task_ctx.d_shell_pairs, task_ctx.d_shell_pair_bounds,
+    QC_Launch_Screen(task_ctx.topo.total_quartets, task_ctx.buffers.d_combos,
+                     d_combo_prefix, task_ctx.topo.n_combos,
+                     task_ctx.buffers.d_sorted_pair_ids,
+                     task_ctx.buffers.d_shell_pairs,
+                     task_ctx.buffers.d_shell_pair_bounds,
                      pair_density_coul, pair_density_exx_a, pair_density_exx_b,
                      shell_screen_tol, exx_scale_a, exx_scale_b,
-                     task_ctx.d_screened_tasks, task_ctx.d_screen_counts);
+                     task_ctx.buffers.d_screened_tasks,
+                     task_ctx.buffers.d_screen_counts);
 
     deviceFree(d_combo_prefix);
 
     int h_counts[QC_INTEGRAL_TASKS::MAX_COMBOS] = {};
-    deviceMemcpy(h_counts, task_ctx.d_screen_counts,
-                 sizeof(int) * task_ctx.n_combos, deviceMemcpyDeviceToHost);
+    deviceMemcpy(h_counts, task_ctx.buffers.d_screen_counts,
+                 sizeof(int) * task_ctx.topo.n_combos, deviceMemcpyDeviceToHost);
 
     using LaunchFunc = void (*)(ERI_KERNEL_PARAMS);
     auto launch_eri = [&](const int combo_index, LaunchFunc func)
@@ -65,21 +69,21 @@ void QC_Build_Fock_Direct_GPU(
         const int n = h_counts[combo_index];
         if (n == 0) return;
         func(n,
-             task_ctx.d_screened_tasks +
-                 task_ctx.h_combos[combo_index].output_offset,
+             task_ctx.buffers.d_screened_tasks +
+                 task_ctx.topo.h_combos[combo_index].output_offset,
              atm, bas, env, ao_offsets_cart, ao_offsets_sph, norms,
              shell_pair_bounds, pair_density_coul, pair_density_exx_a,
              pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,
              exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical,
-             cart2sph_mat, F_a, F_b, global_hr_pool, task_ctx.eri_hr_base,
-             task_ctx.eri_hr_size, task_ctx.eri_shell_buf_size,
+             cart2sph_mat, F_a, F_b, global_hr_pool, task_ctx.params.eri_hr_base,
+             task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
              prim_screen_tol);
     };
 
-    for (int combo_index = 0; combo_index < task_ctx.n_combos; combo_index++)
+    for (int combo_index = 0; combo_index < task_ctx.topo.n_combos; combo_index++)
     {
         if (h_counts[combo_index] == 0) continue;
-        const auto& combo = task_ctx.h_combos[combo_index];
+        const auto& combo = task_ctx.topo.h_combos[combo_index];
         const int lkey =
             combo.l0 * 1000 + combo.l1 * 100 + combo.l2 * 10 + combo.l3;
         switch (lkey)

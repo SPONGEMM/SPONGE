@@ -124,11 +124,12 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     alloc_zero_double(&scf_ws.d_delta_e, 1);
     alloc_zero_double(&scf_ws.d_density_residual, 1);
     alloc_zero_int(&scf_ws.d_converged, 1);
-    alloc_zero_float(&scf_ws.d_pair_density_coul, task_ctx.n_shell_pairs);
-    alloc_zero_float(&scf_ws.d_pair_density_exx, task_ctx.n_shell_pairs);
+    alloc_zero_float(&scf_ws.d_pair_density_coul, task_ctx.topo.n_shell_pairs);
+    alloc_zero_float(&scf_ws.d_pair_density_exx, task_ctx.topo.n_shell_pairs);
     if (unrestricted)
     {
-        alloc_zero_float(&scf_ws.d_pair_density_exx_b, task_ctx.n_shell_pairs);
+        alloc_zero_float(&scf_ws.d_pair_density_exx_b,
+                         task_ctx.topo.n_shell_pairs);
     }
     else
     {

@@ -5,24 +5,25 @@ static void Init_ERI_Workspace_Params(QUANTUM_CHEMISTRY* qc,
                                       CONTROLLER* controller, int max_l)
 {
     const int max_total_l = 4 * max_l;
-    qc->task_ctx.eri_hr_base = max_total_l + 1;
-    if (qc->task_ctx.eri_hr_base > HR_BASE_MAX)
+    qc->task_ctx.params.eri_hr_base = max_total_l + 1;
+    if (qc->task_ctx.params.eri_hr_base > HR_BASE_MAX)
     {
         controller->Throw_Formatted_SPONGE_Error(
             spongeErrorOverflow, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    basis angular momentum too high (max l=%d, required "
             "hr_base=%d, supported <=%d)\n",
-            max_l, qc->task_ctx.eri_hr_base, HR_BASE_MAX);
+            max_l, qc->task_ctx.params.eri_hr_base, HR_BASE_MAX);
     }
-    qc->task_ctx.eri_hr_size = qc->task_ctx.eri_hr_base *
-                               qc->task_ctx.eri_hr_base *
-                               qc->task_ctx.eri_hr_base *
-                               qc->task_ctx.eri_hr_base;
+    qc->task_ctx.params.eri_hr_size = qc->task_ctx.params.eri_hr_base *
+                                      qc->task_ctx.params.eri_hr_base *
+                                      qc->task_ctx.params.eri_hr_base *
+                                      qc->task_ctx.params.eri_hr_base;
 
     const int max_cart = (max_l + 1) * (max_l + 2) / 2;
-    qc->task_ctx.eri_shell_buf_size = max_cart * max_cart * max_cart * max_cart;
-    qc->task_ctx.eri_shell_buf_size =
-        std::max(1, std::min(MAX_SHELL_ERI, qc->task_ctx.eri_shell_buf_size));
+    qc->task_ctx.params.eri_shell_buf_size =
+        max_cart * max_cart * max_cart * max_cart;
+    qc->task_ctx.params.eri_shell_buf_size = std::max(
+        1, std::min(MAX_SHELL_ERI, qc->task_ctx.params.eri_shell_buf_size));
 }
 
 static void Build_Shell_Pairs_And_Pair_Types(QUANTUM_CHEMISTRY* qc, int max_l)
@@ -30,39 +31,42 @@ static void Build_Shell_Pairs_And_Pair_Types(QUANTUM_CHEMISTRY* qc, int max_l)
     auto& mol = qc->mol;
     auto& task_ctx = qc->task_ctx;
 
-    task_ctx.h_shell_pairs.clear();
+    task_ctx.topo.h_shell_pairs.clear();
     for (int i = 0; i < mol.nbas; i++)
-        for (int j = 0; j <= i; j++) task_ctx.h_shell_pairs.push_back({i, j});
-    task_ctx.n_shell_pairs = task_ctx.h_shell_pairs.size();
+        for (int j = 0; j <= i; j++) task_ctx.topo.h_shell_pairs.push_back({i, j});
+    task_ctx.topo.n_shell_pairs = task_ctx.topo.h_shell_pairs.size();
 
     const int stride = max_l + 1;
     const int n_types = stride * stride;
 
     std::vector<std::vector<int>> type_lists(n_types);
-    for (int pid = 0; pid < task_ctx.n_shell_pairs; pid++)
+    for (int pid = 0; pid < task_ctx.topo.n_shell_pairs; pid++)
     {
-        const auto& p = task_ctx.h_shell_pairs[pid];
+        const auto& p = task_ctx.topo.h_shell_pairs[pid];
         int tid = mol.h_l_list[p.x] * stride + mol.h_l_list[p.y];
         type_lists[tid].push_back(pid);
     }
 
-    task_ctx.h_sorted_pair_ids.clear();
-    task_ctx.h_sorted_pair_ids.reserve(task_ctx.n_shell_pairs);
-    task_ctx.n_pair_types = 0;
+    task_ctx.topo.h_sorted_pair_ids.clear();
+    task_ctx.topo.h_sorted_pair_ids.reserve(task_ctx.topo.n_shell_pairs);
+    task_ctx.topo.n_pair_types = 0;
     for (int tid = 0; tid < n_types; tid++)
     {
         if (type_lists[tid].empty()) continue;
-        int slot = task_ctx.n_pair_types++;
-        task_ctx.pair_type_offset[slot] = (int)task_ctx.h_sorted_pair_ids.size();
-        task_ctx.pair_type_count[slot] = (int)type_lists[tid].size();
-        task_ctx.pair_type_l0[slot] = tid / stride;
-        task_ctx.pair_type_l1[slot] = tid % stride;
-        for (int pid : type_lists[tid]) task_ctx.h_sorted_pair_ids.push_back(pid);
+        int slot = task_ctx.topo.n_pair_types++;
+        task_ctx.topo.pair_type_offset[slot] =
+            (int)task_ctx.topo.h_sorted_pair_ids.size();
+        task_ctx.topo.pair_type_count[slot] = (int)type_lists[tid].size();
+        task_ctx.topo.pair_type_l0[slot] = tid / stride;
+        task_ctx.topo.pair_type_l1[slot] = tid % stride;
+        for (int pid : type_lists[tid])
+            task_ctx.topo.h_sorted_pair_ids.push_back(pid);
     }
 
-    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_sorted_pair_ids,
-                                  (void*)task_ctx.h_sorted_pair_ids.data(),
-                                  sizeof(int) * task_ctx.h_sorted_pair_ids.size());
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.buffers.d_sorted_pair_ids,
+                                  (void*)task_ctx.topo.h_sorted_pair_ids.data(),
+                                  sizeof(int) *
+                                      task_ctx.topo.h_sorted_pair_ids.size());
 }
 
 static void Build_Screening_Combos_And_Task_Buffers(QUANTUM_CHEMISTRY* qc)
@@ -70,71 +74,76 @@ static void Build_Screening_Combos_And_Task_Buffers(QUANTUM_CHEMISTRY* qc)
     auto& task_ctx = qc->task_ctx;
     auto& mol = qc->mol;
 
-    const int npt = task_ctx.n_pair_types;
-    task_ctx.n_combos = 0;
+    const int npt = task_ctx.topo.n_pair_types;
+    task_ctx.topo.n_combos = 0;
     for (int tA = 0; tA < npt; tA++)
     {
         for (int tB = 0; tB <= tA; tB++)
         {
-            const int nA = task_ctx.pair_type_count[tA];
-            const int nB = task_ctx.pair_type_count[tB];
+            const int nA = task_ctx.topo.pair_type_count[tA];
+            const int nB = task_ctx.topo.pair_type_count[tB];
             const bool same = (tA == tB);
             const int nq = same ? nA * (nA + 1) / 2 : nA * nB;
             if (nq == 0) continue;
 
-            auto& c = task_ctx.h_combos[task_ctx.n_combos];
-            c.pair_base_A = task_ctx.pair_type_offset[tA];
+            auto& c = task_ctx.topo.h_combos[task_ctx.topo.n_combos];
+            c.pair_base_A = task_ctx.topo.pair_type_offset[tA];
             c.n_A = nA;
-            c.pair_base_B = task_ctx.pair_type_offset[tB];
+            c.pair_base_B = task_ctx.topo.pair_type_offset[tB];
             c.n_B = nB;
             c.n_quartets = nq;
             c.output_offset = 0;
             c.same_type = same ? 1 : 0;
-            c.l0 = task_ctx.pair_type_l0[tA];
-            c.l1 = task_ctx.pair_type_l1[tA];
-            c.l2 = task_ctx.pair_type_l0[tB];
-            c.l3 = task_ctx.pair_type_l1[tB];
-            task_ctx.n_combos++;
+            c.l0 = task_ctx.topo.pair_type_l0[tA];
+            c.l1 = task_ctx.topo.pair_type_l1[tA];
+            c.l2 = task_ctx.topo.pair_type_l0[tB];
+            c.l3 = task_ctx.topo.pair_type_l1[tB];
+            task_ctx.topo.n_combos++;
         }
     }
 
-    task_ctx.combo_prefix[0] = 0;
-    for (int i = 0; i < task_ctx.n_combos; i++)
-        task_ctx.combo_prefix[i + 1] =
-            task_ctx.combo_prefix[i] + task_ctx.h_combos[i].n_quartets;
-    task_ctx.total_quartets = task_ctx.combo_prefix[task_ctx.n_combos];
+    task_ctx.topo.combo_prefix[0] = 0;
+    for (int i = 0; i < task_ctx.topo.n_combos; i++)
+        task_ctx.topo.combo_prefix[i + 1] = task_ctx.topo.combo_prefix[i] +
+                                            task_ctx.topo.h_combos[i].n_quartets;
+    task_ctx.topo.total_quartets =
+        task_ctx.topo.combo_prefix[task_ctx.topo.n_combos];
 
-    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_combos,
-                                  (void*)task_ctx.h_combos,
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.buffers.d_combos,
+                                  (void*)task_ctx.topo.h_combos,
                                   sizeof(QC_INTEGRAL_TASKS::ScreenCombo) *
-                                      task_ctx.n_combos);
+                                      task_ctx.topo.n_combos);
 
-    task_ctx.screened_buf_capacity = std::max(1, task_ctx.total_quartets);
-    for (int i = 0; i < task_ctx.n_combos; i++)
+    task_ctx.buffers.screened_buf_capacity =
+        std::max(1, task_ctx.topo.total_quartets);
+    for (int i = 0; i < task_ctx.topo.n_combos; i++)
     {
-        task_ctx.h_combos[i].output_offset = task_ctx.combo_prefix[i];
+        task_ctx.topo.h_combos[i].output_offset = task_ctx.topo.combo_prefix[i];
     }
-    Device_Malloc_Safely((void**)&task_ctx.d_screened_tasks,
-                         sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
-    Device_Malloc_Safely((void**)&task_ctx.d_screen_counts,
-                         sizeof(int) * std::max(1, task_ctx.n_combos));
-    if (task_ctx.d_combos != NULL)
-        deviceMemcpy(task_ctx.d_combos, task_ctx.h_combos,
-                     sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos,
+    Device_Malloc_Safely((void**)&task_ctx.buffers.d_screened_tasks,
+                         sizeof(QC_ERI_TASK) *
+                             task_ctx.buffers.screened_buf_capacity);
+    Device_Malloc_Safely((void**)&task_ctx.buffers.d_screen_counts,
+                         sizeof(int) * std::max(1, task_ctx.topo.n_combos));
+    if (task_ctx.buffers.d_combos != NULL)
+        deviceMemcpy(task_ctx.buffers.d_combos, task_ctx.topo.h_combos,
+                     sizeof(QC_INTEGRAL_TASKS::ScreenCombo) *
+                         task_ctx.topo.n_combos,
                      deviceMemcpyHostToDevice);
 
     for (int i = 0; i < mol.nbas; i++)
-        for (int j = 0; j < mol.nbas; j++) task_ctx.h_1e_tasks.push_back({i, j});
-    task_ctx.n_1e_tasks = task_ctx.h_1e_tasks.size();
+        for (int j = 0; j < mol.nbas; j++)
+            task_ctx.topo.h_1e_tasks.push_back({i, j});
+    task_ctx.topo.n_1e_tasks = task_ctx.topo.h_1e_tasks.size();
 
-    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_1e_tasks,
-                                  (void*)task_ctx.h_1e_tasks.data(),
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.buffers.d_1e_tasks,
+                                  (void*)task_ctx.topo.h_1e_tasks.data(),
                                   sizeof(QC_ONE_E_TASK) *
-                                      task_ctx.h_1e_tasks.size());
-    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_shell_pairs,
-                                  (void*)task_ctx.h_shell_pairs.data(),
+                                      task_ctx.topo.h_1e_tasks.size());
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.buffers.d_shell_pairs,
+                                  (void*)task_ctx.topo.h_shell_pairs.data(),
                                   sizeof(QC_ONE_E_TASK) *
-                                      task_ctx.h_shell_pairs.size());
+                                      task_ctx.topo.h_shell_pairs.size());
 }
 
 bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
@@ -212,52 +221,52 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             model_chemistry.c_str());
     }
 
-    task_ctx.eri_prim_screen_tol = 1e-12f;
+    task_ctx.params.eri_prim_screen_tol = 1e-12f;
     if (controller->Command_Exist("qc_eri_prim_screen_tol"))
     {
         controller->Check_Float("qc_eri_prim_screen_tol",
                                 "QUANTUM_CHEMISTRY::Initial");
-        task_ctx.eri_prim_screen_tol =
+        task_ctx.params.eri_prim_screen_tol =
             atof(controller->Command("qc_eri_prim_screen_tol"));
-        if (task_ctx.eri_prim_screen_tol < 0.0f)
+        if (task_ctx.params.eri_prim_screen_tol < 0.0f)
         {
             controller->Throw_Formatted_SPONGE_Error(
                 spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_eri_prim_screen_tol must be >= 0, got %g\n",
-                (double)task_ctx.eri_prim_screen_tol);
+                (double)task_ctx.params.eri_prim_screen_tol);
         }
     }
 
-    task_ctx.direct_eri_prim_screen_tol = 1e-10f;
+    task_ctx.params.direct_eri_prim_screen_tol = 1e-10f;
     if (controller->Command_Exist("qc_direct_eri_prim_screen_tol"))
     {
         controller->Check_Float("qc_direct_eri_prim_screen_tol",
                                 "QUANTUM_CHEMISTRY::Initial");
-        task_ctx.direct_eri_prim_screen_tol =
+        task_ctx.params.direct_eri_prim_screen_tol =
             atof(controller->Command("qc_direct_eri_prim_screen_tol"));
-        if (task_ctx.direct_eri_prim_screen_tol < 0.0f)
+        if (task_ctx.params.direct_eri_prim_screen_tol < 0.0f)
         {
             controller->Throw_Formatted_SPONGE_Error(
                 spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_direct_eri_prim_screen_tol must be >= 0, got "
                 "%g\n",
-                (double)task_ctx.direct_eri_prim_screen_tol);
+                (double)task_ctx.params.direct_eri_prim_screen_tol);
         }
     }
 
-    task_ctx.eri_shell_screen_tol = 1e-10f;
+    task_ctx.params.eri_shell_screen_tol = 1e-10f;
     if (controller->Command_Exist("qc_eri_shell_screen_tol"))
     {
         controller->Check_Float("qc_eri_shell_screen_tol",
                                 "QUANTUM_CHEMISTRY::Initial");
-        task_ctx.eri_shell_screen_tol =
+        task_ctx.params.eri_shell_screen_tol =
             atof(controller->Command("qc_eri_shell_screen_tol"));
-        if (task_ctx.eri_shell_screen_tol < 0.0f)
+        if (task_ctx.params.eri_shell_screen_tol < 0.0f)
         {
             controller->Throw_Formatted_SPONGE_Error(
                 spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_eri_shell_screen_tol must be >= 0, got %g\n",
-                (double)task_ctx.eri_shell_screen_tol);
+                (double)task_ctx.params.eri_shell_screen_tol);
         }
     }
 
@@ -775,12 +784,12 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
     Device_Malloc_Safely(
         (void**)&scf_ws.d_hr_pool,
         (int)hr_pool_tasks *
-            (task_ctx.eri_hr_size + 2 * task_ctx.eri_shell_buf_size) *
+            (task_ctx.params.eri_hr_size + 2 * task_ctx.params.eri_shell_buf_size) *
             sizeof(float));
-    Device_Malloc_Safely((void**)&task_ctx.d_shell_pair_bounds,
-                         sizeof(float) * task_ctx.n_shell_pairs);
-    deviceMemset(task_ctx.d_shell_pair_bounds, 0,
-                 sizeof(float) * task_ctx.n_shell_pairs);
+    Device_Malloc_Safely((void**)&task_ctx.buffers.d_shell_pair_bounds,
+                         sizeof(float) * task_ctx.topo.n_shell_pairs);
+    deviceMemset(task_ctx.buffers.d_shell_pair_bounds, 0,
+                 sizeof(float) * task_ctx.topo.n_shell_pairs);
     if (dft.enable_dft)
     {
         dft.max_grid_capacity =

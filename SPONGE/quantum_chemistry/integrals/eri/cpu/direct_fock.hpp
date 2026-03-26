@@ -41,8 +41,8 @@ static inline float QC_Exact_Quartet_Screen_CPU(
     const float* pair_density_exx_a, const float* pair_density_exx_b,
     const float exx_scale_a, const float exx_scale_b)
 {
-    const QC_ONE_E_TASK& ij = task_ctx.h_shell_pairs[pair_ij];
-    const QC_ONE_E_TASK& kl = task_ctx.h_shell_pairs[pair_kl];
+    const QC_ONE_E_TASK& ij = task_ctx.topo.h_shell_pairs[pair_ij];
+    const QC_ONE_E_TASK& kl = task_ctx.topo.h_shell_pairs[pair_kl];
     const int ik_pair = QC_Shell_Pair_Index(ij.x, kl.x);
     const int il_pair = QC_Shell_Pair_Index(ij.x, kl.y);
     const int jk_pair = QC_Shell_Pair_Index(ij.y, kl.x);
@@ -628,14 +628,14 @@ static inline void QC_Build_Fock_Direct_CPU(
     int hr_base, int hr_size, int shell_buf_size, float prim_screen_tol,
     const int fock_thread_count)
 {
-    const int n_pairs = task_ctx.n_shell_pairs;
+    const int n_pairs = task_ctx.topo.n_shell_pairs;
     if (n_pairs <= 0) return;
 
     std::vector<QC_Shell_Pair_Meta_CPU> pair_meta((size_t)n_pairs);
     for (int pair_id = 0; pair_id < n_pairs; pair_id++)
     {
-        QC_Init_Shell_Pair_Meta_CPU(task_ctx.h_shell_pairs[pair_id], atm, bas,
-                                    env, ao_offsets_cart, ao_offsets_sph,
+        QC_Init_Shell_Pair_Meta_CPU(task_ctx.topo.h_shell_pairs[pair_id], atm,
+                                    bas, env, ao_offsets_cart, ao_offsets_sph,
                                     is_spherical, pair_meta[(size_t)pair_id]);
     }
 
@@ -643,7 +643,7 @@ static inline void QC_Build_Fock_Direct_CPU(
     std::vector<float> shell_max_exx_b((size_t)nbas, 0.0f);
     for (int pair_id = 0; pair_id < n_pairs; pair_id++)
     {
-        const QC_ONE_E_TASK& pair = task_ctx.h_shell_pairs[pair_id];
+        const QC_ONE_E_TASK& pair = task_ctx.topo.h_shell_pairs[pair_id];
         const float exx_a = pair_density_exx_a[pair_id];
         shell_max_exx_a[(size_t)pair.x] =
             fmaxf(shell_max_exx_a[(size_t)pair.x], exx_a);
@@ -663,7 +663,7 @@ static inline void QC_Build_Fock_Direct_CPU(
     std::vector<int> sorted_pair_ids((size_t)n_pairs, 0);
     for (int pair_id = 0; pair_id < n_pairs; pair_id++)
     {
-        const QC_ONE_E_TASK& pair = task_ctx.h_shell_pairs[pair_id];
+        const QC_ONE_E_TASK& pair = task_ctx.topo.h_shell_pairs[pair_id];
         const float exx_anchor_a =
             exx_scale_a == 0.0f
                 ? 0.0f
@@ -767,8 +767,8 @@ static inline void QC_Build_Fock_Direct_CPU(
                     exx_scale_a, exx_scale_b);
                 if (exact_screen < shell_screen_tol) continue;
 
-                const QC_ONE_E_TASK& ij = task_ctx.h_shell_pairs[pair_ij];
-                const QC_ONE_E_TASK& kl = task_ctx.h_shell_pairs[pair_kl];
+                const QC_ONE_E_TASK& ij = task_ctx.topo.h_shell_pairs[pair_ij];
+                const QC_ONE_E_TASK& kl = task_ctx.topo.h_shell_pairs[pair_kl];
                 const QC_Shell_Pair_Meta_CPU& ket_meta =
                     pair_meta[(size_t)pair_kl];
                 int dims_eff[4];

@@ -92,10 +92,10 @@ void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
     deviceMemset(p_V, 0, sizeof(float) * nao_c * nao_c);
 
     const int chunk_size = ONE_E_BATCH_SIZE;
-    for (int i = 0; i < task_ctx.n_1e_tasks; i += chunk_size)
+    for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
     {
-        int current_chunk = std::min(chunk_size, task_ctx.n_1e_tasks - i);
-        QC_ONE_E_TASK* task_ptr = task_ctx.d_1e_tasks + i;
+        int current_chunk = std::min(chunk_size, task_ctx.topo.n_1e_tasks - i);
+        QC_ONE_E_TASK* task_ptr = task_ctx.buffers.d_1e_tasks + i;
         Launch_Device_Kernel(
             OneE_Kernel, (current_chunk + 63) / 64, 64, 0, 0, current_chunk,
             task_ptr, mol.d_centers, mol.d_l_list, mol.d_exps, mol.d_coeffs,
@@ -194,31 +194,33 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
                          scf_ws.d_norms, scf_ws.d_S, scf_ws.d_T, scf_ws.d_V,
                          scf_ws.d_H_core);
 
-    if (task_ctx.n_shell_pairs <= 0) return;
+    if (task_ctx.topo.n_shell_pairs <= 0) return;
 
     int chunk_size = ERI_BATCH_SIZE;
 #ifndef USE_GPU
-    chunk_size = std::max(1, task_ctx.n_shell_pairs);
+    chunk_size = std::max(1, task_ctx.topo.n_shell_pairs);
 #endif
-    for (int i = 0; i < task_ctx.n_shell_pairs; i += chunk_size)
+    for (int i = 0; i < task_ctx.topo.n_shell_pairs; i += chunk_size)
     {
         const int current_chunk =
-            std::min(chunk_size, task_ctx.n_shell_pairs - i);
+            std::min(chunk_size, task_ctx.topo.n_shell_pairs - i);
         Launch_Device_Kernel(
             QC_Build_Shell_Pair_Bounds_Kernel,
             (current_chunk + threads - 1) / threads, threads, 0, 0,
-            current_chunk, task_ctx.d_shell_pairs + i, mol.d_atm, mol.d_bas,
+            current_chunk, task_ctx.buffers.d_shell_pairs + i, mol.d_atm,
+            mol.d_bas,
             mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.d_norms,
             mol.is_spherical, cart2sph.d_cart2sph_mat, mol.nao_sph,
-            task_ctx.d_shell_pair_bounds + i, scf_ws.d_hr_pool,
-            task_ctx.eri_hr_base, task_ctx.eri_hr_size,
-            task_ctx.eri_shell_buf_size,
-            task_ctx.eri_prim_screen_tol);
+            task_ctx.buffers.d_shell_pair_bounds + i, scf_ws.d_hr_pool,
+            task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
+            task_ctx.params.eri_shell_buf_size,
+            task_ctx.params.eri_prim_screen_tol);
     }
-    task_ctx.h_shell_pair_bounds.resize((size_t)task_ctx.n_shell_pairs);
+    task_ctx.topo.h_shell_pair_bounds.resize((size_t)task_ctx.topo.n_shell_pairs);
     deviceMemcpy(
-        task_ctx.h_shell_pair_bounds.data(), task_ctx.d_shell_pair_bounds,
-        sizeof(float) * task_ctx.n_shell_pairs, deviceMemcpyDeviceToHost);
+        task_ctx.topo.h_shell_pair_bounds.data(),
+        task_ctx.buffers.d_shell_pair_bounds,
+        sizeof(float) * task_ctx.topo.n_shell_pairs, deviceMemcpyDeviceToHost);
 }
 
 // ========================= 重叠正交化矩阵 =========================
