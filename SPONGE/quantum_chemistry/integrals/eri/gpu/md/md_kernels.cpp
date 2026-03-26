@@ -4,10 +4,10 @@
 // clang-format off
 // Include order matters: quantum_chemistry.h provides macros/types needed by
 // ERI GPU headers.
-#include "../../../quantum_chemistry.h"
-#include "../common/eri_kernel_utils.hpp"
-#include "../../../../common.h"
-#include "../common/eri_common.hpp"
+#include "../../../../quantum_chemistry.h"
+#include "../../common/eri_kernel_utils.hpp"
+#include "../../../../../common.h"
+#include "../../common/eri_common.hpp"
 // clang-format on
 
 // MD per-L_sum kernels for d-containing quartets
@@ -103,7 +103,7 @@
 #undef ERI_F_SIZE
 #undef ERI_LSUM
 
-#include "eri_launch.hpp"
+#include "../launch.hpp"
 DEFINE_ERI_LAUNCH(QC_Launch_D_L2, QC_Fock_D_L2_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_D_L3, QC_Fock_D_L3_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_D_L4, QC_Fock_D_L4_Kernel)

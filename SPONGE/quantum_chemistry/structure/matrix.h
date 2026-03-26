@@ -42,13 +42,7 @@ void QC_Dgemm_TN(BLAS_HANDLE handle, int m, int n, int k, const double* A,
 void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                  int lda, const double* B, int ldb, double* C, int ldc);
 
-// ====================== Matrix utility functions ======================
-
-void QC_Elec_Energy_Accumulate(int nao2, const float* P, const float* H_core,
-                               const float* F, double* out_sum);
-
-void QC_Mat_Dot_Accumulate(int nao2, const float* A, const float* B,
-                           double* out_sum);
+// ====================== Common matrix utility wrappers ======================
 
 void QC_Add_Matrix(int n, const float* A, const float* B, float* C);
 void QC_Sub_Matrix(int n, const float* A, const float* B, float* C);
@@ -70,5 +64,23 @@ void QC_Rect_Double_To_Padded_Float(int nao, int ne, const double* src,
 void QC_Double_Dot(int n, const double* A, const double* B, double* out_sum);
 void QC_Double_Axpy(int n, double coeff, const double* src, double* dst);
 void QC_Double_Sub(int n, const double* A, const double* B, double* dst);
+
+// ====================== Common SCF matrix utility wrappers ======================
+
+void QC_Elec_Energy_Accumulate(int nao2, const float* P, const float* H_core,
+                               const float* F, double* out_sum);
+
+void QC_Mat_Dot_Accumulate(int nao2, const float* A, const float* B,
+                           double* out_sum);
+
+void QC_Level_Shift(int n, double ls, const double* dS, const double* dSPS,
+                    double* dF);
+
+void QC_Build_X_Canonical(int nao, int nao_eff, const double* eigvec_col,
+                          const double* eigval, double lindep_thresh,
+                          double* X_row);
+
+void QC_Rect_Double_To_Padded_Float(int nao, int ne, const double* src,
+                                    float* dst);
 
 #endif

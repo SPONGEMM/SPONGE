@@ -4,12 +4,11 @@
 // clang-format off
 // Include order matters: quantum_chemistry.h provides macros/types needed by
 // ERI GPU headers.
-#include "../../../quantum_chemistry.h"
-#include "../common/eri_kernel_utils.hpp"
-#include "../../../../common.h"
-#include "../common/eri_common.hpp"
-#include "../common/eri_rys.hpp"
-#include "eri_screen_compact.hpp"
+#include "../../../../quantum_chemistry.h"
+#include "../../common/eri_kernel_utils.hpp"
+#include "../../../../../common.h"
+#include "../../common/eri_common.hpp"
+#include "../../common/eri_rys.hpp"
 // clang-format on
 
 // Rys per-L_sum kernels (L2..L16)
@@ -152,7 +151,7 @@
 #undef ERI_MAX_G
 #undef ERI_NRYS
 
-#include "eri_launch.hpp"
+#include "../launch.hpp"
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L2, QC_Fock_Rys_L2_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L3, QC_Fock_Rys_L3_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L4, QC_Fock_Rys_L4_Kernel)
@@ -168,21 +167,3 @@ DEFINE_ERI_LAUNCH(QC_Launch_Rys_L13, QC_Fock_Rys_L13_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L14, QC_Fock_Rys_L14_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L15, QC_Fock_Rys_L15_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_Rys_L16, QC_Fock_Rys_L16_Kernel)
-
-// Screening kernel wrapper
-void QC_Launch_Screen(
-    int n_total, const QC_INTEGRAL_TASKS::ScreenCombo* combos,
-    const int* combo_prefix, int n_combos, const int* sorted_pair_ids,
-    const QC_ONE_E_TASK* shell_pairs, const float* shell_pair_bounds,
-    const float* pair_density_coul, const float* pair_density_exx_a,
-    const float* pair_density_exx_b, float shell_screen_tol, float exx_scale_a,
-    float exx_scale_b, QC_ERI_TASK* output_tasks, int* output_counts)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(
-        QC_Screen_All_Combos_Kernel, (n_total + threads - 1) / threads, threads,
-        0, 0, n_total, combos, combo_prefix, n_combos, sorted_pair_ids,
-        shell_pairs, shell_pair_bounds, pair_density_coul, pair_density_exx_a,
-        pair_density_exx_b, shell_screen_tol, exx_scale_a, exx_scale_b,
-        output_tasks, output_counts);
-}

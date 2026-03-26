@@ -1,24 +1,140 @@
-﻿#include <fstream>
-#include <sstream>
-
-#include "basis/basis.h"
+﻿#include "basis/basis.h"
 #include "quantum_chemistry.h"
 
-static inline bool Equals_Ignore_Case(const std::string& lhs, const char* rhs)
+static void Init_ERI_Workspace_Params(QUANTUM_CHEMISTRY* qc,
+                                      CONTROLLER* controller, int max_l)
 {
-    return is_str_equal(lhs.c_str(), rhs, 0);
+    const int max_total_l = 4 * max_l;
+    qc->task_ctx.eri_hr_base = max_total_l + 1;
+    if (qc->task_ctx.eri_hr_base > HR_BASE_MAX)
+    {
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorOverflow, "QUANTUM_CHEMISTRY::Initial",
+            "Reason:\n    basis angular momentum too high (max l=%d, required "
+            "hr_base=%d, supported <=%d)\n",
+            max_l, qc->task_ctx.eri_hr_base, HR_BASE_MAX);
+    }
+    qc->task_ctx.eri_hr_size = qc->task_ctx.eri_hr_base *
+                               qc->task_ctx.eri_hr_base *
+                               qc->task_ctx.eri_hr_base *
+                               qc->task_ctx.eri_hr_base;
+
+    const int max_cart = (max_l + 1) * (max_l + 2) / 2;
+    qc->task_ctx.eri_shell_buf_size = max_cart * max_cart * max_cart * max_cart;
+    qc->task_ctx.eri_shell_buf_size =
+        std::max(1, std::min(MAX_SHELL_ERI, qc->task_ctx.eri_shell_buf_size));
 }
 
-static void Throw_QC_Initial_Error(CONTROLLER* controller, int error_number,
-                                   const char* format, ...)
+static void Build_Shell_Pairs_And_Pair_Types(QUANTUM_CHEMISTRY* qc, int max_l)
 {
-    char error_reason[CHAR_LENGTH_MAX];
-    va_list args;
-    va_start(args, format);
-    vsnprintf(error_reason, sizeof(error_reason), format, args);
-    va_end(args);
-    controller->Throw_SPONGE_Error(error_number, "QUANTUM_CHEMISTRY::Initial",
-                                   error_reason);
+    auto& mol = qc->mol;
+    auto& task_ctx = qc->task_ctx;
+
+    task_ctx.h_shell_pairs.clear();
+    for (int i = 0; i < mol.nbas; i++)
+        for (int j = 0; j <= i; j++) task_ctx.h_shell_pairs.push_back({i, j});
+    task_ctx.n_shell_pairs = task_ctx.h_shell_pairs.size();
+
+    const int stride = max_l + 1;
+    const int n_types = stride * stride;
+
+    std::vector<std::vector<int>> type_lists(n_types);
+    for (int pid = 0; pid < task_ctx.n_shell_pairs; pid++)
+    {
+        const auto& p = task_ctx.h_shell_pairs[pid];
+        int tid = mol.h_l_list[p.x] * stride + mol.h_l_list[p.y];
+        type_lists[tid].push_back(pid);
+    }
+
+    task_ctx.h_sorted_pair_ids.clear();
+    task_ctx.h_sorted_pair_ids.reserve(task_ctx.n_shell_pairs);
+    task_ctx.n_pair_types = 0;
+    for (int tid = 0; tid < n_types; tid++)
+    {
+        if (type_lists[tid].empty()) continue;
+        int slot = task_ctx.n_pair_types++;
+        task_ctx.pair_type_offset[slot] = (int)task_ctx.h_sorted_pair_ids.size();
+        task_ctx.pair_type_count[slot] = (int)type_lists[tid].size();
+        task_ctx.pair_type_l0[slot] = tid / stride;
+        task_ctx.pair_type_l1[slot] = tid % stride;
+        for (int pid : type_lists[tid]) task_ctx.h_sorted_pair_ids.push_back(pid);
+    }
+
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_sorted_pair_ids,
+                                  (void*)task_ctx.h_sorted_pair_ids.data(),
+                                  sizeof(int) * task_ctx.h_sorted_pair_ids.size());
+}
+
+static void Build_Screening_Combos_And_Task_Buffers(QUANTUM_CHEMISTRY* qc)
+{
+    auto& task_ctx = qc->task_ctx;
+    auto& mol = qc->mol;
+
+    const int npt = task_ctx.n_pair_types;
+    task_ctx.n_combos = 0;
+    for (int tA = 0; tA < npt; tA++)
+    {
+        for (int tB = 0; tB <= tA; tB++)
+        {
+            const int nA = task_ctx.pair_type_count[tA];
+            const int nB = task_ctx.pair_type_count[tB];
+            const bool same = (tA == tB);
+            const int nq = same ? nA * (nA + 1) / 2 : nA * nB;
+            if (nq == 0) continue;
+
+            auto& c = task_ctx.h_combos[task_ctx.n_combos];
+            c.pair_base_A = task_ctx.pair_type_offset[tA];
+            c.n_A = nA;
+            c.pair_base_B = task_ctx.pair_type_offset[tB];
+            c.n_B = nB;
+            c.n_quartets = nq;
+            c.output_offset = 0;
+            c.same_type = same ? 1 : 0;
+            c.l0 = task_ctx.pair_type_l0[tA];
+            c.l1 = task_ctx.pair_type_l1[tA];
+            c.l2 = task_ctx.pair_type_l0[tB];
+            c.l3 = task_ctx.pair_type_l1[tB];
+            task_ctx.n_combos++;
+        }
+    }
+
+    task_ctx.combo_prefix[0] = 0;
+    for (int i = 0; i < task_ctx.n_combos; i++)
+        task_ctx.combo_prefix[i + 1] =
+            task_ctx.combo_prefix[i] + task_ctx.h_combos[i].n_quartets;
+    task_ctx.total_quartets = task_ctx.combo_prefix[task_ctx.n_combos];
+
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_combos,
+                                  (void*)task_ctx.h_combos,
+                                  sizeof(QC_INTEGRAL_TASKS::ScreenCombo) *
+                                      task_ctx.n_combos);
+
+    task_ctx.screened_buf_capacity = std::max(1, task_ctx.total_quartets);
+    for (int i = 0; i < task_ctx.n_combos; i++)
+    {
+        task_ctx.h_combos[i].output_offset = task_ctx.combo_prefix[i];
+    }
+    Device_Malloc_Safely((void**)&task_ctx.d_screened_tasks,
+                         sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
+    Device_Malloc_Safely((void**)&task_ctx.d_screen_counts,
+                         sizeof(int) * std::max(1, task_ctx.n_combos));
+    if (task_ctx.d_combos != NULL)
+        deviceMemcpy(task_ctx.d_combos, task_ctx.h_combos,
+                     sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos,
+                     deviceMemcpyHostToDevice);
+
+    for (int i = 0; i < mol.nbas; i++)
+        for (int j = 0; j < mol.nbas; j++) task_ctx.h_1e_tasks.push_back({i, j});
+    task_ctx.n_1e_tasks = task_ctx.h_1e_tasks.size();
+
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_1e_tasks,
+                                  (void*)task_ctx.h_1e_tasks.data(),
+                                  sizeof(QC_ONE_E_TASK) *
+                                      task_ctx.h_1e_tasks.size());
+    Device_Malloc_And_Copy_Safely((void**)&task_ctx.d_shell_pairs,
+                                  (void*)task_ctx.h_shell_pairs.data(),
+                                  sizeof(QC_ONE_E_TASK) *
+                                      task_ctx.h_shell_pairs.size());
 }
 
 bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
@@ -41,8 +157,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
     int slash_pos = model_chemistry.find('/');
     if (slash_pos == std::string::npos)
     {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorValueErrorCommand,
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    qc_model_chemistry format error: expected "
             "\"METHOD/<basis>\", got \"%s\"\n",
             model_chemistry.c_str());
@@ -51,37 +167,37 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         string_strip(model_chemistry.substr(0, slash_pos));
     basis_set_name = string_strip(model_chemistry.substr(slash_pos + 1));
 
-    if (Equals_Ignore_Case(method_name, "HF"))
+    if (is_str_equal(method_name.c_str(), "HF", 0))
     {
         method = QC_METHOD::HF;
         dft.exx_fraction = 1.0f;
         dft.enable_dft = 0;
     }
-    else if (Equals_Ignore_Case(method_name, "LDA"))
+    else if (is_str_equal(method_name.c_str(), "LDA", 0))
     {
         method = QC_METHOD::LDA;
         dft.exx_fraction = 0.0f;
         dft.enable_dft = 1;
     }
-    else if (Equals_Ignore_Case(method_name, "PBE"))
+    else if (is_str_equal(method_name.c_str(), "PBE", 0))
     {
         method = QC_METHOD::PBE;
         dft.exx_fraction = 0.0f;
         dft.enable_dft = 1;
     }
-    else if (Equals_Ignore_Case(method_name, "BLYP"))
+    else if (is_str_equal(method_name.c_str(), "BLYP", 0))
     {
         method = QC_METHOD::BLYP;
         dft.exx_fraction = 0.0f;
         dft.enable_dft = 1;
     }
-    else if (Equals_Ignore_Case(method_name, "PBE0"))
+    else if (is_str_equal(method_name.c_str(), "PBE0", 0))
     {
         method = QC_METHOD::PBE0;
         dft.exx_fraction = 0.25f;
         dft.enable_dft = 1;
     }
-    else if (Equals_Ignore_Case(method_name, "B3LYP"))
+    else if (is_str_equal(method_name.c_str(), "B3LYP", 0))
     {
         method = QC_METHOD::B3LYP;
         dft.exx_fraction = 0.20f;
@@ -89,8 +205,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
     }
     else
     {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorValueErrorCommand,
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    qc_model_chemistry \"%s\" not supported. Supported "
             "methods: HF, LDA, PBE, BLYP, PBE0, B3LYP.\n",
             model_chemistry.c_str());
@@ -105,8 +221,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             atof(controller->Command("qc_eri_prim_screen_tol"));
         if (task_ctx.eri_prim_screen_tol < 0.0f)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_eri_prim_screen_tol must be >= 0, got %g\n",
                 (double)task_ctx.eri_prim_screen_tol);
         }
@@ -121,10 +237,11 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             atof(controller->Command("qc_direct_eri_prim_screen_tol"));
         if (task_ctx.direct_eri_prim_screen_tol < 0.0f)
         {
-            Throw_QC_Initial_Error(controller, spongeErrorValueErrorCommand,
-                                   "Reason:\n    qc_direct_eri_prim_screen_tol "
-                                   "must be >= 0, got %g\n",
-                                   (double)task_ctx.direct_eri_prim_screen_tol);
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_direct_eri_prim_screen_tol must be >= 0, got "
+                "%g\n",
+                (double)task_ctx.direct_eri_prim_screen_tol);
         }
     }
 
@@ -137,8 +254,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             atof(controller->Command("qc_eri_shell_screen_tol"));
         if (task_ctx.eri_shell_screen_tol < 0.0f)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_eri_shell_screen_tol must be >= 0, got %g\n",
                 (double)task_ctx.eri_shell_screen_tol);
         }
@@ -151,8 +268,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         const int qc_restricted = atoi(controller->Command("qc_restricted"));
         if (qc_restricted != 0 && qc_restricted != 1)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_restricted must be 0 or 1, got \"%s\"\n",
                 controller->Command("qc_restricted"));
         }
@@ -166,8 +283,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.max_scf_iter = atoi(controller->Command("qc_scf_max_iter"));
         if (scf_ws.max_scf_iter < 1)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_scf_max_iter must be >= 1, got \"%s\"\n",
                 controller->Command("qc_scf_max_iter"));
         }
@@ -180,8 +297,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         const int qc_diis = atoi(controller->Command("qc_diis"));
         if (qc_diis != 0 && qc_diis != 1)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis must be 0 or 1, got \"%s\"\n",
                 controller->Command("qc_diis"));
         }
@@ -195,8 +312,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.diis_start_iter = atoi(controller->Command("qc_diis_start"));
         if (scf_ws.diis_start_iter < 1)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis_start must be >= 1, got \"%s\"\n",
                 controller->Command("qc_diis_start"));
         }
@@ -209,8 +326,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.diis_space = atoi(controller->Command("qc_diis_space"));
         if (scf_ws.diis_space < 2)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis_space must be >= 2, got \"%s\"\n",
                 controller->Command("qc_diis_space"));
         }
@@ -223,8 +340,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.density_mixing = atof(controller->Command("qc_diis_damp"));
         if (scf_ws.density_mixing < 0.0f || scf_ws.density_mixing > 1.0f)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis_damp must be in [0, 1], got \"%s\"\n",
                 controller->Command("qc_diis_damp"));
         }
@@ -237,8 +354,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.diis_reg = atof(controller->Command("qc_diis_reg"));
         if (scf_ws.diis_reg < 0.0)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis_reg must be >= 0, got \"%s\"\n",
                 controller->Command("qc_diis_reg"));
         }
@@ -252,8 +369,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.energy_tol = atof(controller->Command("qc_scf_energy_tol"));
         if (scf_ws.energy_tol <= 0.0)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_scf_energy_tol must be > 0, got \"%s\"\n",
                 controller->Command("qc_scf_energy_tol"));
         }
@@ -268,8 +385,8 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             atoi(controller->Command("qc_scf_print_iter"));
         if (qc_scf_print_iter != 0 && qc_scf_print_iter != 1)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_scf_print_iter must be 0 or 1, got \"%s\"\n",
                 controller->Command("qc_scf_print_iter"));
         }
@@ -328,7 +445,7 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     QC_BASIS_SET* basis = nullptr;
     for (auto* b : all_bases)
     {
-        if (Equals_Ignore_Case(basis_set_name, b->name))
+        if (is_str_equal(basis_set_name.c_str(), b->name, 0))
         {
             basis = b;
             break;
@@ -336,8 +453,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     }
     if (!basis)
     {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorValueErrorCommand,
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    Basis set \"%s\" is not supported.\n",
             basis_set_name.c_str());
     }
@@ -349,9 +466,9 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         std::ifstream ifs(qc_type_file);
         if (!ifs.is_open())
         {
-            Throw_QC_Initial_Error(controller, spongeErrorBadFileFormat,
-                                   "Reason:\n    Cannot open %s\n",
-                                   qc_type_file);
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    Cannot open %s\n", qc_type_file);
         }
         std::string line;
         std::getline(ifs, line);
@@ -359,8 +476,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
             std::istringstream iss(line);
             if (!(iss >> mol.natm >> mol.charge >> mol.multiplicity))
             {
-                Throw_QC_Initial_Error(
-                    controller, spongeErrorBadFileFormat,
+                controller->Throw_Formatted_SPONGE_Error(
+                    spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
                     "Reason:\n    Failed to read first line of %s\n",
                     qc_type_file);
             }
@@ -374,8 +491,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
             std::string sym;
             if (!(iss >> idx >> sym))
             {
-                Throw_QC_Initial_Error(
-                    controller, spongeErrorBadFileFormat,
+                controller->Throw_Formatted_SPONGE_Error(
+                    spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
                     "Reason:\n    Failed to read atom line %d of %s\n", i,
                     qc_type_file);
             }
@@ -391,8 +508,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         auto it_sym = QC_Z_FROM_SYMBOL.find(atom_symbols[i]);
         if (it_sym == QC_Z_FROM_SYMBOL.end())
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorBadFileFormat,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    Unknown element symbol %s at atom line %d in "
                 "%s\n",
                 atom_symbols[i].c_str(), i, qc_type_file);
@@ -402,8 +519,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         int md_idx = atom_local[i];
         if (md_idx < 0 || md_idx >= this->atom_numbers)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorOverflow,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorOverflow, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    MD index %d out of bounds [0, %d)\n", md_idx,
                 this->atom_numbers);
         }
@@ -416,15 +533,15 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     const int spin_e = mol.multiplicity - 1;
     if (spin_e < 0)
     {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorBadFileFormat,
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    multiplicity must be >= 1, got %d\n",
             mol.multiplicity);
     }
     if (((mol.nelectron + spin_e) & 1) != 0)
     {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorBadFileFormat,
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorBadFileFormat, "QUANTUM_CHEMISTRY::Initial",
             "Reason:\n    Inconsistent electron number/multiplicity: N=%d, "
             "multiplicity=%d\n",
             mol.nelectron, mol.multiplicity);
@@ -433,19 +550,19 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     {
         if (spin_e != 0)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_restricted=1 requires closed-shell "
                 "multiplicity=1, got multiplicity=%d\n",
                 mol.multiplicity);
         }
         if ((mol.nelectron & 1) != 0)
         {
-            Throw_QC_Initial_Error(controller, spongeErrorValueErrorCommand,
-                                   "Reason:\n    qc_restricted=1 requires even "
-                                   "electron number, got "
-                                   "N=%d\n",
-                                   mol.nelectron);
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_restricted=1 requires even electron number, "
+                "got N=%d\n",
+                mol.nelectron);
         }
     }
 
@@ -476,8 +593,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
 
         if (shells_ptr == NULL)
         {
-            Throw_QC_Initial_Error(
-                controller, spongeErrorValueErrorCommand,
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    Basis set %s not available for element %s\n",
                 basis_set_name.c_str(), sym.c_str());
         }
@@ -587,252 +704,12 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
 
 void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
 {
-    int max_l = 0;
-    for (int k = 0; k < mol.h_l_list.size(); k++)
-    {
-        if (mol.h_l_list[k] > max_l) max_l = mol.h_l_list[k];
-    }
-    const int max_total_l = 4 * max_l;
-    task_ctx.eri_hr_base = max_total_l + 1;
-    if (task_ctx.eri_hr_base > HR_BASE_MAX)
-    {
-        Throw_QC_Initial_Error(
-            controller, spongeErrorOverflow,
-            "Reason:\n    basis angular momentum too high (max l=%d, required "
-            "hr_base=%d, supported <=%d)\n",
-            max_l, task_ctx.eri_hr_base, HR_BASE_MAX);
-    }
-    task_ctx.eri_hr_size = task_ctx.eri_hr_base * task_ctx.eri_hr_base *
-                           task_ctx.eri_hr_base * task_ctx.eri_hr_base;
-    {
-        const int max_cart = (max_l + 1) * (max_l + 2) / 2;
-        task_ctx.eri_shell_buf_size = max_cart * max_cart * max_cart * max_cart;
-        task_ctx.eri_shell_buf_size =
-            std::max(1, std::min(MAX_SHELL_ERI, task_ctx.eri_shell_buf_size));
-    }
+    const int max_l =
+        *std::max_element(mol.h_l_list.begin(), mol.h_l_list.begin() + mol.nbas);
 
-    task_ctx.h_shell_pairs.clear();
-    for (int i = 0; i < mol.nbas; i++)
-        for (int j = 0; j <= i; j++) task_ctx.h_shell_pairs.push_back({i, j});
-    task_ctx.n_shell_pairs = task_ctx.h_shell_pairs.size();
-
-    // Build pair type index for on-the-fly dispatch
-    {
-        const int max_l = *std::max_element(mol.h_l_list.begin(),
-                                            mol.h_l_list.begin() + mol.nbas);
-        const int stride = max_l + 1;
-        const int n_types = stride * stride;
-
-        // Count pairs per type
-        std::vector<std::vector<int>> type_lists(n_types);
-        for (int pid = 0; pid < task_ctx.n_shell_pairs; pid++)
-        {
-            const auto& p = task_ctx.h_shell_pairs[pid];
-            int tid = mol.h_l_list[p.x] * stride + mol.h_l_list[p.y];
-            type_lists[tid].push_back(pid);
-        }
-
-        // Build sorted pair ids and type boundaries
-        task_ctx.h_sorted_pair_ids.clear();
-        task_ctx.h_sorted_pair_ids.reserve(task_ctx.n_shell_pairs);
-        task_ctx.n_pair_types = 0;
-        for (int tid = 0; tid < n_types; tid++)
-        {
-            if (type_lists[tid].empty()) continue;
-            int slot = task_ctx.n_pair_types++;
-            task_ctx.pair_type_offset[slot] =
-                (int)task_ctx.h_sorted_pair_ids.size();
-            task_ctx.pair_type_count[slot] = (int)type_lists[tid].size();
-            task_ctx.pair_type_l0[slot] = tid / stride;
-            task_ctx.pair_type_l1[slot] = tid % stride;
-            for (int pid : type_lists[tid])
-                task_ctx.h_sorted_pair_ids.push_back(pid);
-        }
-
-        Device_Malloc_And_Copy_Safely(
-            (void**)&task_ctx.d_sorted_pair_ids,
-            (void*)task_ctx.h_sorted_pair_ids.data(),
-            sizeof(int) * task_ctx.h_sorted_pair_ids.size());
-    }
-
-    // Build screening combos: one per pair-type combination (A >= B)
-    {
-        const int npt = task_ctx.n_pair_types;
-        task_ctx.n_combos = 0;
-        for (int tA = 0; tA < npt; tA++)
-        {
-            for (int tB = 0; tB <= tA; tB++)
-            {
-                const int nA = task_ctx.pair_type_count[tA];
-                const int nB = task_ctx.pair_type_count[tB];
-                const bool same = (tA == tB);
-                const int nq = same ? nA * (nA + 1) / 2 : nA * nB;
-                if (nq == 0) continue;
-
-                auto& c = task_ctx.h_combos[task_ctx.n_combos];
-                c.pair_base_A = task_ctx.pair_type_offset[tA];
-                c.n_A = nA;
-                c.pair_base_B = task_ctx.pair_type_offset[tB];
-                c.n_B = nB;
-                c.n_quartets = nq;
-                c.output_offset = 0;  // set below after counting combos
-                c.same_type = same ? 1 : 0;
-                c.l0 = task_ctx.pair_type_l0[tA];
-                c.l1 = task_ctx.pair_type_l1[tA];
-                c.l2 = task_ctx.pair_type_l0[tB];
-                c.l3 = task_ctx.pair_type_l1[tB];
-                task_ctx.n_combos++;
-            }
-        }
-        // Prefix sum
-        task_ctx.combo_prefix[0] = 0;
-        for (int i = 0; i < task_ctx.n_combos; i++)
-            task_ctx.combo_prefix[i + 1] =
-                task_ctx.combo_prefix[i] + task_ctx.h_combos[i].n_quartets;
-        task_ctx.total_quartets = task_ctx.combo_prefix[task_ctx.n_combos];
-
-        // Allocate device buffers
-        Device_Malloc_And_Copy_Safely(
-            (void**)&task_ctx.d_combos, (void*)task_ctx.h_combos,
-            sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos);
-        // Output offsets and buffer allocated after task list (see below)
-    }
-
-    for (int i = 0; i < mol.nbas; i++)
-    {
-        for (int j = 0; j <= i; j++)
-        {
-            int pair_ij = i * (i + 1) / 2 + j;
-            for (int k = 0; k < mol.nbas; k++)
-            {
-                for (int l = 0; l <= k; l++)
-                {
-                    int pair_kl = k * (k + 1) / 2 + l;
-                    if (pair_ij < pair_kl) continue;
-                    task_ctx.h_eri_tasks.push_back({i, j, k, l});
-                }
-            }
-        }
-    }
-    task_ctx.n_eri_tasks = task_ctx.h_eri_tasks.size();
-
-    // Allocate screening output buffer and assign per-combo offsets.
-    // Buffer sized to n_eri_tasks (post-screening active tasks <= this).
-    // Combos share buffer proportionally to their n_quartets.
-    {
-        task_ctx.screened_buf_capacity = task_ctx.n_eri_tasks;
-        const long long total_q =
-            task_ctx.total_quartets > 0 ? task_ctx.total_quartets : 1;
-        int output_off = 0;
-        for (int i = 0; i < task_ctx.n_combos; i++)
-        {
-            task_ctx.h_combos[i].output_offset = output_off;
-            // Proportional share: this combo gets (n_quartets/total_quartets) *
-            // capacity
-            const int share = (int)((long long)task_ctx.h_combos[i].n_quartets *
-                                    task_ctx.screened_buf_capacity / total_q);
-            output_off += std::max(share, 1);
-        }
-        // Clamp to capacity (rounding might exceed slightly)
-        if (output_off > task_ctx.screened_buf_capacity)
-            task_ctx.screened_buf_capacity = output_off;
-        Device_Malloc_Safely(
-            (void**)&task_ctx.d_screened_tasks,
-            sizeof(QC_ERI_TASK) * task_ctx.screened_buf_capacity);
-        Device_Malloc_Safely((void**)&task_ctx.d_screen_counts,
-                             sizeof(int) * QC_INTEGRAL_TASKS::MAX_COMBOS);
-        // Re-upload combos with updated offsets
-        if (task_ctx.d_combos != NULL)
-            deviceMemcpy(
-                task_ctx.d_combos, task_ctx.h_combos,
-                sizeof(QC_INTEGRAL_TASKS::ScreenCombo) * task_ctx.n_combos,
-                deviceMemcpyHostToDevice);
-    }
-
-    // Build screening combos from pair types (after pair type index is ready)
-    // Deferred to after pair type construction below.
-
-    // Pre-bin ERI tasks by shell type and sort in-place.
-    // Bucket layout: 4s(1) | 3s1p×4 | 2s2p×6 | 1s3p×4 | 4p(1) | generic(1)
-    {
-        auto get_bucket = [&](const QC_ERI_TASK& t) -> int
-        {
-            const int la = mol.h_l_list[t.x], lb = mol.h_l_list[t.y];
-            const int lc = mol.h_l_list[t.z], ld = mol.h_l_list[t.w];
-            const int l_sum = la + lb + lc + ld;
-            const int l_max = std::max({la, lb, lc, ld});
-            if (l_sum == 0) return 0;  // 4s
-            if (l_sum == 1)
-            {
-                // 3s1p: bucket 1-4 by p position
-                if (la == 1) return 1;
-                if (lb == 1) return 2;
-                if (lc == 1) return 3;
-                return 4;
-            }
-            if (l_sum == 2 && l_max <= 1)
-            {
-                // 2s2p: bucket 5-10 by (p0,p1) pair
-                // positions of the two p shells
-                int pp[2], pi = 0;
-                if (la == 1) pp[pi++] = 0;
-                if (lb == 1) pp[pi++] = 1;
-                if (lc == 1) pp[pi++] = 2;
-                if (ld == 1) pp[pi++] = 3;
-                static const int pair_idx[4][4] = {
-                    {-1, 0, 1, 2}, {0, -1, 3, 4}, {1, 3, -1, 5}, {2, 4, 5, -1}};
-                return 5 + pair_idx[pp[0]][pp[1]];
-            }
-            if (l_sum == 3 && l_max <= 1)
-            {
-                // 1s3p: bucket 11-14 by s position
-                if (la == 0) return 11;
-                if (lb == 0) return 12;
-                if (lc == 0) return 13;
-                return 14;
-            }
-            if (l_sum == 4 && l_max <= 1) return 15;  // 4p
-            return 16;                                // generic
-        };
-
-        // Count tasks per bucket
-        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
-            task_ctx.bucket_count[b] = 0;
-        for (const auto& t : task_ctx.h_eri_tasks)
-            task_ctx.bucket_count[get_bucket(t)]++;
-
-        // Compute offsets (prefix sum)
-        task_ctx.bucket_offset[0] = 0;
-        for (int b = 1; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
-            task_ctx.bucket_offset[b] =
-                task_ctx.bucket_offset[b - 1] + task_ctx.bucket_count[b - 1];
-
-        // Sort by bucket using a temporary array
-        std::vector<QC_ERI_TASK> sorted(task_ctx.n_eri_tasks);
-        std::vector<int> pos(QC_INTEGRAL_TASKS::N_BUCKETS);
-        for (int b = 0; b < QC_INTEGRAL_TASKS::N_BUCKETS; b++)
-            pos[b] = task_ctx.bucket_offset[b];
-        for (const auto& t : task_ctx.h_eri_tasks)
-            sorted[pos[get_bucket(t)]++] = t;
-        task_ctx.h_eri_tasks = std::move(sorted);
-
-    }
-
-    for (int i = 0; i < mol.nbas; i++)
-        for (int j = 0; j < mol.nbas; j++)
-            task_ctx.h_1e_tasks.push_back({i, j});
-    task_ctx.n_1e_tasks = task_ctx.h_1e_tasks.size();
-
-    // d_eri_tasks now holds the pre-sorted task list permanently
-    Device_Malloc_And_Copy_Safely(
-        (void**)&task_ctx.d_eri_tasks, (void*)task_ctx.h_eri_tasks.data(),
-        sizeof(QC_ERI_TASK) * task_ctx.h_eri_tasks.size());
-    Device_Malloc_And_Copy_Safely(
-        (void**)&task_ctx.d_1e_tasks, (void*)task_ctx.h_1e_tasks.data(),
-        sizeof(QC_ONE_E_TASK) * task_ctx.h_1e_tasks.size());
-    Device_Malloc_And_Copy_Safely(
-        (void**)&task_ctx.d_shell_pairs, (void*)task_ctx.h_shell_pairs.data(),
-        sizeof(QC_ONE_E_TASK) * task_ctx.h_shell_pairs.size());
+    Init_ERI_Workspace_Params(this, controller, max_l);
+    Build_Shell_Pairs_And_Pair_Types(this, max_l);
+    Build_Screening_Combos_And_Task_Buffers(this);
 }
 
 void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
@@ -911,13 +788,12 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         dft.max_grid_size = 0;
         if (dft.max_grid_capacity <= 0)
         {
-            Throw_QC_Initial_Error(controller, spongeErrorValueErrorCommand,
-                                   "Reason:\n    invalid DFT grid capacity: %d "
-                                   "(natm=%d, radial=%d, "
-                                   "angular=%d)\n",
-                                   dft.max_grid_capacity, mol.natm,
-                                   dft.dft_radial_points,
-                                   dft.dft_angular_points);
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    invalid DFT grid capacity: %d (natm=%d, radial=%d, "
+                "angular=%d)\n",
+                dft.max_grid_capacity, mol.natm, dft.dft_radial_points,
+                dft.dft_angular_points);
         }
 
         dft.h_grid_coords.assign((int)dft.max_grid_capacity * 3, 0.0f);

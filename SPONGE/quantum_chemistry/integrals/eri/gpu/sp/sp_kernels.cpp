@@ -4,13 +4,13 @@
 // clang-format off
 // Include order matters: quantum_chemistry.h provides macros/types needed by
 // ERI GPU headers.
-#include "../../../quantum_chemistry.h"
-#include "../common/eri_kernel_utils.hpp"
-#include "../../../../common.h"
+#include "../../../../quantum_chemistry.h"
+#include "../../common/eri_kernel_utils.hpp"
+#include "../../../../../common.h"
 // clang-format on
 
 // Common utilities
-#include "../common/eri_common.hpp"
+#include "../../common/eri_common.hpp"
 
 // ssss: hand-written specialized kernel
 #include "eri_ssss.hpp"
@@ -107,7 +107,7 @@
 #undef S_POS
 
 // Wrapper functions for cross-TU kernel launching
-#include "eri_launch.hpp"
+#include "../launch.hpp"
 DEFINE_ERI_LAUNCH(QC_Launch_ssss, QC_Fock_ssss_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_psss, QC_Fock_psss_Kernel)
 DEFINE_ERI_LAUNCH(QC_Launch_spss, QC_Fock_spss_Kernel)

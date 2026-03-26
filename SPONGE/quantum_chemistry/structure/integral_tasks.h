@@ -30,16 +30,6 @@ struct QC_INTEGRAL_TASKS
     std::vector<float> h_shell_pair_bounds;
     float* d_shell_pair_bounds = NULL;
 
-    // 双电子积分 (legacy task list, kept for CPU path and generic kernel)
-    int n_eri_tasks = 0;
-    std::vector<QC_ERI_TASK> h_eri_tasks;
-    QC_ERI_TASK* d_eri_tasks = NULL;
-
-    // 预分桶 (init 时按 shell type 排序，记录每个桶的 offset/count)
-    static const int N_BUCKETS = 17;
-    int bucket_offset[N_BUCKETS] = {};
-    int bucket_count[N_BUCKETS] = {};
-
     // On-the-fly pair type dispatch:
     // Shell pairs grouped by (l_i, l_j) type.
     // pair_type_id = l_i * (max_l + 1) + l_j

@@ -1,9 +1,7 @@
-﻿#include <stdexcept>
-
-#include "quantum_chemistry.h"
+﻿#include "quantum_chemistry.h"
 #include "structure/matrix.h"
 
-// ====================== Float BLAS/Solver wrappers ======================
+// ====================== 单精度 BLAS/Solver 包装 ======================
 
 int QC_Diagonalize_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                   float* mat, float* w, float** work_ptr,
@@ -148,7 +146,7 @@ void QC_Build_Density_Blas(BLAS_HANDLE blas_handle, int nao, int n_occ,
                     nao);
 }
 
-// ====================== Double BLAS/Solver wrappers ======================
+// ====================== 双精度 BLAS/Solver 包装 ======================
 
 int QC_Diagonalize_Double_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                          double* mat, double* w,
@@ -204,49 +202,7 @@ void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                     B, ldb, A, lda, &zero, C, ldc);
 }
 
-// ====================== Device kernels + host wrappers ======================
-
-static __global__ void QC_Elec_Energy_Accumulate_Kernel(const int nao2,
-                                                        const float* P,
-                                                        const float* H_core,
-                                                        const float* F,
-                                                        double* out_sum)
-{
-    SIMPLE_DEVICE_FOR(idx, nao2)
-    {
-        atomicAdd(out_sum, 0.5 * (double)P[idx] *
-                               ((double)H_core[idx] + (double)F[idx]));
-    }
-}
-
-void QC_Elec_Energy_Accumulate(int nao2, const float* P, const float* H_core,
-                               const float* F, double* out_sum)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(QC_Elec_Energy_Accumulate_Kernel,
-                         (nao2 + threads - 1) / threads, threads, 0, 0, nao2, P,
-                         H_core, F, out_sum);
-}
-
-static __global__ void QC_Mat_Dot_Accumulate_Kernel(const int nao2,
-                                                    const float* A,
-                                                    const float* B,
-                                                    double* out_sum)
-{
-    SIMPLE_DEVICE_FOR(idx, nao2)
-    {
-        atomicAdd(out_sum, (double)A[idx] * (double)B[idx]);
-    }
-}
-
-void QC_Mat_Dot_Accumulate(int nao2, const float* A, const float* B,
-                           double* out_sum)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(QC_Mat_Dot_Accumulate_Kernel,
-                         (nao2 + threads - 1) / threads, threads, 0, 0, nao2, A,
-                         B, out_sum);
-}
+// ====================== 常用通用矩阵函数包装 ======================
 
 static __global__ void QC_Add_Matrix_Kernel(const int n, const float* A,
                                             const float* B, float* C)
@@ -315,6 +271,89 @@ void QC_Float_To_Double_Copy(int n, const float* src, double* dst)
                          dst);
 }
 
+static __global__ void QC_Double_Dot_Kernel(const int n, const double* A,
+                                            const double* B, double* out_sum)
+{
+    SIMPLE_DEVICE_FOR(i, n) { atomicAdd(out_sum, A[i] * B[i]); }
+}
+
+void QC_Double_Dot(int n, const double* A, const double* B, double* out_sum)
+{
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Double_Dot_Kernel, (n + threads - 1) / threads,
+                         threads, 0, 0, n, A, B, out_sum);
+}
+
+static __global__ void QC_Double_Axpy_Kernel(const int n, const double coeff,
+                                             const double* src, double* dst)
+{
+    SIMPLE_DEVICE_FOR(i, n) { dst[i] += coeff * src[i]; }
+}
+
+void QC_Double_Axpy(int n, double coeff, const double* src, double* dst)
+{
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Double_Axpy_Kernel, (n + threads - 1) / threads,
+                         threads, 0, 0, n, coeff, src, dst);
+}
+
+static __global__ void QC_Double_Sub_Kernel(const int n, const double* A,
+                                            const double* B, double* dst)
+{
+    SIMPLE_DEVICE_FOR(i, n) { dst[i] = A[i] - B[i]; }
+}
+
+void QC_Double_Sub(int n, const double* A, const double* B, double* dst)
+{
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Double_Sub_Kernel, (n + threads - 1) / threads,
+                         threads, 0, 0, n, A, B, dst);
+}
+
+// ====================== 常用SCF矩阵函数包装 ======================
+
+static __global__ void QC_Elec_Energy_Accumulate_Kernel(const int nao2,
+                                                        const float* P,
+                                                        const float* H_core,
+                                                        const float* F,
+                                                        double* out_sum)
+{
+    SIMPLE_DEVICE_FOR(idx, nao2)
+    {
+        atomicAdd(out_sum, 0.5 * (double)P[idx] *
+                               ((double)H_core[idx] + (double)F[idx]));
+    }
+}
+
+void QC_Elec_Energy_Accumulate(int nao2, const float* P, const float* H_core,
+                               const float* F, double* out_sum)
+{
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Elec_Energy_Accumulate_Kernel,
+                         (nao2 + threads - 1) / threads, threads, 0, 0, nao2, P,
+                         H_core, F, out_sum);
+}
+
+static __global__ void QC_Mat_Dot_Accumulate_Kernel(const int nao2,
+                                                    const float* A,
+                                                    const float* B,
+                                                    double* out_sum)
+{
+    SIMPLE_DEVICE_FOR(idx, nao2)
+    {
+        atomicAdd(out_sum, (double)A[idx] * (double)B[idx]);
+    }
+}
+
+void QC_Mat_Dot_Accumulate(int nao2, const float* A, const float* B,
+                           double* out_sum)
+{
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Mat_Dot_Accumulate_Kernel,
+                         (nao2 + threads - 1) / threads, threads, 0, 0, nao2, A,
+                         B, out_sum);
+}
+
 static __global__ void QC_Level_Shift_Kernel(const int n, const double ls,
                                              const double* dS,
                                              const double* dSPS, double* dF)
@@ -379,46 +418,7 @@ void QC_Rect_Double_To_Padded_Float(int nao, int ne, const double* src,
                          src, dst);
 }
 
-static __global__ void QC_Double_Dot_Kernel(const int n, const double* A,
-                                            const double* B, double* out_sum)
-{
-    SIMPLE_DEVICE_FOR(i, n) { atomicAdd(out_sum, A[i] * B[i]); }
-}
-
-void QC_Double_Dot(int n, const double* A, const double* B, double* out_sum)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(QC_Double_Dot_Kernel, (n + threads - 1) / threads,
-                         threads, 0, 0, n, A, B, out_sum);
-}
-
-static __global__ void QC_Double_Axpy_Kernel(const int n, const double coeff,
-                                             const double* src, double* dst)
-{
-    SIMPLE_DEVICE_FOR(i, n) { dst[i] += coeff * src[i]; }
-}
-
-void QC_Double_Axpy(int n, double coeff, const double* src, double* dst)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(QC_Double_Axpy_Kernel, (n + threads - 1) / threads,
-                         threads, 0, 0, n, coeff, src, dst);
-}
-
-static __global__ void QC_Double_Sub_Kernel(const int n, const double* A,
-                                            const double* B, double* dst)
-{
-    SIMPLE_DEVICE_FOR(i, n) { dst[i] = A[i] - B[i]; }
-}
-
-void QC_Double_Sub(int n, const double* A, const double* B, double* dst)
-{
-    const int threads = 256;
-    Launch_Device_Kernel(QC_Double_Sub_Kernel, (n + threads - 1) / threads,
-                         threads, 0, 0, n, A, B, dst);
-}
-
-// ====================== Cart2Sph code ======================
+// ====================== 笛卡尔基转球谐基 ======================
 
 // 用于将归一化笛卡尔基映射到归一化实球谐基
 // l=2（d 轨道）
@@ -552,9 +552,6 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
                         cart2sph_mat[(offset_c + i) * nao_s + (offset_s + j)] =
                             CART2SPH_MAT_G[i][j];
                 break;
-            default:
-                throw std::runtime_error(
-                    "Unsupported l in Cart2Sph transform");
         }
         offset_c += dim_c;
         offset_s += dim_s;

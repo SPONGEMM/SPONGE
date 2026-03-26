@@ -145,6 +145,18 @@ inline void CONTROLLER::Throw_SPONGE_Error(const int error_number,
 #endif
 }
 
+inline void CONTROLLER::Throw_Formatted_SPONGE_Error(const int error_number,
+                                                     const char* error_by,
+                                                     const char* format, ...)
+{
+    char error_reason[CHAR_LENGTH_MAX];
+    va_list args;
+    va_start(args, format);
+    vsnprintf(error_reason, sizeof(error_reason), format, args);
+    va_end(args);
+    Throw_SPONGE_Error(error_number, error_by, error_reason);
+}
+
 inline void CONTROLLER::Check_Error(float energy)
 {
 #ifdef GPU_ARCH_NAME
