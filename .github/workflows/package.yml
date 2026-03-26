@@ -81,12 +81,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(python - <<'PY'
-from pathlib import Path
-matches = sorted(Path("conda/outputs").glob("*.conda"))
-print(matches[0].resolve())
-PY
-)"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-pixi \
             --path "${package_path}" \
             --expose SPONGE \
@@ -98,12 +93,7 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(python - <<'PY'
-from pathlib import Path
-matches = sorted(Path("conda/outputs").glob("*.conda"))
-print(matches[0].resolve())
-PY
-)"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-conda-exe \
             --expose conda \
             conda \
@@ -116,12 +106,7 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(python - <<'PY'
-from pathlib import Path
-matches = sorted(Path("conda/outputs").glob("*.conda"))
-print(matches[0].resolve())
-PY
-)"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-mamba-exe \
             --expose mamba \
             mamba \
@@ -136,12 +121,7 @@ PY
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(python - <<'PY'
-from pathlib import Path
-matches = sorted(Path("conda/outputs").glob("*.conda"))
-print(matches[0].resolve())
-PY
-)"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-micromamba-exe \
             --expose micromamba \
             micromamba \
