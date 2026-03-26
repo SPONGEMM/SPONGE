@@ -1,22 +1,6 @@
 #include "../meta.h"
-static int split_sentence(const std::string& line,
-                          std::vector<std::string>& words)
-{
-    words.clear();
-    std::istringstream iss(line);
-    std::string word;
-    while (iss >> word)
-    {
-        words.push_back(word);
-    }
-    return static_cast<int>(words.size());
-}
-
-static int split_sentence(const char* line, std::vector<std::string>& words)
-{
-    if (line == nullptr) return 0;
-    return split_sentence(std::string(line), words);
-}
+#include "../util.h"
+using sinkmeta::split_sentence;
 static void Write_CV_Header(FILE* temp_file, int ndim, const CV_LIST& cvs)
 {
     for (int i = 0; i < ndim; ++i)
@@ -47,25 +31,6 @@ void META::Write_Potential(void)
     {
         FILE* temp_file = NULL;
         Open_File_Safely(&temp_file, write_potential_file_name, "w");
-        /*fprintf(temp_file, "%dD-Meta X %f\n", ndim, sum_normal);
-        for (int i = 0; i < ndim; ++i)
-        {
-            fprintf(temp_file, "%f\t%f\t%f\n", cv_mins[i], cv_maxs[i],
-        cv_deltas[i]);
-        }
-        int gridsize = 1;
-        for (int i = 0; i < ndim; ++i)
-        {
-            int num_grid = round((cv_maxs[i] - cv_mins[i]) / cv_deltas[i]);
-            if (periods[i] == 0)
-            {
-                ++num_grid; //  numpoint+1 for non-periodic condition
-            }
-            fprintf(temp_file, " %d\t", num_grid);
-            gridsize *= num_grid;
-        }
-        fprintf(temp_file, "%d\n", gridsize);
-            */
         if (subhill || (!usegrid && !use_scatter))
         {
             fprintf(temp_file, "# ");
@@ -150,7 +115,6 @@ void META::Write_Potential(void)
             fprintf(temp_file, "# ");
             Write_CV_Header(temp_file, ndim, cvs);
             fprintf(temp_file, "potential_raw\tpotential_shifted\n");
-            // fprintf(temp_file, "%d\n", scatter_size);
             for (int iter = 0; iter < scatter_size; ++iter)
             {
                 ostringstream ss;
@@ -207,17 +171,11 @@ void META::Write_Directly(void)
         for (int i = 0; i < ndim; ++i)
         {
             int num_grid = round((cv_maxs[i] - cv_mins[i]) / cv_deltas[i]);
-            /*if (periods[i] == 0)
-            {
-                ++num_grid; //  numpoint+1 for non-periodic condition
-            }*/
             fprintf(temp_file, " %d\t", num_grid);
             gridsize *= num_grid;
         }
         if (potential_scatter != nullptr)
         {
-            // printf("Directly print the %d scatter points to
-            // %s\n",scatter_size,write_directly_file_name);
             fprintf(temp_file, "%d\n", scatter_size);
             for (int iter = 0; iter < scatter_size; ++iter)
             {
@@ -250,10 +208,6 @@ void META::Write_Directly(void)
         }
         else if (potential_grid != nullptr)
         {
-            /*for (int i = 0; i < ndim; ++i)
-            {
-                fprintf(temp_file, " %d\t", n_grids[i]);
-            }*/
             fprintf(temp_file, "%zu\n", potential_grid->size());
             for (Grid<float>::iterator g_iter = potential_grid->begin();
                  g_iter != potential_grid->end(); ++g_iter)
@@ -326,10 +280,7 @@ void META::Read_Potential(CONTROLLER* controller)
     sigma_s = cv_sigmas[0];
     for (int j = 0; j < scatter_size; ++j)
     {
-        char* grid_val = fgets(temp_char, 256, temp_file);  // grid line
-        /*std::string command = string_strip(temp_char);
-        std::vector<std::string> words
-         = string_split(command, " ");*/
+        char* grid_val = fgets(temp_char, 256, temp_file);
         std::vector<std::string> words;
         int nwords = split_sentence(temp_char, words);
         Gdata force(ndim, 0.);
@@ -347,7 +298,6 @@ void META::Read_Potential(CONTROLLER* controller)
         else if (subhill && nwords >= ndim + 2)
         {
             potential_from_file.push_back(std::stof(words[nwords - 1]));
-            // printf("Success reading line %d\n",j);
         }
         else if (nwords == 2 * ndim + 2)
         {
@@ -393,21 +343,6 @@ void META::Read_Potential(CONTROLLER* controller)
                     Axis coord = it.coordinates();
                     grid->at(coord)[i] = force_from_file[index][i];
                 }
-                /*
-                for (int i = 0; i < ndim; ++i)
-                {
-                    vector<int> shift(ndim, 0);
-                    shift[i] = 1;
-                    // float just = *it;
-                    auto shit = it;
-                    shit += shift;
-                    if (shit != potential_grid->end()) // do not compute
-                edge !
-                    {
-                        grid->at(it.GetIndices())[i] = (*shit - *it) /
-                cv_deltas[i];
-                    }
-                }*/
                 ++index;
             }
         }
@@ -418,8 +353,6 @@ void META::Read_Potential(CONTROLLER* controller)
         if (convmeta)
         {
             max_index = distance(potential_from_file.begin(), max_it);
-            // sum_normal =
-            // expf(-normal_lse->at(scatter->GetCoordinate(max_index)));
         }
         if (!subhill)
         {
@@ -440,50 +373,6 @@ void META::Read_Potential(CONTROLLER* controller)
         }
     }
 }
-
-#ifdef USE_GPU
-static __global__ void Add_Frc(const int atom_numbers, VECTOR* frc,
-                               VECTOR* cv_grad, float dheight_dcv)
-{
-    for (int i = blockIdx.x + blockDim.x * threadIdx.x; i < atom_numbers;
-         i += gridDim.x * blockDim.x)
-    {
-        frc[i] = frc[i] - dheight_dcv * cv_grad[i];
-    }
-}
-
-static __global__ void Add_Potential(float* d_potential, const float to_add)
-{
-    d_potential[0] += to_add;
-}
-
-static __global__ void Add_Virial(LTMatrix3* d_virial, const float dU_dCV,
-                                  const LTMatrix3* cv_virial)
-{
-    d_virial[0] = d_virial[0] - dU_dCV * cv_virial[0];
-}
-#else
-static void Add_Frc(const int atom_numbers, VECTOR* frc, VECTOR* cv_grad,
-                    float dheight_dcv)
-{
-#pragma omp parallel for
-    for (int i = 0; i < atom_numbers; i++)
-    {
-        frc[i] = frc[i] - dheight_dcv * cv_grad[i];
-    }
-}
-
-static void Add_Potential(float* d_potential, const float to_add)
-{
-    d_potential[0] += to_add;
-}
-
-static void Add_Virial(LTMatrix3* d_virial, const float dU_dCV,
-                       const LTMatrix3* cv_virial)
-{
-    d_virial[0] = d_virial[0] - dU_dCV * cv_virial[0];
-}
-#endif
 
 void META::Step_Print(CONTROLLER* controller)
 {

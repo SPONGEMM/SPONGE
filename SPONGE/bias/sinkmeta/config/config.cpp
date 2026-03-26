@@ -143,20 +143,16 @@ void META::Initial(CONTROLLER* controller,
         usegrid = false;
         use_scatter = true;
         do_negative = true;
-        catheter =
-            3;  // cv_controller->Ask_For_Int_Parameter(this->module_name,
-                // "catheter", 1)[0];
+        catheter = 3;
     }
     if (cv_controller->Command_Exist(this->module_name, "convmeta"))
     {
-        // use_scatter = true;
         do_negative = true;
         convmeta = cv_controller->Ask_For_Int_Parameter(this->module_name,
                                                         "convmeta", 1)[0];
     }
     if (cv_controller->Command_Exist(this->module_name, "grw"))
     {
-        // use_scatter = true;
         do_negative = true;
         grw = cv_controller->Ask_For_Int_Parameter(this->module_name, "grw",
                                                    1)[0];
@@ -187,13 +183,11 @@ void META::Initial(CONTROLLER* controller,
         }
         if (kde)
         {
-            cv_sigmas[i] =
-                1.414f / cv_sigmas[i];  ///  inverted sigma!!!!!!!!!!!!!!!!!!!
+            cv_sigmas[i] = 1.414f / cv_sigmas[i];  // inverted sigma
         }
         else
         {
-            cv_sigmas[i] =
-                1.0 / cv_sigmas[i];  /// inverted sigma!!!!!!!!!!!!!!!!!!!
+            cv_sigmas[i] = 1.0 / cv_sigmas[i];  // inverted sigma
         }
     }
     float sqrtpi = sqrtf(CONSTANT_Pi * 2);

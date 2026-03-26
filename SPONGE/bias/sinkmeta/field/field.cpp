@@ -15,10 +15,8 @@ void META::Setgrid(CONTROLLER* controller)  //
         isperiodic.push_back(cv_periods[i] > 0 ? true : false);
     }
     normal_force = new Grid<Gdata>(ngrid, lower, upper, isperiodic);
-    // normal_factor = new Grid<float>(ngrid, lower, upper, isperiodic);
     normal_lse = new Grid<float>(ngrid, lower, upper, isperiodic);
     normal_force->data_ = vector<Gdata>(normal_force->size(), Gdata(ndim, 0.0));
-    // Write Potential need potential_grid!!!!!!!!!!
     potential_grid = new Grid<float>(ngrid, lower, upper, isperiodic);
     potential_grid->data_ = vector<float>(potential_grid->size(), 0.0);
     if (usegrid)
@@ -32,13 +30,10 @@ void META::Setgrid(CONTROLLER* controller)  //
         {
             normalization /= cv_deltas[i] * sigmas[i] / sqrtpi;
         }
-        // normal_factor->data_ = vector<float>(normal_factor->size(),
-        // normalization);
         normal_lse->data_ =
             vector<float>(normal_lse->size(), log(normalization));
         scatter = nullptr;
         potential_scatter = nullptr;
-        // EdgeEffect(ndim, normal_lse->size());
         Sumhills(history_freq);
     }
     else if (use_scatter)
@@ -110,7 +105,6 @@ void META::Setgrid(CONTROLLER* controller)  //
                            rotate_v->GetCoordinate(scatter_size - 2),
                            rotate_v->GetCoordinate(scatter_size - 1));
 
-            // Method 1 need R matrix
             rotate_matrix = new Scatter<Gdata>(nscatter, periodic, coor);
             rotate_matrix->data_ =
                 vector<Gdata>(scatter_size, Gdata(ndim * ndim, 0.0));
@@ -141,18 +135,11 @@ void META::Setgrid(CONTROLLER* controller)  //
                         data.push_back(b);
                     }
                 }
-                /*
-                if (!CheckOrthogonal(data, ndim))
-                {
-                    controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
-                "METAD::SetGrid", "Rotate matrix is no an orthogonal matrix");
-                }*/
                 rotate_matrix->data()[index] = data;
             }
             rotate_matrix->data()[scatter_size - 1] =
                 rotate_matrix->data()[scatter_size - 2];
         }
-        // calculate normal_factor and print
         EdgeEffect(1, scatter_size);
         Sumhills(history_freq);
     }
@@ -192,8 +179,6 @@ void META::Estimate(const Axis& values, const bool need_potential,
     {
         exit_tag += 1.0;
     }
-    // Axis aaaaa =
-    // potential_grid->GetCoordinates(potential_grid->GetIndices(values));
     Hill hill = Hill(values, sigmas, periods, 1.0);
     if (use_scatter)
     {
@@ -225,23 +210,8 @@ void META::Estimate(const Axis& values, const bool need_potential,
                         Dpotential_local[i] -= (factor)*tder[i];
                     }
                 }
-                // ratio =
-                // normal_lse->at(potential_scatter->GetCoordinate(potential_scatter->GetIndex(neighbor)))-normal_lse->at(neighbor);
-                // potential_local += (factor- new_max) * hill.potential;
                 potential_backup += factor * hill.potential;
             }
-            /*
-            if (convmeta)
-            {
-                potential_local = potential_backup - shift *
-            expf(normal_lse->at(scatter->GetCoordinate(values))-normal_lse->at(scatter->GetCoordinate(max_index)));
-            /// sum_max;
-            }
-            else
-            {
-                potential_local = potential_backup - shift *
-            (normal_lse->at(scatter->GetCoordinate(values))-  sum_max);
-            }*/
         }
         else
         {
@@ -255,21 +225,10 @@ void META::Estimate(const Axis& values, const bool need_potential,
                     Dpotential_local[i] +=
                         (mask > 0)
                             ? grid->at(values)[i]
-                            : scatter->at(values)
-                                  [i];  // -
-                                        // potential_local*normal_force->at(values)[i];
+                            : scatter->at(values)[i];
                 }
             }
         }
-        /*if (do_borderwall)
-        {
-            vector<float> coordinate = potential_scatter->GetCoordinate(values);
-            for (size_t i = 0; i < ndim; ++i)
-            {
-                border_upper[i] = coordinate[i] + 0.2 / cv_sigmas[i];
-                border_lower[i] = coordinate[i] - 0.2 / cv_sigmas[i];
-            }
-        }*/
     }
     else if (usegrid)
     {
@@ -282,10 +241,8 @@ void META::Estimate(const Axis& values, const bool need_potential,
                 float upper = values[i] + cutoff[i] + 0.000001;
                 if (periods[i] > 0)
                 {
-                    vminus.push_back(
-                        lower);  // - round(lower / periods[i]) * periods[i]);
-                    vplus.push_back(
-                        upper);  // - round(lower / periods[i]) * periods[i]);
+                    vminus.push_back(lower);
+                    vplus.push_back(upper);
                 }
                 else
                 {
@@ -301,7 +258,6 @@ void META::Estimate(const Axis& values, const bool need_potential,
                 Gdata tder = hill.CalcHill(loop_flag);
                 float factor = potential_grid->at(loop_flag);
                 potential_backup += factor * hill.potential;
-                // potential_local += (factor-new_max) * hill.potential;
                 if (need_force)
                 {
                     for (size_t i = 0; i < ndim; ++i)
@@ -333,10 +289,7 @@ void META::Estimate(const Axis& values, const bool need_potential,
             {
                 for (int i = 0; i < cvs.size(); ++i)
                 {
-                    Dpotential_local[i] +=
-                        grid->at(values)
-                            [i];  // -
-                                  // potential_local*normal_force->at(values)[i];;
+                    Dpotential_local[i] += grid->at(values)[i];
                 }
             }
         }
@@ -344,8 +297,8 @@ void META::Estimate(const Axis& values, const bool need_potential,
         {
             for (size_t i = 0; i < ndim; ++i)
             {
-                border_upper[i] = cv_maxs[i] - cutoff[i];  // 1.0/cv_sigmas[i] ;
-                border_lower[i] = cv_mins[i] + cutoff[i];  // 1.0/cv_sigmas[i] ;
+                border_upper[i] = cv_maxs[i] - cutoff[i];
+                border_lower[i] = cv_mins[i] + cutoff[i];
             }
         }
     }
@@ -353,7 +306,7 @@ void META::Estimate(const Axis& values, const bool need_potential,
     {
         potential_local = potential_backup - CalcVshift(values);
     }
-    if (need_force)  // && !subhill)
+    if (need_force)
     {
         if (subhill)
         {
@@ -387,23 +340,5 @@ void META::Estimate(const Axis& values, const bool need_potential,
             }
         }
     }
-    /* original meta without grid!!!!
-    for (auto &hill_ : hills)
-    {
-        Gdata tder = hill_.CalcHill(values);
-        if (need_force)
-        {
-            for (int i = 0; i < cvs.size(); ++i)
-            {
-                Dpotential_local[i] += hill_.height * tder[i];
-            }
-        }
-        if (need_potential)
-        {
-            potential_local += hill_.potential * hill_.height;
-        }
-    }
-    potential_backup = potential_local;
-    */
     return;
 }

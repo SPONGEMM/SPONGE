@@ -1,4 +1,6 @@
 #include "../meta.h"
+#include "../util.h"
+using sinkmeta::split_sentence;
 
 #ifdef USE_GPU
 #include <thrust/device_vector.h>
@@ -136,24 +138,6 @@ float logSumExp(const vector<float>& values)
     return maxVal + logf(sum);
 }
 
-static int split_sentence(const std::string& line,
-                          std::vector<std::string>& words)
-{
-    words.clear();
-    std::istringstream iss(line);
-    std::string word;
-    while (iss >> word)
-    {
-        words.push_back(word);
-    }
-    return static_cast<int>(words.size());
-}
-
-static int split_sentence(const char* line, std::vector<std::string>& words)
-{
-    if (line == nullptr) return 0;
-    return split_sentence(std::string(line), words);
-}
 void hilllog(const string fn, const vector<float>& hillcenter,
              const vector<float>& hillheight)
 {
@@ -297,22 +281,9 @@ int META::LoadHills(const string& fn)  //, const vector<double>& widths)
         for (int i = 0; i < cvsize; ++i)
         {
             float center = stof(words[i]);
-            /*if (!Parser::ParseRealNumber(words[i], center))
-            {
-                printf("The format of Hills file \"%s\" near \"%s\" is wrong.",
-            fn.c_str(), words[i].c_str());
-            }
-            else*/
-            {
-                values.push_back(center);
-            }
+            values.push_back(center);
         }
-        float theight = stof(words[cvsize]);  // well-tempered height!
-        /*if (!Parser::ParseRealNumber(words[cvsize], theight))
-        {
-            printf("The format of Hills file \"%s\" near \"%s\" is wrong.",
-        fn.c_str(), words[cvsize].c_str());
-        }*/
+        float theight = stof(words[cvsize]);
         if (do_negative || use_scatter)
         {
             float p_max = stof(words[cvsize + 1]);
@@ -340,36 +311,15 @@ int META::LoadHills(const string& fn)  //, const vector<double>& widths)
 float META::CalcHill(const Axis& values, const int i)
 {
     float potential = 0;
-    // Axis prefactor;
     for (int j = 0; j < i; ++j)
     {
         Hill& hill = hills[j];
-        // second loop, debug only
         Gdata tder = hill.CalcHill(values);
         potential += hill.potential * hill.height;
-        /*
-        float pregauss = 0.;
-        Axis neighbor; // = potential_scatter->GetCoordinate(index);
-        for (auto &gauss : hill.gsf)
-        {
-            neighbor.push_back(gauss.GetCenter());
-        }
-        for (int i = 0; i < ndim; ++i)
-        {
-            float diff = (values[i] - neighbor[i]);
-            if (periods[i] != 0.0)
-            {
-                diff -= roundf(diff / periods[i]) * periods[i];
-            }
-            float distance = diff * sigmas[i];
-            pregauss -= 0.5 * distance * distance;
-        }
-        prefactor.push_back(pregauss + logf(hill.height));
-        */
     }
-    return potential;  // expf(logSumExp(prefactor));
+    return potential;
 }
-float META::Sumhills(int history_freq)  // const vector<float> heights)
+float META::Sumhills(int history_freq)
 {
     if (history_freq == 0)
     {
@@ -378,7 +328,7 @@ float META::Sumhills(int history_freq)  // const vector<float> heights)
     TimePoint start_time, end_time;
     float duration;
     GetTime(start_time);
-    int nhills = LoadHills("myhill.log");  // hills.size();
+    int nhills = LoadHills("myhill.log");
     FILE* temp_file = NULL;
     printf("\r\nLoad hills file successfully, now calculate RCT!!!\n");
     Open_File_Safely(&temp_file, "history.log", "w");
@@ -426,18 +376,7 @@ float META::Sumhills(int history_freq)  // const vector<float> heights)
                      g_iter != potential_grid->end(); ++g_iter)
                 {
                     *g_iter = CalcHill(g_iter.coordinates(), i);
-                } /*
-     for (int j = 0; j < i; ++j)
-     {
-         Hill &hill_ = hills[j];
-         //second loop, debug only
-                 for (Grid<float>::iterator g_iter = potential_grid->begin();
-     g_iter != potential_grid->end(); ++g_iter)
-                 {
-                     Gdata tder = hill_.CalcHill(g_iter.coordinates());
-                     *g_iter += hill_.potential * hill_.height;
-                 }
-     }*/
+                }
 #ifdef USE_GPU
                 d = DeviceFloatVector(potential_grid->data_.begin(),
                                       potential_grid->data_.end());
@@ -483,8 +422,6 @@ void META::EdgeEffect(const int dim, const int scatter_size)
         {
             normalization /= cv_deltas[i] * sigmas[i] / sqrtpi;
         }
-        // normal_factor->data_ = vector<float>(normal_factor->size(),
-        // normalization);
         normal_lse->data_ =
             vector<float>(normal_lse->size(), log(normalization));
     }
@@ -497,10 +434,6 @@ void META::EdgeEffect(const int dim, const int scatter_size)
         // default 1-dimensional scatter, maybe slow for 3D-mask!
         Axis esigmas;
         float adjust_factor = 1.0;
-        if (convmeta)
-        {
-            // adjust_factor = sqrtf(2.0);
-        }
         for (int i = 0; i < ndim; ++i)
         {
             esigmas.push_back(sigmas[i] * adjust_factor);
@@ -587,9 +520,8 @@ void META::EdgeEffect(const int dim, const int scatter_size)
             }
 
             float logsumhills = logSumExp(prefactor);
-            sum_max = fmaxf(logsumhills, sum_max);  ///<
+            sum_max = fmaxf(logsumhills, sum_max);
             vector<float> sum_potential(1 + ndim, expf(logsumhills));
-            // normal_lse->at(values) = logsumhills;
             *g_iter = logsumhills;
             if (do_negative)
             {  // print force!
@@ -599,7 +531,6 @@ void META::EdgeEffect(const int dim, const int scatter_size)
                     sum_potential[i + 1] = data[i];
                 }
             }
-            // hilllog(file_name, values, sum_potential); //(*g_iter));
             for (auto& v : values)
             {
                 fprintf(temp_file, "%f\t", v);
@@ -623,14 +554,10 @@ void META::PickScatter(const string fn, Grid<float>* data)
     ofstream hillsout;
     hillsout.open(fn.c_str(), fstream::out);
     hillsout.precision(8);
-    // float sum_max = sqrtf(1.0) / sum_normal;
-    // float ln_max = sum_max * logf(sum_max);
-    for (int index = 0; index < scatter_size; ++index)  //  indices)
+    for (int index = 0; index < scatter_size; ++index)
     {
         Axis neighbor = potential_scatter->GetCoordinate(index);
         float lnbias = data->at(neighbor);
-        // hillsout << index<< "\t" << sum_max*logf(lnbias)-ln_max << "\t" <<
-        // lnbias-sum_max << endl;
         hillsout << index << "\t" << lnbias << "\t" << exp(lnbias) << endl;
     }
     hillsout.close();
@@ -662,18 +589,6 @@ void META::getHeight(const Axis& values)
 {
     Estimate(values, true, false);
     height = height_0;
-    /*if(use_scatter && scatter != nullptr)
-    {
-            float ratio =
-    normal_lse->at(scatter->GetCoordinate(scatter->GetIndex(values)))-normal_lse->at(values);
-            //height = height_0 * expf(-ratio);
-            if(abs(ratio) > 2.5 )
-            {
-                //height = 0;   /// For convergence, don't add this hill!
-                //printf("Warning! The ratio of (%f,%f) is
-    %f\n",values[0],values[1],expf(ratio));
-            }
-    }*/
     if (temperature < 0.00001 || welltemp_factor > 60000)
     {
         return;  // avoid /0 = nan
@@ -692,11 +607,6 @@ float META::CalcVshift(const Axis& values)
     {
         return 0.;
     }
-    /*Axis values = coordinate;
-    if (use_scatter)
-    {
-            values = scatter->GetCoordinate(coordinate);
-    }*/
     if (convmeta)
     {
         return new_max *
@@ -721,40 +631,20 @@ void META::getReweightingBias(float temp)
     rbias = potential_backup;  // use original hill for reweighting
     float Z_0 = 0.;            // proportional to the integral of exp(-beta*F)
     float Z_V = 0.;  // proportional to the integral of exp(-beta*(F+V))
-    float Z_0_sink =
-        0.;  // proportional to the integral of exp(-beta*(F+V_{sink}))
-    float Z_V_sink =
-        0.;  // proportional to the integral of exp(-beta*(F+V_{sink}))
-             /*if (!subhill)
-            {
-                DeviceFloatVector d;
-                if (use_scatter)
-                {
-                    d = potential_scatter->data_;
-                }
-                else // use grid
-                {
-                    d = potential_grid->data_;
-                }
-                Z_0 = PartitionFunction(minusBetaF, potential_max, d);
-                Z_V = PartitionFunction(minusBetaFplusV, potential_max, d);
-            }
-            else*/
+    float Z_0_sink = 0.;
+    float Z_V_sink = 0.;
     if (potential_scatter != nullptr)
     {
         for (int iter = 0; iter < scatter_size; ++iter)
         {
             Axis coor = potential_scatter->GetCoordinate(iter);
-            Estimate(coor, true, false);  // calculate local potential!!!!
-
+            Estimate(coor, true, false);
             Z_0 = exp_added(Z_0, minusBetaF * potential_local);
             Z_V = exp_added(Z_V, minusBetaFplusV * potential_local);
             Z_0_sink = exp_added(Z_0_sink, minusBetaF * potential_backup);
             // Calculate the shift potential
             Z_V_sink = exp_added(Z_V_sink, minusBetaFplusV * potential_backup +
                                                beta * CalcVshift(coor));
-            // potential_max = max(potential_max, potential_backup);
-
             if (potential_backup > potential_max)
             {
                 max_index = iter;
@@ -767,20 +657,13 @@ void META::getReweightingBias(float temp)
         for (Grid<float>::iterator g_iter = potential_grid->begin();
              g_iter != potential_grid->end(); ++g_iter)
         {
-            Estimate(g_iter.coordinates(), true, false);  //
+            Estimate(g_iter.coordinates(), true, false);
             Z_0 = exp_added(Z_0, minusBetaF * potential_backup);
             Z_V = exp_added(Z_V, minusBetaFplusV * potential_backup);
             potential_max = max(potential_max, potential_backup);
         }
     }
-    // sink meta:
-    rct = CONSTANT_kB * temperature * (Z_0_sink - Z_V_sink);  // sink meta's rct
-    /*
-    float rct_sink = CONSTANT_kB * temperature * (Z_0 - Z_V);
-    printf("The extra rct of sink is %f\n", rct_sink);
-    bias -= rct_sink;
-    */
-    // use original hill for reweighting
+    rct = CONSTANT_kB * temperature * (Z_0_sink - Z_V_sink);
     rbias -= rct + temp;
 }
 
@@ -796,7 +679,7 @@ void META::AddPotential(float temp, int steps)
     }
     if (steps % potential_update_interval == 0)
     {
-        Axis values;  //, cvalues;
+        Axis values;
         for (int i = 0; i < cvs.size(); ++i)
         {
             values.push_back(cvs[i]->value);
@@ -825,7 +708,7 @@ void META::AddPotential(float temp, int steps)
         }
         Hill hill = Hill(values, sigmas, periods, height);
         hills.push_back(hill);
-        Axis hillinfo;  ///< myhill.log, after n-dim Axis column
+        Axis hillinfo;
         hillinfo.push_back(height);
         if (do_negative)
         {
@@ -835,11 +718,8 @@ void META::AddPotential(float temp, int steps)
         if (scatter != nullptr)
         {
             hillinfo.push_back(scatter->GetIndex(values));
-            if (mask)  // output path coordinate! The first coulumn is path
-                       // s, the last is hill
+            if (mask)
             {
-                // Cartesian2Path(values, hillinfo);
-                // hillinfo.push_back(exit_tag);
             }
         }
         hilllog("myhill.log", values, hillinfo);
@@ -872,16 +752,13 @@ void META::AddPotential(float temp, int steps)
                 indices = vector<int>(scatter_size);
                 iota(indices.begin(), indices.end(), 0);
             }
-            // myindices = potential_scatter->GetNeighbor(values,
-            // cv_deltas.data()); // The write potential cutoff should be
-            // cv_delta?
             for (auto index : indices)
             {
                 Axis coord = scatter->GetCoordinate(index);
                 //  Add to scatter.
                 Gdata& data = scatter->data()[index];
                 Gdata tder = hill.CalcHill(coord);
-                if (1)  //! subhill)
+                if (1)
                 {
                     if (catheter == 3)
                     {
@@ -957,10 +834,10 @@ void META::AddPotential(float temp, int steps)
             {
                 // Add to grid.
                 Gdata tder = hill.CalcHill(it.coordinates());
-                if (usegrid || nindex)  // mask within neigtbor of cuoff!
+                if (usegrid || nindex)
                 {
                     *it += factor * hill.potential;
-                    if (!subhill && grid != nullptr)  // buggy for mask!!!!!!
+                    if (!subhill && grid != nullptr)
                     {
                         Gdata& data = grid->data_[index];
                         for (size_t i = 0; i < grid->GetDimension(); ++i)
