@@ -12,6 +12,7 @@ Examples:
 
 import argparse
 import io
+import hashlib
 import json
 import platform
 import subprocess
@@ -320,12 +321,18 @@ def make_metadata(
     }
 
 
-def make_paths_json(archive_paths: list[str]) -> dict:
+def make_paths_json(files: list[tuple[Path, str]]) -> dict:
     """Create the paths.json metadata."""
     paths = []
-    for p in archive_paths:
-        entry = {"_path": p, "path_type": "hardlink"}
-        if p.startswith("bin/"):
+    for src_path, archive_path in files:
+        file_bytes = src_path.read_bytes()
+        entry = {
+            "_path": archive_path,
+            "path_type": "hardlink",
+            "sha256": hashlib.sha256(file_bytes).hexdigest(),
+            "size_in_bytes": len(file_bytes),
+        }
+        if archive_path.startswith("bin/"):
             entry["file_mode"] = "binary"
         paths.append(entry)
     return {"paths": paths, "paths_version": 1}
@@ -461,7 +468,7 @@ def main():
         subdir=subdir,
         variant=variant,
     )
-    paths_json = make_paths_json(archive_paths)
+    paths_json = make_paths_json(files)
 
     # Create output directory
     output_dir = Path(args.output_dir)
