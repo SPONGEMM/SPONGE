@@ -38,13 +38,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/plugin/plugin.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/bias/steer.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/bias/restrain_cv.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/meta.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/config/config.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/field/field.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/field/switch_function.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/geometry/geometry.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/io/io.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta/reweight/reweight.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/SITS/SITS.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/custom_force/listed_forces.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/custom_force/pairwise_force.cpp

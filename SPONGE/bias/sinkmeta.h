@@ -1,11 +1,81 @@
-#ifndef __META_CUH__
-#define __META_CUH__
+#ifndef __SINKMETA_CUH__
+#define __SINKMETA_CUH__
 
-#include "../../common.h"
-#include "../../control.h"
-#include "field/meta_grid.h"
-#include "field/switch_function.h"
-#include "../../collective_variable/collective_variable.h"
+#include "../common.h"
+#include "../control.h"
+#include "../collective_variable/collective_variable.h"
+
+struct MetaGrid
+{
+    int ndim = 0;
+    int total_size = 0;
+    // 每一维的网格点数（host/device）
+    std::vector<int> num_points;
+    int* d_num_points = NULL;
+    // 每一维是否周期（仅 host 使用）
+    std::vector<bool> is_periodic;
+    // 网格下界（host/device）
+    std::vector<float> lower;
+    float* d_lower = NULL;
+    // 网格上界（仅 host 使用）
+    std::vector<float> upper;
+    // 网格步长（host/device）
+    std::vector<float> spacing;
+    float* d_spacing = NULL;
+    // 网格步长倒数（仅 host 使用）
+    std::vector<float> inv_spacing;
+
+    std::vector<float> potential;
+    float* d_potential = NULL;
+    std::vector<float> force;
+    float* d_force = NULL;
+    std::vector<float> normal_lse;
+    float* d_normal_lse = NULL;
+    std::vector<float> normal_force;
+    float* d_normal_force = NULL;
+
+    void Initial(const std::vector<int>& npts, const std::vector<float>& lo,
+                 const std::vector<float>& up,
+                 const std::vector<bool>& periodic);
+    void Alloc_Device();
+    void Sync_To_Device();
+    void Sync_To_Host();
+    int Get_Flat_Index(const std::vector<float>& values) const;
+    std::vector<float> Get_Coordinates(int flat_index) const;
+    int size() const;
+    int Get_Dimension() const;
+};
+
+struct MetaScatter
+{
+    int ndim = 0;
+    int num_points = 0;
+    std::vector<std::vector<float>> coordinates;
+    std::vector<float> coordinates_flat;
+    float* d_coordinates = NULL;
+    std::vector<float> periods;
+    float* d_periods = NULL;
+
+    std::vector<float> potential;
+    float* d_potential = NULL;
+    std::vector<float> force;
+    float* d_force = NULL;
+    std::vector<float> rotate_v;
+    float* d_rotate_v = NULL;
+    std::vector<float> rotate_matrix;
+
+    void Initial(const std::vector<int>& npts, const std::vector<float>& period,
+                 const std::vector<std::vector<float>>& coor);
+    void Alloc_Device();
+    void Sync_To_Device();
+    void Sync_To_Host();
+    int Get_Index(const std::vector<float>& values) const;
+    std::vector<int> Get_Neighbor(const std::vector<float>& values,
+                                  const float* cutoff) const;
+    const std::vector<float>& Get_Coordinate(int index) const;
+    int size() const;
+    int Get_Dimension() const;
+};
 
 std::vector<float> normalize(const std::vector<float>& v);
 std::vector<float> cross_product(const std::vector<float>& a,
@@ -21,6 +91,7 @@ struct META
     char module_name[CHAR_LENGTH_MAX];
     int is_initialized = 0;
     int last_modify_date = 20260326;
+    CONTROLLER* controller = nullptr;
 
     void Initial(CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
@@ -39,7 +110,9 @@ struct META
         Hill(const Axis& centers, const Axis& inv_w, const Axis& period,
              const float& theight);
         const Gdata& Calc_Hill(const Axis& values);
-        std::vector<GaussianSF> gsf;
+        Axis centers_;
+        Axis inv_w_;
+        Axis periods_;
         float height;
         float potential;
         Axis dx_, df_;
@@ -125,6 +198,8 @@ struct META
     float* d_hill_centers = nullptr;
     float* d_hill_inv_w = nullptr;
     float* d_hill_periods = nullptr;
+    float* d_cutoff = nullptr;
+    float* d_delta_sigma = nullptr;
     float* d_reduce_buf = nullptr;
     float* h_reduce_buf = nullptr;
     int reduce_num_blocks = 0;
@@ -168,5 +243,6 @@ struct META
     float Project_To_Path(const Gdata& tang_vector, const Axis& values,
                           const Axis& Cartesian);
 };
+
 
 #endif

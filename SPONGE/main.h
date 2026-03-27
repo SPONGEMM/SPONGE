@@ -16,7 +16,7 @@
 #include "barostat/MC_barostat.h"
 #include "barostat/pressure_based_barostat.h"
 #include "bias/restrain_cv.h"
-#include "bias/sinkmeta/meta.h"
+#include "bias/sinkmeta.h"
 #include "bias/steer.h"
 #include "bond/bond.h"
 #include "cmap/cmap.h"
