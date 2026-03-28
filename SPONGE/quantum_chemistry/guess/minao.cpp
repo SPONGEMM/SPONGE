@@ -1,5 +1,6 @@
+﻿#include "minao.h"
+
 #include "../quantum_chemistry.h"
-#include "minao.h"
 
 // H-Ar 基态电子构型：每个子壳层的角动量和电子数
 // 子壳层按 1s, 2s, 2p, 3s, 3p 排列
@@ -51,8 +52,8 @@ static __global__ void QC_Set_Diagonal_Kernel(const int count, const int nao,
 }
 
 void QC_Build_Minao_Guess(const QC_MOLECULE& mol,
-                          const QC_SCF_Runtime_State& runtime,
-                          float* d_P, float* d_P_beta)
+                          const QC_SCF_Runtime_State& runtime, float* d_P,
+                          float* d_P_beta)
 {
     const int nao = mol.nao;
     const bool unrestricted = runtime.unrestricted;
@@ -144,8 +145,8 @@ void QC_Build_Minao_Guess(const QC_MOLECULE& mol,
         deviceMemcpy(d_occ, h_occ_alpha.data(), sizeof(float) * n,
                      deviceMemcpyHostToDevice);
         Launch_Device_Kernel(QC_Set_Diagonal_Kernel,
-                             (n + threads - 1) / threads, threads, 0, 0, n,
-                             nao, d_idx, d_occ, d_P);
+                             (n + threads - 1) / threads, threads, 0, 0, n, nao,
+                             d_idx, d_occ, d_P);
         deviceFree(d_idx);
         deviceFree(d_occ);
     }
@@ -162,8 +163,8 @@ void QC_Build_Minao_Guess(const QC_MOLECULE& mol,
         deviceMemcpy(d_occ, h_occ_beta.data(), sizeof(float) * n,
                      deviceMemcpyHostToDevice);
         Launch_Device_Kernel(QC_Set_Diagonal_Kernel,
-                             (n + threads - 1) / threads, threads, 0, 0, n,
-                             nao, d_idx, d_occ, d_P_beta);
+                             (n + threads - 1) / threads, threads, 0, 0, n, nao,
+                             d_idx, d_occ, d_P_beta);
         deviceFree(d_idx);
         deviceFree(d_occ);
     }
