@@ -779,11 +779,49 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     deviceSolverCreate(&solver_handle);
     Memory_Allocate(controller);
     controller->Step_Print_Initial("QC", "%e");
+    if (scf_ws.runtime.unrestricted)
+        controller->Step_Print_Initial("QC_S_sq", "%.4f");
+}
+
+// 将 d_F 中的 F_guess 对角化，按 aufbau 填充 alpha/beta 轨道构建初始 P
+void QUANTUM_CHEMISTRY::Diag_Guess_And_Build_P()
+{
+    const int nao2 = mol.nao2;
+
+    // 同步到 d_F_double（Diagonalize 优先读 d_F_double）
+    if (scf_ws.alpha.d_F_double)
+        QC_Float_To_Double(nao2, scf_ws.alpha.d_F,
+                           scf_ws.alpha.d_F_double);
+    if (scf_ws.runtime.unrestricted)
+    {
+        deviceMemcpy(scf_ws.beta.d_F, scf_ws.alpha.d_F,
+                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        if (scf_ws.beta.d_F_double)
+            QC_Float_To_Double(nao2, scf_ws.beta.d_F,
+                               scf_ws.beta.d_F_double);
+    }
+
+    // 对角化（跳过 level shift）
+    double saved_ls = scf_ws.runtime.level_shift;
+    scf_ws.runtime.level_shift = 0.0;
+    Diagonalize_And_Build_Density();
+    scf_ws.runtime.level_shift = saved_ls;
+
+    // P = P_new
+    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
+                 sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+    if (scf_ws.runtime.unrestricted)
+    {
+        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
+                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Build_Initial_Guess()
 {
     if (initial_guess == QC_INITIAL_GUESS::NONE) return;
+
+    const int nao2 = mol.nao2;
 
     if (initial_guess == QC_INITIAL_GUESS::MINAO)
     {
@@ -794,7 +832,6 @@ void QUANTUM_CHEMISTRY::Build_Initial_Guess()
     {
         const int nao_c = mol.nao_cart;
         const int nao = mol.nao;
-        const int nao2 = mol.nao2;
 
         // 1. 计算 V_SAP（笛卡尔基下）
         float* d_V_SAP = nullptr;
@@ -802,53 +839,22 @@ void QUANTUM_CHEMISTRY::Build_Initial_Guess()
                              sizeof(float) * nao_c * nao_c);
         QC_Compute_V_SAP(mol, task_ctx, d_V_SAP);
 
-        // 2. 球谐变换（如需要），结果写入 d_F（临时借用）
+        // 2. 球谐变换（如需要），结果写入 d_F
         if (mol.is_spherical)
-        {
             Cart2Sph_Single_Matrix(d_V_SAP, scf_ws.alpha.d_F);
-        }
         else
-        {
             deviceMemcpy(scf_ws.alpha.d_F, d_V_SAP, sizeof(float) * nao2,
                          deviceMemcpyDeviceToDevice);
-        }
         deviceFree(d_V_SAP);
 
-        // 3. 归一化（与 S/T/V 相同的 norms）
+        // 3. 归一化 + F_guess = T + V_SAP
         QC_Scale_Matrix_By_Norms(nao, scf_ws.ortho.d_norms,
                                  scf_ws.alpha.d_F);
-
-        // 4. F_guess = T + V_SAP (V_SAP 包含修正后的完整核吸引)
         QC_Add_Matrix(nao2, scf_ws.core.d_T, scf_ws.alpha.d_F,
                       scf_ws.alpha.d_F);
 
-        // 同步到 d_F_double（Diagonalize 优先读 d_F_double）
-        if (scf_ws.alpha.d_F_double)
-            QC_Float_To_Double(nao2, scf_ws.alpha.d_F,
-                               scf_ws.alpha.d_F_double);
-        if (scf_ws.runtime.unrestricted)
-        {
-            deviceMemcpy(scf_ws.beta.d_F, scf_ws.alpha.d_F,
-                         sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
-            if (scf_ws.beta.d_F_double)
-                QC_Float_To_Double(nao2, scf_ws.beta.d_F,
-                                   scf_ws.beta.d_F_double);
-        }
-
-        // 5. 对角化 F_guess 得到 MO，构建 P_new（跳过 level shift）
-        double saved_ls = scf_ws.runtime.level_shift;
-        scf_ws.runtime.level_shift = 0.0;
-        Diagonalize_And_Build_Density();
-        scf_ws.runtime.level_shift = saved_ls;
-
-        // 6. P = P_new
-        deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
-                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
-        if (scf_ws.runtime.unrestricted)
-        {
-            deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
-                         sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
-        }
+        // 4. 对角化 + aufbau 构建 P
+        Diag_Guess_And_Build_P();
     }
 
     if (scf_ws.runtime.unrestricted)
@@ -974,4 +980,10 @@ void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)
         scf_energy = (float)h_energy;
     }
     controller->Step_Print("QC", scf_energy * CONSTANT_HARTREE_TO_KCAL_MOL);
+
+    if (scf_ws.runtime.unrestricted)
+    {
+        Compute_Spin_Square();
+        controller->Step_Print("QC_S_sq", scf_ws.runtime.spin_square);
+    }
 }

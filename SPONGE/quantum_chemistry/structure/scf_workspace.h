@@ -110,6 +110,9 @@ struct QC_SCF_Runtime_State
     double level_shift = 0.25;
     bool print_iter = false;
 
+    double spin_square = 0.0;
+    double spin_square_exact = 0.0;
+
     double* d_e = NULL;
     double* d_e_b = NULL;
     double* d_pvxc = NULL;

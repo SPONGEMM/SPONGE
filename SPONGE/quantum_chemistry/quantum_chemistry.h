@@ -104,6 +104,8 @@ struct QUANTUM_CHEMISTRY
     void Build_Overlap_X();
     void Reset_SCF_State();
     void Build_Initial_Guess();
+    void Diag_Guess_And_Build_P();
+    void Compute_Spin_Square();
 };
 
 #endif
