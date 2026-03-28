@@ -40,6 +40,9 @@ struct QUANTUM_CHEMISTRY
 
     // 计算方法
     QC_METHOD method = QC_METHOD::HF;
+    // 初始猜测
+    QC_INITIAL_GUESS initial_guess = QC_INITIAL_GUESS::MINAO;
+    bool need_initial_guess = true;
     // DFT信息
     QC_DFT dft;
     // 分子信息

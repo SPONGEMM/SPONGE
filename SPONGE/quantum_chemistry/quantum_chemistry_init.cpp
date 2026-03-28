@@ -1,5 +1,6 @@
 ﻿#include "basis/basis.h"
 #include "guess/minao.h"
+#include "guess/sap.h"
 #include "quantum_chemistry.h"
 
 static void Init_ERI_Workspace_Params(QUANTUM_CHEMISTRY* qc,
@@ -440,6 +441,28 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             std::min(590, atoi(controller->Command("qc_dft_angular_points"))));
     }
 
+    initial_guess = QC_INITIAL_GUESS::MINAO;
+    if (controller->Command_Exist("qc_initial_guess"))
+    {
+        std::string guess_str = controller->Command("qc_initial_guess");
+        std::transform(guess_str.begin(), guess_str.end(), guess_str.begin(),
+                       ::tolower);
+        if (guess_str == "none")
+            initial_guess = QC_INITIAL_GUESS::NONE;
+        else if (guess_str == "minao")
+            initial_guess = QC_INITIAL_GUESS::MINAO;
+        else if (guess_str == "sap")
+            initial_guess = QC_INITIAL_GUESS::SAP;
+        else
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_initial_guess must be \"none\", \"minao\","
+                " or \"sap\", got \"%s\"\n",
+                controller->Command("qc_initial_guess"));
+        }
+    }
+
     this->atom_numbers = atom_numbers;
     return true;
 }
@@ -755,14 +778,22 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     deviceBlasCreate(&blas_handle);
     deviceSolverCreate(&solver_handle);
     Memory_Allocate(controller);
-    Build_Initial_Guess();
     controller->Step_Print_Initial("QC", "%e");
 }
 
 void QUANTUM_CHEMISTRY::Build_Initial_Guess()
 {
-    QC_Build_Minao_Guess(mol, scf_ws.runtime, scf_ws.alpha.d_P,
-                         scf_ws.beta.d_P);
+    if (initial_guess == QC_INITIAL_GUESS::NONE) return;
+
+    if (initial_guess == QC_INITIAL_GUESS::MINAO ||
+        initial_guess == QC_INITIAL_GUESS::SAP)
+    {
+        // SAP 暂未完成对角化流程，当前 fallback 到 minao
+        // TODO: SAP 积分核函数已就绪（guess/sap.cpp），待接入
+        QC_Build_Minao_Guess(mol, scf_ws.runtime, scf_ws.alpha.d_P,
+                             scf_ws.beta.d_P);
+    }
+
     if (scf_ws.runtime.unrestricted)
     {
         QC_Add_Matrix((int)mol.nao2, scf_ws.alpha.d_P, scf_ws.beta.d_P,

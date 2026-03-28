@@ -23,6 +23,12 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     Prepare_Integrals();
     Build_Overlap_X();
 
+    if (need_initial_guess)
+    {
+        Build_Initial_Guess();
+        need_initial_guess = false;
+    }
+
     for (int iter = 0; iter < scf_ws.runtime.max_scf_iter; ++iter)
     {
         Build_Fock(iter);

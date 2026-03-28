@@ -13,4 +13,11 @@ enum class QC_METHOD
     B3LYP
 };
 
+enum class QC_INITIAL_GUESS
+{
+    NONE = 0,
+    MINAO,
+    SAP
+};
+
 #endif

@@ -245,6 +245,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
                 dFb, scf_ws.diis.d_diis_accum))
         {
             QC_Double_To_Float(nao2, dFb, scf_ws.beta.d_F);
+            scf_ws.diis.diis_extrapolated = true;
         }
     }
 }
