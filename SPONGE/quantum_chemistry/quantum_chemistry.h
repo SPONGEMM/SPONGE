@@ -81,6 +81,7 @@ struct QUANTUM_CHEMISTRY
     // 积分与基组变换内部流程
     void Build_Cart2Sph_Matrix();
     void Cart2Sph_OneE_Integrals();
+    void Cart2Sph_Single_Matrix(float* d_cart, float* d_sph);
 
     // 坐标更新
     void Update_Coordinates_From_MD(const VECTOR* crd, const VECTOR box_length);

@@ -1,9 +1,10 @@
-#include "../quantum_chemistry.h"
 #include "sap.h"
+
+#include "../quantum_chemistry.h"
 
 // ====================== SAP 拟合参数 (sap_helfem_large) ======================
 // 来源: Psi4 / Basis Set Exchange, S. Lehtola 用 HelFEM 计算
-// 原子势展开为: V(r) = -sum_k c_k * erf(sqrt(alpha_k) * r) / r
+// 原子势展开为: V(r) = -Z_eff(r)/r = -(Z + Σ c_k erf(√α_k r))/r
 // 每个 SAP_TERM 存储一组 (alpha, coeff)
 // =============================================================================
 
@@ -16,7 +17,7 @@ struct SAP_TERM
 struct SAP_ATOM_DATA
 {
     int n_terms;
-    SAP_TERM terms[16];  // 最多 14 项 (Al 有 14 项)
+    SAP_TERM terms[16];
 };
 
 // clang-format off
@@ -269,14 +270,43 @@ static const int SAP_MAX_Z =
     (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
 
 // ====================== V_SAP 积分核函数 ======================
-// 与核吸引积分完全类似，但用 Gaussian 核电荷分布替代点电荷：
-//   点电荷:   Boys(g * R_PC², n),  prefactor = -Z * 2π/g
-//   Gaussian: Boys(g*ζ/(g+ζ) * R_PC², n),  prefactor = c_k * 2π/(g+ζ)
+// 基于 arXiv:2603.16989 的方法：对核吸引积分的 Boys 函数做修正
+//
+// 标准核吸引: F_m(T), T = g * R_PC²
+// SAP 修正:   F_m(T) → F_m(T) - Σ_k c̃_k (α_k/(g+α_k))^(m+1/2) F_m(T·α_k/(g+α_k))
+// 其中 c̃_k = c_k / Z_C
+//
+// 前因子 (-Z * 2π/g) 和 R tensor 递推完全不变
 // ==============================================================
 
-// 前向声明：复用 one_e.hpp 中的函数
-// (这些函数在 one_e.hpp 中是 static __device__，这里需要重新声明或 include)
 #include "../integrals/one_e.hpp"
+
+// 对 Boys 函数值施加 SAP 修正
+static __device__ void apply_sap_correction(double* F_vals, int L_tot,
+                                            float T, float g,
+                                            const SAP_ATOM_DATA& sap, int Z)
+{
+    if (Z == 0) return;
+    const float inv_Z = 1.0f / (float)Z;
+
+    for (int k = 0; k < sap.n_terms; k++)
+    {
+        float alpha_k = sap.terms[k].alpha;
+        float c_tilde = sap.terms[k].coeff * inv_Z;
+        float ratio = alpha_k / (g + alpha_k);
+        float T_mod = T * ratio;
+
+        double F_mod[ONEE_MD_BASE];
+        compute_boys_double(F_mod, T_mod, L_tot);
+
+        double r_pow = sqrtf(ratio);  // ratio^(1/2) for m=0
+        for (int m = 0; m <= L_tot; m++)
+        {
+            F_vals[m] += (double)c_tilde * r_pow * F_mod[m];
+            r_pow *= (double)ratio;  // ratio^(m+1/2)
+        }
+    }
+}
 
 static __global__ void SAP_Kernel(
     const int n_tasks, const QC_ONE_E_TASK* tasks, const VECTOR* centers,
@@ -332,63 +362,57 @@ static __global__ void SAP_Kernel(
                                           0.5f / g);
                         int L_tot = li + lj;
 
-                        // 对每个原子的每个 SAP 拟合项
                         for (int iat = 0; iat < natm; iat++)
                         {
                             int Z = d_Z[iat];
                             if (Z <= 0 || Z > SAP_MAX_Z) continue;
-                            const SAP_ATOM_DATA& sap = SAP_DATA[Z];
 
                             int ptr_coord = atm[iat * 6 + 1];
                             float Cx = env[ptr_coord];
                             float Cy = env[ptr_coord + 1];
                             float Cz = env[ptr_coord + 2];
-                            float PCx = Px - Cx, PCy = Py - Cy,
-                                  PCz = Pz - Cz;
-                            float PC2 =
-                                PCx * PCx + PCy * PCy + PCz * PCz;
-                            float PC[3] = {PCx, PCy, PCz};
+                            float PC2 = (Px - Cx) * (Px - Cx) +
+                                        (Py - Cy) * (Py - Cy) +
+                                        (Pz - Cz) * (Pz - Cz);
+                            float PC[3] = {Px - Cx, Py - Cy, Pz - Cz};
+                            float T = g * PC2;
 
-                            for (int k = 0; k < sap.n_terms; k++)
+                            double F_vals[ONEE_MD_BASE];
+                            compute_boys_double(F_vals, T, L_tot);
+                            apply_sap_correction(F_vals, L_tot, T, (float)g,
+                                                 SAP_DATA[Z], Z);
+
+                            float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
+                                         ONEE_MD_BASE * ONEE_MD_BASE];
+                            compute_r_tensor_1e(R_vals, F_vals, (float)g, PC,
+                                                L_tot);
+
+                            double v_sum = 0.0;
+                            for (int tx = 0; tx <= lx_i + lx_j; tx++)
                             {
-                                float zeta = sap.terms[k].alpha;
-                                float ck = sap.terms[k].coeff;
-                                float g_eff = g + zeta;
-                                float T = g * zeta / g_eff * PC2;
-
-                                double F_vals[ONEE_MD_BASE];
-                                float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
-                                             ONEE_MD_BASE * ONEE_MD_BASE];
-                                compute_boys_double(F_vals, T, L_tot);
-                                compute_r_tensor_1e(R_vals, F_vals, g_eff,
-                                                    PC, L_tot);
-
-                                double v_sum = 0.0;
-                                for (int tx = 0; tx <= lx_i + lx_j; tx++)
+                                float ex = E_x[lx_i][lx_j][tx];
+                                if (ex == 0.0f) continue;
+                                for (int ty = 0; ty <= ly_i + ly_j; ty++)
                                 {
-                                    float ex = E_x[lx_i][lx_j][tx];
-                                    if (ex == 0.0f) continue;
-                                    for (int ty = 0; ty <= ly_i + ly_j; ty++)
+                                    float ey = E_y[ly_i][ly_j][ty];
+                                    if (ey == 0.0f) continue;
+                                    for (int tz = 0; tz <= lz_i + lz_j;
+                                         tz++)
                                     {
-                                        float ey = E_y[ly_i][ly_j][ty];
-                                        if (ey == 0.0f) continue;
-                                        for (int tz = 0; tz <= lz_i + lz_j;
-                                             tz++)
-                                        {
-                                            float ez = E_z[lz_i][lz_j][tz];
-                                            if (ez == 0.0f) continue;
-                                            v_sum +=
-                                                (double)ex * (double)ey *
-                                                (double)ez *
-                                                (double)R_vals[ONEE_MD_IDX(
-                                                    tx, ty, tz, 0)];
-                                        }
+                                        float ez = E_z[lz_i][lz_j][tz];
+                                        if (ez == 0.0f) continue;
+                                        v_sum +=
+                                            (double)ex * (double)ey *
+                                            (double)ez *
+                                            (double)R_vals[ONEE_MD_IDX(
+                                                tx, ty, tz, 0)];
                                     }
                                 }
-                                total_V += ci * cj * Kab * ck *
-                                           (2.0f * CONSTANT_Pi / g_eff) *
-                                           (float)v_sum;
                             }
+                            total_V += ci * cj * Kab *
+                                       -(float)Z *
+                                       (2.0f * CONSTANT_Pi / g) *
+                                       (float)v_sum;
                         }
                     }
                 }
@@ -400,8 +424,7 @@ static __global__ void SAP_Kernel(
 }
 
 void QC_Compute_V_SAP(const QC_MOLECULE& mol,
-                      const QC_INTEGRAL_TASKS& task_ctx,
-                      float* d_V_SAP)
+                      const QC_INTEGRAL_TASKS& task_ctx, float* d_V_SAP)
 {
     const int nao_c = mol.nao_cart;
     deviceMemset(d_V_SAP, 0, sizeof(float) * nao_c * nao_c);

@@ -785,13 +785,70 @@ void QUANTUM_CHEMISTRY::Build_Initial_Guess()
 {
     if (initial_guess == QC_INITIAL_GUESS::NONE) return;
 
-    if (initial_guess == QC_INITIAL_GUESS::MINAO ||
-        initial_guess == QC_INITIAL_GUESS::SAP)
+    if (initial_guess == QC_INITIAL_GUESS::MINAO)
     {
-        // SAP 暂未完成对角化流程，当前 fallback 到 minao
-        // TODO: SAP 积分核函数已就绪（guess/sap.cpp），待接入
         QC_Build_Minao_Guess(mol, scf_ws.runtime, scf_ws.alpha.d_P,
                              scf_ws.beta.d_P);
+    }
+    else if (initial_guess == QC_INITIAL_GUESS::SAP)
+    {
+        const int nao_c = mol.nao_cart;
+        const int nao = mol.nao;
+        const int nao2 = mol.nao2;
+
+        // 1. 计算 V_SAP（笛卡尔基下）
+        float* d_V_SAP = nullptr;
+        Device_Malloc_Safely((void**)&d_V_SAP,
+                             sizeof(float) * nao_c * nao_c);
+        QC_Compute_V_SAP(mol, task_ctx, d_V_SAP);
+
+        // 2. 球谐变换（如需要），结果写入 d_F（临时借用）
+        if (mol.is_spherical)
+        {
+            Cart2Sph_Single_Matrix(d_V_SAP, scf_ws.alpha.d_F);
+        }
+        else
+        {
+            deviceMemcpy(scf_ws.alpha.d_F, d_V_SAP, sizeof(float) * nao2,
+                         deviceMemcpyDeviceToDevice);
+        }
+        deviceFree(d_V_SAP);
+
+        // 3. 归一化（与 S/T/V 相同的 norms）
+        QC_Scale_Matrix_By_Norms(nao, scf_ws.ortho.d_norms,
+                                 scf_ws.alpha.d_F);
+
+        // 4. F_guess = T + V_SAP (V_SAP 包含修正后的完整核吸引)
+        QC_Add_Matrix(nao2, scf_ws.core.d_T, scf_ws.alpha.d_F,
+                      scf_ws.alpha.d_F);
+
+        // 同步到 d_F_double（Diagonalize 优先读 d_F_double）
+        if (scf_ws.alpha.d_F_double)
+            QC_Float_To_Double(nao2, scf_ws.alpha.d_F,
+                               scf_ws.alpha.d_F_double);
+        if (scf_ws.runtime.unrestricted)
+        {
+            deviceMemcpy(scf_ws.beta.d_F, scf_ws.alpha.d_F,
+                         sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+            if (scf_ws.beta.d_F_double)
+                QC_Float_To_Double(nao2, scf_ws.beta.d_F,
+                                   scf_ws.beta.d_F_double);
+        }
+
+        // 5. 对角化 F_guess 得到 MO，构建 P_new（跳过 level shift）
+        double saved_ls = scf_ws.runtime.level_shift;
+        scf_ws.runtime.level_shift = 0.0;
+        Diagonalize_And_Build_Density();
+        scf_ws.runtime.level_shift = saved_ls;
+
+        // 6. P = P_new
+        deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
+                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        if (scf_ws.runtime.unrestricted)
+        {
+            deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
+                         sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        }
     }
 
     if (scf_ws.runtime.unrestricted)

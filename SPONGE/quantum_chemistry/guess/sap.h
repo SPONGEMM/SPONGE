@@ -3,39 +3,25 @@
 
 // Superposition of Atomic Potentials (SAP) initial guess
 //
-// References:
-//   [1] S. Lehtola, "Assessment of Initial Guesses for Self-Consistent Field
-//       Calculations. Superposition of Atomic Potentials: Simple yet Efficient",
-//       J. Chem. Theory Comput. 15, 1593-1604 (2019).
-//       DOI: 10.1021/acs.jctc.8b01089
+// Reference:
+//   S. Lehtola, "Comment on 'Efficient implementation of the superposition
+//   of atomic potentials initial guess for electronic structure calculations
+//   in Gaussian basis sets'", arXiv:2603.16989 (2026).
 //
-//   [2] S. Lehtola, L. Visscher, E. Engel, "Efficient implementation of the
-//       superposition of atomic potentials initial guess for electronic
-//       structure calculations in Gaussian basis sets",
-//       J. Chem. Phys. 152, 144105 (2020).
-//       DOI: 10.1063/5.0004046
+// SAP 通过对核吸引积分的 Boys 函数施加修正来实现，无需显式三中心积分。
+// 修正公式（Eq. 11）:
+//   F_m(T) → F_m(T) - Σ_k c̃_k (α_k/(ζ+α_k))^(m+1/2) F_m(T·α_k/(ζ+α_k))
+// 其中 c̃_k = c_k / Z_C, ζ = p (basis pair exponent), T = p * |P-C|²
 //
-// SAP fitting parameters from sap_helfem_large basis set (Psi4/BSE),
-// originally computed by S. Lehtola using the HelFEM finite-element program.
-//
-// The atomic potential is expanded as:
-//   V_A(r) = -Z_eff(r)/r = -sum_k c_k * erf(sqrt(alpha_k) * r) / r
-//
-// Matrix elements <mu|V_SAP|nu> are computed analogously to nuclear attraction
-// integrals with Gaussian charge distributions. For each fitting term k on
-// atom A with exponent alpha_k:
-//   Boys argument:  T = p * alpha_k / (p + alpha_k) * |P - A|^2
-//   Prefactor:      2 * pi / (p + alpha_k)
-// where p = a + b is the sum of basis Gaussian exponents.
+// SAP 拟合参数来自 sap_helfem_large（Psi4/BSE），
+// 由 S. Lehtola 使用 HelFEM 有限元程序计算。
 
+#include "../structure/integral_tasks.h"
 #include "../structure/molecule.h"
-#include "../structure/scf_workspace.h"
 
-// Compute the SAP potential matrix V_SAP and build initial density from it.
-// Diagonalizes (H_core + V_SAP) to obtain initial MOs, then populates P.
-void QC_Build_SAP_Guess(const QC_MOLECULE& mol,
-                        const QC_SCF_Runtime_State& runtime,
-                        const float* d_H_core, const float* d_S,
-                        float* d_P, float* d_P_beta);
+// Compute the SAP potential matrix V_SAP in Cartesian basis.
+void QC_Compute_V_SAP(const QC_MOLECULE& mol,
+                      const QC_INTEGRAL_TASKS& task_ctx,
+                      float* d_V_SAP);
 
 #endif

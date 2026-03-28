@@ -46,6 +46,7 @@ void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
 
 void QC_Add_Matrix(int n, const float* A, const float* B, float* C);
 void QC_Sub_Matrix(int n, const float* A, const float* B, float* C);
+void QC_Scale_Matrix_By_Norms(int nao, const float* norms, float* M);
 
 void QC_Float_To_Double(int n, const float* src, double* dst);
 void QC_Double_To_Float(int n, const double* src, float* dst);

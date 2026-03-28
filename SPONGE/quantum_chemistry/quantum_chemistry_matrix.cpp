@@ -230,6 +230,28 @@ void QC_Sub_Matrix(int n, const float* A, const float* B, float* C)
                          threads, 0, 0, n, A, B, C);
 }
 
+static __global__ void QC_Scale_Matrix_By_Norms_Kernel(const int nao,
+                                                       const float* norms,
+                                                       float* M)
+{
+    const int total = nao * nao;
+    SIMPLE_DEVICE_FOR(idx, total)
+    {
+        int i = idx / nao;
+        int j = idx - i * nao;
+        M[idx] *= norms[i] * norms[j];
+    }
+}
+
+void QC_Scale_Matrix_By_Norms(int nao, const float* norms, float* M)
+{
+    const int threads = 256;
+    const int total = nao * nao;
+    Launch_Device_Kernel(QC_Scale_Matrix_By_Norms_Kernel,
+                         (total + threads - 1) / threads, threads, 0, 0, nao,
+                         norms, M);
+}
+
 static __global__ void QC_Float_To_Double_Kernel(const int n, const float* src,
                                                  double* dst)
 {
@@ -570,24 +592,26 @@ void QUANTUM_CHEMISTRY::Build_Cart2Sph_Matrix()
     }
 }
 
-void QUANTUM_CHEMISTRY::Cart2Sph_OneE_Integrals()
+void QUANTUM_CHEMISTRY::Cart2Sph_Single_Matrix(float* d_cart, float* d_sph)
 {
     if (!mol.is_spherical) return;
     const int nao_c = mol.nao_cart;
     const int nao_s = mol.nao_sph;
     const int threads = 256;
     const int total = nao_s * nao_s;
-    auto cart2sph_1e = [&](float* d_src, float* d_dst)
-    {
-        QC_MatMul_RowRow_Blas(blas_handle, nao_c, nao_s, nao_c, d_src,
-                              cart2sph.d_cart2sph_mat,
-                              cart2sph.d_cart2sph_1e_tmp);
-        Launch_Device_Kernel(QC_Cart2Sph_MatMul_UT_RowRow_Kernel,
-                             (total + threads - 1) / threads, threads, 0, 0,
-                             nao_s, nao_s, nao_c, cart2sph.d_cart2sph_mat,
-                             cart2sph.d_cart2sph_1e_tmp, d_dst);
-    };
-    cart2sph_1e(cart2sph.d_S_cart, scf_ws.core.d_S);
-    cart2sph_1e(cart2sph.d_T_cart, scf_ws.core.d_T);
-    cart2sph_1e(cart2sph.d_V_cart, scf_ws.core.d_V);
+    QC_MatMul_RowRow_Blas(blas_handle, nao_c, nao_s, nao_c, d_cart,
+                          cart2sph.d_cart2sph_mat,
+                          cart2sph.d_cart2sph_1e_tmp);
+    Launch_Device_Kernel(QC_Cart2Sph_MatMul_UT_RowRow_Kernel,
+                         (total + threads - 1) / threads, threads, 0, 0,
+                         nao_s, nao_s, nao_c, cart2sph.d_cart2sph_mat,
+                         cart2sph.d_cart2sph_1e_tmp, d_sph);
+}
+
+void QUANTUM_CHEMISTRY::Cart2Sph_OneE_Integrals()
+{
+    if (!mol.is_spherical) return;
+    Cart2Sph_Single_Matrix(cart2sph.d_S_cart, scf_ws.core.d_S);
+    Cart2Sph_Single_Matrix(cart2sph.d_T_cart, scf_ws.core.d_T);
+    Cart2Sph_Single_Matrix(cart2sph.d_V_cart, scf_ws.core.d_V);
 }
