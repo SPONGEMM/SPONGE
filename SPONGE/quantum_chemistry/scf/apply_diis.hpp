@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 // ========================== DIIS 误差构造 ==========================
 // 在设备侧用双精度构造对易子误差 e = F P S - S P F
@@ -183,104 +183,8 @@ do_extrapolate:
     return true;
 }
 
-// ========================== ADIIS 外推 ===========================
-// 基于历史 Fock / density 构造 ADIIS 目标，并求历史 Fock 的组合系数
-// 参考: JCP 132, 054109 (2010)
-// ================================================================
-static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
-                                 int diis_space, int adiis_count,
-                                 int adiis_head, double** d_f_hist,
-                                 double** d_d_hist, double* d_f_out,
-                                 double* d_accum)
-{
-    if (adiis_count < 2) return false;
-    const int m = std::min(adiis_count, diis_space);
-    if (m < 2) return false;
-    const int nao2 = nao * nao;
-    auto hist_idx = [&](int i) { return (adiis_head + i) % diis_space; };
-
-    // 在设备侧计算 df[i,j] = Tr(D_i * F_j)
-    std::vector<double> df(m * m);
-    for (int i = 0; i < m; i++)
-    {
-        for (int j = 0; j < m; j++)
-        {
-            deviceMemset(d_accum, 0, sizeof(double));
-            QC_Double_Dot(nao2, d_d_hist[hist_idx(i)], d_f_hist[hist_idx(j)],
-                          d_accum);
-            deviceMemcpy(&df[i * m + j], d_accum, sizeof(double),
-                         deviceMemcpyDeviceToHost);
-        }
-    }
-
-    // 在主机侧构造 ADIIS 小规模二次型
-    std::vector<double> dd_fn(m);
-    double dn_fn = df[(m - 1) * m + (m - 1)];
-    for (int i = 0; i < m; i++)
-    {
-        dd_fn[i] = df[i * m + (m - 1)] - dn_fn;
-    }
-    std::vector<double> df_adj(m * m);
-    for (int i = 0; i < m; i++)
-        for (int j = 0; j < m; j++)
-            df_adj[i * m + j] = df[i * m + j] - df[i * m + (m - 1)] -
-                                df[(m - 1) * m + j] + dn_fn;
-
-    // 最小化 cost(c) = 2 * sum(c_i * dd_fn_i) + sum(c_i * df_adj_ij * c_j)
-    // 通过 c_i = x_i^2 / sum(x_j^2) 参数化，保证系数非负且归一
-    std::vector<double> x(m, 1.0);
-    for (int step = 0; step < 300; step++)
-    {
-        double x2sum = 0;
-        for (int i = 0; i < m; i++) x2sum += x[i] * x[i];
-        std::vector<double> c(m);
-        for (int i = 0; i < m; i++) c[i] = x[i] * x[i] / x2sum;
-
-        std::vector<double> gc(m);
-        for (int k = 0; k < m; k++)
-        {
-            gc[k] = 2.0 * dd_fn[k];
-            for (int j = 0; j < m; j++)
-                gc[k] += (df_adj[k * m + j] + df_adj[j * m + k]) * c[j];
-        }
-
-        std::vector<double> gx(m, 0.0);
-        for (int nn = 0; nn < m; nn++)
-        {
-            for (int k = 0; k < m; k++)
-            {
-                double dc = 2.0 * x[nn] *
-                            ((k == nn ? x2sum : 0.0) - x[k] * x[k]) /
-                            (x2sum * x2sum);
-                gx[nn] += gc[k] * dc;
-            }
-        }
-
-        double gnorm = 0;
-        for (int i = 0; i < m; i++) gnorm += gx[i] * gx[i];
-        if (gnorm < 1e-20) break;
-        double lr = 0.1;
-        for (int i = 0; i < m; i++) x[i] -= lr * gx[i];
-    }
-
-    // 生成最终 ADIIS 系数
-    double x2sum = 0;
-    for (int i = 0; i < m; i++) x2sum += x[i] * x[i];
-    std::vector<double> c(m);
-    for (int i = 0; i < m; i++) c[i] = x[i] * x[i] / x2sum;
-
-    // 在设备侧执行 F = sum_i c_i * F_i
-    deviceMemset(d_f_out, 0, sizeof(double) * nao2);
-    for (int i = 0; i < m; i++)
-    {
-        double ci = c[i];
-        QC_Double_Axpy(nao2, ci, d_f_hist[hist_idx(i)], d_f_out);
-    }
-    return true;
-}
-
 // ========================== SCF 中应用 DIIS ==========================
-// 在每轮 SCF 中更新 alpha/beta 历史，并按误差大小在 ADIIS / CDIIS 间切换
+// 在每轮 SCF 中更新 alpha/beta 历史，并执行 CDIIS 外推
 // ================================================================
 void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
 {
@@ -291,19 +195,11 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     if (!dF) return;
     const int nao2 = (int)mol.nao2;
 
-    // 在设备侧构造 alpha 通道 DIIS 误差并计算误差范数
+    // 在设备侧构造 alpha 通道 DIIS 误差
     QC_Build_DIIS_Error_Double(
         blas_handle, mol.nao, dF, scf_ws.alpha.d_P, scf_ws.core.d_S,
         scf_ws.diis.d_diis_err, scf_ws.ortho.d_dwork_nao2_2,
         scf_ws.ortho.d_dwork_nao2_3, scf_ws.ortho.d_dwork_nao2_4);
-
-    deviceMemset(scf_ws.diis.d_diis_accum, 0, sizeof(double));
-    QC_Double_Dot(nao2, scf_ws.diis.d_diis_err, scf_ws.diis.d_diis_err,
-                  scf_ws.diis.d_diis_accum);
-    double enorm_sq;
-    deviceMemcpy(&enorm_sq, scf_ws.diis.d_diis_accum, sizeof(double),
-                 deviceMemcpyDeviceToHost);
-    double enorm = sqrt(enorm_sq);
 
     // 将 alpha Fock 与误差压入 CDIIS 历史
     QC_DIIS_History_Push_Double(
@@ -311,52 +207,24 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
         scf_ws.diis.d_diis_e_hist.data(), dF, scf_ws.diis.d_diis_err);
 
-    // 将 alpha 密度压入 ADIIS 历史
-    {
-        int& ac = scf_ws.diis.adiis_count;
-        int& ah = scf_ws.diis.adiis_head;
-        int ws = scf_ws.runtime.diis_space;
-        int write_idx = (ac < ws) ? ((ah + ac) % ws) : ah;
-        if (ac < ws)
-            ac++;
-        else
-            ah = (ah + 1) % ws;
-        // 以双精度存储设备侧密度历史
-        QC_Float_To_Double_Copy(nao2, scf_ws.alpha.d_P,
-                                scf_ws.diis.d_adiis_d_hist[write_idx]);
-    }
-
-    bool extrapolated = false;
+    scf_ws.diis.diis_extrapolated = false;
     if (scf_ws.diis.diis_hist_count >= 2)
     {
-        // 误差大时优先 ADIIS，误差小时切到 CDIIS
-        if (enorm > scf_ws.diis.adiis_to_cdiis_threshold)
-        {
-            extrapolated = QC_ADIIS_Extrapolate(
-                blas_handle, mol.nao, scf_ws.runtime.diis_space,
-                scf_ws.diis.adiis_count, scf_ws.diis.adiis_head,
-                scf_ws.diis.d_diis_f_hist.data(),
-                scf_ws.diis.d_adiis_d_hist.data(), dF,
-                scf_ws.diis.d_diis_accum);
-        }
-        else
-        {
-            extrapolated = QC_DIIS_Extrapolate_Double(
-                mol.nao, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count,
-                scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
-                scf_ws.diis.d_diis_e_hist.data(), scf_ws.runtime.diis_reg, dF,
-                scf_ws.diis.d_diis_accum);
-        }
+        bool extrapolated = QC_DIIS_Extrapolate_Double(
+            mol.nao, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count,
+            scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
+            scf_ws.diis.d_diis_e_hist.data(), scf_ws.runtime.diis_reg, dF,
+            scf_ws.diis.d_diis_accum);
         if (extrapolated)
         {
-            // 将外推后的双精度 Fock 回写到浮点主缓冲
             QC_Double_To_Float(nao2, dF, scf_ws.alpha.d_F);
+            scf_ws.diis.diis_extrapolated = true;
         }
     }
 
     if (!scf_ws.runtime.unrestricted) return;
 
-    // beta 通道仅使用 CDIIS
+    // beta 通道 CDIIS
     double* dFb = scf_ws.beta.d_F_double;
     if (!dFb) return;
     QC_Build_DIIS_Error_Double(

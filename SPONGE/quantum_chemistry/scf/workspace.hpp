@@ -218,21 +218,14 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
             alloc_zero_double(&scf_ws.diis.d_diis_e_hist[(int)i], nao2);
         }
 
-        // ADIIS density history
-        scf_ws.diis.d_adiis_d_hist.assign((int)diis_space, nullptr);
-        for (int i = 0; i < diis_space; i++)
-            alloc_zero_double(&scf_ws.diis.d_adiis_d_hist[(int)i], nao2);
-
         if (unrestricted)
         {
             scf_ws.diis.d_diis_f_hist_b.assign((int)diis_space, nullptr);
             scf_ws.diis.d_diis_e_hist_b.assign((int)diis_space, nullptr);
-            scf_ws.diis.d_adiis_d_hist_b.assign((int)diis_space, nullptr);
             for (int i = 0; i < diis_space; i++)
             {
                 alloc_zero_double(&scf_ws.diis.d_diis_f_hist_b[(int)i], nao2);
                 alloc_zero_double(&scf_ws.diis.d_diis_e_hist_b[(int)i], nao2);
-                alloc_zero_double(&scf_ws.diis.d_adiis_d_hist_b[(int)i], nao2);
             }
         }
     }

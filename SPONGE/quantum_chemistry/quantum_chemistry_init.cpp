@@ -1,4 +1,5 @@
 ﻿#include "basis/basis.h"
+#include "guess/minao.h"
 #include "quantum_chemistry.h"
 
 static void Init_ERI_Workspace_Params(QUANTUM_CHEMISTRY* qc,
@@ -315,7 +316,7 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.runtime.use_diis = (qc_diis != 0);
     }
 
-    scf_ws.runtime.diis_start_iter = 2;
+    scf_ws.runtime.diis_start_iter = 1;
     if (controller->Command_Exist("qc_diis_start"))
     {
         controller->Check_Int("qc_diis_start", "QUANTUM_CHEMISTRY::Initial");
@@ -754,7 +755,19 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     deviceBlasCreate(&blas_handle);
     deviceSolverCreate(&solver_handle);
     Memory_Allocate(controller);
+    Build_Initial_Guess();
     controller->Step_Print_Initial("QC", "%e");
+}
+
+void QUANTUM_CHEMISTRY::Build_Initial_Guess()
+{
+    QC_Build_Minao_Guess(mol, scf_ws.runtime, scf_ws.alpha.d_P,
+                         scf_ws.beta.d_P);
+    if (scf_ws.runtime.unrestricted)
+    {
+        QC_Add_Matrix((int)mol.nao2, scf_ws.alpha.d_P, scf_ws.beta.d_P,
+                      scf_ws.direct.d_Ptot);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
