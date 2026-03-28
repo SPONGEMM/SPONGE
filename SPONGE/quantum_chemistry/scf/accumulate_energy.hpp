@@ -16,13 +16,18 @@ static __global__ void QC_Update_Convergence_Flag_Kernel(
     const int iter, const double tol, const double* d_curr_e, double* d_prev_e,
     double* d_delta_e, int* d_converged)
 {
-    const double delta_e = (iter > 0) ? (d_curr_e[0] - d_prev_e[0]) : 0.0;
+    const double curr_e = d_curr_e[0];
+    const double delta_e = (iter > 0) ? (curr_e - d_prev_e[0]) : 0.0;
     d_delta_e[0] = delta_e;
-    if (iter > 0 && fabs(delta_e) < tol)
+    if (iter > 0)
     {
-        d_converged[0] = 1;
+        const double denom = fmax(fabs(curr_e), 1.0);
+        if (fabs(delta_e) / denom < tol)
+        {
+            d_converged[0] = 1;
+        }
     }
-    d_prev_e[0] = d_curr_e[0];
+    d_prev_e[0] = curr_e;
 }
 
 void QUANTUM_CHEMISTRY::Accumulate_SCF_Energy(int iter)

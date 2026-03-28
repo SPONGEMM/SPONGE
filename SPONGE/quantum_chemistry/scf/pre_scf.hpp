@@ -52,12 +52,11 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
 }
 
 // ========================== SCF 状态重置 =========================
-// 清零本轮 SCF 的收敛标志、能量缓存与密度矩阵，并重置 DIIS 历史
+// 清零收敛标志、能量缓存并重置 DIIS 历史
+// 保留密度矩阵 P（复用上一步 MD 的收敛密度作为初猜）
 // ================================================================
 void QUANTUM_CHEMISTRY::Reset_SCF_State()
 {
-    const int nao2 = mol.nao2;
-
     scf_ws.diis.diis_hist_count = scf_ws.diis.diis_hist_head = 0;
     scf_ws.diis.diis_hist_count_b = scf_ws.diis.diis_hist_head_b = 0;
 
@@ -70,12 +69,6 @@ void QUANTUM_CHEMISTRY::Reset_SCF_State()
         deviceMemset(scf_ws.runtime.d_e_b, 0, sizeof(double));
     deviceMemset(scf_ws.runtime.d_pvxc, 0, sizeof(double));
     deviceMemset(scf_ws.runtime.d_converged, 0, sizeof(int));
-    deviceMemset(scf_ws.alpha.d_P, 0, sizeof(float) * nao2);
-    if (scf_ws.runtime.unrestricted)
-    {
-        deviceMemset(scf_ws.beta.d_P, 0, sizeof(float) * nao2);
-        deviceMemset(scf_ws.direct.d_Ptot, 0, sizeof(float) * nao2);
-    }
 }
 
 // =========================== 单电子积分 ===========================

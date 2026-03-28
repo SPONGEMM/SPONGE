@@ -99,6 +99,7 @@ struct QUANTUM_CHEMISTRY
     bool Mix_And_Check_Convergence(int iter, int md_step);
     void Build_Overlap_X();
     void Reset_SCF_State();
+    void Build_Initial_Guess();
 };
 
 #endif

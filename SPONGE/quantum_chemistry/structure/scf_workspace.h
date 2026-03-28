@@ -65,12 +65,7 @@ struct QC_SCF_DIIS_Workspace
     std::vector<double*> d_diis_e_hist;
     std::vector<double*> d_diis_f_hist_b;
     std::vector<double*> d_diis_e_hist_b;
-    std::vector<double*> d_adiis_d_hist;
-    std::vector<double*> d_adiis_d_hist_b;
-
-    int adiis_count = 0;
-    int adiis_head = 0;
-    double adiis_to_cdiis_threshold = 0.1;
+    bool diis_extrapolated = false;
 
     int diis_hist_count = 0;
     int diis_hist_head = 0;
