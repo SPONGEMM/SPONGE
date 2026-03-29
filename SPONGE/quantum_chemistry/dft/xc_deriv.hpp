@@ -257,6 +257,119 @@ static inline __host__ __device__ void QC_VXC_Analytical_RKS(
     }
 }
 
+// ===================== PBE Correlation (spin-resolved) =====================
+// F = ρ·(ε_lsda(ρ,ζ) + H(ρ,ζ,σ))
+static inline __host__ __device__ void QC_VXC_PBE_C_Spin(
+    double rho_a, double rho_b, double sigma_aa, double sigma_ab, double sigma_bb,
+    double& energy, double& vrho_a, double& vrho_b,
+    double& vsigma_aa, double& vsigma_ab, double& vsigma_bb)
+{
+    const double rho = rho_a + rho_b;
+    energy = vrho_a = vrho_b = vsigma_aa = vsigma_ab = vsigma_bb = 0.0;
+    if (rho <= 1e-18) return;
+    const double zeta = (rho_a - rho_b) / rho;
+    const double z = fmax(-1.0 + 1e-12, fmin(1.0 - 1e-12, zeta));
+    const double sigma = fmax(0.0, sigma_aa + 2.0 * sigma_ab + sigma_bb);
+
+    // PW92 spin interpolation: eps_lsda and derivatives
+    const double rs = cbrt(3.0 / (4.0 * CONSTANT_Pi * rho));
+    const double sqrs = sqrt(rs);
+
+    static const double p0[6] = {0.03109070, 0.21370, 7.59570, 3.5876, 1.63820, 0.49294};
+    static const double p1[6] = {0.01554535, 0.20548, 14.11890, 6.1977, 3.36620, 0.62517};
+    static const double pa[6] = {0.01688690, 0.11125, 10.35700, 3.6231, 0.88026, 0.49671};
+
+    auto pw92_gd = [&](const double t[6], double& val, double& dval_drho) {
+        const double s = sqrs;
+        const double poly = s * (t[2] + s * (t[3] + s * (t[4] + t[5] * s)));
+        const double Q = t[0] * poly;
+        const double la = 1.0 + 0.5 / Q;
+        const double pf = -2.0 * t[0] * (1.0 + t[1] * rs);
+        val = pf * log(la);
+        const double dp_ds = t[2] + s*(2.0*t[3] + s*(3.0*t[4] + 4.0*t[5]*s));
+        const double dQ_ds = t[0] * dp_ds;
+        const double dpf_ds = -4.0 * t[0] * t[1] * s;
+        const double dG_ds = dpf_ds * log(la) + pf * (-dQ_ds / (2.0*Q*Q)) / la;
+        dval_drho = dG_ds * (-s / (6.0 * rho));
+    };
+
+    double ec0, dec0; pw92_gd(p0, ec0, dec0);
+    double ec1, dec1; pw92_gd(p1, ec1, dec1);
+    double eca, deca; pw92_gd(pa, eca, deca);
+    static constexpr double fz20 = 1.70992093416136561756;
+    const double ec2 = eca / fz20, dec2 = deca / fz20;
+
+    const double opz = 1.0 + z, omz = 1.0 - z;
+    const double opz13 = cbrt(opz), omz13 = cbrt(omz);
+    const double opz43 = opz * opz13, omz43 = omz * omz13;
+    const double fzd = pow(2.0, 4.0/3.0) - 2.0;
+    const double fz = (opz43 + omz43 - 2.0) / fzd;
+    const double fzp = (4.0/3.0) * (opz13 - omz13) / fzd;
+    const double z2 = z*z, z3 = z2*z, z4 = z2*z2;
+
+    const double eps_lsda = ec0 + fz * (z4*(ec1-ec0) - (1.0-z4)*ec2);
+    const double deps_drho = dec0 + fz*(z4*(dec1-dec0) - (1.0-z4)*dec2);
+    const double deps_dz = fzp*(z4*(ec1-ec0) - (1.0-z4)*ec2)
+                         + fz*4.0*z3*(ec1-ec0+ec2);
+
+    // phi
+    const double opz23 = opz13*opz13, omz23 = omz13*omz13;
+    const double phi = 0.5 * (opz23 + omz23);
+    const double dphi_dz = (1.0/3.0) * (1.0/fmax(1e-20,opz13) - 1.0/fmax(1e-20,omz13));
+
+    // PBE H
+    const double gamma = (1.0 - log(2.0)) / (CONSTANT_Pi * CONSTANT_Pi);
+    const double beta = 0.06672455060314922;
+    const double bg = beta / gamma;
+    const double ph3 = phi*phi*phi;
+    const double w = -eps_lsda / fmax(1e-16, gamma * ph3);
+    const double ew = exp(w);
+    const double em1 = expm1(w);
+    const double A = bg / fmax(1e-30, em1);
+
+    const double kf = cbrt(3.0 * CONSTANT_Pi * CONSTANT_Pi * rho);
+    const double ks = sqrt(fmax(1e-20, 4.0 * kf / CONSTANT_Pi));
+    const double dt = 2.0 * phi * ks * rho;
+    const double dt2v = fmax(1e-40, dt * dt);
+    const double t2 = sigma / dt2v;
+    const double At2 = A * t2;
+    const double Di = 1.0 + At2 + At2*At2;
+    const double fr = bg * t2 * (1.0 + At2) / Di;
+    const double H = gamma * ph3 * log(1.0 + fr);
+    energy = rho * (eps_lsda + H);
+
+    // A derivatives
+    const double Af = A + A*A/bg;
+    const double dA_deps = Af / (gamma * ph3);
+    const double dA_dphi = -3.0 * eps_lsda * Af / (gamma * phi*phi*phi*phi);
+
+    // H derivatives
+    const double i1f = 1.0 / (1.0 + fr);
+    const double Di2 = Di * Di;
+    const double dH_dt2 = gamma * ph3 * bg * (1.0 + 2.0*A*t2) / Di2 * i1f;
+    const double t4 = t2*t2;
+    const double dfr_dA = -bg * A * t4 * (2.0*t2 + A*t4) / Di2;
+    const double dH_dA = gamma * ph3 * dfr_dA * i1f;
+    const double dH_dp_dir = (phi > 1e-20) ? 3.0 * H / phi : 0.0;
+
+    // Assemble dH/drho, dH/dz
+    const double dt2_drho = -7.0 * t2 / (3.0 * rho);
+    const double dH_drho = dH_dt2 * dt2_drho + dH_dA * dA_deps * deps_drho;
+    const double dH_dz = dphi_dz * (dH_dp_dir - 2.0*t2*dH_dt2/fmax(1e-20,phi) + dH_dA*dA_dphi)
+                       + dH_dA * dA_deps * deps_dz;
+
+    const double dz_dra = 2.0*rho_b/(rho*rho);
+    const double dz_drb = -2.0*rho_a/(rho*rho);
+
+    vrho_a = (eps_lsda + H) + rho*(deps_drho + dH_drho) + rho*(deps_dz + dH_dz)*dz_dra;
+    vrho_b = (eps_lsda + H) + rho*(deps_drho + dH_drho) + rho*(deps_dz + dH_dz)*dz_drb;
+
+    const double vs_common = rho * dH_dt2 / dt2v;
+    vsigma_aa = vs_common;
+    vsigma_ab = 2.0 * vs_common;
+    vsigma_bb = vs_common;
+}
+
 // ===================== UKS 解析导数 =====================
 // Exchange: spin-separable, ε_x = ½ε_x(2ρα) + ½ε_x(2ρβ)
 //   v_ρα = dε_x(2ρα)/d(2ρα) · 2 · ½ = dε_x(2ρα)/d(2ρα)
@@ -332,48 +445,25 @@ static inline __host__ __device__ void QC_VXC_Analytical_UKS(
             // Exchange: PBE spin-scaled (解析)
             double ex, vxa, vxb, vxsaa, vxsbb;
             QC_VXC_PBE_X_Spin(ra, rb, saa, sbb, ex, vxa, vxb, vxsaa, vxsbb);
-            // Correlation: PBE spin — 用改进的 FD (步长更小)
-            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
-            saa = fmax(saa, 0.0); sbb = fmax(sbb, 0.0);
-            double ec = QC_Ec_PBE_Spin(ra, rb, saa, sab, sbb);
-            const double h = 1e-7;  // 更小的 FD 步长
-            const double dra = h * fmax(1.0, ra);
-            const double drb = h * fmax(1.0, rb);
-            const double dsaa = h * fmax(1.0, saa);
-            const double dsab = h * fmax(1.0, fabs(sab) + 1e-10);
-            const double dsbb = h * fmax(1.0, sbb);
-            double vca = (QC_Ec_PBE_Spin(ra+dra,rb,saa,sab,sbb) - QC_Ec_PBE_Spin(fmax(1e-14,ra-dra),rb,saa,sab,sbb)) / (ra+dra - fmax(1e-14,ra-dra));
-            double vcb = (QC_Ec_PBE_Spin(ra,rb+drb,saa,sab,sbb) - QC_Ec_PBE_Spin(ra,fmax(1e-14,rb-drb),saa,sab,sbb)) / (rb+drb - fmax(1e-14,rb-drb));
-            double vcsaa = (QC_Ec_PBE_Spin(ra,rb,saa+dsaa,sab,sbb) - QC_Ec_PBE_Spin(ra,rb,fmax(0.0,saa-dsaa),sab,sbb)) / (saa+dsaa - fmax(0.0,saa-dsaa));
-            double vcsab = (QC_Ec_PBE_Spin(ra,rb,saa,sab+dsab,sbb) - QC_Ec_PBE_Spin(ra,rb,saa,sab-dsab,sbb)) / (2.0*dsab);
-            double vcsbb = (QC_Ec_PBE_Spin(ra,rb,saa,sab,sbb+dsbb) - QC_Ec_PBE_Spin(ra,rb,saa,sab,fmax(0.0,sbb-dsbb))) / (sbb+dsbb - fmax(0.0,sbb-dsbb));
+            // Correlation: PBE spin (解析)
+            double ec, vca, vcb, vcsaa, vcsab, vcsbb;
+            QC_VXC_PBE_C_Spin(ra, rb, saa, sab, sbb,
+                              ec, vca, vcb, vcsaa, vcsab, vcsbb);
             exc = ex + ec;
-            vra = vxa + vca;
-            vrb = vxb + vcb;
-            vsaa = vxsaa + vcsaa;
-            vsab = vcsab;
-            vsbb = vxsbb + vcsbb;
+            vra = vxa + vca; vrb = vxb + vcb;
+            vsaa = vxsaa + vcsaa; vsab = vcsab; vsbb = vxsbb + vcsbb;
             break;
         }
         case QC_METHOD::PBE0:
         {
-            // PBE0 = 0.75 * PBE_X + PBE_C
             double ex, vxa, vxb, vxsaa, vxsbb;
             QC_VXC_PBE_X_Spin(ra, rb, saa, sbb, ex, vxa, vxb, vxsaa, vxsbb);
-            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
-            saa = fmax(saa, 0.0); sbb = fmax(sbb, 0.0);
-            double ec = QC_Ec_PBE_Spin(ra, rb, saa, sab, sbb);
-            const double h = 1e-7;
-            const double dra = h * fmax(1.0, ra), drb = h * fmax(1.0, rb);
-            const double dsaa = h * fmax(1.0, saa), dsab = h * fmax(1.0, fabs(sab)+1e-10), dsbb = h * fmax(1.0, sbb);
-            double vca = (QC_Ec_PBE_Spin(ra+dra,rb,saa,sab,sbb) - QC_Ec_PBE_Spin(fmax(1e-14,ra-dra),rb,saa,sab,sbb)) / (ra+dra-fmax(1e-14,ra-dra));
-            double vcb = (QC_Ec_PBE_Spin(ra,rb+drb,saa,sab,sbb) - QC_Ec_PBE_Spin(ra,fmax(1e-14,rb-drb),saa,sab,sbb)) / (rb+drb-fmax(1e-14,rb-drb));
-            double vcsaa = (QC_Ec_PBE_Spin(ra,rb,saa+dsaa,sab,sbb)-QC_Ec_PBE_Spin(ra,rb,fmax(0.,saa-dsaa),sab,sbb))/(saa+dsaa-fmax(0.,saa-dsaa));
-            double vcsab = (QC_Ec_PBE_Spin(ra,rb,saa,sab+dsab,sbb)-QC_Ec_PBE_Spin(ra,rb,saa,sab-dsab,sbb))/(2.*dsab);
-            double vcsbb = (QC_Ec_PBE_Spin(ra,rb,saa,sab,sbb+dsbb)-QC_Ec_PBE_Spin(ra,rb,saa,sab,fmax(0.,sbb-dsbb)))/(sbb+dsbb-fmax(0.,sbb-dsbb));
+            double ec, vca, vcb, vcsaa, vcsab, vcsbb;
+            QC_VXC_PBE_C_Spin(ra, rb, saa, sab, sbb,
+                              ec, vca, vcb, vcsaa, vcsab, vcsbb);
             exc = 0.75 * ex + ec;
-            vra = 0.75 * vxa + vca; vrb = 0.75 * vxb + vcb;
-            vsaa = 0.75 * vxsaa + vcsaa; vsab = vcsab; vsbb = 0.75 * vxsbb + vcsbb;
+            vra = 0.75*vxa + vca; vrb = 0.75*vxb + vcb;
+            vsaa = 0.75*vxsaa + vcsaa; vsab = vcsab; vsbb = 0.75*vxsbb + vcsbb;
             break;
         }
         default:
