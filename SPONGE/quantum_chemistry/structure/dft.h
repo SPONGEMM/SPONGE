@@ -60,6 +60,25 @@ struct QC_DFT
     double* d_grad_rho_x = NULL;   // [grid_batch_size]
     double* d_grad_rho_y = NULL;   // [grid_batch_size]
     double* d_grad_rho_z = NULL;   // [grid_batch_size]
+
+    // UKS 额外缓冲
+    float* d_Pao_b = NULL;         // [nao * grid_batch_size]
+    double* d_rho_a = NULL;        // [grid_batch_size]
+    double* d_rho_b = NULL;        // [grid_batch_size]
+    double* d_sigma_aa = NULL;     // [grid_batch_size]
+    double* d_sigma_ab = NULL;     // [grid_batch_size]
+    double* d_sigma_bb = NULL;     // [grid_batch_size]
+    double* d_grb_x = NULL;        // [grid_batch_size]
+    double* d_grb_y = NULL;        // [grid_batch_size]
+    double* d_grb_z = NULL;        // [grid_batch_size]
+    double* d_exc_buf = NULL;      // [grid_batch_size]
+    double* d_vra = NULL;          // [grid_batch_size]
+    double* d_vrb = NULL;          // [grid_batch_size]
+    double* d_vsaa = NULL;         // [grid_batch_size]
+    double* d_vsab = NULL;         // [grid_batch_size]
+    double* d_vsbb = NULL;         // [grid_batch_size]
+    float* d_Wb_full = NULL;       // [grid_batch_size * nao]
+    float* d_Wb_sigma = NULL;      // [grid_batch_size * nao]
 };
 
 #endif

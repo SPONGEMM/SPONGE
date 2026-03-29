@@ -967,6 +967,31 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         Device_Malloc_Safely((void**)&dft.d_grad_rho_y, sizeof(double) * bs);
         Device_Malloc_Safely((void**)&dft.d_grad_rho_z, sizeof(double) * bs);
 
+        // UKS 额外缓冲
+        if (scf_ws.runtime.unrestricted)
+        {
+            Device_Malloc_Safely((void**)&dft.d_Pao_b,
+                                 sizeof(float) * nao_alloc * bs);
+            Device_Malloc_Safely((void**)&dft.d_rho_a, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_rho_b, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_sigma_aa, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_sigma_ab, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_sigma_bb, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_grb_x, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_grb_y, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_grb_z, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_exc_buf, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_vra, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_vrb, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_vsaa, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_vsab, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_vsbb, sizeof(double) * bs);
+            Device_Malloc_Safely((void**)&dft.d_Wb_full,
+                                 sizeof(float) * bs * nao_alloc);
+            Device_Malloc_Safely((void**)&dft.d_Wb_sigma,
+                                 sizeof(float) * bs * nao_alloc);
+        }
+
         // AO screening 半径: r2_screen = -ln(tol) / alpha_min
         {
             const float screen_tol = 1e-15f;

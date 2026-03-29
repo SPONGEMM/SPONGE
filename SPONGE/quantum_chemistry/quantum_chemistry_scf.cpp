@@ -33,6 +33,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     {
         Build_Fock(iter);
         Accumulate_SCF_Energy(iter);
+
         Apply_DIIS(iter);
         Diagonalize_And_Build_Density();
         if (Check_Convergence(iter, md_step)) break;
