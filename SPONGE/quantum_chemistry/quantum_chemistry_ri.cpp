@@ -71,31 +71,22 @@ static void QC_Build_RI_Aux_Norms(QUANTUM_CHEMISTRY* qc)
         0, d_S_cart, d_T_dummy, d_V_dummy, Pc);
 
     std::vector<float> h_S_final((size_t)Ps * Ps, 0.0f);
-    if (!qc->mol.is_spherical)
-    {
-        deviceMemcpy(h_S_final.data(), d_S_cart, sizeof(float) * naux2_cart,
-                     deviceMemcpyDeviceToHost);
-    }
-    else
-    {
-        auto h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
-        std::vector<float> h_S_cart(naux2_cart);
-        deviceMemcpy(h_S_cart.data(), d_S_cart, sizeof(float) * naux2_cart,
-                     deviceMemcpyDeviceToHost);
-        std::vector<double> tmp((size_t)Ps * Pc, 0.0);
-        for (int i = 0; i < Ps; i++)
-            for (int j = 0; j < Pc; j++)
-                for (int k = 0; k < Pc; k++)
-                    tmp[(size_t)i * Pc + j] +=
-                        (double)h_U_aux[(size_t)k * Ps + i] *
-                        (double)h_S_cart[(size_t)k * Pc + j];
-        for (int i = 0; i < Ps; i++)
-            for (int j = 0; j < Ps; j++)
-                for (int k = 0; k < Pc; k++)
-                    h_S_final[(size_t)i * Ps + j] +=
-                        (float)(tmp[(size_t)i * Pc + k] *
-                                (double)h_U_aux[(size_t)k * Ps + j]);
-    }
+    std::vector<float> h_S_cart(naux2_cart);
+    deviceMemcpy(h_S_cart.data(), d_S_cart, sizeof(float) * naux2_cart,
+                 deviceMemcpyDeviceToHost);
+    std::vector<double> tmp((size_t)Ps * Pc, 0.0);
+    for (int i = 0; i < Ps; i++)
+        for (int j = 0; j < Pc; j++)
+            for (int k = 0; k < Pc; k++)
+                tmp[(size_t)i * Pc + j] +=
+                    (double)ri.h_U_aux[(size_t)k * Ps + i] *
+                    (double)h_S_cart[(size_t)k * Pc + j];
+    for (int i = 0; i < Ps; i++)
+        for (int j = 0; j < Ps; j++)
+            for (int k = 0; k < Pc; k++)
+                h_S_final[(size_t)i * Ps + j] +=
+                    (float)(tmp[(size_t)i * Pc + k] *
+                            (double)ri.h_U_aux[(size_t)k * Ps + j]);
 
     ri.h_aux_norms.resize(Ps);
     for (int i = 0; i < Ps; i++)
@@ -190,7 +181,7 @@ void QUANTUM_CHEMISTRY::Initial_Auxiliary_Basis(CONTROLLER* controller)
             ri.h_aux_bas.push_back(0);
 
             int cart_dim = (shell.l + 1) * (shell.l + 2) / 2;
-            int sph_dim = mol.is_spherical ? (2 * shell.l + 1) : cart_dim;
+            int sph_dim = 2 * shell.l + 1;
 
             ri.h_aux_l_list.push_back(shell.l);
             ri.h_aux_shell_sizes.push_back(shell.exps.size());
@@ -211,7 +202,8 @@ void QUANTUM_CHEMISTRY::Initial_Auxiliary_Basis(CONTROLLER* controller)
         }
     }
 
-    if (!mol.is_spherical) ri.naux = ri.naux_cart;
+    ri.h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, ri.naux_cart,
+                                            ri.naux);
 
     // 拷贝到 device
     Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_l_list,
@@ -289,18 +281,20 @@ void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
         Device_Malloc_Safely((void**)&ri.d_B_occ, sizeof(float) * n_bocc);
     }
 
+    // cart2sph 轨道变换矩阵（stored 和 direct 模式都需要）
+    if (mol.is_spherical)
+    {
+        ri.h_U_orb =
+            QC_Build_Cart2Sph_Mat_Host(mol.h_l_list, mol.nao_cart, mol.nao);
+    }
+    else
+    {
+        ri.h_U_orb.clear();
+    }
+
     if (ri.direct)
     {
         // Direct 模式：d_3c_buf 在 Build_Fock_RI_Direct 内临时分配/释放
-
-        // 保存 cart2sph 矩阵到 host（direct 模式在线变换）
-        if (mol.is_spherical)
-        {
-            ri.h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list,
-                                                     ri.naux_cart, ri.naux);
-            ri.h_U_orb =
-                QC_Build_Cart2Sph_Mat_Host(mol.h_l_list, mol.nao_cart, mol.nao);
-        }
 
         printf("    [QC-RI] Direct mode: metric %.1f MB, B_occ %.1f MB\n",
                naux2 * sizeof(double) / 1e6,
@@ -364,37 +358,26 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
 
         deviceFree(d_2c_tasks);
 
-        if (!mol.is_spherical)
-        {
-            deviceMemcpy(ri.d_metric, d_metric_cart,
-                         sizeof(double) * naux * naux,
-                         deviceMemcpyDeviceToDevice);
-        }
-        else
-        {
-            const int Ps = naux;
-            auto h_U_aux =
-                QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
-            std::vector<double> h_mc(n2c_cart);
-            deviceMemcpy(h_mc.data(), d_metric_cart,
-                         sizeof(double) * n2c_cart, deviceMemcpyDeviceToHost);
-            std::vector<double> h_ms(Ps * Ps, 0.0);
-            // T1 = U^T @ M_cart: [Ps × Pc]
-            std::vector<double> tmp(Ps * Pc, 0.0);
-            for (int i = 0; i < Ps; i++)
-                for (int j = 0; j < Pc; j++)
-                    for (int k = 0; k < Pc; k++)
-                        tmp[i * Pc + j] +=
-                            (double)h_U_aux[k * Ps + i] * h_mc[k * Pc + j];
-            // M_sph = T1 @ U: [Ps × Ps]
-            for (int i = 0; i < Ps; i++)
-                for (int j = 0; j < Ps; j++)
-                    for (int k = 0; k < Pc; k++)
-                        h_ms[i * Ps + j] +=
-                            tmp[i * Pc + k] * (double)h_U_aux[k * Ps + j];
-            deviceMemcpy(ri.d_metric, h_ms.data(),
-                         sizeof(double) * Ps * Ps, deviceMemcpyHostToDevice);
-        }
+        const int Ps = naux;
+        std::vector<double> h_mc(n2c_cart);
+        deviceMemcpy(h_mc.data(), d_metric_cart, sizeof(double) * n2c_cart,
+                     deviceMemcpyDeviceToHost);
+        std::vector<double> h_ms(Ps * Ps, 0.0);
+        // T1 = U^T @ M_cart: [Ps × Pc]
+        std::vector<double> tmp(Ps * Pc, 0.0);
+        for (int i = 0; i < Ps; i++)
+            for (int j = 0; j < Pc; j++)
+                for (int k = 0; k < Pc; k++)
+                    tmp[i * Pc + j] +=
+                        (double)ri.h_U_aux[k * Ps + i] * h_mc[k * Pc + j];
+        // M_sph = T1 @ U: [Ps × Ps]
+        for (int i = 0; i < Ps; i++)
+            for (int j = 0; j < Ps; j++)
+                for (int k = 0; k < Pc; k++)
+                    h_ms[i * Ps + j] +=
+                        tmp[i * Pc + k] * (double)ri.h_U_aux[k * Ps + j];
+        deviceMemcpy(ri.d_metric, h_ms.data(), sizeof(double) * Ps * Ps,
+                     deviceMemcpyHostToDevice);
         deviceFree(d_metric_cart);
         Launch_Device_Kernel(QC_Scale_RI_Metric_Kernel,
                              ((long long)naux * naux + threads - 1) / threads,
@@ -435,27 +418,43 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
             mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
             mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart, mol.nao_cart,
-            d_eri3c_cart);
+            mol.nao_cart, 0, 0, true, d_eri3c_cart);
 
         deviceFree(d_3c_tasks);
         printf("    [QC-RI] 3c kernel done, n_tasks=%d\n", n_3c);
         fflush(stdout);
 
-        // 如果不需要球谐变换，直接拷贝
         if (!mol.is_spherical)
         {
-            deviceMemcpy(ri.d_eri3c, d_eri3c_cart, sizeof(double) * n3c_cart,
-                         deviceMemcpyDeviceToDevice);
+            const int Pc = ri.naux_cart, Ps = ri.naux;
+            const int Mc = mol.nao_cart;
+            const long long n3c_sph = (long long)Ps * Mc * Mc;
+            std::vector<double> h_3c_cart(n3c_cart);
+            deviceMemcpy(h_3c_cart.data(), d_eri3c_cart,
+                         sizeof(double) * n3c_cart, deviceMemcpyDeviceToHost);
             deviceFree(d_eri3c_cart);
+
+            std::vector<double> h_3c_sph(n3c_sph, 0.0);
+            for (int ps = 0; ps < Ps; ps++)
+            {
+                for (int pc = 0; pc < Pc; pc++)
+                {
+                    double u = (double)ri.h_U_aux[pc * Ps + ps];
+                    if (u == 0.0) continue;
+                    for (long long mn = 0; mn < (long long)Mc * Mc; mn++)
+                        h_3c_sph[(long long)ps * Mc * Mc + mn] +=
+                            u * h_3c_cart[(long long)pc * Mc * Mc + mn];
+                }
+            }
+
+            deviceMemcpy(ri.d_eri3c, h_3c_sph.data(),
+                         sizeof(double) * n3c_sph, deviceMemcpyHostToDevice);
         }
         else
         {
             // Cart2Sph 变换（在 host 上做，规模不大）
             const int Pc = ri.naux_cart, Ps = ri.naux;
             const int Mc = mol.nao_cart, Ms = mol.nao;
-
-            auto h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
-            auto h_U_orb = QC_Build_Cart2Sph_Mat_Host(mol.h_l_list, Mc, Ms);
 
             // 3c: T_cart[Pc, Mc, Mc] → T_sph[Ps, Ms, Ms]
             // Step 1: 对 ν 指标变换 → T1[Pc, Mc, Ms]
@@ -479,7 +478,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
                         double sum = 0.0;
                         for (int nc = 0; nc < Mc; nc++)
                             sum += h_3c_cart[Pidx * Mc * Mc + mu * Mc + nc] *
-                                   (double)h_U_orb[nc * Ms + ns];
+                                   (double)ri.h_U_orb[nc * Ms + ns];
                         h_step1[Pidx * Mc * Ms + mu * Ms + ns] = sum;
                     }
                 }
@@ -498,7 +497,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
                     {
                         double sum = 0.0;
                         for (int mc = 0; mc < Mc; mc++)
-                            sum += (double)h_U_orb[mc * Ms + ms] *
+                            sum += (double)ri.h_U_orb[mc * Ms + ms] *
                                    h_step1[Pidx * Mc * Ms + mc * Ms + ns];
                         h_step2[Pidx * Ms * Ms + ms * Ms + ns] = sum;
                     }
@@ -513,7 +512,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             {
                 for (int pc = 0; pc < Pc; pc++)
                 {
-                    double u = (double)h_U_aux[pc * Ps + ps];
+                    double u = (double)ri.h_U_aux[pc * Ps + ps];
                     if (u == 0.0) continue;
                     for (long long mn = 0; mn < (long long)Ms * Ms; mn++)
                         h_3c_sph[(long long)ps * Ms * Ms + mn] +=
@@ -541,6 +540,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         for (const auto& idx : sample_idx)
         {
             const int P = idx[0], mu = idx[1], nu = idx[2];
+            if (P >= naux || mu >= nao || nu >= nao) continue;
             double v = 0.0;
             const long long off =
                 (long long)P * nao * nao + (long long)mu * nao + nu;
@@ -918,9 +918,13 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
     deviceMemcpy(h_orb_norms.data(), scf_ws.ortho.d_norms,
                  sizeof(float) * nao, deviceMemcpyDeviceToHost);
 
-    // 临时 3c 缓冲（内核写全局索引）
+    // 临时 3c 缓冲（direct 模式按 shell-pair 紧凑输出）
+    int max_l_cart = 0;
+    for (int sh = 0; sh < mol.nbas; sh++)
+        if (mol.h_l_list[sh] > max_l_cart) max_l_cart = mol.h_l_list[sh];
+    const int max_cart = (max_l_cart + 1) * (max_l_cart + 2) / 2;
     const long long buf_3c_size =
-        (long long)ri.naux_cart * mol.nao_cart * mol.nao_cart;
+        (long long)ri.naux_cart * max_cart * max_cart;
     double* d_3c_buf = NULL;
     Device_Malloc_Safely((void**)&d_3c_buf, sizeof(double) * buf_3c_size);
 
@@ -1001,8 +1005,9 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                 ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
                 ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
                 mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
-                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart,
-                mol.nao_cart, d_3c_buf);
+                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart, dmc, dnc,
+                mol.h_ao_offsets[mu_sh], mol.h_ao_offsets[nu_sh], false,
+                d_3c_buf);
 
             // 下载笛卡尔 block
             std::vector<double> h_block_cart(buf_n);
@@ -1010,44 +1015,21 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                          sizeof(double) * buf_n, deviceMemcpyDeviceToHost);
 
             // Cart2sph: block_cart[Pc, dmc, dnc] → block_sph[Ps, dms, dns]
-            // 注意: 内核按全局 AO offset 写入，但 d_3c_buf 是紧凑的
-            // 重新审视：QC_RI_3Center_Kernel 写入 out_eri3c[P*nao_cart*nao_cart + mu*nao_cart + nu]
-            // 而 d_3c_buf 的尺寸是 naux_cart * nao_cart * nao_cart（不是 per-shell-pair 紧凑）
-            // 所以实际上我们需要按全局索引读取
-
-            // 提取 per-shell-pair block from full-sized buf
-            // buf layout: [naux_cart × nao_cart × nao_cart]
-            // 我们需要 buf[P_c, off_mu_c + i, off_nu_c + j]
-            const int off_mu_c = mol.h_ao_offsets[mu_sh];
-            const int off_nu_c = mol.h_ao_offsets[nu_sh];
-            const int nao_c = mol.nao_cart;
-
-            // 但 d_3c_buf 只分配了 naux_cart * max_cart² 大小...
-            // 这不对。QC_RI_3Center_Kernel 写入的是全局尺寸的数组。
-            // 在 direct 模式下，我们不能用全局尺寸的缓冲。
-            // 需要修改 kernel 或者用临时的全尺寸缓冲。
-
-            // 简单方案：d_3c_buf 分配为 naux_cart * nao_cart * nao_cart
-            // 这比 stored 模式的 naux * nao * nao 小（因为只 double，不存 float B）
-            // 但还是很大...
-
-            // 更好的方案：修改内核使其写入紧凑 buffer。
-            // 但当前先用全尺寸缓冲来验证正确性。
-
-            // TODO: 优化为紧凑 kernel
-
-            // 提取 block 并做 cart2sph
             std::vector<double> block_sph(naux * dms * dns, 0.0);
             if (!mol.is_spherical)
             {
-                // 直接提取
-                for (int P = 0; P < naux; P++)
-                    for (int i = 0; i < dms; i++)
-                        for (int j = 0; j < dns; j++)
-                            block_sph[P * dms * dns + i * dns + j] =
-                                h_block_cart[(long long)P * nao_c * nao_c +
-                                             (off_mu_c + i) * nao_c +
-                                             (off_nu_c + j)];
+                const int Pc = ri.naux_cart;
+                for (int ps = 0; ps < naux; ps++)
+                    for (int pc = 0; pc < Pc; pc++)
+                    {
+                        double u = (double)ri.h_U_aux[pc * naux + ps];
+                        if (u == 0.0) continue;
+                        for (int i = 0; i < dms; i++)
+                            for (int j = 0; j < dns; j++)
+                                block_sph[ps * dms * dns + i * dns + j] +=
+                                    u * h_block_cart[(long long)pc * dmc * dnc +
+                                                     (long long)i * dnc + j];
+                    }
             }
             else
             {
@@ -1058,9 +1040,8 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                     for (int i = 0; i < dmc; i++)
                         for (int j = 0; j < dnc; j++)
                             bc[P * dmc * dnc + i * dnc + j] =
-                                h_block_cart[(long long)P * nao_c * nao_c +
-                                             (off_mu_c + i) * nao_c +
-                                             (off_nu_c + j)];
+                                h_block_cart[(long long)P * dmc * dnc +
+                                             (long long)i * dnc + j];
 
                 // ν 变换: T1[Pc, dmc, dns]
                 std::vector<double> t1(Pc * dmc * dns, 0.0);
@@ -1070,7 +1051,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                             for (int jc = 0; jc < dnc; jc++)
                                 t1[P * dmc * dns + i * dns + js] +=
                                     bc[P * dmc * dnc + i * dnc + jc] *
-                                    (double)ri.h_U_orb[(off_nu_c + jc) * nao +
+                                    (double)ri.h_U_orb[(mol.h_ao_offsets[nu_sh] + jc) * nao +
                                                        off_nu_s + js];
 
                 // μ 变换: T2[Pc, dms, dns]
@@ -1080,7 +1061,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                         for (int js = 0; js < dns; js++)
                             for (int ic = 0; ic < dmc; ic++)
                                 t2[P * dms * dns + is_ * dns + js] +=
-                                    (double)ri.h_U_orb[(off_mu_c + ic) * nao +
+                                    (double)ri.h_U_orb[(mol.h_ao_offsets[mu_sh] + ic) * nao +
                                                        off_mu_s + is_] *
                                     t1[P * dmc * dns + ic * dns + js];
 
@@ -1122,8 +1103,6 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                         B_block[ps * dms * dns + mn] +=
                             w * block_sph[qs * dms * dns + mn];
                 }
-
-            const double sym = (mu_sh == nu_sh) ? 1.0 : 2.0;
 
             // RI-J: d_vec[P] += Σ_{μν} block_sph[P,μ,ν] * D[μ,ν]
             for (int P = 0; P < naux; P++)
@@ -1247,9 +1226,6 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
             const int off_nu_s = mol.is_spherical
                                      ? mol.h_ao_offsets_sph[nu_sh]
                                      : mol.h_ao_offsets[nu_sh];
-            const int off_mu_c = mol.h_ao_offsets[mu_sh];
-            const int off_nu_c = mol.h_ao_offsets[nu_sh];
-            const int nao_c = mol.nao_cart;
 
             // 复用 pass1 的 kernel 调用逻辑
             for (int P = 0; P < ri.naux_bas; P++)
@@ -1267,8 +1243,9 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                 ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
                 ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
                 mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
-                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart,
-                nao_c, d_3c_buf);
+                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart, dmc, dnc,
+                mol.h_ao_offsets[mu_sh], mol.h_ao_offsets[nu_sh], false,
+                d_3c_buf);
 
             std::vector<double> h_block_cart(buf_n);
             deviceMemcpy(h_block_cart.data(), d_3c_buf,
@@ -1278,13 +1255,18 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
             std::vector<double> block_sph(naux * dms * dns, 0.0);
             if (!mol.is_spherical)
             {
-                for (int P = 0; P < naux; P++)
-                    for (int i = 0; i < dms; i++)
-                        for (int j = 0; j < dns; j++)
-                            block_sph[P * dms * dns + i * dns + j] =
-                                h_block_cart[(long long)P * nao_c * nao_c +
-                                             (off_mu_c + i) * nao_c +
-                                             (off_nu_c + j)];
+                const int Pc = ri.naux_cart;
+                for (int ps = 0; ps < naux; ps++)
+                    for (int pc = 0; pc < Pc; pc++)
+                    {
+                        double u = (double)ri.h_U_aux[pc * naux + ps];
+                        if (u == 0.0) continue;
+                        for (int i = 0; i < dms; i++)
+                            for (int j = 0; j < dns; j++)
+                                block_sph[ps * dms * dns + i * dns + j] +=
+                                    u * h_block_cart[(long long)pc * dmc * dnc +
+                                                     (long long)i * dnc + j];
+                    }
             }
             else
             {
@@ -1294,9 +1276,8 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                     for (int i = 0; i < dmc; i++)
                         for (int j = 0; j < dnc; j++)
                             bc[P * dmc * dnc + i * dnc + j] =
-                                h_block_cart[(long long)P * nao_c * nao_c +
-                                             (off_mu_c + i) * nao_c +
-                                             (off_nu_c + j)];
+                                h_block_cart[(long long)P * dmc * dnc +
+                                             (long long)i * dnc + j];
                 std::vector<double> t1(Pc * dmc * dns, 0.0);
                 for (int P = 0; P < Pc; P++)
                     for (int i = 0; i < dmc; i++)
@@ -1304,7 +1285,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                             for (int jc = 0; jc < dnc; jc++)
                                 t1[P * dmc * dns + i * dns + js] +=
                                     bc[P * dmc * dnc + i * dnc + jc] *
-                                    (double)ri.h_U_orb[(off_nu_c + jc) * nao +
+                                    (double)ri.h_U_orb[(mol.h_ao_offsets[nu_sh] + jc) * nao +
                                                        off_nu_s + js];
                 std::vector<double> t2(Pc * dms * dns, 0.0);
                 for (int P = 0; P < Pc; P++)
@@ -1312,7 +1293,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                         for (int js = 0; js < dns; js++)
                             for (int ic = 0; ic < dmc; ic++)
                                 t2[P * dms * dns + is_ * dns + js] +=
-                                    (double)ri.h_U_orb[(off_mu_c + ic) * nao +
+                                    (double)ri.h_U_orb[(mol.h_ao_offsets[mu_sh] + ic) * nao +
                                                        off_mu_s + is_] *
                                     t1[P * dmc * dns + ic * dns + js];
                 for (int ps = 0; ps < naux; ps++)

@@ -24,7 +24,8 @@ static __global__ void QC_RI_3Center_Kernel(
     const float* orb_coeffs, const int* orb_shell_offsets,
     const int* orb_shell_sizes, const int* orb_ao_offsets,
     // 输出
-    int naux, int nao, double* out_eri3c)
+    int naux, int out_mu_dim, int out_nu_dim, int mu_offset_base,
+    int nu_offset_base, bool fill_symmetric, double* out_eri3c)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
@@ -235,17 +236,22 @@ static __global__ void QC_RI_3Center_Kernel(
                     const int P_idx = offP + idxP;
                     const int mu_idx = offmu + idx_mu;
                     const int nu_idx = offnu + idx_nu;
+                    const int mu_local = mu_idx - mu_offset_base;
+                    const int nu_local = nu_idx - nu_offset_base;
                     const long long idx3c =
-                        (long long)P_idx * nao * nao +
-                        (long long)mu_idx * nao + nu_idx;
+                        (long long)P_idx * out_mu_dim * out_nu_dim +
+                        (long long)mu_local * out_nu_dim + nu_local;
                     out_eri3c[idx3c] = total;
 
                     // 对称填充 (P|νμ)
-                    if (mu_sh != nu_sh)
+                    if (fill_symmetric && mu_sh != nu_sh)
                     {
+                        const int nu_local_sym = nu_idx - mu_offset_base;
+                        const int mu_local_sym = mu_idx - nu_offset_base;
                         const long long idx3c_sym =
-                            (long long)P_idx * nao * nao +
-                            (long long)nu_idx * nao + mu_idx;
+                            (long long)P_idx * out_mu_dim * out_nu_dim +
+                            (long long)nu_local_sym * out_nu_dim +
+                            mu_local_sym;
                         out_eri3c[idx3c_sym] = total;
                     }
                 }
