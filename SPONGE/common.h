@@ -20,6 +20,7 @@
 #include <iostream>
 #include <limits>
 #include <map>
+#include <numeric>
 #include <queue>
 #include <random>
 #include <set>

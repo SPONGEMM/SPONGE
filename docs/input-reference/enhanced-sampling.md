@@ -22,6 +22,8 @@ Configured via `[META]` or `[meta]` section:
 |-----------|------|-------------|
 | `sink` | string | Sink metadynamics mode |
 
+Detailed SinkMeta parameter list: [sinkmeta.md](sinkmeta.md)
+
 ## SITS
 
 SITS (Self-guided Integrated Tempering Sampling) parameters:
