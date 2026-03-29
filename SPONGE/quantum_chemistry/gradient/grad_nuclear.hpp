@@ -1,7 +1,7 @@
 #pragma once
 
 // ====================== 核排斥梯度 ======================
-// dE_nuc/dR_Ax = Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
+// dE_nuc/dR_Ax = -Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
 // ==============================================================
 
 static __global__ void QC_Nuclear_Gradient_Kernel(const int natm,
@@ -37,8 +37,9 @@ static __global__ void QC_Nuclear_Gradient_Kernel(const int natm,
             gz += zj * (double)dr.z * r3_inv;
         }
 
-        atomicAdd(&grad[i * 3 + 0], zi * gx);
-        atomicAdd(&grad[i * 3 + 1], zi * gy);
-        atomicAdd(&grad[i * 3 + 2], zi * gz);
+        // dE_nuc/dR_Ax = -Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
+        atomicAdd(&grad[i * 3 + 0], -zi * gx);
+        atomicAdd(&grad[i * 3 + 1], -zi * gy);
+        atomicAdd(&grad[i * 3 + 2], -zi * gz);
     }
 }

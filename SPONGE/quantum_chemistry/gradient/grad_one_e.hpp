@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "../integrals/one_e.hpp"
 
@@ -8,9 +8,12 @@
 //   grad_A += Tr[P · dT/dR_A]      (动能)
 //   grad_A += Tr[P · dV/dR_A]      (核吸引)
 //
+// 全矩阵遍历只计算 bra 侧导数，乘以 2 补偿 ket 侧
+// (等价于 PySCF 的 h1ao + h1ao.T 对称化)
+//
 // McMurchie-Davidson 导数公式:
 //   dS(a,b)/dA_x = 2αi·S(a+1,b) - a·S(a-1,b)  [重叠]
-//   dE^{ab}_t/dA_x = a·E^{(a-1)b}_t - 2αi·E^{(a+1)b}_t  [E系数]
+//   dE^{ab}_t/dA_x = 2αi·E^{(a+1)b}_t - a·E^{(a-1)b}_t  [E系数]
 //   dR_{tuv,0}/dC_x = -R_{(t+1)uv,0}  [R-tensor, 核中心]
 // ==============================================================
 
@@ -34,7 +37,7 @@ static __global__ void OneE_Grad_Kernel(
         int li = l_list[i_sh], lj = l_list[j_sh];
         int ni = (li + 1) * (li + 2) / 2, nj = (lj + 1) * (lj + 2) / 2;
         int off_i = ao_offsets[i_sh], off_j = ao_offsets[j_sh];
-        int atom_i = shell_atom[i_sh], atom_j = shell_atom[j_sh];
+        int atom_i = shell_atom[i_sh];
         const VECTOR A = centers[i_sh];
         const VECTOR B = centers[j_sh];
         float Ax = A.x, Ay = A.y, Az = A.z;
@@ -73,13 +76,14 @@ static __global__ void OneE_Grad_Kernel(
                         float Pz = (ei * Az + ej * Bz) / g;
                         float one2p = 0.5f / g;
 
-                        // 重叠: 需要 l+1 阶的 overlap 1d 数组
+                        // 重叠: bra 侧需要到 l+2 阶
+                        // (T 的 AO 导数 kin1d(res, la+1, ...) 访问 res[la+2][lb+1])
                         float res_x[6][6], res_y[6][6], res_z[6][6];
-                        get_overlap1d_arr(lx_i + 1, lx_j + 1, Px - Ax,
+                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax,
                                           Px - Bx, g, res_x);
-                        get_overlap1d_arr(ly_i + 1, ly_j + 1, Py - Ay,
+                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay,
                                           Py - By, g, res_y);
-                        get_overlap1d_arr(lz_i + 1, lz_j + 1, Pz - Az,
+                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az,
                                           Pz - Bz, g, res_z);
 
                         float sx = res_x[lx_i][lx_j];
@@ -87,7 +91,6 @@ static __global__ void OneE_Grad_Kernel(
                         float sz = res_z[lz_i][lz_j];
 
                         // === dS/dA_x ===
-                        // dS_x/dA_x = 2αi·S(li+1,lj) - li·S(li-1,lj)
                         float dsx_dAx = 2.0f * ei * res_x[lx_i + 1][lx_j];
                         if (lx_i > 0)
                             dsx_dAx -= (float)lx_i * res_x[lx_i - 1][lx_j];
@@ -102,20 +105,15 @@ static __global__ void OneE_Grad_Kernel(
                         float ds_dAy = cc * sx * dsy_dAy * sz;
                         float ds_dAz = cc * sx * sy * dsz_dAz;
 
-                        // Pulay: grad -= W · dS/dR_A (仅对 i_sh 的原子)
-                        // 全矩阵遍历: (j,i) task 会自然处理 atom_j
+                        // Pulay: grad -= Tr[W · dS/dR_A] (bra ×2)
                         atomicAdd(&grad[atom_i * 3 + 0],
-                                  -(double)w_val * (double)ds_dAx);
+                                  -2.0 * (double)w_val * (double)ds_dAx);
                         atomicAdd(&grad[atom_i * 3 + 1],
-                                  -(double)w_val * (double)ds_dAy);
+                                  -2.0 * (double)w_val * (double)ds_dAy);
                         atomicAdd(&grad[atom_i * 3 + 2],
-                                  -(double)w_val * (double)ds_dAz);
+                                  -2.0 * (double)w_val * (double)ds_dAz);
 
-                        // === dT/dA_x ===
-                        // T 用 overlap 在 l+1 阶的递推
-                        // dT_x/dA_x = 2αi·T(li+1,lj)_x - li·T(li-1,lj)_x
-                        // T(a,b)_x = 2αi·αj·S(a+1,b+1) - αi·b·S(a+1,b-1)
-                        //          - αj·a·S(a-1,b+1) + 0.5·a·b·S(a-1,b-1)
+                        // === dT/dA ===
                         auto kin1d = [&](float res[6][6], int la, int lb,
                                         float ai, float bj) -> float
                         {
@@ -132,7 +130,6 @@ static __global__ void OneE_Grad_Kernel(
                         float ty = kin1d(res_y, ly_i, ly_j, ei, ej);
                         float tz = kin1d(res_z, lz_i, lz_j, ei, ej);
 
-                        // dT(a,b)/dA_x = 2αi·T(a+1,b) - a·T(a-1,b)
                         float dtx_dAx =
                             2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
                         if (lx_i > 0)
@@ -152,56 +149,26 @@ static __global__ void OneE_Grad_Kernel(
                                 (float)lz_i *
                                 kin1d(res_z, lz_i - 1, lz_j, ei, ej);
 
-                        float dt_dAx =
-                            cc * (dtx_dAx * sy * sz + sx * sy * sz * 0.0f);
-                        // 完整: dT/dA_x = dTx/dAx * Sy * Sz + Tx * dSy/dAx * Sz
-                        // + Tx * Sy * dSz/dAx 但 dSy/dAx = 0 (y分量不依赖 Ax)
-                        dt_dAx = cc * dtx_dAx * sy * sz;
-                        float dt_dAy = cc * tx * dsy_dAy * sz +
-                                       cc * sx * dty_dAy * sz;
-                        // 修正: dT/dAy = dTx_Sy_Sz 中 Tx 不含 Ay, Sy 含 Ay
-                        dt_dAy = cc * (tx * dsy_dAy * sz + sx * dty_dAy * sz);
-                        float dt_dAz = cc * (tx * sy * dsz_dAz + sx * ty * dsz_dAz +
+                        // T = Tx*Sy*Sz + Sx*Ty*Sz + Sx*Sy*Tz
+                        float dt_dAx = cc * (dtx_dAx * sy * sz +
+                                             dsx_dAx * ty * sz +
+                                             dsx_dAx * sy * tz);
+                        float dt_dAy = cc * (tx * dsy_dAy * sz +
+                                             sx * dty_dAy * sz +
+                                             sx * dsy_dAy * tz);
+                        float dt_dAz = cc * (tx * sy * dsz_dAz +
+                                             sx * ty * dsz_dAz +
                                              sx * sy * dtz_dAz);
-                        // 修正最终形式:
-                        // dT/dAx = cc * (dTx/dAx * Sy * Sz)  (只有 x 分量含 Ax)
-                        // dT/dAy = cc * (Tx * dSy/dAy * Sz + Sx * dTy/dAy * Sz)
-                        // dT/dAz = cc * (Tx * Sy * dSz/dAz + Sx * Ty * dSz/dAz +
-                        //                Sx * Sy * dTz/dAz)
-                        // 不对——每个坐标分量独立:
-                        // dT/dAx = cc * (dTx/dAx*Sy*Sz + Sx*0*Sz + Sx*Sy*0)
-                        //        = cc * dTx/dAx * Sy * Sz
-                        dt_dAx = cc * dtx_dAx * sy * sz;
-                        dt_dAy = cc * sx * dty_dAy * sz;
-                        dt_dAz = cc * sx * sy * dtz_dAz;
-                        // 但 T = Tx*Sy*Sz + Sx*Ty*Sz + Sx*Sy*Tz
-                        // dT/dAx = dTx/dAx*Sy*Sz + dSx/dAx*Ty*Sz + dSx/dAx*Sy*Tz
-                        dt_dAx = cc * (dtx_dAx * sy * sz + dsx_dAx * ty * sz +
-                                       dsx_dAx * sy * tz);
-                        dt_dAy = cc * (tx * dsy_dAy * sz + sx * dty_dAy * sz +
-                                       sx * dsy_dAy * tz);
-                        dt_dAz = cc * (tx * sy * dsz_dAz + sx * ty * dsz_dAz +
-                                       sx * sy * dtz_dAz);
 
-                        // grad += P · dT/dR_A (仅对 i_sh 的原子)
+                        // grad += Tr[P · dT/dR_A] (bra ×2)
                         atomicAdd(&grad[atom_i * 3 + 0],
-                                  (double)p_val * (double)dt_dAx);
+                                  2.0 * (double)p_val * (double)dt_dAx);
                         atomicAdd(&grad[atom_i * 3 + 1],
-                                  (double)p_val * (double)dt_dAy);
+                                  2.0 * (double)p_val * (double)dt_dAy);
                         atomicAdd(&grad[atom_i * 3 + 2],
-                                  (double)p_val * (double)dt_dAz);
+                                  2.0 * (double)p_val * (double)dt_dAz);
 
                         // === dV/dR_A ===
-                        // E 系数导数用于 AO 中心导数
-                        // 需要 E[li+1][lj][t] → 用 la_max = li+1 调用
-                        float E_x[6][5][9], E_y[6][5][9], E_z[6][5][9];
-                        for (int a = 0; a < 6; a++)
-                            for (int b = 0; b < 5; b++)
-                                for (int n = 0; n < 9; n++)
-                                    E_x[a][b][n] = E_y[a][b][n] =
-                                        E_z[a][b][n] = 0.0f;
-                        // 手动填充 — 复用 compute_md_coeffs 但用更大数组
-                        // 简化: 直接用 5x5x9 数组调用两次 (li 和 li+1)
                         float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
                         compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx,
                                           one2p);
@@ -209,8 +176,6 @@ static __global__ void OneE_Grad_Kernel(
                                           one2p);
                         compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz,
                                           one2p);
-                        // 需要 E[li+1][lj][t] 来计算 dE/dAx
-                        // 用 li+1 作为 la_max 重新调用
                         float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
                         if (lx_i + 1 < 5)
                         {
@@ -241,7 +206,6 @@ static __global__ void OneE_Grad_Kernel(
                             int L_tot = li + lj;
                             float Z_C = (float)atm[iat * 6];
 
-                            // R-tensor 需要 L_tot+1 阶 (用于核中心导数)
                             double F_vals[ONEE_MD_BASE];
                             float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
                                          ONEE_MD_BASE * ONEE_MD_BASE];
@@ -251,16 +215,11 @@ static __global__ void OneE_Grad_Kernel(
 
                             float prefac = cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
 
-                            // AO 中心 A 导数:
-                            // dV/dA_x = prefac × Σ_{tuv}
-                            //   dE_x[li][lj][t]/dAx × E_y × E_z × R[t,u,v,0]
-                            // dE_x/dAx = 2αi×E_x[li+1][lj][t] -
-                            //            li×E_x[li-1][lj][t]
+                            // AO 中心 A 导数
                             double dv_dAx = 0.0, dv_dAy = 0.0, dv_dAz = 0.0;
 
                             for (int t = 0; t <= lx_i + lx_j + 1; t++)
                             {
-                                // dEx/dAx
                                 float dex = 0.0f;
                                 if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
                                     dex += 2.0f * ei *
@@ -285,7 +244,6 @@ static __global__ void OneE_Grad_Kernel(
                                     }
                                 }
                             }
-                            // dV/dAy: 类似，导数在 E_y 上
                             for (int t = 0; t <= lx_i + lx_j; t++)
                             {
                                 float ex = Ex0[lx_i][lx_j][t];
@@ -309,7 +267,6 @@ static __global__ void OneE_Grad_Kernel(
                                     }
                                 }
                             }
-                            // dV/dAz: 导数在 E_z 上
                             for (int t = 0; t <= lx_i + lx_j; t++)
                             {
                                 float ex = Ex0[lx_i][lx_j][t];
@@ -339,9 +296,7 @@ static __global__ void OneE_Grad_Kernel(
                             dv_dAy *= (double)prefac;
                             dv_dAz *= (double)prefac;
 
-                            // 核中心 C 导数:
-                            // dV/dC_x = prefac × Σ_{tuv}
-                            //   E_x × E_y × E_z × (-R[t+1,u,v,0])
+                            // 核中心 C 导数
                             double dv_dCx = 0.0, dv_dCy = 0.0, dv_dCz = 0.0;
                             for (int t = 0; t <= lx_i + lx_j; t++)
                             {
@@ -357,7 +312,6 @@ static __global__ void OneE_Grad_Kernel(
                                         if (fabsf(ez) < 1e-30f) continue;
                                         double eee = (double)ex * (double)ey *
                                                      (double)ez;
-                                        // dR/dCx = -R[t+1,u,v,0]
                                         dv_dCx -= eee * (double)R_vals
                                                             [ONEE_MD_IDX(
                                                                 t + 1, u, v, 0)];
@@ -374,15 +328,14 @@ static __global__ void OneE_Grad_Kernel(
                             dv_dCy *= (double)prefac;
                             dv_dCz *= (double)prefac;
 
-                            // 累加 V 梯度
-                            // AO 中心 A 导数
+                            // V AO 中心导数 (bra ×2)
                             atomicAdd(&grad[atom_i * 3 + 0],
-                                      (double)p_val * dv_dAx);
+                                      2.0 * (double)p_val * dv_dAx);
                             atomicAdd(&grad[atom_i * 3 + 1],
-                                      (double)p_val * dv_dAy);
+                                      2.0 * (double)p_val * dv_dAy);
                             atomicAdd(&grad[atom_i * 3 + 2],
-                                      (double)p_val * dv_dAz);
-                            // 核中心 C 导数
+                                      2.0 * (double)p_val * dv_dAz);
+                            // V 核中心导数 (全矩阵求和已正确)
                             atomicAdd(&grad[iat * 3 + 0],
                                       (double)p_val * dv_dCx);
                             atomicAdd(&grad[iat * 3 + 1],

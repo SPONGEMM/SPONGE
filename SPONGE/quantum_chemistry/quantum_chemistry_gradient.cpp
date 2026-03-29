@@ -13,26 +13,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     // 清零梯度累加器
     deviceMemset(grad_ws.d_grad, 0, sizeof(double) * natm * 3);
 
-    // DEBUG helper
-    auto print_grad = [&](const char* label)
-    {
-        if (CONTROLLER::MPI_rank == 0)
-        {
-            std::vector<double> h_grad(natm * 3);
-            deviceMemcpy(h_grad.data(), grad_ws.d_grad,
-                         sizeof(double) * natm * 3, deviceMemcpyDeviceToHost);
-            fprintf(stdout, "%s:\n", label);
-            for (int i = 0; i < natm; i++)
-                fprintf(stdout, "  Atom %d: %12.8f %12.8f %12.8f\n", i,
-                        h_grad[i * 3], h_grad[i * 3 + 1],
-                        h_grad[i * 3 + 2]);
-            fflush(stdout);
-        }
-    };
-
     // 1. 构建能量加权密度矩阵 W
     {
-        // 复用 alpha 的 Fock 矩阵缓冲作为临时 D 矩阵
         float* d_D_tmp = scf_ws.alpha.d_F;
         QC_Build_Energy_Weighted_Density(
             blas_handle, nao, scf_ws.runtime.n_alpha,
@@ -61,15 +43,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                              grad_ws.d_grad);
     }
 
-    print_grad("After nuclear only");
-
     // 3. 单电子积分导数: Tr[P·dH/dR] - Tr[W·dS/dR]
     {
-        // P 和 W 需要在笛卡尔基下；当前为球谐基
-        // 使用 P_coul (对 restricted = alpha.d_P, 对 unrestricted = Ptot)
         const float* d_P_use = scf_ws.direct.d_P_coul;
         const float* d_W_use = grad_ws.d_W_density;
-        // TODO: UHF 时 W = W_alpha + W_beta 需要先合并
 
         const int chunk_size = ONE_E_BATCH_SIZE;
         for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
@@ -88,12 +65,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     }
 
     // 4. 双电子积分导数: Tr[P·dG/dR]
-    // TODO: Phase 3 实现 grad_eri.hpp
+    // TODO: 实现 grad_eri.hpp
 
     // 5. DFT XC 网格梯度
-    // TODO: Phase 4 实现 grad_xc.hpp
-
-    print_grad("After nuclear + 1e gradient");
+    // TODO: 实现 grad_xc.hpp
 
     // 6. 将梯度写入 MD 力数组
     {
