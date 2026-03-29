@@ -1,8 +1,8 @@
 #include "dft/ao.hpp"
 #include "dft/dft.hpp"
 #include "dft/grid.hpp"
-#include "dft/vxc.hpp"
 #include "dft/xc.hpp"
+#include "dft/vxc.hpp"
 #include "quantum_chemistry.h"
 #include "gradient/grad_dft_xc.hpp"
 

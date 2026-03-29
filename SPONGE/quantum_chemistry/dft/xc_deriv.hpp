@@ -256,3 +256,142 @@ static inline __host__ __device__ void QC_VXC_Analytical_RKS(
         }
     }
 }
+
+// ===================== UKS 解析导数 =====================
+// Exchange: spin-separable, ε_x = ½ε_x(2ρα) + ½ε_x(2ρβ)
+//   v_ρα = dε_x(2ρα)/d(2ρα) · 2 · ½ = dε_x(2ρα)/d(2ρα)
+//   v_σαα = dε_x(2ρα)/d(4σαα) · 4 · ½ = 2·dε_x(2ρα)/d(4σαα)
+
+// UKS Slater exchange
+static inline __host__ __device__ void QC_VXC_Slater_Spin(
+    double ra, double rb, double& exc, double& vra, double& vrb)
+{
+    double ea, va, eb, vb;
+    QC_VXC_Slater(2.0 * ra, ea, va);
+    QC_VXC_Slater(2.0 * rb, eb, vb);
+    exc = 0.5 * ea + 0.5 * eb;
+    vra = va;  // dε(2ρα)/d(ρα) = dε(2ρα)/d(2ρα) · 2 · (1/2 from half) = va
+    vrb = vb;
+}
+
+// UKS PBE exchange (spin-separable)
+static inline __host__ __device__ void QC_VXC_PBE_X_Spin(
+    double ra, double rb, double saa, double sbb,
+    double& exc, double& vra, double& vrb, double& vsaa, double& vsbb)
+{
+    double ea, va, vsa, eb, vb, vsb;
+    QC_VXC_PBE_X(2.0 * ra, 4.0 * fmax(0.0, saa), ea, va, vsa);
+    QC_VXC_PBE_X(2.0 * rb, 4.0 * fmax(0.0, sbb), eb, vb, vsb);
+    exc = 0.5 * ea + 0.5 * eb;
+    vra = va;
+    vrb = vb;
+    vsaa = 2.0 * vsa;  // chain rule: d(½ε(2ρ,4σ))/dσ = ½·dε/d(4σ)·4 = 2·vsa
+    vsbb = 2.0 * vsb;
+}
+
+// UKS PBE correlation (使用 spin-resolved PW92 + PBE H)
+// 这是最复杂的部分。暂时对 PBE correlation 用 FD
+// (exchange 用解析导数已经解决了大部分精度问题)
+
+// UKS dispatch
+static inline __host__ __device__ void QC_VXC_Analytical_UKS(
+    QC_METHOD method, double ra, double rb,
+    double saa, double sab, double sbb,
+    double& exc, double& vra, double& vrb,
+    double& vsaa, double& vsab, double& vsbb)
+{
+    exc = vra = vrb = vsaa = vsab = vsbb = 0.0;
+    const double rho = ra + rb;
+    if (rho <= 1e-18) return;
+
+    switch (method)
+    {
+        case QC_METHOD::LDA:
+        {
+            // Exchange: Slater spin-scaled
+            double ex, vxa, vxb;
+            QC_VXC_Slater_Spin(ra, rb, ex, vxa, vxb);
+            // Correlation: VWN5 spin — 用 FD（解析版太复杂）
+            double ec, vca, vcb;
+            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
+            ec = QC_Ec_VWN5_Spin(ra, rb);
+            const double dra = fmax(1e-12, 1e-6 * ra);
+            const double drb = fmax(1e-12, 1e-6 * rb);
+            vca = (QC_Ec_VWN5_Spin(ra + dra, rb) - QC_Ec_VWN5_Spin(fmax(1e-14, ra - dra), rb)) /
+                  (ra + dra - fmax(1e-14, ra - dra));
+            vcb = (QC_Ec_VWN5_Spin(ra, rb + drb) - QC_Ec_VWN5_Spin(ra, fmax(1e-14, rb - drb))) /
+                  (rb + drb - fmax(1e-14, rb - drb));
+            exc = ex + ec;
+            vra = vxa + vca;
+            vrb = vxb + vcb;
+            vsaa = vsab = vsbb = 0.0;
+            break;
+        }
+        case QC_METHOD::PBE:
+        {
+            // Exchange: PBE spin-scaled (解析)
+            double ex, vxa, vxb, vxsaa, vxsbb;
+            QC_VXC_PBE_X_Spin(ra, rb, saa, sbb, ex, vxa, vxb, vxsaa, vxsbb);
+            // Correlation: PBE spin — 用改进的 FD (步长更小)
+            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
+            saa = fmax(saa, 0.0); sbb = fmax(sbb, 0.0);
+            double ec = QC_Ec_PBE_Spin(ra, rb, saa, sab, sbb);
+            const double h = 1e-7;  // 更小的 FD 步长
+            const double dra = h * fmax(1.0, ra);
+            const double drb = h * fmax(1.0, rb);
+            const double dsaa = h * fmax(1.0, saa);
+            const double dsab = h * fmax(1.0, fabs(sab) + 1e-10);
+            const double dsbb = h * fmax(1.0, sbb);
+            double vca = (QC_Ec_PBE_Spin(ra+dra,rb,saa,sab,sbb) - QC_Ec_PBE_Spin(fmax(1e-14,ra-dra),rb,saa,sab,sbb)) / (ra+dra - fmax(1e-14,ra-dra));
+            double vcb = (QC_Ec_PBE_Spin(ra,rb+drb,saa,sab,sbb) - QC_Ec_PBE_Spin(ra,fmax(1e-14,rb-drb),saa,sab,sbb)) / (rb+drb - fmax(1e-14,rb-drb));
+            double vcsaa = (QC_Ec_PBE_Spin(ra,rb,saa+dsaa,sab,sbb) - QC_Ec_PBE_Spin(ra,rb,fmax(0.0,saa-dsaa),sab,sbb)) / (saa+dsaa - fmax(0.0,saa-dsaa));
+            double vcsab = (QC_Ec_PBE_Spin(ra,rb,saa,sab+dsab,sbb) - QC_Ec_PBE_Spin(ra,rb,saa,sab-dsab,sbb)) / (2.0*dsab);
+            double vcsbb = (QC_Ec_PBE_Spin(ra,rb,saa,sab,sbb+dsbb) - QC_Ec_PBE_Spin(ra,rb,saa,sab,fmax(0.0,sbb-dsbb))) / (sbb+dsbb - fmax(0.0,sbb-dsbb));
+            exc = ex + ec;
+            vra = vxa + vca;
+            vrb = vxb + vcb;
+            vsaa = vxsaa + vcsaa;
+            vsab = vcsab;
+            vsbb = vxsbb + vcsbb;
+            break;
+        }
+        case QC_METHOD::PBE0:
+        {
+            // PBE0 = 0.75 * PBE_X + PBE_C
+            double ex, vxa, vxb, vxsaa, vxsbb;
+            QC_VXC_PBE_X_Spin(ra, rb, saa, sbb, ex, vxa, vxb, vxsaa, vxsbb);
+            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
+            saa = fmax(saa, 0.0); sbb = fmax(sbb, 0.0);
+            double ec = QC_Ec_PBE_Spin(ra, rb, saa, sab, sbb);
+            const double h = 1e-7;
+            const double dra = h * fmax(1.0, ra), drb = h * fmax(1.0, rb);
+            const double dsaa = h * fmax(1.0, saa), dsab = h * fmax(1.0, fabs(sab)+1e-10), dsbb = h * fmax(1.0, sbb);
+            double vca = (QC_Ec_PBE_Spin(ra+dra,rb,saa,sab,sbb) - QC_Ec_PBE_Spin(fmax(1e-14,ra-dra),rb,saa,sab,sbb)) / (ra+dra-fmax(1e-14,ra-dra));
+            double vcb = (QC_Ec_PBE_Spin(ra,rb+drb,saa,sab,sbb) - QC_Ec_PBE_Spin(ra,fmax(1e-14,rb-drb),saa,sab,sbb)) / (rb+drb-fmax(1e-14,rb-drb));
+            double vcsaa = (QC_Ec_PBE_Spin(ra,rb,saa+dsaa,sab,sbb)-QC_Ec_PBE_Spin(ra,rb,fmax(0.,saa-dsaa),sab,sbb))/(saa+dsaa-fmax(0.,saa-dsaa));
+            double vcsab = (QC_Ec_PBE_Spin(ra,rb,saa,sab+dsab,sbb)-QC_Ec_PBE_Spin(ra,rb,saa,sab-dsab,sbb))/(2.*dsab);
+            double vcsbb = (QC_Ec_PBE_Spin(ra,rb,saa,sab,sbb+dsbb)-QC_Ec_PBE_Spin(ra,rb,saa,sab,fmax(0.,sbb-dsbb)))/(sbb+dsbb-fmax(0.,sbb-dsbb));
+            exc = 0.75 * ex + ec;
+            vra = 0.75 * vxa + vca; vrb = 0.75 * vxb + vcb;
+            vsaa = 0.75 * vxsaa + vcsaa; vsab = vcsab; vsbb = 0.75 * vxsbb + vcsbb;
+            break;
+        }
+        default:
+        {
+            // Full FD fallback (B3LYP, BLYP etc.)
+            // 使用更小的步长
+            ra = fmax(ra, 1e-14); rb = fmax(rb, 1e-14);
+            saa = fmax(saa, 0.0); sbb = fmax(sbb, 0.0);
+            exc = QC_Local_Exc_Density_UKS(method, ra, rb, saa, sab, sbb);
+            const double h = 1e-7;
+            const double dra = h*fmax(1.,ra), drb = h*fmax(1.,rb);
+            const double dsaa = h*fmax(1.,saa), dsab = h*fmax(1.,fabs(sab)+1e-10), dsbb = h*fmax(1.,sbb);
+            vra = (QC_Local_Exc_Density_UKS(method,ra+dra,rb,saa,sab,sbb)-QC_Local_Exc_Density_UKS(method,fmax(1e-14,ra-dra),rb,saa,sab,sbb))/(ra+dra-fmax(1e-14,ra-dra));
+            vrb = (QC_Local_Exc_Density_UKS(method,ra,rb+drb,saa,sab,sbb)-QC_Local_Exc_Density_UKS(method,ra,fmax(1e-14,rb-drb),saa,sab,sbb))/(rb+drb-fmax(1e-14,rb-drb));
+            vsaa = (QC_Local_Exc_Density_UKS(method,ra,rb,saa+dsaa,sab,sbb)-QC_Local_Exc_Density_UKS(method,ra,rb,fmax(0.,saa-dsaa),sab,sbb))/(saa+dsaa-fmax(0.,saa-dsaa));
+            vsab = (QC_Local_Exc_Density_UKS(method,ra,rb,saa,sab+dsab,sbb)-QC_Local_Exc_Density_UKS(method,ra,rb,saa,sab-dsab,sbb))/(2.*dsab);
+            vsbb = (QC_Local_Exc_Density_UKS(method,ra,rb,saa,sab,sbb+dsbb)-QC_Local_Exc_Density_UKS(method,ra,rb,saa,sab,fmax(0.,sbb-dsbb)))/(sbb+dsbb-fmax(0.,sbb-dsbb));
+            break;
+        }
+    }
+}
