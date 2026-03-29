@@ -18,6 +18,13 @@
       "energy_ha": -230.79559011755344
     },
     {
+      "case_name": "br_anion",
+      "method_name": "HF",
+      "basis_name": "ma-def2-svp",
+      "restricted": true,
+      "energy_ha": -2572.1767317530894
+    },
+    {
       "case_name": "ch4",
       "method_name": "PBE0",
       "basis_name": "6-31g",
@@ -30,6 +37,13 @@
       "basis_name": "6-31g",
       "restricted": true,
       "energy_ha": -188.4150974618718
+    },
+    {
+      "case_name": "fe_quintet",
+      "method_name": "HF",
+      "basis_name": "6-31++g",
+      "restricted": false,
+      "energy_ha": -1262.264705128
     },
     {
       "case_name": "h2",
