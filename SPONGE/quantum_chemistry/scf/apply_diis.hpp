@@ -410,6 +410,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     deviceMemcpy(&enorm_sq, scf_ws.diis.d_diis_accum, sizeof(double),
                  deviceMemcpyDeviceToHost);
     double enorm = sqrt(enorm_sq / nao2);
+    scf_ws.diis.last_enorm = enorm;
 
     // 压入历史（Fock + 误差 + 密度 + 能量）
     QC_DIIS_History_Push(

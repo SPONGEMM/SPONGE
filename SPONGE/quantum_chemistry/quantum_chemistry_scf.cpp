@@ -29,12 +29,33 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         need_initial_guess = false;
     }
 
+    // 动态 level shift：根据能量是否单调下降来衰减
+    // 能量下降 → shift *= decay（缓慢减小）
+    // 能量上升 → shift 恢复到初始值（抑制震荡）
+    const double ls_init = 2.0;
+    const double ls_decay = 0.95;
+    const double ls_min = 0.0;
+    double current_ls = ls_init;
+
     for (int iter = 0; iter < scf_ws.runtime.max_scf_iter; ++iter)
     {
         Build_Fock(iter);
         Accumulate_SCF_Energy(iter);
-
         Apply_DIIS(iter);
+
+        // 动态 level shift：能量下降时衰减，上升时恢复
+        if (iter > 0)
+        {
+            double h_delta_e = 0.0;
+            deviceMemcpy(&h_delta_e, scf_ws.runtime.d_delta_e,
+                         sizeof(double), deviceMemcpyDeviceToHost);
+            if (h_delta_e < 0.0)
+                current_ls = fmax(current_ls * ls_decay, ls_min);
+            else
+                current_ls = ls_init;
+        }
+        scf_ws.runtime.level_shift = current_ls;
+
         Diagonalize_And_Build_Density();
         if (Check_Convergence(iter, md_step)) break;
     }

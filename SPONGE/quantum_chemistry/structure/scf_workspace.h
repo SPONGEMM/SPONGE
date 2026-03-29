@@ -90,6 +90,9 @@ struct QC_SCF_DIIS_Workspace
     // MESA → CDIIS 切换阈值
     double mesa_to_cdiis_threshold = 1e-1;
 
+    // 最近一轮的 DIIS 误差范数（用于动态 level shift）
+    double last_enorm = 1e10;
+
     double* d_diis_accum = NULL;
 };
 
