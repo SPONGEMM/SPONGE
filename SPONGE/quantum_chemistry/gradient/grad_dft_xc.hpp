@@ -4,14 +4,119 @@
 // (dft.hpp 定义了 QC_Eval_AO_Grid_Kernel, QC_Eval_Rho_Kernel 等)
 
 // ====================== DFT XC 网格梯度 ======================
-// dE_xc/dR_A = -2 Σ_g Σ_{μ∈A} (∂φ_μ/∂r_d) · W_pao_μ(g)
+// dE_xc/dR_A_d = -2 Σ_g Σ_{μ∈A} ∂φ_μ/∂r_d · W_pao_μ(g)
+//              + -2 Σ_g Σ_{μ∈A} H_d_μ(g) · W_pao_a_μ(g)  [GGA term a]
 //
-// LDA:  W_pao_μ = w · v_ρ · Pao_μ
-// GGA:  W_pao_μ = w · v_ρ · Pao_μ + 2·w·v_σ · (∇ρ · GPao_μ)
-//        其中 GPao_μ = Σ_ν P_μν · ∇φ_ν
-//
-// 注: GGA 缺少涉及 AO 二阶导数的 term(a)，待后续实现
+// W_pao  = w·v_ρ·Pao + 2·w·v_σ·(∇ρ·GPao)         [LDA + GGA term b]
+// W_pao_a = 2·w·v_σ·Pao                             [GGA term a weight]
+// H_d_μ  = Σ_dir ∇ρ_dir · ∂²φ_μ/(∂r_dir·∂r_d)    [Hessian·∇ρ contraction]
 // ==============================================================
+
+// AO 二阶导数与 ∇ρ 的收缩:
+// H_d[μ,g] = Σ_dir ∇ρ_dir(g) · ∂²φ_μ/(∂r_dir · ∂r_d)(g)
+// 输出 3 个缓冲 [n_grid × nao_cart], 与 ao_grad_x 布局一致
+static __global__ void QC_Eval_AO_Hessian_DotGradRho_Kernel(
+    const int n_grid, const int nao, const int nbas,
+    const float* grid_coords, const VECTOR* centers, const int* l_list,
+    const float* exps_arr, const float* coeffs_arr, const int* shell_offsets,
+    const int* shell_sizes, const int* ao_offsets,
+    const float* shell_r2_screen,
+    const double* grad_rho_x, const double* grad_rho_y,
+    const double* grad_rho_z,
+    float* hess_x, float* hess_y, float* hess_z)
+{
+    SIMPLE_DEVICE_FOR(ig, n_grid)
+    {
+        const float gx = grid_coords[ig * 3 + 0];
+        const float gy = grid_coords[ig * 3 + 1];
+        const float gz = grid_coords[ig * 3 + 2];
+        const float grx = (float)grad_rho_x[ig];
+        const float gry = (float)grad_rho_y[ig];
+        const float grz = (float)grad_rho_z[ig];
+
+        for (int i = 0; i < nao; i++)
+            hess_x[ig * nao + i] = hess_y[ig * nao + i] =
+                hess_z[ig * nao + i] = 0.0f;
+
+        for (int ish = 0; ish < nbas; ish++)
+        {
+            const VECTOR c = centers[ish];
+            const float dx = gx - c.x, dy = gy - c.y, dz = gz - c.z;
+            const float r2 = dx * dx + dy * dy + dz * dz;
+            if (r2 > shell_r2_screen[ish]) continue;
+
+            const int l = l_list[ish];
+            const int ncart = (l + 1) * (l + 2) / 2;
+            const int ao_off = ao_offsets[ish];
+
+            float px[6], py[6], pz[6];
+            px[0] = py[0] = pz[0] = 1.0f;
+            for (int k = 1; k <= 5; k++)
+            {
+                px[k] = px[k - 1] * dx;
+                py[k] = py[k - 1] * dy;
+                pz[k] = pz[k - 1] * dz;
+            }
+
+            for (int ip = 0; ip < shell_sizes[ish]; ip++)
+            {
+                const int pidx = shell_offsets[ish] + ip;
+                const float a = exps_arr[pidx];
+                const float e = coeffs_arr[pidx] * expf(-a * r2);
+                if (fabsf(e) < 1e-20f) continue;
+                const float a2 = 2.0f * a;
+                const float a4 = 4.0f * a * a;
+
+                for (int ic = 0; ic < ncart; ic++)
+                {
+                    int lx, ly, lz;
+                    QC_Get_Lxyz_Device(l, ic, lx, ly, lz);
+
+                    // D0: polynomial value
+                    const float d0x = px[lx], d0y = py[ly], d0z = pz[lz];
+                    // D1: first derivative factor (same as AO grad kernel)
+                    const float d1x = (lx > 0 ? (float)lx * px[lx - 1] : 0.0f) -
+                                      a2 * px[lx + 1];
+                    const float d1y = (ly > 0 ? (float)ly * py[ly - 1] : 0.0f) -
+                                      a2 * py[ly + 1];
+                    const float d1z = (lz > 0 ? (float)lz * pz[lz - 1] : 0.0f) -
+                                      a2 * pz[lz + 1];
+                    // D2: second derivative factor (diagonal)
+                    const float d2xx =
+                        (lx > 1 ? (float)(lx * (lx - 1)) * px[lx - 2] : 0.0f) -
+                        a2 * (float)(2 * lx + 1) * px[lx] + a4 * px[lx + 2];
+                    const float d2yy =
+                        (ly > 1 ? (float)(ly * (ly - 1)) * py[ly - 2] : 0.0f) -
+                        a2 * (float)(2 * ly + 1) * py[ly] + a4 * py[ly + 2];
+                    const float d2zz =
+                        (lz > 1 ? (float)(lz * (lz - 1)) * pz[lz - 2] : 0.0f) -
+                        a2 * (float)(2 * lz + 1) * pz[lz] + a4 * pz[lz + 2];
+
+                    // H_x = grx·∂²φ/∂x² + gry·∂²φ/∂x∂y + grz·∂²φ/∂x∂z
+                    //      = [grx·D2xx·D0y·D0z + D1x·(gry·D1y·D0z + grz·D0y·D1z)]·e
+                    const float cross_yz = gry * d1y * d0z + grz * d0y * d1z;
+                    const float hx =
+                        e * (grx * d2xx * d0y * d0z + d1x * cross_yz);
+
+                    // H_y = grx·∂²φ/∂y∂x + gry·∂²φ/∂y² + grz·∂²φ/∂y∂z
+                    const float cross_xz = grx * d1x * d0z + grz * d0x * d1z;
+                    const float hy =
+                        e * (gry * d0x * d2yy * d0z + d1y * cross_xz);
+
+                    // H_z = grx·∂²φ/∂z∂x + gry·∂²φ/∂z∂y + grz·∂²φ/∂z²
+                    const float cross_xy = grx * d1x * d0y + gry * d0x * d1y;
+                    const float hz =
+                        e * (grz * d0x * d0y * d2zz + d1z * cross_xy);
+
+                    const int i = ao_off + ic;
+                    hess_x[ig * nao + i] += hx;
+                    hess_y[ig * nao + i] += hy;
+                    hess_z[ig * nao + i] += hz;
+                }
+            }
+        }
+    }
+}
 
 // 构建加权 Pao (LDA + GGA term b)
 template <int deriv_level>
@@ -68,6 +173,21 @@ static __global__ void QC_XC_Grad_Accumulate_Kernel(
                           (double)(-2.0f * gz_norm[ig * nao + mu] * wp));
             }
         }
+    }
+}
+
+// GGA term(a) 的权重: W_pao_a = 2·w·v_σ·Pao
+static __global__ void QC_Build_W_Pao_TermA_Kernel(
+    const int n_grid, const int nao, const float* weights,
+    const double* vsigma, const double* rho, const float* Pao, float* W_pao)
+{
+    SIMPLE_DEVICE_FOR(idx, n_grid * nao)
+    {
+        const int g = idx % n_grid;
+        float val = 0.0f;
+        if (rho[g] >= 1e-20)
+            val = (float)(2.0 * weights[g] * vsigma[g]) * Pao[idx];
+        W_pao[idx] = val;
     }
 }
 
@@ -257,12 +377,76 @@ static void QC_Build_DFT_XC_Gradient_RKS_Impl(
                     d_grad_rho_y, d_grad_rho_z, d_Pao, d_GPao_scratch, d_W_pao);
         }
 
-        // 6. 累加到原子梯度
+        // 6. 累加到原子梯度 (主项: v_ρ + GGA term b)
         Launch_Device_Kernel(
             QC_XC_Grad_Accumulate_Kernel,
             (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
             nbas, d_shell_atom, d_ao_offsets_grad,
             d_gx_norm, d_gy_norm, d_gz_norm, d_W_pao, d_grad);
+
+        // 7. GGA term(a): AO Hessian · ∇ρ 贡献
+        if (is_gga)
+        {
+            // 7a. 计算 H_d = Σ_dir ∇ρ_dir · ∂²φ/(∂dir∂d) (Cartesian)
+            float* d_hx = d_ao_grad_x;
+            float* d_hy = d_ao_grad_y;
+            float* d_hz = d_ao_grad_z;
+            int nao_hess = nao_s;
+            if (is_spherical)
+            {
+                d_hx = d_ao_grad_x_cart;
+                d_hy = d_ao_grad_y_cart;
+                d_hz = d_ao_grad_z_cart;
+                nao_hess = nao_c;
+            }
+            Launch_Device_Kernel(
+                QC_Eval_AO_Hessian_DotGradRho_Kernel,
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+                nao_hess, nbas, d_coords_batch, d_centers, d_l_list, d_exps,
+                d_coeffs, d_shell_offsets, d_shell_sizes, d_ao_offsets,
+                d_shell_r2_screen, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
+                d_hx, d_hy, d_hz);
+
+            // 7b. Cart2Sph (球形基时)
+            if (is_spherical)
+            {
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_hx, d_cart2sph_mat, d_ao_grad_x);
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_hy, d_cart2sph_mat, d_ao_grad_y);
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_hz, d_cart2sph_mat, d_ao_grad_z);
+                d_hx = d_ao_grad_x;
+                d_hy = d_ao_grad_y;
+                d_hz = d_ao_grad_z;
+            }
+            // 归一化: hx_norm = hx * norms
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_hx, d_gx_norm);
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_hy, d_gy_norm);
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_hz, d_gz_norm);
+
+            // 7c. W_pao_a = 2·w·v_σ·Pao (term a weight)
+            {
+                const int tot = n_batch * nao;
+                Launch_Device_Kernel(
+                    QC_Build_W_Pao_TermA_Kernel,
+                    (tot + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                    d_weights_batch, d_vsigma, d_rho, d_Pao, d_W_pao);
+            }
+
+            // 7d. 累加到原子梯度
+            Launch_Device_Kernel(
+                QC_XC_Grad_Accumulate_Kernel,
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                nbas, d_shell_atom, d_ao_offsets_grad,
+                d_gx_norm, d_gy_norm, d_gz_norm, d_W_pao, d_grad);
+        }
     }
 }
 
