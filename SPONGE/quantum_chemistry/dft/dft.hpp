@@ -29,6 +29,7 @@ static __global__ void QC_Eval_AO_Grid_Batch_Kernel(
     const int* shell_offsets,  // [nbas] offset into exps/coeffs
     const int* shell_sizes,    // [nbas] number of primitives
     const int* ao_offsets,     // [nbas] offset into AO array
+    const float* shell_r2_screen,  // [nbas] screening 半径平方
     float* ao_vals,            // [n_grid_batch * nao] OUTPUT
     float* ao_grad_x,          // [n_grid_batch * nao] OUTPUT
     float* ao_grad_y, float* ao_grad_z)
@@ -48,17 +49,21 @@ static __global__ void QC_Eval_AO_Grid_Batch_Kernel(
             ao_grad_z[ig * nao + i] = 0.0f;
         }
 
-        // Loop over shells (reuse CPU logic!)
+        // Loop over shells with distance screening
         for (int ish = 0; ish < nbas; ish++)
         {
-            const int l = l_list[ish];
-            const int ncart = (l + 1) * (l + 2) / 2;
-            const int ao_off = ao_offsets[ish];
             const VECTOR c = centers[ish];
             const float dx = x - c.x;
             const float dy = y - c.y;
             const float dz = z - c.z;
             const float r2 = dx * dx + dy * dy + dz * dz;
+
+            // Shell screening: 跳过距离太远的壳层
+            if (r2 > shell_r2_screen[ish]) continue;
+
+            const int l = l_list[ish];
+            const int ncart = (l + 1) * (l + 2) / 2;
+            const int ao_off = ao_offsets[ish];
 
             // Precompute powers
             float px[6], py[6], pz[6];

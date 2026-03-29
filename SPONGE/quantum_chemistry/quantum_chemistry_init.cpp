@@ -945,6 +945,48 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
                              sizeof(double) * dft.grid_batch_size);
         Device_Malloc_Safely((void**)&dft.d_vsigma,
                              sizeof(double) * dft.grid_batch_size);
+
+        // VXC BLAS 优化缓冲
+        const int nao_alloc = mol.nao;
+        const int bs = dft.grid_batch_size;
+        Device_Malloc_Safely((void**)&dft.d_ao_norm,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_gx_norm,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_gy_norm,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_gz_norm,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_Pao,
+                             sizeof(float) * nao_alloc * bs);
+        Device_Malloc_Safely((void**)&dft.d_W_full,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_W_sigma,
+                             sizeof(float) * bs * nao_alloc);
+        Device_Malloc_Safely((void**)&dft.d_grad_rho_x, sizeof(double) * bs);
+        Device_Malloc_Safely((void**)&dft.d_grad_rho_y, sizeof(double) * bs);
+        Device_Malloc_Safely((void**)&dft.d_grad_rho_z, sizeof(double) * bs);
+
+        // AO screening 半径: r2_screen = -ln(tol) / alpha_min
+        {
+            const float screen_tol = 1e-15f;
+            const float neg_ln_tol = -logf(screen_tol);  // ~34.5
+            std::vector<float> h_r2_screen(mol.nbas);
+            for (int ish = 0; ish < mol.nbas; ish++)
+            {
+                float alpha_min = 1e30f;
+                for (int ip = 0; ip < mol.h_shell_sizes[ish]; ip++)
+                {
+                    float a = mol.h_exps[mol.h_shell_offsets[ish] + ip];
+                    if (a < alpha_min) alpha_min = a;
+                }
+                h_r2_screen[ish] = neg_ln_tol / fmaxf(alpha_min, 1e-10f);
+            }
+            Device_Malloc_Safely((void**)&dft.d_shell_r2_screen,
+                                 sizeof(float) * mol.nbas);
+            deviceMemcpy(dft.d_shell_r2_screen, h_r2_screen.data(),
+                         sizeof(float) * mol.nbas, deviceMemcpyHostToDevice);
+        }
     }
     Build_SCF_Workspace();
 }

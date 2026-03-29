@@ -18,7 +18,8 @@ void QUANTUM_CHEMISTRY::Build_DFT_VXC()
             scf_ws.alpha.d_P, scf_ws.beta.d_P, dft.d_ao_vals_cart,
             dft.d_ao_grad_x_cart, dft.d_ao_grad_y_cart, dft.d_ao_grad_z_cart,
             dft.d_ao_vals, dft.d_ao_grad_x, dft.d_ao_grad_y, dft.d_ao_grad_z,
-            dft.d_exc_total, dft.d_Vxc, dft.d_Vxc_beta);
+            dft.d_exc_total, dft.d_Vxc, dft.d_Vxc_beta,
+            dft.d_shell_r2_screen);
     }
     else
     {
@@ -32,6 +33,9 @@ void QUANTUM_CHEMISTRY::Build_DFT_VXC()
             dft.d_ao_grad_y_cart, dft.d_ao_grad_z_cart, dft.d_ao_vals,
             dft.d_ao_grad_x, dft.d_ao_grad_y, dft.d_ao_grad_z, dft.d_rho,
             dft.d_sigma, dft.d_exc, dft.d_vrho, dft.d_vsigma, dft.d_exc_total,
-            dft.d_Vxc);
+            dft.d_Vxc, dft.d_ao_norm, dft.d_gx_norm, dft.d_gy_norm,
+            dft.d_gz_norm, dft.d_Pao, dft.d_W_full, dft.d_W_sigma,
+            dft.d_grad_rho_x, dft.d_grad_rho_y, dft.d_grad_rho_z,
+            dft.d_shell_r2_screen);
     }
 }

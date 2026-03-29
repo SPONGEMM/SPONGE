@@ -45,6 +45,21 @@ struct QC_DFT
     float* d_Vxc = NULL;
     float* d_Vxc_beta = NULL;
     double* d_exc_total = NULL;
+
+    // AO screening: 每个壳层的最大有效距离平方
+    float* d_shell_r2_screen = NULL;  // [nbas]
+
+    // VXC BLAS 优化用缓冲（预分配，避免热路径 malloc）
+    float* d_ao_norm = NULL;       // [grid_batch_size * nao]
+    float* d_gx_norm = NULL;       // [grid_batch_size * nao]
+    float* d_gy_norm = NULL;       // [grid_batch_size * nao]
+    float* d_gz_norm = NULL;       // [grid_batch_size * nao]
+    float* d_Pao = NULL;           // [nao * grid_batch_size]
+    float* d_W_full = NULL;        // [grid_batch_size * nao]
+    float* d_W_sigma = NULL;       // [grid_batch_size * nao]
+    double* d_grad_rho_x = NULL;   // [grid_batch_size]
+    double* d_grad_rho_y = NULL;   // [grid_batch_size]
+    double* d_grad_rho_z = NULL;   // [grid_batch_size]
 };
 
 #endif
