@@ -1,4 +1,4 @@
-#ifndef QC_GUESS_SAP_H
+﻿#ifndef QC_GUESS_SAP_H
 #define QC_GUESS_SAP_H
 
 // Superposition of Atomic Potentials (SAP) initial guess
@@ -20,8 +20,7 @@
 #include "../structure/molecule.h"
 
 // Compute the SAP potential matrix V_SAP in Cartesian basis.
-void QC_Compute_V_SAP(const QC_MOLECULE& mol,
-                      const QC_INTEGRAL_TASKS& task_ctx,
+void QC_Compute_V_SAP(const QC_MOLECULE& mol, const QC_INTEGRAL_TASKS& task_ctx,
                       float* d_V_SAP);
 
 #endif

@@ -1,4 +1,4 @@
-#include "sap.h"
+﻿#include "sap.h"
 
 #include "../quantum_chemistry.h"
 
@@ -266,15 +266,14 @@ static const SAP_ATOM_DATA SAP_DATA[] = {
 };
 // clang-format on
 
-static const int SAP_MAX_Z =
-    (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
+static const int SAP_MAX_Z = (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
 
 // ====================== V_SAP 积分核函数 ======================
 // 基于 arXiv:2603.16989 的方法：对核吸引积分的 Boys 函数做修正
 //
 // 标准核吸引: F_m(T), T = g * R_PC²
-// SAP 修正:   F_m(T) → F_m(T) - Σ_k c̃_k (α_k/(g+α_k))^(m+1/2) F_m(T·α_k/(g+α_k))
-// 其中 c̃_k = c_k / Z_C
+// SAP 修正:   F_m(T) → F_m(T) - Σ_k c̃_k (α_k/(g+α_k))^(m+1/2)
+// F_m(T·α_k/(g+α_k)) 其中 c̃_k = c_k / Z_C
 //
 // 前因子 (-Z * 2π/g) 和 R tensor 递推完全不变
 // ==============================================================
@@ -282,9 +281,9 @@ static const int SAP_MAX_Z =
 #include "../integrals/one_e.hpp"
 
 // 对 Boys 函数值施加 SAP 修正
-static __device__ void apply_sap_correction(double* F_vals, int L_tot,
-                                            float T, float g,
-                                            const SAP_ATOM_DATA& sap, int Z)
+static __device__ void apply_sap_correction(double* F_vals, int L_tot, float T,
+                                            float g, const SAP_ATOM_DATA& sap,
+                                            int Z)
 {
     if (Z == 0) return;
     const float inv_Z = 1.0f / (float)Z;
@@ -308,12 +307,14 @@ static __device__ void apply_sap_correction(double* F_vals, int L_tot,
     }
 }
 
-static __global__ void SAP_Kernel(
-    const int n_tasks, const QC_ONE_E_TASK* tasks, const VECTOR* centers,
-    const int* l_list, const float* exps, const float* coeffs,
-    const int* shell_offsets, const int* shell_sizes, const int* ao_offsets,
-    const int* atm, const float* env, int natm, const int* d_Z,
-    float* out_V_SAP, int nao_total)
+static __global__ void SAP_Kernel(const int n_tasks, const QC_ONE_E_TASK* tasks,
+                                  const VECTOR* centers, const int* l_list,
+                                  const float* exps, const float* coeffs,
+                                  const int* shell_offsets,
+                                  const int* shell_sizes, const int* ao_offsets,
+                                  const int* atm, const float* env, int natm,
+                                  const int* d_Z, float* out_V_SAP,
+                                  int nao_total)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
@@ -396,23 +397,19 @@ static __global__ void SAP_Kernel(
                                 {
                                     float ey = E_y[ly_i][ly_j][ty];
                                     if (ey == 0.0f) continue;
-                                    for (int tz = 0; tz <= lz_i + lz_j;
-                                         tz++)
+                                    for (int tz = 0; tz <= lz_i + lz_j; tz++)
                                     {
                                         float ez = E_z[lz_i][lz_j][tz];
                                         if (ez == 0.0f) continue;
-                                        v_sum +=
-                                            (double)ex * (double)ey *
-                                            (double)ez *
-                                            (double)R_vals[ONEE_MD_IDX(
-                                                tx, ty, tz, 0)];
+                                        v_sum += (double)ex * (double)ey *
+                                                 (double)ez *
+                                                 (double)R_vals[ONEE_MD_IDX(
+                                                     tx, ty, tz, 0)];
                                     }
                                 }
                             }
-                            total_V += ci * cj * Kab *
-                                       -(float)Z *
-                                       (2.0f * CONSTANT_Pi / g) *
-                                       (float)v_sum;
+                            total_V += ci * cj * Kab * -(float)Z *
+                                       (2.0f * CONSTANT_Pi / g) * (float)v_sum;
                         }
                     }
                 }
@@ -423,8 +420,8 @@ static __global__ void SAP_Kernel(
     }
 }
 
-void QC_Compute_V_SAP(const QC_MOLECULE& mol,
-                      const QC_INTEGRAL_TASKS& task_ctx, float* d_V_SAP)
+void QC_Compute_V_SAP(const QC_MOLECULE& mol, const QC_INTEGRAL_TASKS& task_ctx,
+                      float* d_V_SAP)
 {
     const int nao_c = mol.nao_cart;
     deviceMemset(d_V_SAP, 0, sizeof(float) * nao_c * nao_c);
@@ -432,13 +429,12 @@ void QC_Compute_V_SAP(const QC_MOLECULE& mol,
     const int chunk_size = ONE_E_BATCH_SIZE;
     for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
     {
-        int current_chunk =
-            std::min(chunk_size, task_ctx.topo.n_1e_tasks - i);
+        int current_chunk = std::min(chunk_size, task_ctx.topo.n_1e_tasks - i);
         QC_ONE_E_TASK* task_ptr = task_ctx.buffers.d_1e_tasks + i;
         Launch_Device_Kernel(
             SAP_Kernel, (current_chunk + 63) / 64, 64, 0, 0, current_chunk,
             task_ptr, mol.d_centers, mol.d_l_list, mol.d_exps, mol.d_coeffs,
-            mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets,
-            mol.d_atm, mol.d_env, mol.natm, mol.d_Z, d_V_SAP, nao_c);
+            mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm,
+            mol.d_env, mol.natm, mol.d_Z, d_V_SAP, nao_c);
     }
 }

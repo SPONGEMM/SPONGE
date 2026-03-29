@@ -5,13 +5,13 @@ bool QUANTUM_CHEMISTRY::Check_Convergence(int iter, int md_step)
     const int nao2 = (int)mol.nao2;
 
     // 每步直接用新密度替换旧密度（与 PySCF 一致）
-    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
-                 sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new, sizeof(float) * nao2,
+                 deviceMemcpyDeviceToDevice);
 
     if (scf_ws.runtime.unrestricted)
     {
-        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
-                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new, sizeof(float) * nao2,
+                     deviceMemcpyDeviceToDevice);
         QC_Add_Matrix(nao2, scf_ws.alpha.d_P, scf_ws.beta.d_P,
                       scf_ws.direct.d_Ptot);
     }

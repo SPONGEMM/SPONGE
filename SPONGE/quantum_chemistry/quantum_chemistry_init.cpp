@@ -774,15 +774,13 @@ void QUANTUM_CHEMISTRY::Diag_Guess_And_Build_P()
 
     // 同步到 d_F_double（Diagonalize 优先读 d_F_double）
     if (scf_ws.alpha.d_F_double)
-        QC_Float_To_Double(nao2, scf_ws.alpha.d_F,
-                           scf_ws.alpha.d_F_double);
+        QC_Float_To_Double(nao2, scf_ws.alpha.d_F, scf_ws.alpha.d_F_double);
     if (scf_ws.runtime.unrestricted)
     {
-        deviceMemcpy(scf_ws.beta.d_F, scf_ws.alpha.d_F,
-                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        deviceMemcpy(scf_ws.beta.d_F, scf_ws.alpha.d_F, sizeof(float) * nao2,
+                     deviceMemcpyDeviceToDevice);
         if (scf_ws.beta.d_F_double)
-            QC_Float_To_Double(nao2, scf_ws.beta.d_F,
-                               scf_ws.beta.d_F_double);
+            QC_Float_To_Double(nao2, scf_ws.beta.d_F, scf_ws.beta.d_F_double);
     }
 
     // 对角化（跳过 level shift）
@@ -792,12 +790,12 @@ void QUANTUM_CHEMISTRY::Diag_Guess_And_Build_P()
     scf_ws.runtime.level_shift = saved_ls;
 
     // P = P_new
-    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
-                 sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new, sizeof(float) * nao2,
+                 deviceMemcpyDeviceToDevice);
     if (scf_ws.runtime.unrestricted)
     {
-        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
-                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new, sizeof(float) * nao2,
+                     deviceMemcpyDeviceToDevice);
     }
 }
 
@@ -819,8 +817,7 @@ void QUANTUM_CHEMISTRY::Build_Initial_Guess()
 
         // 1. 计算 V_SAP（笛卡尔基下）
         float* d_V_SAP = nullptr;
-        Device_Malloc_Safely((void**)&d_V_SAP,
-                             sizeof(float) * nao_c * nao_c);
+        Device_Malloc_Safely((void**)&d_V_SAP, sizeof(float) * nao_c * nao_c);
         QC_Compute_V_SAP(mol, task_ctx, d_V_SAP);
 
         // 2. 球谐变换（如需要），结果写入 d_F
@@ -832,8 +829,7 @@ void QUANTUM_CHEMISTRY::Build_Initial_Guess()
         deviceFree(d_V_SAP);
 
         // 3. 归一化 + F_guess = T + V_SAP
-        QC_Scale_Matrix_By_Norms(nao, scf_ws.ortho.d_norms,
-                                 scf_ws.alpha.d_F);
+        QC_Scale_Matrix_By_Norms(nao, scf_ws.ortho.d_norms, scf_ws.alpha.d_F);
         QC_Add_Matrix(nao2, scf_ws.core.d_T, scf_ws.alpha.d_F,
                       scf_ws.alpha.d_F);
 

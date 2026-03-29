@@ -145,8 +145,8 @@ static bool QC_EDIIS_Extrapolate(int nao2, int diis_space, int hist_count,
         g[i] = energy_hist[idx(i)];
         for (int j = 0; j < m; j++)
         {
-            double hij = FD[i * m + i] + FD[j * m + j] - FD[i * m + j] -
-                         FD[j * m + i];
+            double hij =
+                FD[i * m + i] + FD[j * m + j] - FD[i * m + j] - FD[j * m + i];
             H[i * m + j] = -hij;  // QP 的 H 矩阵取负号
         }
     }
@@ -194,8 +194,8 @@ static bool QC_ADIIS_Extrapolate(int nao2, int diis_space, int hist_count,
         g[i] = 2.0 * (DF[i * m + n] - dn_fn);
         for (int j = 0; j < m; j++)
         {
-            H[i * m + j] = DF[i * m + j] - DF[i * m + n] - DF[n * m + j] +
-                           dn_fn;
+            H[i * m + j] =
+                DF[i * m + j] - DF[i * m + n] - DF[n * m + j] + dn_fn;
         }
     }
 
@@ -206,8 +206,8 @@ static bool QC_ADIIS_Extrapolate(int nao2, int diis_space, int hist_count,
 // ========================= CDIIS 外推 =========================
 static bool QC_CDIIS_Extrapolate(int nao, int diis_space, int hist_count,
                                  int hist_head, double** d_f_hist,
-                                 double** d_e_hist, double reg,
-                                 double* d_f_out, double* d_accum)
+                                 double** d_e_hist, double reg, double* d_f_out,
+                                 double* d_accum)
 {
     if (hist_count < 2 || diis_space <= 0) return false;
     const int m = std::min(hist_count, diis_space);
@@ -249,8 +249,8 @@ static bool QC_CDIIS_Extrapolate(int nao, int diis_space, int hist_count,
 #if defined(USE_MKL) || defined(USE_OPENBLAS)
         int lwork_q = -1;
         double wq;
-        LAPACKE_dsyev_work(LAPACK_COL_MAJOR, 'V', 'U', n, H.data(), n,
-                           w.data(), &wq, lwork_q);
+        LAPACKE_dsyev_work(LAPACK_COL_MAJOR, 'V', 'U', n, H.data(), n, w.data(),
+                           &wq, lwork_q);
         int lwork_h = (int)wq;
         std::vector<double> work_h(lwork_h);
         int info = LAPACKE_dsyev_work(LAPACK_COL_MAJOR, 'V', 'U', n, H.data(),
@@ -324,11 +324,13 @@ do_extrapolate:
 // MESA: 同时算 EDIIS 和 ADIIS，选密度变化更小的
 // 切换: 误差范数大时用 MESA，小时用 CDIIS
 // ===================================================================
-static bool QC_MESA_Or_CDIIS_Extrapolate(
-    int nao, int diis_space, int hist_count, int hist_head,
-    double** d_f_hist, double** d_e_hist, double** d_d_hist,
-    double* energy_hist, double reg, double enorm,
-    double mesa_to_cdiis_threshold, double* d_f_out, double* d_accum)
+static bool QC_MESA_Or_CDIIS_Extrapolate(int nao, int diis_space,
+                                         int hist_count, int hist_head,
+                                         double** d_f_hist, double** d_e_hist,
+                                         double** d_d_hist, double* energy_hist,
+                                         double reg, double enorm,
+                                         double mesa_to_cdiis_threshold,
+                                         double* d_f_out, double* d_accum)
 {
     const int m = std::min(hist_count, diis_space);
     if (m < 2) return false;
@@ -339,18 +341,17 @@ static bool QC_MESA_Or_CDIIS_Extrapolate(
     {
         // 近收敛: 用 CDIIS
         return QC_CDIIS_Extrapolate(nao, diis_space, hist_count, hist_head,
-                                    d_f_hist, d_e_hist, reg, d_f_out,
-                                    d_accum);
+                                    d_f_hist, d_e_hist, reg, d_f_out, d_accum);
     }
 
     // 远离收敛: MESA (EDIIS vs ADIIS)
     std::vector<double> c_ediis, c_adiis;
-    bool ok_e = QC_EDIIS_Extrapolate(nao2, diis_space, hist_count, hist_head,
-                                     d_f_hist, d_d_hist, energy_hist,
-                                     d_accum, c_ediis);
-    bool ok_a = QC_ADIIS_Extrapolate(nao2, diis_space, hist_count, hist_head,
-                                     d_f_hist, d_d_hist, energy_hist,
-                                     d_accum, c_adiis);
+    bool ok_e =
+        QC_EDIIS_Extrapolate(nao2, diis_space, hist_count, hist_head, d_f_hist,
+                             d_d_hist, energy_hist, d_accum, c_ediis);
+    bool ok_a =
+        QC_ADIIS_Extrapolate(nao2, diis_space, hist_count, hist_head, d_f_hist,
+                             d_d_hist, energy_hist, d_accum, c_adiis);
     if (!ok_e && !ok_a) return false;
 
     // 选密度变化更小的: ||P_new - P_current||_F
@@ -414,8 +415,8 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     QC_DIIS_History_Push(
         nao2, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count,
         scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
-        scf_ws.diis.d_diis_e_hist.data(), scf_ws.diis.d_diis_d_hist.data(),
-        dF, scf_ws.diis.d_diis_err, scf_ws.alpha.d_P,
+        scf_ws.diis.d_diis_e_hist.data(), scf_ws.diis.d_diis_d_hist.data(), dF,
+        scf_ws.diis.d_diis_err, scf_ws.alpha.d_P,
         scf_ws.diis.energy_hist.data(), current_energy);
 
     if (scf_ws.diis.diis_hist_count >= 2)
@@ -423,11 +424,9 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         bool ok = QC_MESA_Or_CDIIS_Extrapolate(
             mol.nao, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count,
             scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
-            scf_ws.diis.d_diis_e_hist.data(),
-            scf_ws.diis.d_diis_d_hist.data(), scf_ws.diis.energy_hist.data(),
-            scf_ws.runtime.diis_reg, enorm,
-            scf_ws.diis.mesa_to_cdiis_threshold, dF,
-            scf_ws.diis.d_diis_accum);
+            scf_ws.diis.d_diis_e_hist.data(), scf_ws.diis.d_diis_d_hist.data(),
+            scf_ws.diis.energy_hist.data(), scf_ws.runtime.diis_reg, enorm,
+            scf_ws.diis.mesa_to_cdiis_threshold, dF, scf_ws.diis.d_diis_accum);
         if (ok) QC_Double_To_Float(nao2, dF, scf_ws.alpha.d_F);
     }
 
@@ -443,9 +442,9 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     QC_DIIS_History_Push(
         nao2, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count_b,
         scf_ws.diis.diis_hist_head_b, scf_ws.diis.d_diis_f_hist_b.data(),
-        scf_ws.diis.d_diis_e_hist_b.data(),
-        scf_ws.diis.d_diis_d_hist_b.data(), dFb, scf_ws.diis.d_diis_err,
-        scf_ws.beta.d_P, scf_ws.diis.energy_hist.data(), current_energy);
+        scf_ws.diis.d_diis_e_hist_b.data(), scf_ws.diis.d_diis_d_hist_b.data(),
+        dFb, scf_ws.diis.d_diis_err, scf_ws.beta.d_P,
+        scf_ws.diis.energy_hist.data(), current_energy);
     if (scf_ws.diis.diis_hist_count_b >= 2)
     {
         if (QC_CDIIS_Extrapolate(

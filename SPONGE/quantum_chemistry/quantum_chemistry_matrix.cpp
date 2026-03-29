@@ -600,11 +600,10 @@ void QUANTUM_CHEMISTRY::Cart2Sph_Single_Matrix(float* d_cart, float* d_sph)
     const int threads = 256;
     const int total = nao_s * nao_s;
     QC_MatMul_RowRow_Blas(blas_handle, nao_c, nao_s, nao_c, d_cart,
-                          cart2sph.d_cart2sph_mat,
-                          cart2sph.d_cart2sph_1e_tmp);
+                          cart2sph.d_cart2sph_mat, cart2sph.d_cart2sph_1e_tmp);
     Launch_Device_Kernel(QC_Cart2Sph_MatMul_UT_RowRow_Kernel,
-                         (total + threads - 1) / threads, threads, 0, 0,
-                         nao_s, nao_s, nao_c, cart2sph.d_cart2sph_mat,
+                         (total + threads - 1) / threads, threads, 0, 0, nao_s,
+                         nao_s, nao_c, cart2sph.d_cart2sph_mat,
                          cart2sph.d_cart2sph_1e_tmp, d_sph);
 }
 

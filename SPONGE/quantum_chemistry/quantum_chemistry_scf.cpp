@@ -37,7 +37,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         Diagonalize_And_Build_Density();
         if (Check_Convergence(iter, md_step)) break;
     }
-
 }
 
 void QUANTUM_CHEMISTRY::Compute_Spin_Square()
@@ -56,16 +55,16 @@ void QUANTUM_CHEMISTRY::Compute_Spin_Square()
     QC_Float_To_Double(nao2, scf_ws.core.d_S, d_tmp2);
 
     // d_tmp3 = P_alpha * S
-    QC_Dgemm_NN(blas_handle, nao, nao, nao, d_tmp1, nao, d_tmp2, nao,
-                d_tmp3, nao);
+    QC_Dgemm_NN(blas_handle, nao, nao, nao, d_tmp1, nao, d_tmp2, nao, d_tmp3,
+                nao);
 
     // d_tmp1 = P_beta (提升)
     QC_Float_To_Double(nao2, scf_ws.beta.d_P, d_tmp1);
 
     // d_tmp1 = (P_alpha * S) * P_beta -> 复用: d_tmp4 借用 d_dwork_nao2_4
     double* d_tmp4 = scf_ws.ortho.d_dwork_nao2_4;
-    QC_Dgemm_NN(blas_handle, nao, nao, nao, d_tmp3, nao, d_tmp1, nao,
-                d_tmp4, nao);
+    QC_Dgemm_NN(blas_handle, nao, nao, nao, d_tmp3, nao, d_tmp1, nao, d_tmp4,
+                nao);
 
     // Tr(P_alpha * S * P_beta * S) = Σ_ij (P_alpha·S·P_beta)_ij * S_ij
     double trace = 0.0;
