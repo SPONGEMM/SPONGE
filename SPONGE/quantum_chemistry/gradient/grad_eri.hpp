@@ -699,6 +699,61 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                     }
                                 }
 
+                                if (exx_scale_b != 0.0f && P_exx_b != nullptr)
+                                {
+                                    const int kt_slot_b[8][4] = {
+                                        {0, 2, 1, 3}, {0, 3, 1, 2},
+                                        {1, 2, 0, 3}, {1, 3, 0, 2},
+                                        {2, 0, 3, 1}, {2, 1, 3, 0},
+                                        {3, 0, 2, 1}, {3, 1, 2, 0}};
+                                    for (int n = 0; n < 8; n++)
+                                    {
+                                        const int i0 = ao_idx[kt_slot_b[n][0]];
+                                        const int i1 = ao_idx[kt_slot_b[n][1]];
+                                        const int i2 = ao_idx[kt_slot_b[n][2]];
+                                        const int i3 = ao_idx[kt_slot_b[n][3]];
+                                        bool dup = false;
+                                        for (int pv = 0; pv < n; pv++)
+                                        {
+                                            const int p0 =
+                                                ao_idx[kt_slot_b[pv][0]];
+                                            const int p1 =
+                                                ao_idx[kt_slot_b[pv][1]];
+                                            const int p2 =
+                                                ao_idx[kt_slot_b[pv][2]];
+                                            const int p3 =
+                                                ao_idx[kt_slot_b[pv][3]];
+                                            if (i0 == p0 && i1 == p1 &&
+                                                i2 == p2 && i3 == p3)
+                                            {
+                                                dup = true;
+                                                break;
+                                            }
+                                        }
+                                        if (dup) continue;
+
+                                        const double weight =
+                                            -0.5 * (double)exx_scale_b *
+                                            (double)P_exx_b[i0 * nao + i1] *
+                                            (double)P_exx_b[i2 * nao + i3];
+                                        gamma_k += weight;
+                                        for (int slot = 0; slot < 4; slot++)
+                                        {
+                                            const int src = kt_slot_b[n][slot];
+                                            const int atom = atom_idx[src];
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                const double contrib =
+                                                    weight * d_slot[src][d];
+                                                grad_local[atom * 3 + d] +=
+                                                    contrib;
+                                                g_atom_debug[src][d] +=
+                                                    contrib;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 if (debug_small_eri_grad)
                                 {
                                     std::fprintf(

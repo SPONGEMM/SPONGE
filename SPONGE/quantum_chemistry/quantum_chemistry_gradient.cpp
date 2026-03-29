@@ -28,10 +28,14 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
 
     // 1. 构建能量加权密度矩阵 W
     {
+        // UHF: d_W 已被 beta 特征值覆盖，alpha 特征值在 d_W_alpha
+        const float* alpha_epsilon = scf_ws.runtime.unrestricted
+                                         ? scf_ws.ortho.d_W_alpha
+                                         : scf_ws.ortho.d_W;
         float* d_D_tmp = scf_ws.alpha.d_F;
         QC_Build_Energy_Weighted_Density(
             blas_handle, nao, scf_ws.runtime.n_alpha,
-            scf_ws.runtime.occ_factor, scf_ws.alpha.d_C, scf_ws.ortho.d_W,
+            scf_ws.runtime.occ_factor, scf_ws.alpha.d_C, alpha_epsilon,
             grad_ws.d_W_density, d_D_tmp);
 
         if (scf_ws.runtime.unrestricted && grad_ws.d_W_density_beta)
@@ -41,6 +45,9 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                 blas_handle, nao, scf_ws.runtime.n_beta, 1.0f,
                 scf_ws.beta.d_C, scf_ws.ortho.d_W,
                 grad_ws.d_W_density_beta, d_D_tmp_b);
+            // 合并 W = W_alpha + W_beta，1e 梯度 kernel 只接受一个 W
+            for (int i = 0; i < nao2; i++)
+                grad_ws.d_W_density[i] += grad_ws.d_W_density_beta[i];
         }
     }
 
@@ -96,7 +103,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                                         : (const float*)nullptr,
             scf_ws.runtime.unrestricted ? dft.exx_fraction
                                         : (0.5f * dft.exx_fraction),
-            0.0f, nao, mol.nao_sph, mol.is_spherical,
+            scf_ws.runtime.unrestricted ? dft.exx_fraction : 0.0f,
+            nao, mol.nao_sph, mol.is_spherical,
             cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom, grad_ws.d_grad,
             task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
             task_ctx.params.eri_shell_buf_size,
