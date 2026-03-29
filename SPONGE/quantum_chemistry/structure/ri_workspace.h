@@ -10,7 +10,13 @@
 struct QC_RI_WORKSPACE
 {
     bool enabled = false;
-    bool direct = false;  // true: direct DF（不存 eri3c/B）
+    bool direct = false;       // 运行时标志: true 使用 direct 模式
+
+    // 用户设置的模式偏好: auto/stored/direct
+    // auto: 由 3c 张量大小自动决定（默认）
+    // stored/direct: 强制对应模式
+    enum DF_MODE { DF_AUTO, DF_STORED, DF_DIRECT };
+    DF_MODE mode = DF_AUTO;
 
     // ---- 辅助基组信息 ----
     int naux = 0;       // 辅助基函数总数（球谐）

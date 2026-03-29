@@ -254,13 +254,22 @@ void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
     const long long naux2 = (long long)naux * naux;
     const long long n3c = (long long)naux * nao2;
 
-    // 自动选择 direct 模式：3c 张量 > 512 MB 时切换
+    // 根据用户设置或自动选择 stored/direct 模式
     const double mem_3c_mb = n3c * sizeof(double) / 1e6;
-    if (!ri.direct && mem_3c_mb > 512.0)
+    if (ri.mode == QC_RI_WORKSPACE::DF_DIRECT)
     {
         ri.direct = true;
-        printf("    [QC-RI] Auto-switch to direct mode (3c tensor = %.0f MB)\n",
-               mem_3c_mb);
+    }
+    else if (ri.mode == QC_RI_WORKSPACE::DF_STORED)
+    {
+        ri.direct = false;
+    }
+    else // DF_AUTO
+    {
+        ri.direct = (mem_3c_mb > 512.0);
+        if (ri.direct)
+            printf("    [QC-RI] Auto-switch to direct mode "
+                   "(3c tensor = %.0f MB)\n", mem_3c_mb);
     }
 
     // 二中心 metric（两种模式均需要）

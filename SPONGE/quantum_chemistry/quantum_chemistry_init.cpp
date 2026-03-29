@@ -463,23 +463,28 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.ri.enabled = (qc_df != 0);
     }
 
-    // Direct DF 开关（默认 auto：3c 张量超过 512 MB 时自动切换）
+    // DF 模式选择: auto（默认）/ stored / direct
+    scf_ws.ri.mode = QC_RI_WORKSPACE::DF_AUTO;
     scf_ws.ri.direct = false;
-    if (controller->Command_Exist("qc_density_fit_direct"))
+    if (controller->Command_Exist("qc_density_fitting_mode"))
     {
-        controller->Check_Int("qc_density_fit_direct",
-                              "QUANTUM_CHEMISTRY::Initial");
-        const int qc_df_direct =
-            atoi(controller->Command("qc_density_fit_direct"));
-        if (qc_df_direct != 0 && qc_df_direct != 1)
+        std::string mode_str(controller->Command("qc_density_fitting_mode"));
+        std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(),
+                       ::tolower);
+        if (mode_str == "auto")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_AUTO;
+        else if (mode_str == "stored")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_STORED;
+        else if (mode_str == "direct")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_DIRECT;
+        else
         {
             controller->Throw_Formatted_SPONGE_Error(
                 spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
-                "Reason:\n    qc_density_fit_direct must be 0 or 1, got "
-                "\"%s\"\n",
-                controller->Command("qc_density_fit_direct"));
+                "Reason:\n    qc_density_fitting_mode must be "
+                "\"auto\", \"stored\", or \"direct\", got \"%s\"\n",
+                mode_str.c_str());
         }
-        scf_ws.ri.direct = (qc_df_direct != 0);
     }
 
     this->atom_numbers = atom_numbers;
