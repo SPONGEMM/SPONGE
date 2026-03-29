@@ -23,6 +23,15 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     const int nao = mol.nao;
     const int nao2 = mol.nao2;
 
+    // SCF 收敛后的 Fock 矩阵可能是 DIIS 外推的，特征值不够精确。
+    // 用收敛密度重建 Fock 并对角化，获取准确的轨道能量用于 W 矩阵。
+    // 必须关闭 level shift，否则特征值会被系统性偏移。
+    const double saved_ls = scf_ws.runtime.level_shift;
+    scf_ws.runtime.level_shift = 0.0;
+    Build_Fock(scf_ws.runtime.max_scf_iter);
+    Diagonalize_And_Build_Density();
+    scf_ws.runtime.level_shift = saved_ls;
+
     // 清零梯度累加器
     deviceMemset(grad_ws.d_grad, 0, sizeof(double) * natm * 3);
 
