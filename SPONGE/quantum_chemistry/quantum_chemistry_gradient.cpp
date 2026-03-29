@@ -124,7 +124,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     _debug_print_grad("AFTER_2E", natm, grad_ws.d_grad);
 
     // 5. DFT XC 网格梯度
-    // TODO: 实现 grad_xc.hpp
+    if (dft.enable_dft) Build_DFT_XC_Gradient();
+    _debug_print_grad("AFTER_XC", natm, grad_ws.d_grad);
 
     // 6. 将梯度写入 MD 力数组
     {
