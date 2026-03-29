@@ -338,8 +338,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
     const int nao2 = mol.nao2;
     const int threads = 256;
 
-    printf("    [QC-RI] RI_Precompute start (naux=%d, nao=%d)\n", naux, nao);
-    fflush(stdout);
+    printf("    [QC-RI] RI_Precompute (naux=%d, nao=%d)\n", naux, nao);
 
     QC_Build_RI_Aux_Norms(this);
 
@@ -393,8 +392,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         Launch_Device_Kernel(QC_Scale_RI_Metric_Kernel,
                              ((long long)naux * naux + threads - 1) / threads,
                              threads, 0, 0, naux, ri.d_aux_norms, ri.d_metric);
-        printf("    [QC-RI] 2c metric done\n");
-        fflush(stdout);
+        // 2c metric done
     }
 
     // ---- 2. 计算三中心积分 (P|μν)（仅 stored 模式）----
@@ -429,8 +427,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             true, d_eri3c_cart);
 
         deviceFree(d_3c_tasks);
-        printf("    [QC-RI] 3c kernel done, n_tasks=%d\n", n_3c);
-        fflush(stdout);
+        // 3c kernel done
 
         if (!mol.is_spherical)
         {
@@ -538,43 +535,6 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             0, naux, nao, ri.d_aux_norms, scf_ws.ortho.d_norms, ri.d_eri3c);
     }
 
-    printf("    [QC-RI] 3c integrals done (skipped=%d)\n", ri.direct ? 1 : 0);
-    fflush(stdout);
-
-    if (!ri.direct)
-    {
-        const int sample_idx[][3] = {
-            {0, 0, 0}, {0, 1, 0}, {1, 0, 0}, {10, 0, 0}, {0, 5, 5}};
-        for (const auto& idx : sample_idx)
-        {
-            const int P = idx[0], mu = idx[1], nu = idx[2];
-            if (P >= naux || mu >= nao || nu >= nao) continue;
-            double v = 0.0;
-            const long long off =
-                (long long)P * nao * nao + (long long)mu * nao + nu;
-            deviceMemcpy(&v, ri.d_eri3c + off, sizeof(double),
-                         deviceMemcpyDeviceToHost);
-            printf("    [QC-RI] eri3c[%d,%d,%d] = %.12e\n", P, mu, nu, v);
-        }
-        fflush(stdout);
-    }
-
-    // Debug: check metric content
-    {
-        std::vector<double> h_m(naux * naux);
-        deviceMemcpy(h_m.data(), ri.d_metric, sizeof(double) * naux * naux,
-                     deviceMemcpyDeviceToHost);
-        double maxv = 0.0;
-        for (int i = 0; i < naux * naux; i++)
-            if (fabs(h_m[i]) > maxv) maxv = fabs(h_m[i]);
-        printf("    [QC-RI] metric max abs value: %e, diag[0]=%e\n", maxv,
-               h_m[0]);
-        fflush(stdout);
-    }
-
-    printf("    [QC-RI] starting metric decomposition, naux=%d\n", naux);
-    fflush(stdout);
-
     // ---- 3. 特征分解 → (P|Q)^{-1/2} ----
     ri.naux_eff = QC_RI_Build_Metric_InvSqrt(solver_handle, blas_handle, naux,
                                              ri.d_metric, ri.d_metric_inv_sqrt);
@@ -599,37 +559,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
                         naux, naux, &one, ri.d_eri3c, nao2,
                         ri.d_metric_inv_sqrt, naux, &zero, d_B_double, nao2);
         QC_Double_To_Float((int)n3c, d_B_double, ri.d_B);
-
-        // Debug: dump d_B_double before float conversion
-        {
-            std::vector<double> hBd(std::min((long long)(nao2 + 10), n3c));
-            deviceMemcpy(hBd.data(), d_B_double, sizeof(double) * hBd.size(),
-                         deviceMemcpyDeviceToHost);
-            // B_double is col-major [nao2 x naux], same layout as eri3c
-            // B(P=0,mu=0,nu=0) = B_double_cm[col=0, P=0] = hBd[0]
-            printf("    [QC-RI] B_double[0]=%.10f (expect 1.2773)\n", hBd[0]);
-            printf("    [QC-RI] B_double[nao2=%d]=%.10f (expect 1.0644)\n",
-                   nao2, hBd[nao2]);
-            fflush(stdout);
-        }
-
         deviceFree(d_B_double);
-
-        // Debug: dump B tensor
-        {
-            std::vector<float> hB(std::min((long long)(nao2 + 10), n3c));
-            deviceMemcpy(hB.data(), ri.d_B, sizeof(float) * hB.size(),
-                         deviceMemcpyDeviceToHost);
-            printf("    [QC-RI] B_flat[0]=%.10f (expect 1.2773)\n",
-                   (double)hB[0]);
-            printf("    [QC-RI] B_flat[1]=%.10f (expect -0.1647)\n",
-                   (double)hB[1]);
-            printf("    [QC-RI] B_flat[nao=%d]=%.10f (expect -0.1647)\n", nao,
-                   (double)hB[nao]);
-            printf("    [QC-RI] B_flat[nao2=%d]=%.10f (expect 1.0644)\n", nao2,
-                   (double)hB[nao2]);
-            fflush(stdout);
-        }
     }
 
     printf("    [QC-RI] Precomputation done (%s, naux_eff=%d/%d)\n",
@@ -730,20 +660,6 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                         1, naux, &one, ri.d_eri3c, nao2, ri.d_g_vec, naux,
                         &zero, d_J_double, nao2);
 
-        // Debug: dump J values
-        {
-            std::vector<double> hJ(nao2);
-            deviceMemcpy(hJ.data(), d_J_double, sizeof(double) * nao2,
-                         deviceMemcpyDeviceToHost);
-            printf("    [QC-RI] J[0,0]=%.10e J[1,1]=%.10e J[2,2]=%.10e\n",
-                   hJ[0], hJ[nao + 1], hJ[2 * nao + 2]);
-            std::vector<float> hF(nao2);
-            deviceMemcpy(hF.data(), scf_ws.alpha.d_F, sizeof(float) * nao2,
-                         deviceMemcpyDeviceToHost);
-            printf("    [QC-RI] F_before_J[0,0]=%.10e\n", (double)hF[0]);
-            fflush(stdout);
-        }
-
         // J → float, 加到 F_alpha
         float* d_J_float = NULL;
         Device_Malloc_Safely((void**)&d_J_float, sizeof(float) * nao2);
@@ -773,41 +689,14 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
             if (nocc > 0)
             {
                 const int M = naux * nao;
-                // d_B is physically the same buffer as row-major [M x nao],
-                // i.e. col-major [nao x M]. Use OP_T to expose [M x nao].
                 const float one_f = 1.0f;
                 const float zero_f = 0.0f;
-                // B_occ[M, nocc] = B^T[M, nao] * C[:, :nocc][nao, nocc]
-                // B is col-major [nao x M] → OP_T gives [M x nao]
-                // C is col-major [nao x nao] → OP_N, only first nocc cols used
+                // B_occ[M, nocc] = B^T[M, nao] * C^T[:nocc, nao]
                 deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_T,
                                 M, nocc, nao, &one_f, ri.d_B, nao,
                                 scf_ws.alpha.d_C, nao, &zero_f, ri.d_B_occ, M);
 
-                // K[μ,ν] = Σ_{P,i} B_occ[P*nao+μ, i] * B_occ[P*nao+ν, i]
-                // = B_occ^T[nao, naux*nocc] * B_occ[naux*nocc, nao]
-                // But B_occ is [M, nocc] = [naux*nao, nocc]
-                // We want K[nao, nao] = Σ_P B_occ_P^T * B_occ_P
-                // where B_occ_P[nao, nocc] is the P-th block
-                // = sum over P of sgemm with beta=1.0
-                //
-                // More efficient: reshape B_occ as [nao, naux*nocc]
-                // (treating P*nocc+i as column index, μ as row)
-                // Then K = B_reshaped * B_reshaped^T
-                //
-                // B_occ is stored as [naux*nao × nocc] col-major
-                // = [(P*nao+μ), i]
-                // This is equivalent to [nao, naux*nocc] if we view it as
-                // blocks of nao rows, each P contributing nocc columns.
-                // But the memory layout is strided...
-                //
-                // Alternative: K = B_occ * B_occ^T then extract nao×nao
-                // But B_occ is (naux*nao) × nocc, so B_occ * B_occ^T is
-                // (naux*nao) × (naux*nao) - way too large.
-                //
-                // Correct approach: sum over P blocks.
                 // K[nao,nao] = Σ_P B_P[nao,nocc] * B_P^T[nocc,nao]
-                // B_P starts at offset P*nao in B_occ (col-major stride = M)
 
                 float* d_K = NULL;
                 Device_Malloc_Safely((void**)&d_K, sizeof(float) * nao2);
@@ -815,9 +704,6 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
 
                 for (int P = 0; P < naux; P++)
                 {
-                    // B_occ is col-major [M x nocc]. The P-th [nao x nocc]
-                    // block starts at row offset P*nao with leading dimension
-                    // M.
                     const float* B_P = ri.d_B_occ + (long long)P * nao;
                     const float alpha_val = 1.0f;
                     const float beta_val = 1.0f;
@@ -825,17 +711,6 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
                                     DEVICE_BLAS_OP_T, nao, nao, nocc,
                                     &alpha_val, B_P, M, B_P, M, &beta_val, d_K,
                                     nao);
-                }
-
-                // Debug: dump K
-                {
-                    std::vector<float> hK(nao2);
-                    deviceMemcpy(hK.data(), d_K, sizeof(float) * nao2,
-                                 deviceMemcpyDeviceToHost);
-                    printf(
-                        "    [QC-RI] K[0,0]=%.10e K[1,1]=%.10e neg_exx=%.4f\n",
-                        (double)hK[0], (double)hK[nao + 1], neg_exx);
-                    fflush(stdout);
                 }
 
                 // F_alpha += neg_exx * K

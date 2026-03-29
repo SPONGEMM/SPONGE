@@ -1,8 +1,8 @@
 ﻿#pragma once
 
-// Metric (P|Q) 分解：
-// 1. Cholesky: (P|Q) = L L^T  → 用于 RI-J 三角求解
-// 2. 特征分解: (P|Q)^{-1/2}  → 用于 RI-K B 张量构建
+// Metric (P|Q) 分解（特征分解）：
+// (P|Q)^{-1/2}  → 用于 RI-K B 张量构建
+// (P|Q)^{-1}    → 用于 RI-J 拟合系数求解
 
 #include "../../structure/matrix.h"
 
@@ -18,11 +18,9 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
 {
     const int naux2 = naux * naux;
 
-    // 拷贝 metric 到 inv_sqrt 作为工作区 (特征分解会覆盖)
     deviceMemcpy(d_inv_sqrt, d_metric, sizeof(double) * naux2,
                  deviceMemcpyDeviceToDevice);
 
-    // 特征值和 workspace
     double* d_eigval = NULL;
     Device_Malloc_Safely((void**)&d_eigval, sizeof(double) * naux);
 
@@ -49,15 +47,11 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
         return 0;
     }
 
-    // d_inv_sqrt 现在包含特征向量 (列优先)
-    // d_eigval 包含特征值 (升序)
-
-    // 拷贝特征值到 host 检查线性依赖
     std::vector<double> h_eigval(naux);
     deviceMemcpy(h_eigval.data(), d_eigval, sizeof(double) * naux,
                  deviceMemcpyDeviceToHost);
 
-    // 找到最小有效特征值的索引
+    // 特征值升序排列，跳过低于阈值的（线性依赖）
     int n_skip = 0;
     for (int i = 0; i < naux; i++)
     {
@@ -76,94 +70,29 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
             n_skip, lindep_thresh);
     }
 
-    // 构建 (P|Q)^{-1/2} = U * diag(1/√λ) * U^T
-    // 其中 U 是有效特征向量, λ 是有效特征值
-    // 先在 host 上构建 diag(1/√λ) 缩放后的特征向量，再做矩阵乘
-
-    // 暂存缩放后的特征向量: V[i,k] = U[i,k] / λ_k^{1/4}
+    // 构建 (P|Q)^{-1/2} = V * V^T，其中 V[i,k] = U[i,k] * λ_k^{-1/4}
     double* d_V = NULL;
     Device_Malloc_Safely((void**)&d_V, sizeof(double) * naux * naux_eff);
 
-    // 拷贝有效特征向量并缩放
-    // d_inv_sqrt 是列优先: U[i, k] = d_inv_sqrt[i + k*naux]
-    // 有效部分从列 n_skip 开始
     std::vector<double> h_eigvec(naux * naux);
     deviceMemcpy(h_eigvec.data(), d_inv_sqrt, sizeof(double) * naux2,
                  deviceMemcpyDeviceToHost);
-
-    std::vector<double> h_metric_head(2, 0.0);
-    deviceMemcpy(h_metric_head.data(), d_metric, sizeof(double) * 2,
-                 deviceMemcpyDeviceToHost);
-    double recon00 = 0.0, recon01 = 0.0;
-    double ortho00 = 0.0, ortho01 = 0.0;
-    double alt_recon00 = 0.0, alt_recon01 = 0.0;
-    for (int k = 0; k < naux; k++)
-    {
-        const double u0k = h_eigvec[0 + k * naux];
-        const double u1k = h_eigvec[1 + k * naux];
-        const double uk0 = h_eigvec[k + 0 * naux];
-        const double uk1 = h_eigvec[k + 1 * naux];
-        recon00 += u0k * h_eigval[k] * u0k;
-        recon01 += u0k * h_eigval[k] * u1k;
-        alt_recon00 += uk0 * h_eigval[k] * uk0;
-        alt_recon01 += uk0 * h_eigval[k] * uk1;
-        ortho00 += u0k * u0k;
-        ortho01 += u0k * u1k;
-    }
-    printf(
-        "    [QC-RI] metric recon m00=%.12e src00=%.12e m01=%.12e "
-        "src01=%.12e\n",
-        recon00, h_metric_head[0], recon01, h_metric_head[1]);
-    printf("    [QC-RI] metric recon_alt m00=%.12e m01=%.12e\n", alt_recon00,
-           alt_recon01);
-    printf("    [QC-RI] eigvec ortho col0·col0=%.12e col0·col1=%.12e\n",
-           ortho00, ortho01);
 
     std::vector<double> h_V(naux * naux_eff);
     for (int k = 0; k < naux_eff; k++)
     {
         double scale = pow(h_eigval[k + n_skip], -0.25);
         for (int i = 0; i < naux; i++)
-        {
             h_V[i + k * naux] = h_eigvec[i + (k + n_skip) * naux] * scale;
-        }
     }
-    double host_inv00 = 0.0, host_inv01 = 0.0;
-    double alt_inv00 = 0.0, alt_inv01 = 0.0;
-    for (int k = 0; k < naux_eff; k++)
-    {
-        const double scale = pow(h_eigval[k + n_skip], -0.25);
-        const double u0k = h_eigvec[0 + (k + n_skip) * naux];
-        const double u1k = h_eigvec[1 + (k + n_skip) * naux];
-        const double uk0 = h_eigvec[(k + n_skip) + 0 * naux];
-        const double uk1 = h_eigvec[(k + n_skip) + 1 * naux];
-        host_inv00 += u0k * scale * u0k;
-        host_inv01 += u0k * scale * u1k;
-        alt_inv00 += uk0 * scale * uk0;
-        alt_inv01 += uk0 * scale * uk1;
-    }
-    printf(
-        "    [QC-RI] host inv_sqrt cur[0,0]=%.12e cur[1,0]=%.12e "
-        "alt[0,0]=%.12e alt[1,0]=%.12e\n",
-        host_inv00, host_inv01, alt_inv00, alt_inv01);
     deviceMemcpy(d_V, h_V.data(), sizeof(double) * naux * naux_eff,
                  deviceMemcpyHostToDevice);
 
-    // inv_sqrt = V * V^T (col-major DGEMM)
-    // C[naux,naux] = V[naux,naux_eff] * V^T[naux_eff,naux]
+    // inv_sqrt = V * V^T
     const double one = 1.0, zero = 0.0;
     deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux, naux,
                     naux_eff, &one, d_V, naux, d_V, naux, &zero, d_inv_sqrt,
                     naux);
-
-    std::vector<double> h_inv_sqrt_dump(2, 0.0);
-    deviceMemcpy(h_inv_sqrt_dump.data(), d_inv_sqrt, sizeof(double) * 2,
-                 deviceMemcpyDeviceToHost);
-    printf("    [QC-RI] metric eigval[0]=%.12e eigval[first_valid]=%.12e\n",
-           h_eigval[0], h_eigval[n_skip]);
-    printf("    [QC-RI] metric inv_sqrt[0]=%.12e inv_sqrt[1]=%.12e\n",
-           h_inv_sqrt_dump[0], h_inv_sqrt_dump[1]);
-    fflush(stdout);
 
     if (d_V) deviceFree(d_V);
     if (d_work) deviceFree(d_work);
@@ -173,8 +102,7 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
 }
 
 // 构建 (P|Q)^{-1} via 特征分解
-// 输入: d_metric[naux × naux] (double, 对称)
-// 输出: d_inv[naux × naux] (double)
+// V[i,k] = U[i,k] / λ_k, inv = V * U^T
 static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
                                    BLAS_HANDLE blas_handle, int naux,
                                    const double* d_metric, double* d_inv,
@@ -182,7 +110,6 @@ static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
 {
     const int naux2 = naux * naux;
 
-    // 特征分解 (复用与 inv_sqrt 相同的步骤)
     double* d_eigvec = NULL;
     Device_Malloc_Safely((void**)&d_eigvec, sizeof(double) * naux2);
     deviceMemcpy(d_eigvec, d_metric, sizeof(double) * naux2,
@@ -223,7 +150,6 @@ static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
     deviceMemcpy(d_V, h_V.data(), sizeof(double) * naux * naux_eff,
                  deviceMemcpyHostToDevice);
 
-    // 需要原始有效特征向量 U_eff
     double* d_U = NULL;
     Device_Malloc_Safely((void**)&d_U, sizeof(double) * naux * naux_eff);
     std::vector<double> h_U(naux * naux_eff);

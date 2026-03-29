@@ -74,7 +74,6 @@ static __global__ void QC_RI_3Center_Kernel(
                         const float cP =
                             aux_coeffs[aux_shell_offsets[P_sh] + pP];
 
-                        // E-coefficients for P (single center A)
                         float E_Px[5][5][9], E_Py[5][5][9], E_Pz[5][5][9];
                         compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f, 0.5f / eP);
                         compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f, 0.5f / eP);
@@ -97,7 +96,6 @@ static __global__ void QC_RI_3Center_Kernel(
                                 const float c_nu =
                                     orb_coeffs[orb_shell_offsets[nu_sh] + p_nu];
 
-                                // ket Gaussian product: μ*ν
                                 const float g_ket = e_mu + e_nu;
                                 const float BC2 = (B.x - C.x) * (B.x - C.x) +
                                                   (B.y - C.y) * (B.y - C.y) +
@@ -105,7 +103,6 @@ static __global__ void QC_RI_3Center_Kernel(
                                 const float K_ket =
                                     expf(-e_mu * e_nu / g_ket * BC2);
 
-                                // ket product center Q
                                 const float Qx =
                                     (e_mu * B.x + e_nu * C.x) / g_ket;
                                 const float Qy =
@@ -113,7 +110,6 @@ static __global__ void QC_RI_3Center_Kernel(
                                 const float Qz =
                                     (e_mu * B.z + e_nu * C.z) / g_ket;
 
-                                // E-coefficients for ket (μ,ν) product
                                 float E_Kx[5][5][9], E_Ky[5][5][9],
                                     E_Kz[5][5][9];
                                 compute_md_coeffs(E_Kx, lx_mu, lx_nu, Qx - B.x,
@@ -123,8 +119,6 @@ static __global__ void QC_RI_3Center_Kernel(
                                 compute_md_coeffs(E_Kz, lz_mu, lz_nu, Qz - B.z,
                                                   Qz - C.z, 0.5f / g_ket);
 
-                                // Coulomb coupling between bra (P at A) and
-                                // ket product (μν at Q)
                                 const float alpha_pq =
                                     eP * g_ket / (eP + g_ket);
                                 const float AQ2 = (A.x - Qx) * (A.x - Qx) +
