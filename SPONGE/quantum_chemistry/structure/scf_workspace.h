@@ -55,20 +55,40 @@ struct QC_SCF_Ortho_Workspace
     int nao_eff = 0;
 };
 
-// DIIS/ADIIS 迭代加速相关缓冲与历史状态
+// DIIS/EDIIS/ADIIS/MESA 迭代加速相关缓冲与历史状态
+//
+// MESA 算法参考:
+//   S. Lehtola, "OpenOrbitalOptimizer - a reusable open source library for
+//   self-consistent field calculations", arXiv:2503.23034 (2025).
+//
+// EDIIS 参考:
+//   K. N. Kudin, G. E. Scuseria, E. Cancès, J. Chem. Phys. 116, 8255 (2002).
+//
+// ADIIS 参考:
+//   X. Hu, W. Yang, J. Chem. Phys. 132, 054109 (2010).
 struct QC_SCF_DIIS_Workspace
 {
     double* d_diis_err = NULL;
     float *d_diis_w1 = NULL, *d_diis_w2 = NULL, *d_diis_w3 = NULL,
           *d_diis_w4 = NULL;
+    // CDIIS: Fock 和误差向量历史
     std::vector<double*> d_diis_f_hist;
     std::vector<double*> d_diis_e_hist;
     std::vector<double*> d_diis_f_hist_b;
     std::vector<double*> d_diis_e_hist_b;
+
+    // EDIIS/ADIIS: 密度矩阵历史和 SCF 能量历史
+    std::vector<double*> d_diis_d_hist;
+    std::vector<double*> d_diis_d_hist_b;
+    std::vector<double> energy_hist;
+
     int diis_hist_count = 0;
     int diis_hist_head = 0;
     int diis_hist_count_b = 0;
     int diis_hist_head_b = 0;
+
+    // MESA → CDIIS 切换阈值
+    double mesa_to_cdiis_threshold = 1e-1;
 
     double* d_diis_accum = NULL;
 };

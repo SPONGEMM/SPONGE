@@ -212,20 +212,25 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_zero_double(&scf_ws.diis.d_diis_accum, 1);
         scf_ws.diis.d_diis_f_hist.assign((int)diis_space, nullptr);
         scf_ws.diis.d_diis_e_hist.assign((int)diis_space, nullptr);
+        scf_ws.diis.d_diis_d_hist.assign((int)diis_space, nullptr);
+        scf_ws.diis.energy_hist.assign((int)diis_space, 0.0);
         for (int i = 0; i < diis_space; i++)
         {
             alloc_zero_double(&scf_ws.diis.d_diis_f_hist[(int)i], nao2);
             alloc_zero_double(&scf_ws.diis.d_diis_e_hist[(int)i], nao2);
+            alloc_zero_double(&scf_ws.diis.d_diis_d_hist[(int)i], nao2);
         }
 
         if (unrestricted)
         {
             scf_ws.diis.d_diis_f_hist_b.assign((int)diis_space, nullptr);
             scf_ws.diis.d_diis_e_hist_b.assign((int)diis_space, nullptr);
+            scf_ws.diis.d_diis_d_hist_b.assign((int)diis_space, nullptr);
             for (int i = 0; i < diis_space; i++)
             {
                 alloc_zero_double(&scf_ws.diis.d_diis_f_hist_b[(int)i], nao2);
                 alloc_zero_double(&scf_ws.diis.d_diis_e_hist_b[(int)i], nao2);
+                alloc_zero_double(&scf_ws.diis.d_diis_d_hist_b[(int)i], nao2);
             }
         }
     }
