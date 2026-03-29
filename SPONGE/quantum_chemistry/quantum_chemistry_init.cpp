@@ -447,6 +447,41 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         }
     }
 
+    // Density Fitting (RI-JK) 开关
+    scf_ws.ri.enabled = false;
+    if (controller->Command_Exist("qc_density_fit"))
+    {
+        controller->Check_Int("qc_density_fit", "QUANTUM_CHEMISTRY::Initial");
+        const int qc_df = atoi(controller->Command("qc_density_fit"));
+        if (qc_df != 0 && qc_df != 1)
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_density_fit must be 0 or 1, got \"%s\"\n",
+                controller->Command("qc_density_fit"));
+        }
+        scf_ws.ri.enabled = (qc_df != 0);
+    }
+
+    // Direct DF 开关（默认 auto：3c 张量超过 512 MB 时自动切换）
+    scf_ws.ri.direct = false;
+    if (controller->Command_Exist("qc_density_fit_direct"))
+    {
+        controller->Check_Int("qc_density_fit_direct",
+                              "QUANTUM_CHEMISTRY::Initial");
+        const int qc_df_direct =
+            atoi(controller->Command("qc_density_fit_direct"));
+        if (qc_df_direct != 0 && qc_df_direct != 1)
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_density_fit_direct must be 0 or 1, got "
+                "\"%s\"\n",
+                controller->Command("qc_density_fit_direct"));
+        }
+        scf_ws.ri.direct = (qc_df_direct != 0);
+    }
+
     this->atom_numbers = atom_numbers;
     return true;
 }
@@ -756,6 +791,11 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     if (!need_qc) return;
 
     Initial_Molecule(controller, qc_type_file, basis_set_name);
+    orbital_basis_name = basis_set_name;
+
+    if (scf_ws.ri.enabled)
+        Initial_Auxiliary_Basis(controller);
+
     Initial_Integral_Tasks(controller);
 
     is_initialized = 1;
@@ -1014,6 +1054,9 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         }
     }
     Build_SCF_Workspace();
+
+    // RI 内存分配在 Build_SCF_Workspace 之后，因为需要 n_alpha/n_beta
+    if (scf_ws.ri.enabled) RI_Memory_Allocate();
 }
 
 void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)

@@ -6,6 +6,12 @@
 
 void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 {
+    if (scf_ws.ri.enabled)
+    {
+        Build_Fock_RI(iter);
+        return;
+    }
+
     const int threads = 256;
     const int total = mol.nao2;
 

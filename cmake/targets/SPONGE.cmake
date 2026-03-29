@@ -54,6 +54,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_scf.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_dft.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_matrix.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_ri.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/gpu_eri.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/sp/sp_kernels.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/md/md_kernels.cpp

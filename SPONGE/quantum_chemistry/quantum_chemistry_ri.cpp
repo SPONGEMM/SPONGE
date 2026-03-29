@@ -1,0 +1,1414 @@
+#include "basis/basis.h"
+#include "integrals/eri/common/direct_fock_kernels.hpp"
+#include "integrals/ri/ri_2center.hpp"
+#include "integrals/ri/ri_3center.hpp"
+#include "integrals/ri/ri_metric.hpp"
+#include "quantum_chemistry.h"
+
+static __global__ void QC_Scale_RI_Metric_Kernel(const int naux,
+                                                 const float* aux_norms,
+                                                 double* metric)
+{
+    const int total = naux * naux;
+    SIMPLE_DEVICE_FOR(idx, total)
+    {
+        const int P = idx / naux;
+        const int Q = idx - P * naux;
+        metric[idx] *= (double)aux_norms[P] * (double)aux_norms[Q];
+    }
+}
+
+static __global__ void QC_Scale_RI_3Center_Kernel(const int naux, const int nao,
+                                                  const float* aux_norms,
+                                                  const float* orb_norms,
+                                                  double* eri3c)
+{
+    const long long total = (long long)naux * nao * nao;
+    SIMPLE_DEVICE_FOR(idx, total)
+    {
+        const int nu = (int)(idx % nao);
+        const long long tmp = idx / nao;
+        const int mu = (int)(tmp % nao);
+        const int P = (int)(tmp / nao);
+        eri3c[idx] *= (double)aux_norms[P] * (double)orb_norms[mu] *
+                      (double)orb_norms[nu];
+    }
+}
+
+static void QC_Build_RI_Aux_Norms(QUANTUM_CHEMISTRY* qc)
+{
+    auto& ri = qc->scf_ws.ri;
+    const int threads = 256;
+    const int Pc = ri.naux_cart;
+    const int Ps = ri.naux;
+    const long long naux2_cart = (long long)Pc * Pc;
+
+    float* d_S_cart = NULL;
+    float* d_T_dummy = NULL;
+    float* d_V_dummy = NULL;
+    QC_ONE_E_TASK* d_tasks = NULL;
+    Device_Malloc_Safely((void**)&d_S_cart, sizeof(float) * naux2_cart);
+    Device_Malloc_Safely((void**)&d_T_dummy, sizeof(float) * naux2_cart);
+    Device_Malloc_Safely((void**)&d_V_dummy, sizeof(float) * naux2_cart);
+    deviceMemset(d_S_cart, 0, sizeof(float) * naux2_cart);
+    deviceMemset(d_T_dummy, 0, sizeof(float) * naux2_cart);
+    deviceMemset(d_V_dummy, 0, sizeof(float) * naux2_cart);
+
+    std::vector<QC_ONE_E_TASK> h_tasks;
+    h_tasks.reserve((size_t)ri.naux_bas * (size_t)ri.naux_bas);
+    for (int i = 0; i < ri.naux_bas; i++)
+        for (int j = 0; j < ri.naux_bas; j++) h_tasks.push_back({i, j});
+
+    Device_Malloc_Safely((void**)&d_tasks, sizeof(QC_ONE_E_TASK) * h_tasks.size());
+    deviceMemcpy(d_tasks, h_tasks.data(), sizeof(QC_ONE_E_TASK) * h_tasks.size(),
+                 deviceMemcpyHostToDevice);
+
+    Launch_Device_Kernel(
+        OneE_Kernel, ((int)h_tasks.size() + threads - 1) / threads, threads, 0,
+        0, (int)h_tasks.size(), d_tasks, ri.d_aux_centers, ri.d_aux_l_list,
+        ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
+        ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, ri.d_aux_atm, ri.d_aux_env,
+        0, d_S_cart, d_T_dummy, d_V_dummy, Pc);
+
+    std::vector<float> h_S_final((size_t)Ps * Ps, 0.0f);
+    if (!qc->mol.is_spherical)
+    {
+        deviceMemcpy(h_S_final.data(), d_S_cart, sizeof(float) * naux2_cart,
+                     deviceMemcpyDeviceToHost);
+    }
+    else
+    {
+        auto h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
+        std::vector<float> h_S_cart(naux2_cart);
+        deviceMemcpy(h_S_cart.data(), d_S_cart, sizeof(float) * naux2_cart,
+                     deviceMemcpyDeviceToHost);
+        std::vector<double> tmp((size_t)Ps * Pc, 0.0);
+        for (int i = 0; i < Ps; i++)
+            for (int j = 0; j < Pc; j++)
+                for (int k = 0; k < Pc; k++)
+                    tmp[(size_t)i * Pc + j] +=
+                        (double)h_U_aux[(size_t)k * Ps + i] *
+                        (double)h_S_cart[(size_t)k * Pc + j];
+        for (int i = 0; i < Ps; i++)
+            for (int j = 0; j < Ps; j++)
+                for (int k = 0; k < Pc; k++)
+                    h_S_final[(size_t)i * Ps + j] +=
+                        (float)(tmp[(size_t)i * Pc + k] *
+                                (double)h_U_aux[(size_t)k * Ps + j]);
+    }
+
+    ri.h_aux_norms.resize(Ps);
+    for (int i = 0; i < Ps; i++)
+    {
+        const float sii = h_S_final[(size_t)i * Ps + i];
+        ri.h_aux_norms[i] = 1.0f / sqrtf(fmaxf(sii, 1e-20f));
+    }
+
+    if (ri.d_aux_norms) deviceFree(ri.d_aux_norms);
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_norms,
+                                  (void*)ri.h_aux_norms.data(),
+                                  sizeof(float) * ri.h_aux_norms.size());
+
+    deviceFree(d_tasks);
+    deviceFree(d_S_cart);
+    deviceFree(d_T_dummy);
+    deviceFree(d_V_dummy);
+}
+
+void QUANTUM_CHEMISTRY::Initial_Auxiliary_Basis(CONTROLLER* controller)
+{
+    QC_BASIS_SET* aux_basis = QC_Get_JKFIT_Basis(orbital_basis_name.c_str());
+    if (aux_basis == nullptr)
+    {
+        controller->Throw_Formatted_SPONGE_Error(
+            spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+            "Reason:\n    No JKFIT auxiliary basis available for orbital "
+            "basis \"%s\". RI requires a matching auxiliary basis.\n",
+            orbital_basis_name.c_str());
+    }
+    aux_basis->Initialize();
+
+    auto& ri = scf_ws.ri;
+    ri.naux_cart = 0;
+    ri.naux = 0;
+    ri.naux_bas = 0;
+
+    // 收集每个原子的元素符号（复用 mol 中的原子序数）
+    for (int i = 0; i < mol.natm; ++i)
+    {
+        int Z = mol.h_Z[i];
+        auto it_sym = QC_SYMBOL_FROM_Z.find(Z);
+        if (it_sym == QC_SYMBOL_FROM_Z.end())
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    Unknown atomic number %d in auxiliary basis "
+                "setup\n",
+                Z);
+        }
+        const std::string& sym = it_sym->second;
+
+        auto it_basis = aux_basis->data.find(sym);
+        if (it_basis == aux_basis->data.end())
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    JKFIT auxiliary basis not available for element "
+                "%s (Z=%d)\n",
+                sym.c_str(), Z);
+        }
+        const auto& shells = it_basis->second;
+
+        // 辅助基的 atm 条目
+        int ptr_coord = ri.h_aux_env.size();
+        ri.h_aux_env.push_back(0.0f);  // 坐标占位，后续 Update_Coordinates 填充
+        ri.h_aux_env.push_back(0.0f);
+        ri.h_aux_env.push_back(0.0f);
+        ri.h_aux_atm.push_back(Z);
+        ri.h_aux_atm.push_back(ptr_coord);
+        ri.h_aux_atm.push_back(1);
+        ri.h_aux_atm.push_back(0);
+        ri.h_aux_atm.push_back(0);
+        ri.h_aux_atm.push_back(0);
+
+        for (const auto& shell : shells)
+        {
+            int ptr_exp = ri.h_aux_env.size();
+            ri.h_aux_env.insert(ri.h_aux_env.end(), shell.exps.begin(),
+                                shell.exps.end());
+            int ptr_coeff = ri.h_aux_env.size();
+            ri.h_aux_env.insert(ri.h_aux_env.end(), shell.coeffs.begin(),
+                                shell.coeffs.end());
+
+            ri.h_aux_bas.push_back(i);  // atom index
+            ri.h_aux_bas.push_back(shell.l);
+            ri.h_aux_bas.push_back(shell.exps.size());
+            ri.h_aux_bas.push_back(1);  // nctr
+            ri.h_aux_bas.push_back(0);
+            ri.h_aux_bas.push_back(ptr_exp);
+            ri.h_aux_bas.push_back(ptr_coeff);
+            ri.h_aux_bas.push_back(0);
+
+            int cart_dim = (shell.l + 1) * (shell.l + 2) / 2;
+            int sph_dim = mol.is_spherical ? (2 * shell.l + 1) : cart_dim;
+
+            ri.h_aux_l_list.push_back(shell.l);
+            ri.h_aux_shell_sizes.push_back(shell.exps.size());
+            ri.h_aux_shell_offsets.push_back(ri.h_aux_exps.size());
+
+            ri.h_aux_exps.insert(ri.h_aux_exps.end(), shell.exps.begin(),
+                                 shell.exps.end());
+            ri.h_aux_coeffs.insert(ri.h_aux_coeffs.end(), shell.coeffs.begin(),
+                                   shell.coeffs.end());
+            ri.h_aux_centers.push_back(VECTOR(0.0f));
+
+            ri.h_aux_ao_offsets.push_back(ri.naux_cart);
+            ri.h_aux_ao_offsets_sph.push_back(ri.naux);
+
+            ri.naux_cart += cart_dim;
+            ri.naux += sph_dim;
+            ri.naux_bas++;
+        }
+    }
+
+    if (!mol.is_spherical) ri.naux = ri.naux_cart;
+
+    // 拷贝到 device
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_l_list,
+                                  (void*)ri.h_aux_l_list.data(),
+                                  sizeof(int) * ri.h_aux_l_list.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_shell_offsets,
+                                  (void*)ri.h_aux_shell_offsets.data(),
+                                  sizeof(int) * ri.h_aux_shell_offsets.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_shell_sizes,
+                                  (void*)ri.h_aux_shell_sizes.data(),
+                                  sizeof(int) * ri.h_aux_shell_sizes.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_ao_offsets,
+                                  (void*)ri.h_aux_ao_offsets.data(),
+                                  sizeof(int) * ri.h_aux_ao_offsets.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_ao_offsets_sph,
+                                  (void*)ri.h_aux_ao_offsets_sph.data(),
+                                  sizeof(int) * ri.h_aux_ao_offsets_sph.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_exps,
+                                  (void*)ri.h_aux_exps.data(),
+                                  sizeof(float) * ri.h_aux_exps.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_coeffs,
+                                  (void*)ri.h_aux_coeffs.data(),
+                                  sizeof(float) * ri.h_aux_coeffs.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_centers,
+                                  (void*)ri.h_aux_centers.data(),
+                                  sizeof(VECTOR) * ri.h_aux_centers.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_atm,
+                                  (void*)ri.h_aux_atm.data(),
+                                  sizeof(int) * ri.h_aux_atm.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_bas,
+                                  (void*)ri.h_aux_bas.data(),
+                                  sizeof(int) * ri.h_aux_bas.size());
+    Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_env,
+                                  (void*)ri.h_aux_env.data(),
+                                  sizeof(float) * ri.h_aux_env.size());
+
+    printf("    [QC-RI] Auxiliary basis: %d shells, %d functions "
+           "(cart=%d, sph=%d)\n",
+           ri.naux_bas, ri.naux, ri.naux_cart, ri.naux);
+}
+
+void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
+{
+    auto& ri = scf_ws.ri;
+    const int naux = ri.naux;
+    const int nao = mol.nao;
+    const int nao2 = mol.nao2;
+    const long long naux2 = (long long)naux * naux;
+    const long long n3c = (long long)naux * nao2;
+
+    // 自动选择 direct 模式：3c 张量 > 512 MB 时切换
+    const double mem_3c_mb = n3c * sizeof(double) / 1e6;
+    if (!ri.direct && mem_3c_mb > 512.0)
+    {
+        ri.direct = true;
+        printf("    [QC-RI] Auto-switch to direct mode (3c tensor = %.0f MB)\n",
+               mem_3c_mb);
+    }
+
+    // 二中心 metric（两种模式均需要）
+    Device_Malloc_Safely((void**)&ri.d_metric, sizeof(double) * naux2);
+    Device_Malloc_Safely((void**)&ri.d_metric_inv, sizeof(double) * naux2);
+    Device_Malloc_Safely((void**)&ri.d_metric_inv_sqrt, sizeof(double) * naux2);
+    deviceMemset(ri.d_metric, 0, sizeof(double) * naux2);
+
+    // RI-J scratch
+    Device_Malloc_Safely((void**)&ri.d_d_vec, sizeof(double) * naux);
+    Device_Malloc_Safely((void**)&ri.d_g_vec, sizeof(double) * naux);
+
+    // RI-K scratch: B_occ [naux × nao × nocc]
+    const int nocc = std::max(scf_ws.runtime.n_alpha, scf_ws.runtime.n_beta);
+    if (nocc > 0 && dft.exx_fraction != 0.0f)
+    {
+        const long long n_bocc = (long long)naux * nao * nocc;
+        Device_Malloc_Safely((void**)&ri.d_B_occ, sizeof(float) * n_bocc);
+    }
+
+    if (ri.direct)
+    {
+        // Direct 模式：d_3c_buf 在 Build_Fock_RI_Direct 内临时分配/释放
+
+        // 保存 cart2sph 矩阵到 host（direct 模式在线变换）
+        if (mol.is_spherical)
+        {
+            ri.h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list,
+                                                     ri.naux_cart, ri.naux);
+            ri.h_U_orb =
+                QC_Build_Cart2Sph_Mat_Host(mol.h_l_list, mol.nao_cart, mol.nao);
+        }
+
+        printf("    [QC-RI] Direct mode: metric %.1f MB, B_occ %.1f MB\n",
+               naux2 * sizeof(double) / 1e6,
+               (nocc > 0 ? (long long)naux * nao * nocc * sizeof(float) / 1e6
+                         : 0.0));
+    }
+    else
+    {
+        // Stored 模式：预存 eri3c 和 B
+        Device_Malloc_Safely((void**)&ri.d_eri3c, sizeof(double) * n3c);
+        deviceMemset(ri.d_eri3c, 0, sizeof(double) * n3c);
+        Device_Malloc_Safely((void**)&ri.d_B, sizeof(float) * n3c);
+
+        printf("    [QC-RI] Stored mode: metric %.1f MB, 3c %.1f MB, "
+               "B %.1f MB\n",
+               naux2 * sizeof(double) / 1e6, n3c * sizeof(double) / 1e6,
+               n3c * sizeof(float) / 1e6);
+    }
+}
+
+void QUANTUM_CHEMISTRY::RI_Precompute()
+{
+    auto& ri = scf_ws.ri;
+    const int naux = ri.naux;
+    const int nao = mol.nao;
+    const int nao2 = mol.nao2;
+    const int threads = 256;
+
+    printf("    [QC-RI] RI_Precompute start (naux=%d, nao=%d)\n", naux, nao);
+    fflush(stdout);
+
+    QC_Build_RI_Aux_Norms(this);
+
+    // ---- 1. 计算二中心 metric (P|Q) ----
+    {
+        const int Pc = ri.naux_cart;
+        const long long n2c_cart = (long long)Pc * Pc;
+        double* d_metric_cart = NULL;
+        QC_ONE_E_TASK* d_2c_tasks = NULL;
+        Device_Malloc_Safely((void**)&d_metric_cart, sizeof(double) * n2c_cart);
+        deviceMemset(d_metric_cart, 0, sizeof(double) * n2c_cart);
+
+        std::vector<QC_ONE_E_TASK> h_2c_tasks;
+        for (int i = 0; i < ri.naux_bas; i++)
+            for (int j = 0; j <= i; j++)
+                h_2c_tasks.push_back({i, j});
+        const int n_2c = h_2c_tasks.size();
+
+        Device_Malloc_Safely((void**)&d_2c_tasks,
+                             sizeof(QC_ONE_E_TASK) * n_2c);
+        deviceMemcpy(d_2c_tasks, h_2c_tasks.data(),
+                     sizeof(QC_ONE_E_TASK) * n_2c,
+                     deviceMemcpyHostToDevice);
+
+        Launch_Device_Kernel(
+            QC_RI_2Center_Kernel, (n_2c + threads - 1) / threads, threads, 0,
+            0, n_2c, d_2c_tasks, ri.d_aux_centers, ri.d_aux_l_list,
+            ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
+            ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, ri.naux_cart,
+            d_metric_cart);
+
+        deviceFree(d_2c_tasks);
+
+        if (!mol.is_spherical)
+        {
+            deviceMemcpy(ri.d_metric, d_metric_cart,
+                         sizeof(double) * naux * naux,
+                         deviceMemcpyDeviceToDevice);
+        }
+        else
+        {
+            const int Ps = naux;
+            auto h_U_aux =
+                QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
+            std::vector<double> h_mc(n2c_cart);
+            deviceMemcpy(h_mc.data(), d_metric_cart,
+                         sizeof(double) * n2c_cart, deviceMemcpyDeviceToHost);
+            std::vector<double> h_ms(Ps * Ps, 0.0);
+            // T1 = U^T @ M_cart: [Ps × Pc]
+            std::vector<double> tmp(Ps * Pc, 0.0);
+            for (int i = 0; i < Ps; i++)
+                for (int j = 0; j < Pc; j++)
+                    for (int k = 0; k < Pc; k++)
+                        tmp[i * Pc + j] +=
+                            (double)h_U_aux[k * Ps + i] * h_mc[k * Pc + j];
+            // M_sph = T1 @ U: [Ps × Ps]
+            for (int i = 0; i < Ps; i++)
+                for (int j = 0; j < Ps; j++)
+                    for (int k = 0; k < Pc; k++)
+                        h_ms[i * Ps + j] +=
+                            tmp[i * Pc + k] * (double)h_U_aux[k * Ps + j];
+            deviceMemcpy(ri.d_metric, h_ms.data(),
+                         sizeof(double) * Ps * Ps, deviceMemcpyHostToDevice);
+        }
+        deviceFree(d_metric_cart);
+        Launch_Device_Kernel(QC_Scale_RI_Metric_Kernel,
+                             ((long long)naux * naux + threads - 1) / threads,
+                             threads, 0, 0, naux, ri.d_aux_norms,
+                             ri.d_metric);
+        printf("    [QC-RI] 2c metric done\n");
+        fflush(stdout);
+    }
+
+    // ---- 2. 计算三中心积分 (P|μν)（仅 stored 模式）----
+    if (!ri.direct)
+    {
+        // 三中心积分先输出到笛卡尔维度的临时缓冲
+        const long long n3c_cart =
+            (long long)ri.naux_cart * mol.nao_cart * mol.nao_cart;
+        double* d_eri3c_cart = NULL;
+        QC_RI_3C_TASK* d_3c_tasks = NULL;
+        Device_Malloc_Safely((void**)&d_eri3c_cart, sizeof(double) * n3c_cart);
+        deviceMemset(d_eri3c_cart, 0, sizeof(double) * n3c_cart);
+
+        std::vector<QC_RI_3C_TASK> h_3c_tasks;
+        for (int P = 0; P < ri.naux_bas; P++)
+            for (int mu = 0; mu < mol.nbas; mu++)
+                for (int nu = 0; nu <= mu; nu++)
+                    h_3c_tasks.push_back({P, mu, nu});
+        const int n_3c = h_3c_tasks.size();
+
+        Device_Malloc_Safely((void**)&d_3c_tasks,
+                             sizeof(QC_RI_3C_TASK) * n_3c);
+        deviceMemcpy(d_3c_tasks, h_3c_tasks.data(),
+                     sizeof(QC_RI_3C_TASK) * n_3c,
+                     deviceMemcpyHostToDevice);
+
+        Launch_Device_Kernel(
+            QC_RI_3Center_Kernel, (n_3c + threads - 1) / threads, threads, 0,
+            0, n_3c, d_3c_tasks, ri.d_aux_centers, ri.d_aux_l_list,
+            ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
+            ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
+            mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+            mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart, mol.nao_cart,
+            d_eri3c_cart);
+
+        deviceFree(d_3c_tasks);
+        printf("    [QC-RI] 3c kernel done, n_tasks=%d\n", n_3c);
+        fflush(stdout);
+
+        // 如果不需要球谐变换，直接拷贝
+        if (!mol.is_spherical)
+        {
+            deviceMemcpy(ri.d_eri3c, d_eri3c_cart, sizeof(double) * n3c_cart,
+                         deviceMemcpyDeviceToDevice);
+            deviceFree(d_eri3c_cart);
+        }
+        else
+        {
+            // Cart2Sph 变换（在 host 上做，规模不大）
+            const int Pc = ri.naux_cart, Ps = ri.naux;
+            const int Mc = mol.nao_cart, Ms = mol.nao;
+
+            auto h_U_aux = QC_Build_Cart2Sph_Mat_Host(ri.h_aux_l_list, Pc, Ps);
+            auto h_U_orb = QC_Build_Cart2Sph_Mat_Host(mol.h_l_list, Mc, Ms);
+
+            // 3c: T_cart[Pc, Mc, Mc] → T_sph[Ps, Ms, Ms]
+            // Step 1: 对 ν 指标变换 → T1[Pc, Mc, Ms]
+            // Step 2: 对 μ 指标变换 → T2[Pc, Ms, Ms]
+            // Step 3: 对 P 指标变换 → T3[Ps, Ms, Ms]
+            std::vector<double> h_3c_cart(n3c_cart);
+            deviceMemcpy(h_3c_cart.data(), d_eri3c_cart,
+                         sizeof(double) * n3c_cart, deviceMemcpyDeviceToHost);
+            deviceFree(d_eri3c_cart);
+
+            // Step 1: ν 变换
+            // T1[P,μ,ν_s] = Σ_{ν_c} T[P,μ,ν_c] U_orb[ν_c, ν_s]
+            const long long n_step1 = (long long)Pc * Mc * Ms;
+            std::vector<double> h_step1(n_step1, 0.0);
+            for (long long Pidx = 0; Pidx < Pc; Pidx++)
+            {
+                for (int mu = 0; mu < Mc; mu++)
+                {
+                    for (int ns = 0; ns < Ms; ns++)
+                    {
+                        double sum = 0.0;
+                        for (int nc = 0; nc < Mc; nc++)
+                            sum += h_3c_cart[Pidx * Mc * Mc + mu * Mc + nc] *
+                                   (double)h_U_orb[nc * Ms + ns];
+                        h_step1[Pidx * Mc * Ms + mu * Ms + ns] = sum;
+                    }
+                }
+            }
+
+            // Step 2: μ 变换
+            // T2[P,μ_s,ν_s] = Σ_{μ_c} U_orb[μ_c, μ_s]^T T1[P, μ_c, ν_s]
+            //               = Σ_{μ_c} U_orb[μ_c, μ_s] T1[P, μ_c, ν_s]
+            const long long n_step2 = (long long)Pc * Ms * Ms;
+            std::vector<double> h_step2(n_step2, 0.0);
+            for (long long Pidx = 0; Pidx < Pc; Pidx++)
+            {
+                for (int ms = 0; ms < Ms; ms++)
+                {
+                    for (int ns = 0; ns < Ms; ns++)
+                    {
+                        double sum = 0.0;
+                        for (int mc = 0; mc < Mc; mc++)
+                            sum += (double)h_U_orb[mc * Ms + ms] *
+                                   h_step1[Pidx * Mc * Ms + mc * Ms + ns];
+                        h_step2[Pidx * Ms * Ms + ms * Ms + ns] = sum;
+                    }
+                }
+            }
+
+            // Step 3: P 变换
+            // T3[P_s,μ_s,ν_s] = Σ_{P_c} U_aux[P_c, P_s] T2[P_c, μ_s, ν_s]
+            const long long n3c_sph = (long long)Ps * Ms * Ms;
+            std::vector<double> h_3c_sph(n3c_sph, 0.0);
+            for (int ps = 0; ps < Ps; ps++)
+            {
+                for (int pc = 0; pc < Pc; pc++)
+                {
+                    double u = (double)h_U_aux[pc * Ps + ps];
+                    if (u == 0.0) continue;
+                    for (long long mn = 0; mn < (long long)Ms * Ms; mn++)
+                        h_3c_sph[(long long)ps * Ms * Ms + mn] +=
+                            u * h_step2[(long long)pc * Ms * Ms + mn];
+                }
+            }
+
+            deviceMemcpy(ri.d_eri3c, h_3c_sph.data(),
+                         sizeof(double) * n3c_sph, deviceMemcpyHostToDevice);
+        }
+
+        Launch_Device_Kernel(
+            QC_Scale_RI_3Center_Kernel,
+            ((long long)naux * nao * nao + threads - 1) / threads, threads, 0,
+            0, naux, nao, ri.d_aux_norms, scf_ws.ortho.d_norms, ri.d_eri3c);
+    }
+
+    printf("    [QC-RI] 3c integrals done (skipped=%d)\n", ri.direct ? 1 : 0);
+    fflush(stdout);
+
+    if (!ri.direct)
+    {
+        const int sample_idx[][3] = {{0, 0, 0}, {0, 1, 0}, {1, 0, 0},
+                                     {10, 0, 0}, {0, 5, 5}};
+        for (const auto& idx : sample_idx)
+        {
+            const int P = idx[0], mu = idx[1], nu = idx[2];
+            double v = 0.0;
+            const long long off =
+                (long long)P * nao * nao + (long long)mu * nao + nu;
+            deviceMemcpy(&v, ri.d_eri3c + off, sizeof(double),
+                         deviceMemcpyDeviceToHost);
+            printf("    [QC-RI] eri3c[%d,%d,%d] = %.12e\n", P, mu, nu, v);
+        }
+        fflush(stdout);
+    }
+
+    // Debug: check metric content
+    {
+        std::vector<double> h_m(naux * naux);
+        deviceMemcpy(h_m.data(), ri.d_metric, sizeof(double) * naux * naux,
+                     deviceMemcpyDeviceToHost);
+        double maxv = 0.0;
+        for (int i = 0; i < naux * naux; i++)
+            if (fabs(h_m[i]) > maxv) maxv = fabs(h_m[i]);
+        printf("    [QC-RI] metric max abs value: %e, diag[0]=%e\n", maxv,
+               h_m[0]);
+        fflush(stdout);
+    }
+
+    printf("    [QC-RI] starting metric decomposition, naux=%d\n", naux);
+    fflush(stdout);
+
+    // ---- 3. 特征分解 → (P|Q)^{-1/2} ----
+    ri.naux_eff = QC_RI_Build_Metric_InvSqrt(solver_handle, blas_handle, naux,
+                                              ri.d_metric, ri.d_metric_inv_sqrt);
+
+    // ---- 4. 构建 (P|Q)^{-1} (RI-J 用) ----
+    QC_RI_Build_Metric_Inv(solver_handle, blas_handle, naux, ri.d_metric,
+                           ri.d_metric_inv, ri.naux_eff);
+
+    // ---- 5. 构建 B 张量（仅 stored 模式）----
+    if (!ri.direct)
+    {
+        double* d_B_double = NULL;
+        const long long n3c = (long long)naux * nao2;
+        Device_Malloc_Safely((void**)&d_B_double, sizeof(double) * n3c);
+
+        // eri3c is stored with row-major indexing [P, mu*nao+nu], which is
+        // equivalent to a col-major matrix [nao2 x naux]. Build B in the same
+        // physical layout so downstream kernels can keep using row-major
+        // indexing on [naux x nao2].
+        const double one = 1.0, zero = 0.0;
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, nao2,
+                        naux, naux, &one, ri.d_eri3c, nao2,
+                        ri.d_metric_inv_sqrt, naux, &zero, d_B_double, nao2);
+        QC_Double_To_Float((int)n3c, d_B_double, ri.d_B);
+
+        // Debug: dump d_B_double before float conversion
+        {
+            std::vector<double> hBd(std::min((long long)(nao2+10), n3c));
+            deviceMemcpy(hBd.data(), d_B_double, sizeof(double)*hBd.size(),
+                         deviceMemcpyDeviceToHost);
+            // B_double is col-major [nao2 x naux], same layout as eri3c
+            // B(P=0,mu=0,nu=0) = B_double_cm[col=0, P=0] = hBd[0]
+            printf("    [QC-RI] B_double[0]=%.10f (expect 1.2773)\n", hBd[0]);
+            printf("    [QC-RI] B_double[nao2=%d]=%.10f (expect 1.0644)\n",
+                   nao2, hBd[nao2]);
+            fflush(stdout);
+        }
+
+        deviceFree(d_B_double);
+
+        // Debug: dump B tensor
+        {
+            std::vector<float> hB(std::min((long long)(nao2 + 10), n3c));
+            deviceMemcpy(hB.data(), ri.d_B, sizeof(float) * hB.size(),
+                         deviceMemcpyDeviceToHost);
+            printf("    [QC-RI] B_flat[0]=%.10f (expect 1.2773)\n",
+                   (double)hB[0]);
+            printf("    [QC-RI] B_flat[1]=%.10f (expect -0.1647)\n",
+                   (double)hB[1]);
+            printf("    [QC-RI] B_flat[nao=%d]=%.10f (expect -0.1647)\n",
+                   nao, (double)hB[nao]);
+            printf("    [QC-RI] B_flat[nao2=%d]=%.10f (expect 1.0644)\n",
+                   nao2, (double)hB[nao2]);
+            fflush(stdout);
+        }
+    }
+
+    printf("    [QC-RI] Precomputation done (%s, naux_eff=%d/%d)\n",
+           ri.direct ? "direct" : "stored", ri.naux_eff, naux);
+}
+
+// F[i] += scale * K[i]
+static __global__ void QC_Scaled_Add_Kernel(const int n, const float scale,
+                                             const float* src, float* dst)
+{
+    SIMPLE_DEVICE_FOR(idx, n) { dst[idx] += scale * src[idx]; }
+}
+
+// ===================== Stored-mode Build_Fock_RI ======================
+// 使用预存的 d_eri3c 和 d_B
+static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int iter);
+// ===================== Direct-mode Build_Fock_RI =====================
+// 每轮在线计算 3c 积分
+static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int iter);
+
+// RI-JK Fock 构建（入口）
+void QUANTUM_CHEMISTRY::Build_Fock_RI(int iter)
+{
+    auto& ri = scf_ws.ri;
+    const int nao2 = mol.nao2;
+    const int threads = 256;
+
+    // ---- 0. F = H_core + Vxc ----
+    if (dft.enable_dft) Build_DFT_VXC();
+
+    Launch_Device_Kernel(QC_Init_Fock_Kernel, (nao2 + threads - 1) / threads,
+                         threads, 0, 0, nao2, scf_ws.core.d_H_core, dft.d_Vxc,
+                         dft.enable_dft, scf_ws.alpha.d_F);
+    if (scf_ws.runtime.unrestricted)
+    {
+        Launch_Device_Kernel(QC_Init_Fock_Kernel,
+                             (nao2 + threads - 1) / threads, threads, 0, 0,
+                             nao2, scf_ws.core.d_H_core, dft.d_Vxc_beta,
+                             dft.enable_dft, scf_ws.beta.d_F);
+    }
+
+    if (ri.direct)
+        Build_Fock_RI_Direct(this, iter);
+    else
+        Build_Fock_RI_Stored(this, iter);
+
+    // ---- F double 精度拷贝 (DIIS 用) ----
+    if (scf_ws.alpha.d_F_double)
+        QC_Float_To_Double_Copy(nao2, scf_ws.alpha.d_F,
+                                scf_ws.alpha.d_F_double);
+    if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_double)
+        QC_Float_To_Double_Copy(nao2, scf_ws.beta.d_F,
+                                scf_ws.beta.d_F_double);
+}
+
+// ===================== Stored mode =====================
+static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
+{
+    auto& ri = qc->scf_ws.ri;
+    auto& scf_ws = qc->scf_ws;
+    auto& mol = qc->mol;
+    auto& dft = qc->dft;
+    auto blas_handle = qc->blas_handle;
+    const int naux = ri.naux;
+    const int nao = mol.nao;
+    const int nao2 = mol.nao2;
+    const int threads = 256;
+
+    // ---- RI-J ----
+    {
+        // 使用的密度矩阵 (float → double)
+        const float* d_P_coul = scf_ws.runtime.unrestricted
+                                    ? scf_ws.direct.d_Ptot
+                                    : scf_ws.alpha.d_P;
+
+        // d_P_coul → double
+        double* d_P_double = NULL;
+        Device_Malloc_Safely((void**)&d_P_double, sizeof(double) * nao2);
+        QC_Float_To_Double(nao2, d_P_coul, d_P_double);
+
+        // Step 1a: d_vec[P] = Σ_col eri3c[P, col] * D[col].
+        // In BLAS terms, eri3c is col-major [nao2 x naux], so this is E^T * D.
+        const double one = 1.0, zero = 0.0;
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, naux,
+                        1, nao2, &one, ri.d_eri3c, nao2, d_P_double, nao2,
+                        &zero, ri.d_d_vec, naux);
+
+        // Step 1b: g = (P|Q)^{-1} * d_vec
+        // DGEMM: g[naux,1] = inv[naux,naux] * d[naux,1]
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, naux,
+                        1, naux, &one, ri.d_metric_inv, naux, ri.d_d_vec, naux,
+                        &zero, ri.d_g_vec, naux);
+
+        // Step 1c: J[col] = Σ_P eri3c[P, col] * g[P].
+        // In BLAS terms, this is E * g with E as col-major [nao2 x naux].
+        double* d_J_double = NULL;
+        Device_Malloc_Safely((void**)&d_J_double, sizeof(double) * nao2);
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, nao2,
+                        1, naux, &one, ri.d_eri3c, nao2, ri.d_g_vec, naux,
+                        &zero, d_J_double, nao2);
+
+        // Debug: dump J values
+        {
+            std::vector<double> hJ(nao2);
+            deviceMemcpy(hJ.data(), d_J_double, sizeof(double) * nao2,
+                         deviceMemcpyDeviceToHost);
+            printf("    [QC-RI] J[0,0]=%.10e J[1,1]=%.10e J[2,2]=%.10e\n",
+                   hJ[0], hJ[nao + 1], hJ[2 * nao + 2]);
+            std::vector<float> hF(nao2);
+            deviceMemcpy(hF.data(), scf_ws.alpha.d_F, sizeof(float) * nao2,
+                         deviceMemcpyDeviceToHost);
+            printf("    [QC-RI] F_before_J[0,0]=%.10e\n", (double)hF[0]);
+            fflush(stdout);
+        }
+
+        // J → float, 加到 F_alpha
+        float* d_J_float = NULL;
+        Device_Malloc_Safely((void**)&d_J_float, sizeof(float) * nao2);
+        QC_Double_To_Float(nao2, d_J_double, d_J_float);
+        QC_Add_Matrix(nao2, scf_ws.alpha.d_F, d_J_float, scf_ws.alpha.d_F);
+        if (scf_ws.runtime.unrestricted)
+            QC_Add_Matrix(nao2, scf_ws.beta.d_F, d_J_float, scf_ws.beta.d_F);
+
+        deviceFree(d_P_double);
+        deviceFree(d_J_double);
+        deviceFree(d_J_float);
+    }
+
+    // ---- 2. RI-K (仅当 exx_fraction != 0) ----
+    if (dft.exx_fraction != 0.0f)
+    {
+        const float exx = dft.exx_fraction;
+        // K_alpha = Σ_{P,i} B_occ * B_occ（用 C_occ 收缩，对应 P_alpha）
+        // F = H + J - K_alpha  (restricted)
+        // F = H + J - K_alpha  (unrestricted, 每个 spin 独立)
+        // 所以 scale = -exx_fraction (不除2，因为 B_occ 只用单 spin 的 C)
+        const float neg_exx = -exx;
+
+        // Alpha K
+        {
+            const int nocc = scf_ws.runtime.n_alpha;
+            if (nocc > 0)
+            {
+                const int M = naux * nao;
+                // d_B is physically the same buffer as row-major [M x nao],
+                // i.e. col-major [nao x M]. Use OP_T to expose [M x nao].
+                const float one_f = 1.0f;
+                const float zero_f = 0.0f;
+                // B_occ[M, nocc] = B^T[M, nao] * C[:, :nocc][nao, nocc]
+                // B is col-major [nao x M] → OP_T gives [M x nao]
+                // C is col-major [nao x nao] → OP_N, only first nocc cols used
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T,
+                                DEVICE_BLAS_OP_T, M, nocc, nao, &one_f,
+                                ri.d_B, nao, scf_ws.alpha.d_C, nao, &zero_f,
+                                ri.d_B_occ, M);
+
+                // K[μ,ν] = Σ_{P,i} B_occ[P*nao+μ, i] * B_occ[P*nao+ν, i]
+                // = B_occ^T[nao, naux*nocc] * B_occ[naux*nocc, nao]
+                // But B_occ is [M, nocc] = [naux*nao, nocc]
+                // We want K[nao, nao] = Σ_P B_occ_P^T * B_occ_P
+                // where B_occ_P[nao, nocc] is the P-th block
+                // = sum over P of sgemm with beta=1.0
+                //
+                // More efficient: reshape B_occ as [nao, naux*nocc]
+                // (treating P*nocc+i as column index, μ as row)
+                // Then K = B_reshaped * B_reshaped^T
+                //
+                // B_occ is stored as [naux*nao × nocc] col-major
+                // = [(P*nao+μ), i]
+                // This is equivalent to [nao, naux*nocc] if we view it as
+                // blocks of nao rows, each P contributing nocc columns.
+                // But the memory layout is strided...
+                //
+                // Alternative: K = B_occ * B_occ^T then extract nao×nao
+                // But B_occ is (naux*nao) × nocc, so B_occ * B_occ^T is
+                // (naux*nao) × (naux*nao) - way too large.
+                //
+                // Correct approach: sum over P blocks.
+                // K[nao,nao] = Σ_P B_P[nao,nocc] * B_P^T[nocc,nao]
+                // B_P starts at offset P*nao in B_occ (col-major stride = M)
+
+                float* d_K = NULL;
+                Device_Malloc_Safely((void**)&d_K, sizeof(float) * nao2);
+                deviceMemset(d_K, 0, sizeof(float) * nao2);
+
+                for (int P = 0; P < naux; P++)
+                {
+                    // B_occ is col-major [M x nocc]. The P-th [nao x nocc]
+                    // block starts at row offset P*nao with leading dimension M.
+                    const float* B_P = ri.d_B_occ + (long long)P * nao;
+                    const float alpha_val = 1.0f;
+                    const float beta_val = 1.0f;
+                    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N,
+                                    DEVICE_BLAS_OP_T, nao, nao, nocc,
+                                    &alpha_val, B_P, M, B_P, M, &beta_val,
+                                    d_K, nao);
+                }
+
+                // Debug: dump K
+                {
+                    std::vector<float> hK(nao2);
+                    deviceMemcpy(hK.data(), d_K, sizeof(float) * nao2,
+                                 deviceMemcpyDeviceToHost);
+                    printf("    [QC-RI] K[0,0]=%.10e K[1,1]=%.10e neg_exx=%.4f\n",
+                           (double)hK[0], (double)hK[nao + 1], neg_exx);
+                    fflush(stdout);
+                }
+
+                // F_alpha += neg_exx * K
+                Launch_Device_Kernel(
+                    QC_Scaled_Add_Kernel, (nao2 + threads - 1) / threads,
+                    threads, 0, 0, nao2, neg_exx, d_K, scf_ws.alpha.d_F);
+
+                deviceFree(d_K);
+            }
+        }
+
+        // Beta K (unrestricted)
+        if (scf_ws.runtime.unrestricted)
+        {
+            const int nocc_b = scf_ws.runtime.n_beta;
+            if (nocc_b > 0)
+            {
+                const int M = naux * nao;
+                const float one_f = 1.0f;
+                const float zero_f = 0.0f;
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T,
+                                DEVICE_BLAS_OP_T, M, nocc_b, nao, &one_f,
+                                ri.d_B, nao, scf_ws.beta.d_C, nao, &zero_f,
+                                ri.d_B_occ, M);
+
+                float* d_K_b = NULL;
+                Device_Malloc_Safely((void**)&d_K_b, sizeof(float) * nao2);
+                deviceMemset(d_K_b, 0, sizeof(float) * nao2);
+
+                for (int P = 0; P < naux; P++)
+                {
+                    const float* B_P = ri.d_B_occ + (long long)P * nao;
+                    const float alpha_val = 1.0f;
+                    const float beta_val = 1.0f;
+                    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N,
+                                    DEVICE_BLAS_OP_T, nao, nao, nocc_b,
+                                    &alpha_val, B_P, M, B_P, M, &beta_val,
+                                    d_K_b, nao);
+                }
+
+                Launch_Device_Kernel(
+                    QC_Scaled_Add_Kernel, (nao2 + threads - 1) / threads,
+                    threads, 0, 0, nao2, neg_exx, d_K_b, scf_ws.beta.d_F);
+                deviceFree(d_K_b);
+            }
+        }
+    }
+
+}
+
+// ===================== Direct mode =====================
+// 在线计算 3c 积分，不存储 eri3c/B 张量。
+// 策略：逐轨道 shell pair 启动 GPU 3c kernel，结果到临时缓冲，
+//       host 端做 cart2sph + 收缩到 d_vec / B_occ。
+// RI-J: pass1 累加 d_P, solve g, pass2 累加 J（需两趟 3c）
+// RI-K: 一趟累加 B_occ，最后 K = B_occ^T B_occ
+//
+// 当前实现：先在 host 上完成全部 shell-pair 循环 + 收缩。
+// 后续可优化为 GPU kernel batch + device-side 收缩。
+static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
+{
+    auto& ri = qc->scf_ws.ri;
+    auto& scf_ws = qc->scf_ws;
+    auto& mol = qc->mol;
+    auto& dft = qc->dft;
+    auto blas_handle = qc->blas_handle;
+    const int naux = ri.naux;
+    const int nao = mol.nao;
+    const int nao2 = mol.nao2;
+    const int threads = 256;
+
+    // 下载到 host
+    std::vector<float> h_D_f(nao2);
+    const float* d_P_coul = scf_ws.runtime.unrestricted
+                                ? scf_ws.direct.d_Ptot
+                                : scf_ws.alpha.d_P;
+    deviceMemcpy(h_D_f.data(), d_P_coul, sizeof(float) * nao2,
+                 deviceMemcpyDeviceToHost);
+    std::vector<double> h_D(nao2);
+    for (int i = 0; i < nao2; i++) h_D[i] = (double)h_D_f[i];
+
+    std::vector<double> h_inv(naux * naux), h_inv_sqrt(naux * naux);
+    deviceMemcpy(h_inv.data(), ri.d_metric_inv, sizeof(double) * naux * naux,
+                 deviceMemcpyDeviceToHost);
+    deviceMemcpy(h_inv_sqrt.data(), ri.d_metric_inv_sqrt,
+                 sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
+    std::vector<float> h_orb_norms(nao);
+    deviceMemcpy(h_orb_norms.data(), scf_ws.ortho.d_norms,
+                 sizeof(float) * nao, deviceMemcpyDeviceToHost);
+
+    // 临时 3c 缓冲（内核写全局索引）
+    const long long buf_3c_size =
+        (long long)ri.naux_cart * mol.nao_cart * mol.nao_cart;
+    double* d_3c_buf = NULL;
+    Device_Malloc_Safely((void**)&d_3c_buf, sizeof(double) * buf_3c_size);
+
+    // 准备 RI-J: d_vec, J (host)
+    std::vector<double> h_d_vec(naux, 0.0);
+    std::vector<double> h_J(nao2, 0.0);
+
+    // 准备 RI-K: B_occ (host)
+    const bool need_exx = (dft.exx_fraction != 0.0f);
+    const int nocc_a = scf_ws.runtime.n_alpha;
+    const int nocc_b_val =
+        scf_ws.runtime.unrestricted ? scf_ws.runtime.n_beta : 0;
+
+    std::vector<float> h_C_a, h_C_b;
+    std::vector<double> h_B_occ_a, h_B_occ_b;
+    if (need_exx && nocc_a > 0)
+    {
+        h_C_a.resize(nao * nao);
+        deviceMemcpy(h_C_a.data(), scf_ws.alpha.d_C, sizeof(float) * nao * nao,
+                     deviceMemcpyDeviceToHost);
+        h_B_occ_a.assign((long long)naux * nao * nocc_a, 0.0);
+    }
+    if (need_exx && nocc_b_val > 0)
+    {
+        h_C_b.resize(nao * nao);
+        deviceMemcpy(h_C_b.data(), scf_ws.beta.d_C, sizeof(float) * nao * nao,
+                     deviceMemcpyDeviceToHost);
+        h_B_occ_b.assign((long long)naux * nao * nocc_b_val, 0.0);
+    }
+
+    // ---- pass 1: 逐 shell pair 计算 3c 积分 ----
+    // 用 GPU kernel 计算笛卡尔 3c block，下载，cart2sph，收缩
+    // 对每个 shell pair (mu_sh, nu_sh):
+    //   tasks = {(P_sh, mu_sh, nu_sh) | P_sh = 0..naux_bas-1}
+    //   launch kernel → d_3c_buf [naux_cart × dim_mu_c × dim_nu_c]
+    //   download, cart2sph → block_sph [naux × dim_mu_s × dim_nu_s]
+    //   d_vec[P] += Σ_{μν} block_sph[P,μ,ν] * D[off_mu+μ, off_nu+ν]
+    //   B_occ[P,off_mu+μ,i] += Σ_ν block_B[P,μ,ν] * C[off_nu+ν,i]
+
+    // 分配 GPU 3c 任务缓冲（一次性，所有 P_sh × 1 pair）
+    std::vector<QC_RI_3C_TASK> h_tasks(ri.naux_bas);
+    QC_RI_3C_TASK* d_tasks = NULL;
+    Device_Malloc_Safely((void**)&d_tasks,
+                         sizeof(QC_RI_3C_TASK) * ri.naux_bas);
+
+    for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
+    {
+        const int l_mu = mol.h_l_list[mu_sh];
+        const int dmc = (l_mu + 1) * (l_mu + 2) / 2;
+        const int dms = mol.is_spherical ? (2 * l_mu + 1) : dmc;
+        const int off_mu_s = mol.is_spherical ? mol.h_ao_offsets_sph[mu_sh]
+                                              : mol.h_ao_offsets[mu_sh];
+
+        for (int nu_sh = 0; nu_sh <= mu_sh; nu_sh++)
+        {
+            const int l_nu = mol.h_l_list[nu_sh];
+            const int dnc = (l_nu + 1) * (l_nu + 2) / 2;
+            const int dns = mol.is_spherical ? (2 * l_nu + 1) : dnc;
+            const int off_nu_s = mol.is_spherical
+                                     ? mol.h_ao_offsets_sph[nu_sh]
+                                     : mol.h_ao_offsets[nu_sh];
+
+            // 构建 tasks
+            for (int P = 0; P < ri.naux_bas; P++)
+                h_tasks[P] = {P, mu_sh, nu_sh};
+            deviceMemcpy(d_tasks, h_tasks.data(),
+                         sizeof(QC_RI_3C_TASK) * ri.naux_bas,
+                         deviceMemcpyHostToDevice);
+
+            // 清零缓冲，启动 kernel
+            const long long buf_n =
+                (long long)ri.naux_cart * dmc * dnc;
+            deviceMemset(d_3c_buf, 0, sizeof(double) * buf_n);
+            Launch_Device_Kernel(
+                QC_RI_3Center_Kernel,
+                (ri.naux_bas + threads - 1) / threads, threads, 0, 0,
+                ri.naux_bas, d_tasks, ri.d_aux_centers, ri.d_aux_l_list,
+                ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
+                ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
+                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart,
+                mol.nao_cart, d_3c_buf);
+
+            // 下载笛卡尔 block
+            std::vector<double> h_block_cart(buf_n);
+            deviceMemcpy(h_block_cart.data(), d_3c_buf,
+                         sizeof(double) * buf_n, deviceMemcpyDeviceToHost);
+
+            // Cart2sph: block_cart[Pc, dmc, dnc] → block_sph[Ps, dms, dns]
+            // 注意: 内核按全局 AO offset 写入，但 d_3c_buf 是紧凑的
+            // 重新审视：QC_RI_3Center_Kernel 写入 out_eri3c[P*nao_cart*nao_cart + mu*nao_cart + nu]
+            // 而 d_3c_buf 的尺寸是 naux_cart * nao_cart * nao_cart（不是 per-shell-pair 紧凑）
+            // 所以实际上我们需要按全局索引读取
+
+            // 提取 per-shell-pair block from full-sized buf
+            // buf layout: [naux_cart × nao_cart × nao_cart]
+            // 我们需要 buf[P_c, off_mu_c + i, off_nu_c + j]
+            const int off_mu_c = mol.h_ao_offsets[mu_sh];
+            const int off_nu_c = mol.h_ao_offsets[nu_sh];
+            const int nao_c = mol.nao_cart;
+
+            // 但 d_3c_buf 只分配了 naux_cart * max_cart² 大小...
+            // 这不对。QC_RI_3Center_Kernel 写入的是全局尺寸的数组。
+            // 在 direct 模式下，我们不能用全局尺寸的缓冲。
+            // 需要修改 kernel 或者用临时的全尺寸缓冲。
+
+            // 简单方案：d_3c_buf 分配为 naux_cart * nao_cart * nao_cart
+            // 这比 stored 模式的 naux * nao * nao 小（因为只 double，不存 float B）
+            // 但还是很大...
+
+            // 更好的方案：修改内核使其写入紧凑 buffer。
+            // 但当前先用全尺寸缓冲来验证正确性。
+
+            // TODO: 优化为紧凑 kernel
+
+            // 提取 block 并做 cart2sph
+            std::vector<double> block_sph(naux * dms * dns, 0.0);
+            if (!mol.is_spherical)
+            {
+                // 直接提取
+                for (int P = 0; P < naux; P++)
+                    for (int i = 0; i < dms; i++)
+                        for (int j = 0; j < dns; j++)
+                            block_sph[P * dms * dns + i * dns + j] =
+                                h_block_cart[(long long)P * nao_c * nao_c +
+                                             (off_mu_c + i) * nao_c +
+                                             (off_nu_c + j)];
+            }
+            else
+            {
+                // 先提取笛卡尔 block: [Pc, dmc, dnc]
+                const int Pc = ri.naux_cart;
+                std::vector<double> bc(Pc * dmc * dnc, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int i = 0; i < dmc; i++)
+                        for (int j = 0; j < dnc; j++)
+                            bc[P * dmc * dnc + i * dnc + j] =
+                                h_block_cart[(long long)P * nao_c * nao_c +
+                                             (off_mu_c + i) * nao_c +
+                                             (off_nu_c + j)];
+
+                // ν 变换: T1[Pc, dmc, dns]
+                std::vector<double> t1(Pc * dmc * dns, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int i = 0; i < dmc; i++)
+                        for (int js = 0; js < dns; js++)
+                            for (int jc = 0; jc < dnc; jc++)
+                                t1[P * dmc * dns + i * dns + js] +=
+                                    bc[P * dmc * dnc + i * dnc + jc] *
+                                    (double)ri.h_U_orb[(off_nu_c + jc) * nao +
+                                                       off_nu_s + js];
+
+                // μ 变换: T2[Pc, dms, dns]
+                std::vector<double> t2(Pc * dms * dns, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int is_ = 0; is_ < dms; is_++)
+                        for (int js = 0; js < dns; js++)
+                            for (int ic = 0; ic < dmc; ic++)
+                                t2[P * dms * dns + is_ * dns + js] +=
+                                    (double)ri.h_U_orb[(off_mu_c + ic) * nao +
+                                                       off_mu_s + is_] *
+                                    t1[P * dmc * dns + ic * dns + js];
+
+                // P 变换: block_sph[Ps, dms, dns]
+                for (int ps = 0; ps < naux; ps++)
+                    for (int pc = 0; pc < Pc; pc++)
+                    {
+                        double u = (double)ri.h_U_aux[pc * naux + ps];
+                        if (u == 0.0) continue;
+                        for (int mn = 0; mn < dms * dns; mn++)
+                            block_sph[ps * dms * dns + mn] +=
+                                u * t2[pc * dms * dns + mn];
+                    }
+            }
+
+            for (int P = 0; P < naux; P++)
+            {
+                const double p_scale = (double)ri.h_aux_norms[P];
+                for (int i = 0; i < dms; i++)
+                {
+                    const double mu_scale = (double)h_orb_norms[off_mu_s + i];
+                    for (int j = 0; j < dns; j++)
+                    {
+                        block_sph[P * dms * dns + i * dns + j] *=
+                            p_scale * mu_scale *
+                            (double)h_orb_norms[off_nu_s + j];
+                    }
+                }
+            }
+
+            // inv_sqrt @ block → B_block [naux, dms, dns]
+            std::vector<double> B_block(naux * dms * dns, 0.0);
+            for (int ps = 0; ps < naux; ps++)
+                for (int qs = 0; qs < naux; qs++)
+                {
+                    double w = h_inv_sqrt[ps * naux + qs];
+                    if (w == 0.0) continue;
+                    for (int mn = 0; mn < dms * dns; mn++)
+                        B_block[ps * dms * dns + mn] +=
+                            w * block_sph[qs * dms * dns + mn];
+                }
+
+            const double sym = (mu_sh == nu_sh) ? 1.0 : 2.0;
+
+            // RI-J: d_vec[P] += Σ_{μν} block_sph[P,μ,ν] * D[μ,ν]
+            for (int P = 0; P < naux; P++)
+                for (int i = 0; i < dms; i++)
+                    for (int j = 0; j < dns; j++)
+                    {
+                        double val = block_sph[P * dms * dns + i * dns + j];
+                        h_d_vec[P] += val * h_D[(off_mu_s + i) * nao +
+                                                (off_nu_s + j)];
+                        if (mu_sh != nu_sh)
+                            h_d_vec[P] += val * h_D[(off_nu_s + j) * nao +
+                                                    (off_mu_s + i)];
+                    }
+
+            // RI-K: B_occ[P, off_mu+i, occ] += Σ_j B_block[P,i,j] * C[off_nu+j, occ]
+            if (need_exx && nocc_a > 0)
+            {
+                for (int P = 0; P < naux; P++)
+                    for (int i = 0; i < dms; i++)
+                        for (int j = 0; j < dns; j++)
+                        {
+                            double b = B_block[P * dms * dns + i * dns + j];
+                            if (b == 0.0) continue;
+                            int mu_idx = off_mu_s + i;
+                            int nu_idx = off_nu_s + j;
+                            for (int oc = 0; oc < nocc_a; oc++)
+                            {
+                                // C is row-major [nao × nao]
+                                // C[ν, occ] = h_C_a[ν * nao + occ]
+                                h_B_occ_a[(long long)P * nao * nocc_a +
+                                          mu_idx * nocc_a + oc] +=
+                                    b * (double)h_C_a[nu_idx * nao + oc];
+                                if (mu_sh != nu_sh)
+                                    h_B_occ_a[(long long)P * nao * nocc_a +
+                                              nu_idx * nocc_a + oc] +=
+                                        b *
+                                        (double)h_C_a[mu_idx * nao + oc];
+                            }
+                        }
+            }
+            if (need_exx && nocc_b_val > 0)
+            {
+                for (int P = 0; P < naux; P++)
+                    for (int i = 0; i < dms; i++)
+                        for (int j = 0; j < dns; j++)
+                        {
+                            double b = B_block[P * dms * dns + i * dns + j];
+                            if (b == 0.0) continue;
+                            int mu_idx = off_mu_s + i;
+                            int nu_idx = off_nu_s + j;
+                            for (int oc = 0; oc < nocc_b_val; oc++)
+                            {
+                                h_B_occ_b[(long long)P * nao * nocc_b_val +
+                                          mu_idx * nocc_b_val + oc] +=
+                                    b * (double)h_C_b[nu_idx * nao + oc];
+                                if (mu_sh != nu_sh)
+                                    h_B_occ_b[(long long)P * nao * nocc_b_val +
+                                              nu_idx * nocc_b_val + oc] +=
+                                        b *
+                                        (double)h_C_b[mu_idx * nao + oc];
+                            }
+                        }
+            }
+        }
+    }
+    deviceFree(d_tasks);
+
+    // RI-J: g = inv @ d, J[μν] = Σ_P g_P block_sph[P,μ,ν]
+    // 但 pass2 需要再算一遍 3c 积分... 用 metric_inv 直接算:
+    // J[μν] = Σ_P (Σ_Q inv[P,Q] d_Q) block_sph[P,μ,ν]
+    // 我们已经在 pass1 中积累了 d_vec。现在需要 pass2。
+    // 但 pass2 和 pass1 一样需要遍历所有 shell pair。
+    // 优化：可以在 pass1 同时积累 J（如果 g 已知）。
+    // 但 g 依赖 d_vec 的完整值，所以必须两趟。
+    //
+    // 方案 B：用 metric_inv_sqrt，一趟就够。
+    // d' = inv_sqrt @ d → g' = d'（因为 inv = inv_sqrt @ inv_sqrt）
+    // J = Σ_P g'_P * B_block[P] = 两趟都需要 B_block...
+    //
+    // 最终方案：pass1 积累 d_vec，算 g_vec，pass2 重新计算 3c 积累 J。
+    // 为避免重复计算 3c，我们在 pass1 中同时积累 J 的贡献。
+    //
+    // 实际上更聪明的做法：
+    // J[μν] = Σ_PQ (P|μν) (P|Q)^{-1} (Q|ρσ) D[ρσ]
+    //       = Σ_P (P|μν) g_P  where g = inv @ d
+    // 需要 g 才能算 J，但 g 需要完整的 d。
+    // 所以确实需要两趟。
+    //
+    // 但注意 RI-K 的 B_occ 在 pass1 中已经一趟算完。
+    // 对 RI-J，我们可以重新计算 3c 做 pass2。
+    // 或者：在 pass1 中存储每个 block_sph[P, μ_sh, ν_sh] 到一个
+    // 压缩格式中。但这等于变相存储了 3c 张量。
+    //
+    // 最简洁的做法：pass1 计算 d_vec。然后:
+    //   g = inv @ d
+    //   pass2: 重新计算每个 shell pair 的 3c block，
+    //          J[off_mu+i, off_nu+j] += Σ_P g[P] * block[P,i,j]
+
+    // 先求 g
+    std::vector<double> h_g(naux, 0.0);
+    for (int P = 0; P < naux; P++)
+        for (int Q = 0; Q < naux; Q++)
+            h_g[P] += h_inv[P * naux + Q] * h_d_vec[Q];
+
+    // ---- pass 2: RI-J 第二趟，重新计算 3c 积分以构建 J ----
+    Device_Malloc_Safely((void**)&d_tasks,
+                         sizeof(QC_RI_3C_TASK) * ri.naux_bas);
+    for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
+    {
+        const int l_mu = mol.h_l_list[mu_sh];
+        const int dmc = (l_mu + 1) * (l_mu + 2) / 2;
+        const int dms = mol.is_spherical ? (2 * l_mu + 1) : dmc;
+        const int off_mu_s = mol.is_spherical ? mol.h_ao_offsets_sph[mu_sh]
+                                              : mol.h_ao_offsets[mu_sh];
+
+        for (int nu_sh = 0; nu_sh <= mu_sh; nu_sh++)
+        {
+            const int l_nu = mol.h_l_list[nu_sh];
+            const int dnc = (l_nu + 1) * (l_nu + 2) / 2;
+            const int dns = mol.is_spherical ? (2 * l_nu + 1) : dnc;
+            const int off_nu_s = mol.is_spherical
+                                     ? mol.h_ao_offsets_sph[nu_sh]
+                                     : mol.h_ao_offsets[nu_sh];
+            const int off_mu_c = mol.h_ao_offsets[mu_sh];
+            const int off_nu_c = mol.h_ao_offsets[nu_sh];
+            const int nao_c = mol.nao_cart;
+
+            // 复用 pass1 的 kernel 调用逻辑
+            for (int P = 0; P < ri.naux_bas; P++)
+                h_tasks[P] = {P, mu_sh, nu_sh};
+            deviceMemcpy(d_tasks, h_tasks.data(),
+                         sizeof(QC_RI_3C_TASK) * ri.naux_bas,
+                         deviceMemcpyHostToDevice);
+
+            const long long buf_n = (long long)ri.naux_cart * dmc * dnc;
+            deviceMemset(d_3c_buf, 0, sizeof(double) * buf_n);
+            Launch_Device_Kernel(
+                QC_RI_3Center_Kernel,
+                (ri.naux_bas + threads - 1) / threads, threads, 0, 0,
+                ri.naux_bas, d_tasks, ri.d_aux_centers, ri.d_aux_l_list,
+                ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
+                ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
+                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart,
+                nao_c, d_3c_buf);
+
+            std::vector<double> h_block_cart(buf_n);
+            deviceMemcpy(h_block_cart.data(), d_3c_buf,
+                         sizeof(double) * buf_n, deviceMemcpyDeviceToHost);
+
+            // cart2sph (同 pass1 逻辑)
+            std::vector<double> block_sph(naux * dms * dns, 0.0);
+            if (!mol.is_spherical)
+            {
+                for (int P = 0; P < naux; P++)
+                    for (int i = 0; i < dms; i++)
+                        for (int j = 0; j < dns; j++)
+                            block_sph[P * dms * dns + i * dns + j] =
+                                h_block_cart[(long long)P * nao_c * nao_c +
+                                             (off_mu_c + i) * nao_c +
+                                             (off_nu_c + j)];
+            }
+            else
+            {
+                const int Pc = ri.naux_cart;
+                std::vector<double> bc(Pc * dmc * dnc, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int i = 0; i < dmc; i++)
+                        for (int j = 0; j < dnc; j++)
+                            bc[P * dmc * dnc + i * dnc + j] =
+                                h_block_cart[(long long)P * nao_c * nao_c +
+                                             (off_mu_c + i) * nao_c +
+                                             (off_nu_c + j)];
+                std::vector<double> t1(Pc * dmc * dns, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int i = 0; i < dmc; i++)
+                        for (int js = 0; js < dns; js++)
+                            for (int jc = 0; jc < dnc; jc++)
+                                t1[P * dmc * dns + i * dns + js] +=
+                                    bc[P * dmc * dnc + i * dnc + jc] *
+                                    (double)ri.h_U_orb[(off_nu_c + jc) * nao +
+                                                       off_nu_s + js];
+                std::vector<double> t2(Pc * dms * dns, 0.0);
+                for (int P = 0; P < Pc; P++)
+                    for (int is_ = 0; is_ < dms; is_++)
+                        for (int js = 0; js < dns; js++)
+                            for (int ic = 0; ic < dmc; ic++)
+                                t2[P * dms * dns + is_ * dns + js] +=
+                                    (double)ri.h_U_orb[(off_mu_c + ic) * nao +
+                                                       off_mu_s + is_] *
+                                    t1[P * dmc * dns + ic * dns + js];
+                for (int ps = 0; ps < naux; ps++)
+                    for (int pc = 0; pc < Pc; pc++)
+                    {
+                        double u = (double)ri.h_U_aux[pc * naux + ps];
+                        if (u == 0.0) continue;
+                        for (int mn = 0; mn < dms * dns; mn++)
+                            block_sph[ps * dms * dns + mn] +=
+                                u * t2[pc * dms * dns + mn];
+                    }
+            }
+
+            for (int P = 0; P < naux; P++)
+            {
+                const double p_scale = (double)ri.h_aux_norms[P];
+                for (int i = 0; i < dms; i++)
+                {
+                    const double mu_scale = (double)h_orb_norms[off_mu_s + i];
+                    for (int j = 0; j < dns; j++)
+                    {
+                        block_sph[P * dms * dns + i * dns + j] *=
+                            p_scale * mu_scale *
+                            (double)h_orb_norms[off_nu_s + j];
+                    }
+                }
+            }
+
+            // J[off_mu+i, off_nu+j] += Σ_P g[P] * block_sph[P,i,j]
+            for (int i = 0; i < dms; i++)
+                for (int j = 0; j < dns; j++)
+                {
+                    double val = 0.0;
+                    for (int P = 0; P < naux; P++)
+                        val += h_g[P] *
+                               block_sph[P * dms * dns + i * dns + j];
+                    h_J[(off_mu_s + i) * nao + (off_nu_s + j)] += val;
+                    if (mu_sh != nu_sh)
+                        h_J[(off_nu_s + j) * nao + (off_mu_s + i)] += val;
+                }
+        }
+    }
+    deviceFree(d_tasks);
+    deviceFree(d_3c_buf);
+
+    // 上传 J 到 device，加到 F
+    {
+        std::vector<float> h_J_f(nao2);
+        for (int i = 0; i < nao2; i++) h_J_f[i] = (float)h_J[i];
+        float* d_J_f = NULL;
+        Device_Malloc_Safely((void**)&d_J_f, sizeof(float) * nao2);
+        deviceMemcpy(d_J_f, h_J_f.data(), sizeof(float) * nao2,
+                     deviceMemcpyHostToDevice);
+        QC_Add_Matrix(nao2, scf_ws.alpha.d_F, d_J_f, scf_ws.alpha.d_F);
+        if (scf_ws.runtime.unrestricted)
+            QC_Add_Matrix(nao2, scf_ws.beta.d_F, d_J_f, scf_ws.beta.d_F);
+        deviceFree(d_J_f);
+    }
+
+    // RI-K
+    if (need_exx)
+    {
+        const float neg_exx = -dft.exx_fraction;
+
+        auto build_K_from_B_occ = [&](const std::vector<double>& h_B_occ,
+                                      int nocc, float* d_F) {
+            if (nocc <= 0) return;
+            // K[μ,ν] = Σ_{P,i} B_occ[P,μ,i] * B_occ[P,ν,i]
+            std::vector<float> h_K(nao2, 0.0f);
+            for (int P = 0; P < naux; P++)
+                for (int mu = 0; mu < nao; mu++)
+                    for (int nu = 0; nu <= mu; nu++)
+                    {
+                        double sum = 0.0;
+                        for (int oc = 0; oc < nocc; oc++)
+                            sum += h_B_occ[(long long)P * nao * nocc +
+                                           mu * nocc + oc] *
+                                   h_B_occ[(long long)P * nao * nocc +
+                                           nu * nocc + oc];
+                        h_K[mu * nao + nu] += (float)sum;
+                        if (mu != nu)
+                            h_K[nu * nao + mu] += (float)sum;
+                    }
+            // 上传并加到 F
+            float* d_K = NULL;
+            Device_Malloc_Safely((void**)&d_K, sizeof(float) * nao2);
+            deviceMemcpy(d_K, h_K.data(), sizeof(float) * nao2,
+                         deviceMemcpyHostToDevice);
+            Launch_Device_Kernel(QC_Scaled_Add_Kernel,
+                                 (nao2 + threads - 1) / threads, threads, 0, 0,
+                                 nao2, neg_exx, d_K, d_F);
+            deviceFree(d_K);
+        };
+
+        build_K_from_B_occ(h_B_occ_a, nocc_a, scf_ws.alpha.d_F);
+        if (scf_ws.runtime.unrestricted)
+            build_K_from_B_occ(h_B_occ_b, nocc_b_val, scf_ws.beta.d_F);
+    }
+}
