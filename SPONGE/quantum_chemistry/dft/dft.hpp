@@ -2,6 +2,12 @@
 
 #include "../integrals/one_e.hpp"
 
+// Forward declarations for FD fallback
+static inline __host__ __device__ double QC_Local_Exc_Density(
+    QC_METHOD method, double rho, double sigma);
+
+#include "xc_deriv.hpp"
+
 static inline __host__ __device__ void QC_Local_Vrho_Vsigma_FD(
     QC_METHOD method, double rho, double sigma, double& e, double& vrho,
     double& vsigma);
@@ -170,8 +176,8 @@ static __global__ void QC_Eval_XC_Derivs_Kernel(
         else
         {
             double e = 0.0, v_rho = 0.0, v_sigma = 0.0;
-            QC_Local_Vrho_Vsigma_FD((QC_METHOD)method_id, rho_val, sigma[ig], e,
-                                    v_rho, v_sigma);
+            QC_VXC_Analytical_RKS((QC_METHOD)method_id, rho_val, sigma[ig], e,
+                                  v_rho, v_sigma);
             exc[ig] = e;
             vrho[ig] = v_rho;
             vsigma[ig] = v_sigma;
