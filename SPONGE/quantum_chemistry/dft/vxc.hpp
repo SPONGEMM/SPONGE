@@ -22,8 +22,7 @@ static void QC_Cart2Sph_AO_Batch_Device(
 }
 
 // 对 AO 值施加归一化因子
-static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid,
-                                                const int nao,
+static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid, const int nao,
                                                 const float* norms,
                                                 const float* ao_in,
                                                 float* ao_out)
@@ -39,10 +38,9 @@ static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid,
 // 从 Pao 和归一化 AO 计算 ρ (LDA) 或 ρ + σ + ∇ρ (GGA)
 template <int deriv_level>
 static __global__ void QC_Eval_Rho_Kernel(
-    const int n_grid, const int nao, const float* ao_norm,
-    const float* gx_norm, const float* gy_norm, const float* gz_norm,
-    const float* Pao, double* rho, double* sigma, double* grad_rho_x,
-    double* grad_rho_y, double* grad_rho_z)
+    const int n_grid, const int nao, const float* ao_norm, const float* gx_norm,
+    const float* gy_norm, const float* gz_norm, const float* Pao, double* rho,
+    double* sigma, double* grad_rho_x, double* grad_rho_y, double* grad_rho_z)
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
@@ -80,12 +78,11 @@ static __global__ void QC_Eval_Rho_Kernel(
 //                Vxc = W_full^T @ AO + AO^T @ W_sigma
 template <int deriv_level>
 static __global__ void QC_Build_Weighted_AO_Kernel(
-    const int n_grid, const int nao, const float* ao_norm,
-    const float* gx_norm, const float* gy_norm, const float* gz_norm,
-    const float* grid_weights, const double* rho, const double* exc,
-    const double* vrho, const double* vsigma, const double* grad_rho_x,
-    const double* grad_rho_y, const double* grad_rho_z, float* W_full,
-    float* W_sigma, double* exc_total)
+    const int n_grid, const int nao, const float* ao_norm, const float* gx_norm,
+    const float* gy_norm, const float* gz_norm, const float* grid_weights,
+    const double* rho, const double* exc, const double* vrho,
+    const double* vsigma, const double* grad_rho_x, const double* grad_rho_y,
+    const double* grad_rho_z, float* W_full, float* W_sigma, double* exc_total)
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
@@ -112,11 +109,10 @@ static __global__ void QC_Build_Weighted_AO_Kernel(
                 for (int i = 0; i < nao; i++)
                 {
                     const double ai = (double)ao_norm[ig * nao + i];
-                    const double sp =
-                        2.0 * v_sigma *
-                        (grx * (double)gx_norm[ig * nao + i] +
-                         gry * (double)gy_norm[ig * nao + i] +
-                         grz * (double)gz_norm[ig * nao + i]);
+                    const double sp = 2.0 * v_sigma *
+                                      (grx * (double)gx_norm[ig * nao + i] +
+                                       gry * (double)gy_norm[ig * nao + i] +
+                                       grz * (double)gz_norm[ig * nao + i]);
                     W_full[ig * nao + i] =
                         (float)((double)w * (v_rho * ai + sp));
                     W_sigma[ig * nao + i] = (float)((double)w * sp);
@@ -193,25 +189,24 @@ static void QC_Build_DFT_VXC_Impl(
             if (is_spherical)
             {
                 QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                     d_ao_vals_cart, d_cart2sph_mat,
-                                     d_ao_vals);
+                                      d_ao_vals_cart, d_cart2sph_mat,
+                                      d_ao_vals);
                 if (deriv_level >= 1)
                 {
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_x_cart, d_cart2sph_mat,
-                                         d_ao_grad_x);
+                                          d_ao_grad_x_cart, d_cart2sph_mat,
+                                          d_ao_grad_x);
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_y_cart, d_cart2sph_mat,
-                                         d_ao_grad_y);
+                                          d_ao_grad_y_cart, d_cart2sph_mat,
+                                          d_ao_grad_y);
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_z_cart, d_cart2sph_mat,
-                                         d_ao_grad_z);
+                                          d_ao_grad_z_cart, d_cart2sph_mat,
+                                          d_ao_grad_z);
                 }
             }
-            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
-                                 (total_ao + threads - 1) / threads, threads,
-                                 0, 0, n_batch, nao, d_norms, d_ao_vals,
-                                 d_ao_norm);
+            Launch_Device_Kernel(
+                QC_Apply_Norms_AO_Kernel, (total_ao + threads - 1) / threads,
+                threads, 0, 0, n_batch, nao, d_norms, d_ao_vals, d_ao_norm);
             if (deriv_level >= 1)
             {
                 Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
@@ -238,11 +233,11 @@ static void QC_Build_DFT_VXC_Impl(
         }
 
         // 3. ρ (+ σ, ∇ρ for GGA)
-        Launch_Device_Kernel(
-            (QC_Eval_Rho_Kernel<deriv_level>),
-            (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
-            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao, d_rho,
-            d_sigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z);
+        Launch_Device_Kernel((QC_Eval_Rho_Kernel<deriv_level>),
+                             (n_batch + threads - 1) / threads, threads, 0, 0,
+                             n_batch, nao, d_ao_norm, d_gx_norm, d_gy_norm,
+                             d_gz_norm, d_Pao, d_rho, d_sigma, d_grad_rho_x,
+                             d_grad_rho_y, d_grad_rho_z);
 
         // 4. XC 泛函求值
         Launch_Device_Kernel(QC_Eval_XC_Derivs_Kernel,
@@ -251,26 +246,25 @@ static void QC_Build_DFT_VXC_Impl(
                              d_vrho, d_vsigma);
 
         // 5. 加权 AO
-        Launch_Device_Kernel(
-            (QC_Build_Weighted_AO_Kernel<deriv_level>),
-            (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
-            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_weights_batch,
-            d_rho, d_exc, d_vrho, d_vsigma, d_grad_rho_x, d_grad_rho_y,
-            d_grad_rho_z, d_W_full, d_W_sigma, d_exc_total);
+        Launch_Device_Kernel((QC_Build_Weighted_AO_Kernel<deriv_level>),
+                             (n_batch + threads - 1) / threads, threads, 0, 0,
+                             n_batch, nao, d_ao_norm, d_gx_norm, d_gy_norm,
+                             d_gz_norm, d_weights_batch, d_rho, d_exc, d_vrho,
+                             d_vsigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
+                             d_W_full, d_W_sigma, d_exc_total);
 
         // 6. Vxc 矩阵累加
         {
             const float one = 1.0f;
             deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            nao, nao, n_batch, &one, d_ao_norm, nao,
-                            d_W_full, nao, &one, d_Vxc, nao);
+                            nao, nao, n_batch, &one, d_ao_norm, nao, d_W_full,
+                            nao, &one, d_Vxc, nao);
             if (deriv_level >= 1)
             {
                 // GGA: 补全 sigma 项另一侧
-                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N,
-                                DEVICE_BLAS_OP_T, nao, nao, n_batch, &one,
-                                d_W_sigma, nao, d_ao_norm, nao, &one, d_Vxc,
-                                nao);
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                nao, nao, n_batch, &one, d_W_sigma, nao,
+                                d_ao_norm, nao, &one, d_Vxc, nao);
             }
         }
     }
@@ -301,11 +295,11 @@ static void QC_Build_DFT_VXC(
             d_cart2sph_mat, d_centers, d_l_list, d_exps, d_coeffs,
             d_shell_offsets, d_shell_sizes, d_ao_offsets, d_norms, d_P,
             d_ao_vals_cart, d_ao_grad_x_cart, d_ao_grad_y_cart,
-            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y,
-            d_ao_grad_z, d_rho, d_sigma, d_exc, d_vrho, d_vsigma,
-            d_exc_total, d_Vxc, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm,
-            d_Pao, d_W_full, d_W_sigma, d_grad_rho_x, d_grad_rho_y,
-            d_grad_rho_z, d_shell_r2_screen);
+            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y, d_ao_grad_z,
+            d_rho, d_sigma, d_exc, d_vrho, d_vsigma, d_exc_total, d_Vxc,
+            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao, d_W_full,
+            d_W_sigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
+            d_shell_r2_screen);
     }
     else
     {
@@ -315,11 +309,11 @@ static void QC_Build_DFT_VXC(
             d_cart2sph_mat, d_centers, d_l_list, d_exps, d_coeffs,
             d_shell_offsets, d_shell_sizes, d_ao_offsets, d_norms, d_P,
             d_ao_vals_cart, d_ao_grad_x_cart, d_ao_grad_y_cart,
-            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y,
-            d_ao_grad_z, d_rho, d_sigma, d_exc, d_vrho, d_vsigma,
-            d_exc_total, d_Vxc, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm,
-            d_Pao, d_W_full, d_W_sigma, d_grad_rho_x, d_grad_rho_y,
-            d_grad_rho_z, d_shell_r2_screen);
+            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y, d_ao_grad_z,
+            d_rho, d_sigma, d_exc, d_vrho, d_vsigma, d_exc_total, d_Vxc,
+            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao, d_W_full,
+            d_W_sigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
+            d_shell_r2_screen);
     }
 }
 
@@ -328,12 +322,11 @@ static void QC_Build_DFT_VXC(
 // UKS: 从 Pao_a/Pao_b 计算自旋密度和梯度
 template <int deriv_level>
 static __global__ void QC_Eval_Rho_UKS_Kernel(
-    const int n_grid, const int nao, const float* ao_norm,
-    const float* gx_norm, const float* gy_norm, const float* gz_norm,
-    const float* Pao_a, const float* Pao_b, double* rho_a, double* rho_b,
-    double* sigma_aa, double* sigma_ab, double* sigma_bb,
-    double* gra_x, double* gra_y, double* gra_z,
-    double* grb_x, double* grb_y, double* grb_z)
+    const int n_grid, const int nao, const float* ao_norm, const float* gx_norm,
+    const float* gy_norm, const float* gz_norm, const float* Pao_a,
+    const float* Pao_b, double* rho_a, double* rho_b, double* sigma_aa,
+    double* sigma_ab, double* sigma_bb, double* gra_x, double* gra_y,
+    double* gra_z, double* grb_x, double* grb_y, double* grb_z)
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
@@ -364,13 +357,21 @@ static __global__ void QC_Eval_Rho_UKS_Kernel(
         rho_b[ig] = rb;
         if (deriv_level >= 1)
         {
-            gax *= 2.0; gay *= 2.0; gaz *= 2.0;
-            gbx *= 2.0; gby *= 2.0; gbz *= 2.0;
+            gax *= 2.0;
+            gay *= 2.0;
+            gaz *= 2.0;
+            gbx *= 2.0;
+            gby *= 2.0;
+            gbz *= 2.0;
             sigma_aa[ig] = gax * gax + gay * gay + gaz * gaz;
             sigma_ab[ig] = gax * gbx + gay * gby + gaz * gbz;
             sigma_bb[ig] = gbx * gbx + gby * gby + gbz * gbz;
-            gra_x[ig] = gax; gra_y[ig] = gay; gra_z[ig] = gaz;
-            grb_x[ig] = gbx; grb_y[ig] = gby; grb_z[ig] = gbz;
+            gra_x[ig] = gax;
+            gra_y[ig] = gay;
+            gra_z[ig] = gaz;
+            grb_x[ig] = gbx;
+            grb_y[ig] = gby;
+            grb_z[ig] = gbz;
         }
     }
 }
@@ -410,15 +411,14 @@ static __global__ void QC_Eval_XC_UKS_Kernel(
 // UKS: 构建加权 AO（alpha 和 beta 各一套）
 template <int deriv_level>
 static __global__ void QC_Build_Weighted_AO_UKS_Kernel(
-    const int n_grid, const int nao, const float* ao_norm,
-    const float* gx_norm, const float* gy_norm, const float* gz_norm,
-    const float* grid_weights, const double* rho_a, const double* rho_b,
-    const double* exc, const double* v_rho_a, const double* v_rho_b,
-    const double* v_sigma_aa, const double* v_sigma_ab,
-    const double* v_sigma_bb, const double* gra_x, const double* gra_y,
-    const double* gra_z, const double* grb_x, const double* grb_y,
-    const double* grb_z, float* Wa_full, float* Wa_sigma, float* Wb_full,
-    float* Wb_sigma, double* exc_total)
+    const int n_grid, const int nao, const float* ao_norm, const float* gx_norm,
+    const float* gy_norm, const float* gz_norm, const float* grid_weights,
+    const double* rho_a, const double* rho_b, const double* exc,
+    const double* v_rho_a, const double* v_rho_b, const double* v_sigma_aa,
+    const double* v_sigma_ab, const double* v_sigma_bb, const double* gra_x,
+    const double* gra_y, const double* gra_z, const double* grb_x,
+    const double* grb_y, const double* grb_z, float* Wa_full, float* Wa_sigma,
+    float* Wb_full, float* Wb_sigma, double* exc_total)
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
@@ -500,15 +500,14 @@ static void QC_Build_DFT_VXC_UKS(
     const float* d_shell_r2_screen,
     // 预分配缓冲
     float* d_ao_norm, float* d_gx_norm, float* d_gy_norm, float* d_gz_norm,
-    float* d_Pao, float* d_W_full, float* d_W_sigma,
-    double* d_grad_rho_x, double* d_grad_rho_y, double* d_grad_rho_z,
+    float* d_Pao, float* d_W_full, float* d_W_sigma, double* d_grad_rho_x,
+    double* d_grad_rho_y, double* d_grad_rho_z,
     // UKS 预分配缓冲
-    float* d_Pao_b, double* d_rho_a, double* d_rho_b,
-    double* d_sigma_aa, double* d_sigma_ab, double* d_sigma_bb,
-    double* d_grb_x, double* d_grb_y, double* d_grb_z,
-    double* d_exc, double* d_vra, double* d_vrb,
-    double* d_vsaa, double* d_vsab, double* d_vsbb,
-    float* d_Wb_full, float* d_Wb_sigma)
+    float* d_Pao_b, double* d_rho_a, double* d_rho_b, double* d_sigma_aa,
+    double* d_sigma_ab, double* d_sigma_bb, double* d_grb_x, double* d_grb_y,
+    double* d_grb_z, double* d_exc, double* d_vra, double* d_vrb,
+    double* d_vsaa, double* d_vsab, double* d_vsbb, float* d_Wb_full,
+    float* d_Wb_sigma)
 {
     const int nao = nao_s;
     const int nao2 = nao * nao;
@@ -548,46 +547,45 @@ static void QC_Build_DFT_VXC_UKS(
             }
             if (is_gga)
             {
-                Launch_Device_Kernel(
-                    (QC_Eval_AO_Grid_Kernel<1>),
-                    (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                    d_coords_batch, nao_eval, nbas, d_centers, d_l_list,
-                    d_exps, d_coeffs, d_shell_offsets, d_shell_sizes,
-                    d_ao_offsets, d_shell_r2_screen, d_vals_use, d_gx_use,
-                    d_gy_use, d_gz_use);
+                Launch_Device_Kernel((QC_Eval_AO_Grid_Kernel<1>),
+                                     (n_batch + threads - 1) / threads, threads,
+                                     0, 0, n_batch, d_coords_batch, nao_eval,
+                                     nbas, d_centers, d_l_list, d_exps,
+                                     d_coeffs, d_shell_offsets, d_shell_sizes,
+                                     d_ao_offsets, d_shell_r2_screen,
+                                     d_vals_use, d_gx_use, d_gy_use, d_gz_use);
             }
             else
             {
-                Launch_Device_Kernel(
-                    (QC_Eval_AO_Grid_Kernel<0>),
-                    (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                    d_coords_batch, nao_eval, nbas, d_centers, d_l_list,
-                    d_exps, d_coeffs, d_shell_offsets, d_shell_sizes,
-                    d_ao_offsets, d_shell_r2_screen, d_vals_use, d_gx_use,
-                    d_gy_use, d_gz_use);
+                Launch_Device_Kernel((QC_Eval_AO_Grid_Kernel<0>),
+                                     (n_batch + threads - 1) / threads, threads,
+                                     0, 0, n_batch, d_coords_batch, nao_eval,
+                                     nbas, d_centers, d_l_list, d_exps,
+                                     d_coeffs, d_shell_offsets, d_shell_sizes,
+                                     d_ao_offsets, d_shell_r2_screen,
+                                     d_vals_use, d_gx_use, d_gy_use, d_gz_use);
             }
             if (is_spherical)
             {
                 QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                     d_ao_vals_cart, d_cart2sph_mat,
-                                     d_ao_vals);
+                                      d_ao_vals_cart, d_cart2sph_mat,
+                                      d_ao_vals);
                 if (is_gga)
                 {
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_x_cart, d_cart2sph_mat,
-                                         d_ao_grad_x);
+                                          d_ao_grad_x_cart, d_cart2sph_mat,
+                                          d_ao_grad_x);
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_y_cart, d_cart2sph_mat,
-                                         d_ao_grad_y);
+                                          d_ao_grad_y_cart, d_cart2sph_mat,
+                                          d_ao_grad_y);
                     QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
-                                         d_ao_grad_z_cart, d_cart2sph_mat,
-                                         d_ao_grad_z);
+                                          d_ao_grad_z_cart, d_cart2sph_mat,
+                                          d_ao_grad_z);
                 }
             }
-            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
-                                 (total_ao + threads - 1) / threads, threads,
-                                 0, 0, n_batch, nao, d_norms, d_ao_vals,
-                                 d_ao_norm);
+            Launch_Device_Kernel(
+                QC_Apply_Norms_AO_Kernel, (total_ao + threads - 1) / threads,
+                threads, 0, 0, n_batch, nao, d_norms, d_ao_vals, d_ao_norm);
             if (is_gga)
             {
                 Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
@@ -609,87 +607,82 @@ static void QC_Build_DFT_VXC_UKS(
         {
             const float one = 1.0f, zero = 0.0f;
             deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N,
-                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pa,
-                            nao, &zero, d_Pao, n_batch);
+                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pa, nao,
+                            &zero, d_Pao, n_batch);
             deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N,
-                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pb,
-                            nao, &zero, d_Pao_b, n_batch);
+                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pb, nao,
+                            &zero, d_Pao_b, n_batch);
         }
 
         // 3. UKS 密度
         if (is_gga)
         {
             Launch_Device_Kernel(
-                (QC_Eval_Rho_UKS_Kernel<1>),
-                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                nao, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao,
-                d_Pao_b, d_rho_a, d_rho_b, d_sigma_aa, d_sigma_ab,
-                d_sigma_bb, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
-                d_grb_x, d_grb_y, d_grb_z);
+                (QC_Eval_Rho_UKS_Kernel<1>), (n_batch + threads - 1) / threads,
+                threads, 0, 0, n_batch, nao, d_ao_norm, d_gx_norm, d_gy_norm,
+                d_gz_norm, d_Pao, d_Pao_b, d_rho_a, d_rho_b, d_sigma_aa,
+                d_sigma_ab, d_sigma_bb, d_grad_rho_x, d_grad_rho_y,
+                d_grad_rho_z, d_grb_x, d_grb_y, d_grb_z);
         }
         else
         {
             Launch_Device_Kernel(
-                (QC_Eval_Rho_UKS_Kernel<0>),
-                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                nao, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao,
-                d_Pao_b, d_rho_a, d_rho_b, d_sigma_aa, d_sigma_ab,
-                d_sigma_bb, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
-                d_grb_x, d_grb_y, d_grb_z);
+                (QC_Eval_Rho_UKS_Kernel<0>), (n_batch + threads - 1) / threads,
+                threads, 0, 0, n_batch, nao, d_ao_norm, d_gx_norm, d_gy_norm,
+                d_gz_norm, d_Pao, d_Pao_b, d_rho_a, d_rho_b, d_sigma_aa,
+                d_sigma_ab, d_sigma_bb, d_grad_rho_x, d_grad_rho_y,
+                d_grad_rho_z, d_grb_x, d_grb_y, d_grb_z);
         }
 
         // 4. UKS XC 泛函
         Launch_Device_Kernel(QC_Eval_XC_UKS_Kernel,
                              (n_batch + threads - 1) / threads, threads, 0, 0,
-                             n_batch, (int)method, d_rho_a, d_rho_b,
-                             d_sigma_aa, d_sigma_ab, d_sigma_bb, d_exc,
-                             d_vra, d_vrb, d_vsaa, d_vsab, d_vsbb);
+                             n_batch, (int)method, d_rho_a, d_rho_b, d_sigma_aa,
+                             d_sigma_ab, d_sigma_bb, d_exc, d_vra, d_vrb,
+                             d_vsaa, d_vsab, d_vsbb);
 
         // 5. 加权 AO
         if (is_gga)
         {
             Launch_Device_Kernel(
                 (QC_Build_Weighted_AO_UKS_Kernel<1>),
-                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                nao, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm,
-                d_weights_batch, d_rho_a, d_rho_b, d_exc, d_vra, d_vrb,
-                d_vsaa, d_vsab, d_vsbb, d_grad_rho_x, d_grad_rho_y,
-                d_grad_rho_z, d_grb_x, d_grb_y, d_grb_z, d_W_full,
-                d_W_sigma, d_Wb_full, d_Wb_sigma, d_exc_total);
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_weights_batch,
+                d_rho_a, d_rho_b, d_exc, d_vra, d_vrb, d_vsaa, d_vsab, d_vsbb,
+                d_grad_rho_x, d_grad_rho_y, d_grad_rho_z, d_grb_x, d_grb_y,
+                d_grb_z, d_W_full, d_W_sigma, d_Wb_full, d_Wb_sigma,
+                d_exc_total);
         }
         else
         {
             Launch_Device_Kernel(
                 (QC_Build_Weighted_AO_UKS_Kernel<0>),
-                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
-                nao, d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm,
-                d_weights_batch, d_rho_a, d_rho_b, d_exc, d_vra, d_vrb,
-                d_vsaa, d_vsab, d_vsbb, d_grad_rho_x, d_grad_rho_y,
-                d_grad_rho_z, d_grb_x, d_grb_y, d_grb_z, d_W_full,
-                d_W_sigma, d_Wb_full, d_Wb_sigma, d_exc_total);
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_weights_batch,
+                d_rho_a, d_rho_b, d_exc, d_vra, d_vrb, d_vsaa, d_vsab, d_vsbb,
+                d_grad_rho_x, d_grad_rho_y, d_grad_rho_z, d_grb_x, d_grb_y,
+                d_grb_z, d_W_full, d_W_sigma, d_Wb_full, d_Wb_sigma,
+                d_exc_total);
         }
 
         // 6. Vxc_a, Vxc_b 矩阵累加
         {
             const float one = 1.0f;
             deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            nao, nao, n_batch, &one, d_ao_norm, nao,
-                            d_W_full, nao, &one, d_Vxc_a, nao);
+                            nao, nao, n_batch, &one, d_ao_norm, nao, d_W_full,
+                            nao, &one, d_Vxc_a, nao);
             deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            nao, nao, n_batch, &one, d_ao_norm, nao,
-                            d_Wb_full, nao, &one, d_Vxc_b, nao);
+                            nao, nao, n_batch, &one, d_ao_norm, nao, d_Wb_full,
+                            nao, &one, d_Vxc_b, nao);
             if (is_gga)
             {
-                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N,
-                                DEVICE_BLAS_OP_T, nao, nao, n_batch, &one,
-                                d_W_sigma, nao, d_ao_norm, nao, &one,
-                                d_Vxc_a, nao);
-                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N,
-                                DEVICE_BLAS_OP_T, nao, nao, n_batch, &one,
-                                d_Wb_sigma, nao, d_ao_norm, nao, &one,
-                                d_Vxc_b, nao);
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                nao, nao, n_batch, &one, d_W_sigma, nao,
+                                d_ao_norm, nao, &one, d_Vxc_a, nao);
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                nao, nao, n_batch, &one, d_Wb_sigma, nao,
+                                d_ao_norm, nao, &one, d_Vxc_b, nao);
             }
         }
     }
-
 }

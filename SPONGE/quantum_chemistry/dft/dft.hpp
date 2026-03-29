@@ -20,11 +20,10 @@ static inline __host__ __device__ void QC_Local_UKS_Derivs_FD(
 template <int deriv_level>
 static __global__ void QC_Eval_AO_Grid_Kernel(
     const int n_grid_batch, const float* grid_coords, const int nao,
-    const int nbas, const VECTOR* centers, const int* l_list,
-    const float* exps, const float* coeffs, const int* shell_offsets,
-    const int* shell_sizes, const int* ao_offsets,
-    const float* shell_r2_screen, float* ao_vals, float* ao_grad_x,
-    float* ao_grad_y, float* ao_grad_z)
+    const int nbas, const VECTOR* centers, const int* l_list, const float* exps,
+    const float* coeffs, const int* shell_offsets, const int* shell_sizes,
+    const int* ao_offsets, const float* shell_r2_screen, float* ao_vals,
+    float* ao_grad_x, float* ao_grad_y, float* ao_grad_z)
 {
     SIMPLE_DEVICE_FOR(ig, n_grid_batch)
     {
@@ -83,11 +82,10 @@ static __global__ void QC_Eval_AO_Grid_Kernel(
                     if (deriv_level >= 1)
                     {
                         const float dpx =
-                            (lx > 0 ? (float)lx * px[lx - 1] : 0.0f) *
-                            py[ly] * pz[lz];
+                            (lx > 0 ? (float)lx * px[lx - 1] : 0.0f) * py[ly] *
+                            pz[lz];
                         const float dpy =
-                            px[lx] *
-                            (ly > 0 ? (float)ly * py[ly - 1] : 0.0f) *
+                            px[lx] * (ly > 0 ? (float)ly * py[ly - 1] : 0.0f) *
                             pz[lz];
                         const float dpz =
                             px[lx] * py[ly] *

@@ -42,7 +42,8 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     //     超线性收敛
     // SCF 收敛策略: HF 和 DFT 使用不同的启动策略
     // HF: DIIS 从 iter 2 开始，固定 level shift 0.25
-    // DFT: 前 N 轮禁用 DIIS + 大 shift，然后 MESA + shift 衰减，最后 CDIIS + 无 shift
+    // DFT: 前 N 轮禁用 DIIS + 大 shift，然后 MESA + shift 衰减，最后 CDIIS + 无
+    // shift
     const int dft_warmup = dft.enable_dft ? 3 : 0;
     const double dft_warmup_ls = 1.5;
     double dft_ls = dft_warmup_ls;
@@ -78,7 +79,8 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 if (stable_count >= 2)
                     dft_ls *= 0.8;  // 连续稳定 → 衰减
                 else
-                    dft_ls = fmin(dft_ls * 1.2, dft_warmup_ls);  // 不稳定 → 适度回升
+                    dft_ls =
+                        fmin(dft_ls * 1.2, dft_warmup_ls);  // 不稳定 → 适度回升
 
                 scf_ws.runtime.level_shift = fmax(dft_ls, 0.0);
             }
