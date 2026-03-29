@@ -59,7 +59,9 @@ BASIS_SPECS = {
         "ptr_name": "QC_BASIS_631G_STARSTAR_PTR",
         "display_name": "6-31g**",
         "spherical": False,
-        "output": Path("SPONGE/quantum_chemistry/basis/pople/6-31g_starstar.cpp"),
+        "output": Path(
+            "SPONGE/quantum_chemistry/basis/pople/6-31g_starstar.cpp"
+        ),
     },
     "6-311g": {
         "pyscf_name": "6-311g",
@@ -83,7 +85,9 @@ BASIS_SPECS = {
         "ptr_name": "QC_BASIS_6311G_STARSTAR_PTR",
         "display_name": "6-311g**",
         "spherical": False,
-        "output": Path("SPONGE/quantum_chemistry/basis/pople/6-311g_starstar.cpp"),
+        "output": Path(
+            "SPONGE/quantum_chemistry/basis/pople/6-311g_starstar.cpp"
+        ),
     },
     # Pople 弥散基组
     "6-31+g": {
@@ -116,7 +120,9 @@ BASIS_SPECS = {
         "ptr_name": "QC_BASIS_631PG_STARSTAR_PTR",
         "display_name": "6-31+g**",
         "spherical": False,
-        "output": Path("SPONGE/quantum_chemistry/basis/pople/6-31+g_starstar.cpp"),
+        "output": Path(
+            "SPONGE/quantum_chemistry/basis/pople/6-31+g_starstar.cpp"
+        ),
     },
     "6-31++g**": {
         "pyscf_name": "6-31++g**",
@@ -124,7 +130,9 @@ BASIS_SPECS = {
         "ptr_name": "QC_BASIS_631PPG_STARSTAR_PTR",
         "display_name": "6-31++g**",
         "spherical": False,
-        "output": Path("SPONGE/quantum_chemistry/basis/pople/6-31++g_starstar.cpp"),
+        "output": Path(
+            "SPONGE/quantum_chemistry/basis/pople/6-31++g_starstar.cpp"
+        ),
     },
     "6-311+g*": {
         "pyscf_name": "6-311+g*",
@@ -140,7 +148,9 @@ BASIS_SPECS = {
         "ptr_name": "QC_BASIS_6311PPG_STARSTAR_PTR",
         "display_name": "6-311++g**",
         "spherical": False,
-        "output": Path("SPONGE/quantum_chemistry/basis/pople/6-311++g_starstar.cpp"),
+        "output": Path(
+            "SPONGE/quantum_chemistry/basis/pople/6-311++g_starstar.cpp"
+        ),
     },
     # ======================== Def2 基组 ========================
     "def2-svp": {

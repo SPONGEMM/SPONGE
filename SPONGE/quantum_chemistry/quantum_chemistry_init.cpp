@@ -496,20 +496,33 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                                          const std::string& basis_set_name)
 {
     static QC_BASIS_SET* all_bases[] = {
-        QC_BASIS_STO_3G_PTR,        QC_BASIS_3_21G_PTR,
-        QC_BASIS_631G_PTR,          QC_BASIS_631G_STAR_PTR,
-        QC_BASIS_631G_STARSTAR_PTR, QC_BASIS_6311G_PTR,
-        QC_BASIS_6311G_STAR_PTR,    QC_BASIS_6311G_STARSTAR_PTR,
-        QC_BASIS_631PG_PTR,         QC_BASIS_631PPG_PTR,
-        QC_BASIS_631PG_STAR_PTR,    QC_BASIS_631PG_STARSTAR_PTR,
+        QC_BASIS_STO_3G_PTR,
+        QC_BASIS_3_21G_PTR,
+        QC_BASIS_631G_PTR,
+        QC_BASIS_631G_STAR_PTR,
+        QC_BASIS_631G_STARSTAR_PTR,
+        QC_BASIS_6311G_PTR,
+        QC_BASIS_6311G_STAR_PTR,
+        QC_BASIS_6311G_STARSTAR_PTR,
+        QC_BASIS_631PG_PTR,
+        QC_BASIS_631PPG_PTR,
+        QC_BASIS_631PG_STAR_PTR,
+        QC_BASIS_631PG_STARSTAR_PTR,
         QC_BASIS_631PPG_STARSTAR_PTR,
-        QC_BASIS_6311PG_STAR_PTR,   QC_BASIS_6311PPG_STARSTAR_PTR,
-        QC_BASIS_DEF2_SVP_PTR,      QC_BASIS_DEF2_TZVP_PTR,
-        QC_BASIS_DEF2_TZVPP_PTR,    QC_BASIS_DEF2_QZVP_PTR,
-        QC_BASIS_DEF2_SVPD_PTR,     QC_BASIS_DEF2_TZVPD_PTR,
-        QC_BASIS_MA_DEF2_SVP_PTR,   QC_BASIS_MA_DEF2_TZVP_PTR,
-        QC_BASIS_CC_PVDZ_PTR,       QC_BASIS_CC_PVTZ_PTR,
-        QC_BASIS_AUG_CC_PVDZ_PTR,   QC_BASIS_AUG_CC_PVTZ_PTR,
+        QC_BASIS_6311PG_STAR_PTR,
+        QC_BASIS_6311PPG_STARSTAR_PTR,
+        QC_BASIS_DEF2_SVP_PTR,
+        QC_BASIS_DEF2_TZVP_PTR,
+        QC_BASIS_DEF2_TZVPP_PTR,
+        QC_BASIS_DEF2_QZVP_PTR,
+        QC_BASIS_DEF2_SVPD_PTR,
+        QC_BASIS_DEF2_TZVPD_PTR,
+        QC_BASIS_MA_DEF2_SVP_PTR,
+        QC_BASIS_MA_DEF2_TZVP_PTR,
+        QC_BASIS_CC_PVDZ_PTR,
+        QC_BASIS_CC_PVTZ_PTR,
+        QC_BASIS_AUG_CC_PVDZ_PTR,
+        QC_BASIS_AUG_CC_PVTZ_PTR,
     };
 
     QC_BASIS_SET* basis = nullptr;
@@ -805,8 +818,7 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     Initial_Molecule(controller, qc_type_file, basis_set_name);
     orbital_basis_name = basis_set_name;
 
-    if (scf_ws.ri.enabled)
-        Initial_Auxiliary_Basis(controller);
+    if (scf_ws.ri.enabled) Initial_Auxiliary_Basis(controller);
 
     Initial_Integral_Tasks(controller);
 

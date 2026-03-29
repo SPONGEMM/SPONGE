@@ -1,4 +1,4 @@
-#ifndef QC_STRUCTURE_RI_WORKSPACE_H
+﻿#ifndef QC_STRUCTURE_RI_WORKSPACE_H
 #define QC_STRUCTURE_RI_WORKSPACE_H
 
 #include "../../common.h"
@@ -10,12 +10,17 @@
 struct QC_RI_WORKSPACE
 {
     bool enabled = false;
-    bool direct = false;       // 运行时标志: true 使用 direct 模式
+    bool direct = false;  // 运行时标志: true 使用 direct 模式
 
     // 用户设置的模式偏好: auto/stored/direct
     // auto: 由 3c 张量大小自动决定（默认）
     // stored/direct: 强制对应模式
-    enum DF_MODE { DF_AUTO, DF_STORED, DF_DIRECT };
+    enum DF_MODE
+    {
+        DF_AUTO,
+        DF_STORED,
+        DF_DIRECT
+    };
     DF_MODE mode = DF_AUTO;
 
     // ---- 辅助基组信息 ----
@@ -32,7 +37,7 @@ struct QC_RI_WORKSPACE
     std::vector<int> h_aux_shell_sizes;
     int* d_aux_shell_sizes = NULL;
 
-    std::vector<int> h_aux_ao_offsets;      // 笛卡尔 AO 偏移
+    std::vector<int> h_aux_ao_offsets;  // 笛卡尔 AO 偏移
     int* d_aux_ao_offsets = NULL;
 
     std::vector<int> h_aux_ao_offsets_sph;  // 球谐 AO 偏移

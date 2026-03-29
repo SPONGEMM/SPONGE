@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // Metric (P|Q) 分解：
 // 1. Cholesky: (P|Q) = L L^T  → 用于 RI-J 三角求解
@@ -11,10 +11,10 @@
 // 输出: d_inv_sqrt[naux × naux] (double)
 // 返回: naux_eff (去除线性依赖后的有效维度)
 static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
-                                       BLAS_HANDLE blas_handle, int naux,
-                                       const double* d_metric,
-                                       double* d_inv_sqrt,
-                                       double lindep_thresh = 1e-10)
+                                      BLAS_HANDLE blas_handle, int naux,
+                                      const double* d_metric,
+                                      double* d_inv_sqrt,
+                                      double lindep_thresh = 1e-10)
 {
     const int naux2 = naux * naux;
 
@@ -28,9 +28,8 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
 
     double* d_work = NULL;
     int lwork = 0;
-    int stat = QC_Diagonalize_Double_Workspace_Size(solver_handle, naux,
-                                                     d_inv_sqrt, d_eigval,
-                                                     &d_work, &lwork);
+    int stat = QC_Diagonalize_Double_Workspace_Size(
+        solver_handle, naux, d_inv_sqrt, d_eigval, &d_work, &lwork);
     if (stat != 0)
     {
         printf("    [QC-RI] WARNING: eigensolver workspace failed: %d\n", stat);
@@ -71,9 +70,10 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
 
     if (n_skip > 0)
     {
-        printf("    [QC-RI] Removed %d linearly dependent aux functions "
-               "(threshold=%.1e)\n",
-               n_skip, lindep_thresh);
+        printf(
+            "    [QC-RI] Removed %d linearly dependent aux functions "
+            "(threshold=%.1e)\n",
+            n_skip, lindep_thresh);
     }
 
     // 构建 (P|Q)^{-1/2} = U * diag(1/√λ) * U^T
@@ -110,8 +110,10 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
         ortho00 += u0k * u0k;
         ortho01 += u0k * u1k;
     }
-    printf("    [QC-RI] metric recon m00=%.12e src00=%.12e m01=%.12e src01=%.12e\n",
-           recon00, h_metric_head[0], recon01, h_metric_head[1]);
+    printf(
+        "    [QC-RI] metric recon m00=%.12e src00=%.12e m01=%.12e "
+        "src01=%.12e\n",
+        recon00, h_metric_head[0], recon01, h_metric_head[1]);
     printf("    [QC-RI] metric recon_alt m00=%.12e m01=%.12e\n", alt_recon00,
            alt_recon01);
     printf("    [QC-RI] eigvec ortho col0·col0=%.12e col0·col1=%.12e\n",
@@ -140,17 +142,19 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
         alt_inv00 += uk0 * scale * uk0;
         alt_inv01 += uk0 * scale * uk1;
     }
-    printf("    [QC-RI] host inv_sqrt cur[0,0]=%.12e cur[1,0]=%.12e alt[0,0]=%.12e alt[1,0]=%.12e\n",
-           host_inv00, host_inv01, alt_inv00, alt_inv01);
+    printf(
+        "    [QC-RI] host inv_sqrt cur[0,0]=%.12e cur[1,0]=%.12e "
+        "alt[0,0]=%.12e alt[1,0]=%.12e\n",
+        host_inv00, host_inv01, alt_inv00, alt_inv01);
     deviceMemcpy(d_V, h_V.data(), sizeof(double) * naux * naux_eff,
                  deviceMemcpyHostToDevice);
 
     // inv_sqrt = V * V^T (col-major DGEMM)
     // C[naux,naux] = V[naux,naux_eff] * V^T[naux_eff,naux]
     const double one = 1.0, zero = 0.0;
-    deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux,
-                    naux, naux_eff, &one, d_V, naux, d_V, naux, &zero,
-                    d_inv_sqrt, naux);
+    deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux, naux,
+                    naux_eff, &one, d_V, naux, d_V, naux, &zero, d_inv_sqrt,
+                    naux);
 
     std::vector<double> h_inv_sqrt_dump(2, 0.0);
     deviceMemcpy(h_inv_sqrt_dump.data(), d_inv_sqrt, sizeof(double) * 2,
@@ -172,9 +176,9 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
 // 输入: d_metric[naux × naux] (double, 对称)
 // 输出: d_inv[naux × naux] (double)
 static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
-                                    BLAS_HANDLE blas_handle, int naux,
-                                    const double* d_metric, double* d_inv,
-                                    int naux_eff, double lindep_thresh = 1e-10)
+                                   BLAS_HANDLE blas_handle, int naux,
+                                   const double* d_metric, double* d_inv,
+                                   int naux_eff, double lindep_thresh = 1e-10)
 {
     const int naux2 = naux * naux;
 
@@ -190,7 +194,7 @@ static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
     double* d_work = NULL;
     int lwork = 0;
     QC_Diagonalize_Double_Workspace_Size(solver_handle, naux, d_eigvec,
-                                          d_eigval, &d_work, &lwork);
+                                         d_eigval, &d_work, &lwork);
     int info = 0;
     QC_Diagonalize_Double(solver_handle, naux, d_eigvec, d_eigval, d_work,
                           lwork, &info);
@@ -231,9 +235,8 @@ static void QC_RI_Build_Metric_Inv(SOLVER_HANDLE solver_handle,
 
     // inv = V * U^T
     const double one = 1.0, zero = 0.0;
-    deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux,
-                    naux, naux_eff, &one, d_V, naux, d_U, naux, &zero, d_inv,
-                    naux);
+    deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux, naux,
+                    naux_eff, &one, d_V, naux, d_U, naux, &zero, d_inv, naux);
 
     if (d_V) deviceFree(d_V);
     if (d_U) deviceFree(d_U);

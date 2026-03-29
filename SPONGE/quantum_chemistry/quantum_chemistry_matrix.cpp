@@ -222,20 +222,18 @@ void QC_Sgemm_TN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
                     A, lda, B, ldb, &beta, C, ldc);
 }
 
-void QC_Sgemm_RowMajor_NN(BLAS_HANDLE handle, int m, int n, int k,
-                          float alpha, const float* A, int lda,
-                          const float* B, int ldb, float beta, float* C,
-                          int ldc)
+void QC_Sgemm_RowMajor_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc)
 {
     // Row-major C[m×n] = alpha * A[m×k] * B[k×n] + beta * C[m×n].
     deviceBlasSgemm(handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, n, m, k, &alpha,
                     B, ldb, A, lda, &beta, C, ldc);
 }
 
-void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k,
-                          float alpha, const float* A, int lda,
-                          const float* B, int ldb, float beta, float* C,
-                          int ldc)
+void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc)
 {
     // Row-major C[m×n] = alpha * A[m×k] * B^T[k×n] + beta * C[m×n].
     deviceBlasSgemm(handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, n, m, k, &alpha,
@@ -552,7 +550,7 @@ static const float CART2SPH_MAT_G[15][9] = {
 };
 
 std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
-                                               int nao_cart, int nao_sph)
+                                              int nao_cart, int nao_sph)
 {
     std::vector<float> mat(nao_cart * nao_sph, 0.0f);
     int offset_c = 0, offset_s = 0;

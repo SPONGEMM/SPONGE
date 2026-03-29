@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // 三中心 Coulomb 积分 (P|μν) = ∫∫ P(r1) 1/r12 μ(r2)ν(r2) dr1 dr2
 // 使用 McMurchie-Davidson 方案
@@ -70,19 +70,15 @@ static __global__ void QC_RI_3Center_Kernel(
                     // 辅助基原始函数循环
                     for (int pP = 0; pP < aux_shell_sizes[P_sh]; pP++)
                     {
-                        const float eP =
-                            aux_exps[aux_shell_offsets[P_sh] + pP];
+                        const float eP = aux_exps[aux_shell_offsets[P_sh] + pP];
                         const float cP =
                             aux_coeffs[aux_shell_offsets[P_sh] + pP];
 
                         // E-coefficients for P (single center A)
                         float E_Px[5][5][9], E_Py[5][5][9], E_Pz[5][5][9];
-                        compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
-                        compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
-                        compute_md_coeffs(E_Pz, lzP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
+                        compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f, 0.5f / eP);
+                        compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f, 0.5f / eP);
+                        compute_md_coeffs(E_Pz, lzP, 0, 0.0f, 0.0f, 0.5f / eP);
 
                         // μν 原始函数循环 (形成 ket product)
                         for (int p_mu = 0; p_mu < orb_shell_sizes[mu_sh];
@@ -93,22 +89,19 @@ static __global__ void QC_RI_3Center_Kernel(
                             const float c_mu =
                                 orb_coeffs[orb_shell_offsets[mu_sh] + p_mu];
 
-                            for (int p_nu = 0;
-                                 p_nu < orb_shell_sizes[nu_sh]; p_nu++)
+                            for (int p_nu = 0; p_nu < orb_shell_sizes[nu_sh];
+                                 p_nu++)
                             {
                                 const float e_nu =
-                                    orb_exps[orb_shell_offsets[nu_sh] +
-                                             p_nu];
+                                    orb_exps[orb_shell_offsets[nu_sh] + p_nu];
                                 const float c_nu =
-                                    orb_coeffs[orb_shell_offsets[nu_sh] +
-                                               p_nu];
+                                    orb_coeffs[orb_shell_offsets[nu_sh] + p_nu];
 
                                 // ket Gaussian product: μ*ν
                                 const float g_ket = e_mu + e_nu;
-                                const float BC2 =
-                                    (B.x - C.x) * (B.x - C.x) +
-                                    (B.y - C.y) * (B.y - C.y) +
-                                    (B.z - C.z) * (B.z - C.z);
+                                const float BC2 = (B.x - C.x) * (B.x - C.x) +
+                                                  (B.y - C.y) * (B.y - C.y) +
+                                                  (B.z - C.z) * (B.z - C.z);
                                 const float K_ket =
                                     expf(-e_mu * e_nu / g_ket * BC2);
 
@@ -123,24 +116,20 @@ static __global__ void QC_RI_3Center_Kernel(
                                 // E-coefficients for ket (μ,ν) product
                                 float E_Kx[5][5][9], E_Ky[5][5][9],
                                     E_Kz[5][5][9];
-                                compute_md_coeffs(
-                                    E_Kx, lx_mu, lx_nu, Qx - B.x, Qx - C.x,
-                                    0.5f / g_ket);
-                                compute_md_coeffs(
-                                    E_Ky, ly_mu, ly_nu, Qy - B.y, Qy - C.y,
-                                    0.5f / g_ket);
-                                compute_md_coeffs(
-                                    E_Kz, lz_mu, lz_nu, Qz - B.z, Qz - C.z,
-                                    0.5f / g_ket);
+                                compute_md_coeffs(E_Kx, lx_mu, lx_nu, Qx - B.x,
+                                                  Qx - C.x, 0.5f / g_ket);
+                                compute_md_coeffs(E_Ky, ly_mu, ly_nu, Qy - B.y,
+                                                  Qy - C.y, 0.5f / g_ket);
+                                compute_md_coeffs(E_Kz, lz_mu, lz_nu, Qz - B.z,
+                                                  Qz - C.z, 0.5f / g_ket);
 
                                 // Coulomb coupling between bra (P at A) and
                                 // ket product (μν at Q)
                                 const float alpha_pq =
                                     eP * g_ket / (eP + g_ket);
-                                const float AQ2 =
-                                    (A.x - Qx) * (A.x - Qx) +
-                                    (A.y - Qy) * (A.y - Qy) +
-                                    (A.z - Qz) * (A.z - Qz);
+                                const float AQ2 = (A.x - Qx) * (A.x - Qx) +
+                                                  (A.y - Qy) * (A.y - Qy) +
+                                                  (A.z - Qz) * (A.z - Qz);
                                 const float T_val = alpha_pq * AQ2;
 
                                 const int L_tot = lP + lmu + lnu;
@@ -148,8 +137,7 @@ static __global__ void QC_RI_3Center_Kernel(
                                 float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
                                              ONEE_MD_BASE * ONEE_MD_BASE];
                                 compute_boys_double(F_vals, T_val, L_tot);
-                                float AQ[3] = {A.x - Qx, A.y - Qy,
-                                               A.z - Qz};
+                                float AQ[3] = {A.x - Qx, A.y - Qy, A.z - Qz};
                                 compute_r_tensor_1e(R_vals, F_vals, alpha_pq,
                                                     AQ, L_tot);
 
@@ -168,8 +156,7 @@ static __global__ void QC_RI_3Center_Kernel(
                                     if (ePx == 0.0) continue;
                                     for (int u = 0; u <= lyP; u++)
                                     {
-                                        double ePy =
-                                            (double)E_Py[lyP][0][u];
+                                        double ePy = (double)E_Py[lyP][0][u];
                                         if (ePy == 0.0) continue;
                                         for (int v = 0; v <= lzP; v++)
                                         {
@@ -180,47 +167,37 @@ static __global__ void QC_RI_3Center_Kernel(
                                             for (int tt = 0;
                                                  tt <= lx_mu + lx_nu; tt++)
                                             {
-                                                double eKx =
-                                                    (double)E_Kx[lx_mu]
-                                                                [lx_nu][tt];
+                                                double eKx = (double)
+                                                    E_Kx[lx_mu][lx_nu][tt];
                                                 if (eKx == 0.0) continue;
                                                 for (int uu = 0;
-                                                     uu <= ly_mu + ly_nu;
-                                                     uu++)
+                                                     uu <= ly_mu + ly_nu; uu++)
                                                 {
-                                                    double eKy =
-                                                        (double)E_Ky[ly_mu]
-                                                                    [ly_nu]
-                                                                    [uu];
+                                                    double eKy = (double)
+                                                        E_Ky[ly_mu][ly_nu][uu];
                                                     if (eKy == 0.0) continue;
                                                     for (int vv = 0;
-                                                         vv <=
-                                                         lz_mu + lz_nu;
+                                                         vv <= lz_mu + lz_nu;
                                                          vv++)
                                                     {
-                                                        double eKz =
-                                                            (double)
-                                                                E_Kz[lz_mu]
-                                                                    [lz_nu]
-                                                                    [vv];
+                                                        double eKz = (double)
+                                                            E_Kz[lz_mu][lz_nu]
+                                                                [vv];
                                                         if (eKz == 0.0)
                                                             continue;
                                                         double sign =
-                                                            ((tt + uu + vv) &
-                                                             1)
+                                                            ((tt + uu + vv) & 1)
                                                                 ? -1.0
                                                                 : 1.0;
                                                         v_sum +=
-                                                            ePx * ePy *
-                                                            ePz * eKx *
-                                                            eKy * eKz *
+                                                            ePx * ePy * ePz *
+                                                            eKx * eKy * eKz *
                                                             sign *
                                                             (double)R_vals
                                                                 [ONEE_MD_IDX(
                                                                     t + tt,
                                                                     u + uu,
-                                                                    v + vv,
-                                                                    0)];
+                                                                    v + vv, 0)];
                                                     }
                                                 }
                                             }
@@ -250,8 +227,7 @@ static __global__ void QC_RI_3Center_Kernel(
                         const int mu_local_sym = mu_idx - nu_offset_base;
                         const long long idx3c_sym =
                             (long long)P_idx * out_mu_dim * out_nu_dim +
-                            (long long)nu_local_sym * out_nu_dim +
-                            mu_local_sym;
+                            (long long)nu_local_sym * out_nu_dim + mu_local_sym;
                         out_eri3c[idx3c_sym] = total;
                     }
                 }

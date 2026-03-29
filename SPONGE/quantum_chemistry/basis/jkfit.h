@@ -1,10 +1,10 @@
-#pragma once
-#include "prototype.h"
-#include "jkfit/def2_universal_jkfit.h"
-
+﻿#pragma once
 #include <algorithm>
 #include <cstring>
 #include <string>
+
+#include "jkfit/def2_universal_jkfit.h"
+#include "prototype.h"
 
 // 辅助基组 orbital basis → JKFIT 映射
 // 返回对应的 JKFIT 辅助基组指针，若无匹配则返回 nullptr

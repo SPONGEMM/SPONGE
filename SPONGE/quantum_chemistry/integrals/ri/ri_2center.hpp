@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // 二中心 Coulomb 积分 (P|Q) = ∫∫ P(r1) 1/r12 Q(r2) dr1 dr2
 // 使用 McMurchie-Davidson 方案，复用 one_e.hpp 中的 Boys 函数和 R 张量
@@ -92,9 +92,9 @@ static __global__ void QC_RI_2Center_Kernel(
                         //     F_{t+u+v}(0)
                         // Wait, this isn't right either. Let me think again.
 
-                        // The correct formula for (a|b) 2-center Coulomb integral:
-                        // Use Fourier transform: 1/r12 = (2/√π) ∫ exp(-t²r12²) dt
-                        // After integration over r1 and r2:
+                        // The correct formula for (a|b) 2-center Coulomb
+                        // integral: Use Fourier transform: 1/r12 = (2/√π) ∫
+                        // exp(-t²r12²) dt After integration over r1 and r2:
                         //
                         // (P|Q) = Kab * 2π^{5/2} / (α * β * √(α+β))
                         //       * ... not the standard MD
@@ -109,12 +109,14 @@ static __global__ void QC_RI_2Center_Kernel(
                         //
                         // (P|Q) = ∫ P(r1) V_Q(r1) dr1
                         // where V_Q(r1) = ∫ Q(r2)/|r1-r2| dr2
-                        //               = (2π/β) Σ_{tuv} E^Q_{tuv} R_{tuv}(β,PQ)
+                        //               = (2π/β) Σ_{tuv} E^Q_{tuv}
+                        //               R_{tuv}(β,PQ)
                         //
                         // Then (P|Q) = Σ E^P * Σ E^Q * R
                         //
                         // This is essentially the nuclear attraction integral
-                        // but with Q acting as the "nucleus" (distributed charge).
+                        // but with Q acting as the "nucleus" (distributed
+                        // charge).
 
                         // For the McMurchie-Davidson approach:
                         // (a|b) = K_ab * (2π^{5/2})/(p*q*√(p+q)) *
@@ -143,7 +145,8 @@ static __global__ void QC_RI_2Center_Kernel(
                         //
                         // The integral becomes:
                         // (P|Q) = cP*cQ * N_P * N_Q * 2π^{5/2}/(p*q*√(p+q))
-                        //       * Σ E^P_t(p,A) * E^Q_τ(q,B) * R_{t+τ}(alpha,W-?)
+                        //       * Σ E^P_t(p,A) * E^Q_τ(q,B) *
+                        //       R_{t+τ}(alpha,W-?)
                         //
                         // OK, I'm overcomplicating this. Let me use the simple
                         // Hermite expansion directly.
@@ -151,8 +154,8 @@ static __global__ void QC_RI_2Center_Kernel(
                         // For a single primitive pair:
                         // The bra is a single Gaussian P at center A with exp p
                         // The ket is a single Gaussian Q at center B with exp q
-                        // They don't form products within bra/ket (no shell pair)
-                        // Instead, the Coulomb integral is:
+                        // They don't form products within bra/ket (no shell
+                        // pair) Instead, the Coulomb integral is:
                         //
                         // (P|Q) = 2π^{5/2} / (p * q * √(p+q)) * exp(-α|AB|²)
                         //       * Σ_{tuv,τμν} E^P_{t,u,v} * E^Q_{τ,μ,ν}
@@ -163,8 +166,8 @@ static __global__ void QC_RI_2Center_Kernel(
                         // No wait, P and Q are each single Gaussians, so
                         // the E-coefficients are identity-like.
 
-                        // Actually for a SINGLE Gaussian a*exp(-α|r-A|²) * x^lx:
-                        // E_t coefficients are: E_t(lx, 0) where only one
+                        // Actually for a SINGLE Gaussian a*exp(-α|r-A|²) *
+                        // x^lx: E_t coefficients are: E_t(lx, 0) where only one
                         // center is involved (PA = 0, one_over_2p = 1/(2α))
                         // So E_t is nonzero only for t having same parity as lx
                         // and t ≤ lx.
@@ -174,23 +177,18 @@ static __global__ void QC_RI_2Center_Kernel(
 
                         // E-coefficients for P shell at center A:
                         // These expand |lx,ly,lz⟩ in Hermite basis
-                        // For a single center: E^x_t(lx, 0, one_over_2p=1/(2eP))
+                        // For a single center: E^x_t(lx, 0,
+                        // one_over_2p=1/(2eP))
                         float E_Px[5][5][9], E_Py[5][5][9], E_Pz[5][5][9];
-                        compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
-                        compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
-                        compute_md_coeffs(E_Pz, lzP, 0, 0.0f, 0.0f,
-                                          0.5f / eP);
+                        compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f, 0.5f / eP);
+                        compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f, 0.5f / eP);
+                        compute_md_coeffs(E_Pz, lzP, 0, 0.0f, 0.0f, 0.5f / eP);
 
                         // E-coefficients for Q shell at center B:
                         float E_Qx[5][5][9], E_Qy[5][5][9], E_Qz[5][5][9];
-                        compute_md_coeffs(E_Qx, lxQ, 0, 0.0f, 0.0f,
-                                          0.5f / eQ);
-                        compute_md_coeffs(E_Qy, lyQ, 0, 0.0f, 0.0f,
-                                          0.5f / eQ);
-                        compute_md_coeffs(E_Qz, lzQ, 0, 0.0f, 0.0f,
-                                          0.5f / eQ);
+                        compute_md_coeffs(E_Qx, lxQ, 0, 0.0f, 0.0f, 0.5f / eQ);
+                        compute_md_coeffs(E_Qy, lyQ, 0, 0.0f, 0.0f, 0.5f / eQ);
+                        compute_md_coeffs(E_Qz, lzQ, 0, 0.0f, 0.0f, 0.5f / eQ);
 
                         // R-tensor between bra center A and ket center B
                         const float alpha_pq = eP * eQ / (eP + eQ);
@@ -238,8 +236,7 @@ static __global__ void QC_RI_2Center_Kernel(
                             (double)cP * (double)cQ *
                             (2.0 * CONSTANT_Pi * CONSTANT_Pi *
                              sqrt(CONSTANT_Pi)) /
-                            ((double)eP * (double)eQ *
-                             sqrt((double)(eP + eQ)));
+                            ((double)eP * (double)eQ * sqrt((double)(eP + eQ)));
 
                         double v_sum = 0.0;
                         for (int t = 0; t <= lxP; t++)
@@ -256,8 +253,7 @@ static __global__ void QC_RI_2Center_Kernel(
                                     if (ePz == 0.0) continue;
                                     for (int tt = 0; tt <= lxQ; tt++)
                                     {
-                                        double eQx =
-                                            (double)E_Qx[lxQ][0][tt];
+                                        double eQx = (double)E_Qx[lxQ][0][tt];
                                         if (eQx == 0.0) continue;
                                         for (int uu = 0; uu <= lyQ; uu++)
                                         {
@@ -267,22 +263,19 @@ static __global__ void QC_RI_2Center_Kernel(
                                             for (int vv = 0; vv <= lzQ; vv++)
                                             {
                                                 double eQz =
-                                                    (double)
-                                                        E_Qz[lzQ][0][vv];
+                                                    (double)E_Qz[lzQ][0][vv];
                                                 if (eQz == 0.0) continue;
                                                 // (-1)^{tt+uu+vv} for ket
                                                 // Hermite integrals
                                                 double sign =
-                                                    ((tt + uu + vv) & 1)
-                                                        ? -1.0
-                                                        : 1.0;
+                                                    ((tt + uu + vv) & 1) ? -1.0
+                                                                         : 1.0;
                                                 v_sum +=
                                                     ePx * ePy * ePz * eQx *
                                                     eQy * eQz * sign *
-                                                    (double)R_vals
-                                                        [ONEE_MD_IDX(
-                                                            t + tt, u + uu,
-                                                            v + vv, 0)];
+                                                    (double)R_vals[ONEE_MD_IDX(
+                                                        t + tt, u + uu, v + vv,
+                                                        0)];
                                             }
                                         }
                                     }
@@ -297,8 +290,7 @@ static __global__ void QC_RI_2Center_Kernel(
                 const int P_idx = offP + idxP;
                 const int Q_idx = offQ + idxQ;
                 out_metric[P_idx * naux + Q_idx] = total;
-                if (P_sh != Q_sh)
-                    out_metric[Q_idx * naux + P_idx] = total;
+                if (P_sh != Q_sh) out_metric[Q_idx * naux + P_idx] = total;
             }
         }
     }
