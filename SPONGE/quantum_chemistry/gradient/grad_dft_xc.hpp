@@ -488,3 +488,307 @@ static void QC_Build_DFT_XC_Gradient_RKS(
 
 #undef XC_GRAD_ARGS
 }
+
+// ====================== UKS XC 梯度 ======================
+// 对 alpha 和 beta 各处理一次
+// GGA: g_eff_α = 2·v_σαα·∇ρα + v_σαβ·∇ρβ
+//      g_eff_β = 2·v_σββ·∇ρβ + v_σαβ·∇ρα
+// ==========================================================
+
+// 构建 UKS 的 effective gradient (覆写到 output 缓冲)
+static __global__ void QC_Build_UKS_Eff_Grad_Kernel(
+    const int n_grid,
+    const double* vsaa, const double* vsab, const double* vsbb,
+    const double* gra_x, const double* gra_y, const double* gra_z,
+    const double* grb_x, const double* grb_y, const double* grb_z,
+    double* eff_a_x, double* eff_a_y, double* eff_a_z,
+    double* eff_b_x, double* eff_b_y, double* eff_b_z)
+{
+    SIMPLE_DEVICE_FOR(ig, n_grid)
+    {
+        const double vaa = vsaa[ig], vab = vsab[ig], vbb = vsbb[ig];
+        // 先读原始值（输出缓冲可能与输入重叠）
+        const double ax = gra_x[ig], ay = gra_y[ig], az = gra_z[ig];
+        const double bx = grb_x[ig], by = grb_y[ig], bz = grb_z[ig];
+        eff_a_x[ig] = 2.0 * vaa * ax + vab * bx;
+        eff_a_y[ig] = 2.0 * vaa * ay + vab * by;
+        eff_a_z[ig] = 2.0 * vaa * az + vab * bz;
+        eff_b_x[ig] = 2.0 * vbb * bx + vab * ax;
+        eff_b_y[ig] = 2.0 * vbb * by + vab * ay;
+        eff_b_z[ig] = 2.0 * vbb * bz + vab * az;
+    }
+}
+
+// UKS W_pao: w·v_ρσ·Paoσ + w·GPaoσ_eff
+static __global__ void QC_Build_W_Pao_UKS_Kernel(
+    const int n_grid, const int nao, const float* weights,
+    const double* vrho_spin, const double* rho_total,
+    const float* Pao_spin,
+    const double* eff_x, const double* eff_y, const double* eff_z,
+    const float* GPao_scratch, // 已按 eff_grad 计算的 GPao
+    bool is_gga, float* W_pao)
+{
+    SIMPLE_DEVICE_FOR(idx, n_grid * nao)
+    {
+        const int g = idx % n_grid;
+        float val = 0.0f;
+        if (rho_total[g] >= 1e-20)
+        {
+            val = (float)(weights[g] * vrho_spin[g]) * Pao_spin[idx];
+            if (is_gga)
+                val += (float)weights[g] * GPao_scratch[idx];
+        }
+        W_pao[idx] = val;
+    }
+}
+
+// UKS term(a) 权重: 只有 w·Paoσ (v_σ 已含在 eff_grad 里)
+static __global__ void QC_Build_W_Pao_TermA_UKS_Kernel(
+    const int n_grid, const int nao, const float* weights,
+    const double* rho_total, const float* Pao_spin, float* W_pao)
+{
+    SIMPLE_DEVICE_FOR(idx, n_grid * nao)
+    {
+        const int g = idx % n_grid;
+        W_pao[idx] = (rho_total[g] >= 1e-20)
+                         ? (float)weights[g] * Pao_spin[idx]
+                         : 0.0f;
+    }
+}
+
+static void QC_Build_DFT_XC_Gradient_UKS(
+    BLAS_HANDLE blas_handle, QC_METHOD method, int is_spherical, int nao_c,
+    int nao_s, int total_grid_size, int grid_batch_size, int nbas,
+    const float* d_grid_coords, const float* d_grid_weights,
+    const float* d_cart2sph_mat, const VECTOR* d_centers, const int* d_l_list,
+    const float* d_exps, const float* d_coeffs, const int* d_shell_offsets,
+    const int* d_shell_sizes, const int* d_ao_offsets, const float* d_norms,
+    const float* d_Pa, const float* d_Pb,
+    float* d_ao_vals_cart, float* d_ao_grad_x_cart,
+    float* d_ao_grad_y_cart, float* d_ao_grad_z_cart,
+    float* d_ao_vals, float* d_ao_grad_x, float* d_ao_grad_y, float* d_ao_grad_z,
+    float* d_ao_norm, float* d_gx_norm, float* d_gy_norm, float* d_gz_norm,
+    float* d_Pao_a, float* d_Pao_b,
+    double* d_rho_a, double* d_rho_b,
+    double* d_sigma_aa, double* d_sigma_ab, double* d_sigma_bb,
+    double* d_gra_x, double* d_gra_y, double* d_gra_z,
+    double* d_grb_x, double* d_grb_y, double* d_grb_z,
+    double* d_exc, double* d_vra, double* d_vrb,
+    double* d_vsaa, double* d_vsab, double* d_vsbb,
+    const float* d_shell_r2_screen,
+    const int* d_shell_atom, const int* d_ao_offsets_grad,
+    float* d_W_pao, float* d_GPao_scratch,
+    double* d_grad)
+{
+    const int nao = nao_s;
+    if (total_grid_size <= 0) return;
+    const int batch_size = std::max(1, grid_batch_size);
+    const int threads = 128;
+    const bool is_gga = (method != QC_METHOD::LDA);
+
+    for (int g0 = 0; g0 < total_grid_size; g0 += batch_size)
+    {
+        const int n_batch = std::min(batch_size, total_grid_size - g0);
+        const float* d_coords_batch = d_grid_coords + g0 * 3;
+        const float* d_weights_batch = d_grid_weights + g0;
+        const int total_ao = n_batch * nao;
+
+        // 1. AO 评估 (共享, deriv_level=1)
+        {
+            float* d_vals_use = d_ao_vals;
+            float* d_gx_use = d_ao_grad_x;
+            float* d_gy_use = d_ao_grad_y;
+            float* d_gz_use = d_ao_grad_z;
+            int nao_eval = nao_s;
+            if (is_spherical)
+            {
+                d_vals_use = d_ao_vals_cart;
+                d_gx_use = d_ao_grad_x_cart;
+                d_gy_use = d_ao_grad_y_cart;
+                d_gz_use = d_ao_grad_z_cart;
+                nao_eval = nao_c;
+            }
+            Launch_Device_Kernel(
+                (QC_Eval_AO_Grid_Kernel<1>),
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+                d_coords_batch, nao_eval, nbas, d_centers, d_l_list, d_exps,
+                d_coeffs, d_shell_offsets, d_shell_sizes, d_ao_offsets,
+                d_shell_r2_screen, d_vals_use, d_gx_use, d_gy_use, d_gz_use);
+            if (is_spherical)
+            {
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_ao_vals_cart, d_cart2sph_mat, d_ao_vals);
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_ao_grad_x_cart, d_cart2sph_mat, d_ao_grad_x);
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_ao_grad_y_cart, d_cart2sph_mat, d_ao_grad_y);
+                QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                      d_ao_grad_z_cart, d_cart2sph_mat, d_ao_grad_z);
+            }
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_ao_vals, d_ao_norm);
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_ao_grad_x, d_gx_norm);
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_ao_grad_y, d_gy_norm);
+            Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                 (total_ao + threads - 1) / threads, threads, 0,
+                                 0, n_batch, nao, d_norms, d_ao_grad_z, d_gz_norm);
+        }
+
+        // 2. Pao_alpha 和 Pao_beta
+        {
+            const float one = 1.0f, zero = 0.0f;
+            deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N,
+                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pa, nao,
+                            &zero, d_Pao_a, n_batch);
+            deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N,
+                            n_batch, nao, nao, &one, d_ao_norm, nao, d_Pb, nao,
+                            &zero, d_Pao_b, n_batch);
+        }
+
+        // 3. UKS 密度 + 梯度
+        Launch_Device_Kernel(
+            (QC_Eval_Rho_UKS_Kernel<1>),
+            (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao_a, d_Pao_b,
+            d_rho_a, d_rho_b, d_sigma_aa, d_sigma_ab, d_sigma_bb,
+            d_gra_x, d_gra_y, d_gra_z, d_grb_x, d_grb_y, d_grb_z);
+
+        // 4. UKS XC 泛函求值
+        Launch_Device_Kernel(
+            QC_Eval_XC_UKS_Kernel,
+            (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+            (int)method, d_rho_a, d_rho_b, d_sigma_aa, d_sigma_ab, d_sigma_bb,
+            d_exc, d_vra, d_vrb, d_vsaa, d_vsab, d_vsbb);
+
+        // 用 d_rho_a 临时存储 rho_total = rho_a + rho_b (用于密度截断)
+        // 注意：这会覆盖 d_rho_a，但后面不再使用 rho_a 的值
+        for (int ig = 0; ig < n_batch; ig++)
+            d_rho_a[ig] = d_rho_a[ig] + d_rho_b[ig];
+        double* d_rho_total = d_rho_a; // alias
+
+        // ====== 处理 alpha 和 beta ======
+        struct SpinChannel {
+            const float* Pao;
+            const double* vrho;
+            double* eff_x; double* eff_y; double* eff_z;
+        };
+
+        // 5. GGA: 计算 effective gradient
+        if (is_gga)
+        {
+            Launch_Device_Kernel(
+                QC_Build_UKS_Eff_Grad_Kernel,
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+                d_vsaa, d_vsab, d_vsbb,
+                d_gra_x, d_gra_y, d_gra_z, d_grb_x, d_grb_y, d_grb_z,
+                d_gra_x, d_gra_y, d_gra_z,  // overwrite with eff_a
+                d_grb_x, d_grb_y, d_grb_z); // overwrite with eff_b
+        }
+
+        SpinChannel channels[2] = {
+            {d_Pao_a, d_vra, d_gra_x, d_gra_y, d_gra_z},
+            {d_Pao_b, d_vrb, d_grb_x, d_grb_y, d_grb_z},
+        };
+
+        for (int spin = 0; spin < 2; spin++)
+        {
+            const auto& ch = channels[spin];
+            const float* d_P_spin = (spin == 0) ? d_Pa : d_Pb;
+
+            // 5b. GGA term b: GPao_eff = Σ_dir eff_dir · (P_spin @ ∇φ_dir_norm^T)
+            if (is_gga)
+            {
+                const float one = 1.0f, zero = 0.0f;
+                const float* grad_dirs[3] = {d_gx_norm, d_gy_norm, d_gz_norm};
+                double* eff_dirs[3] = {ch.eff_x, ch.eff_y, ch.eff_z};
+                for (int dir = 0; dir < 3; dir++)
+                {
+                    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N,
+                                    n_batch, nao, nao, &one, grad_dirs[dir], nao,
+                                    d_P_spin, nao, &zero, d_W_pao, n_batch);
+                    Launch_Device_Kernel(
+                        QC_Accumulate_GPao_Rho_Kernel,
+                        (total_ao + threads - 1) / threads, threads, 0, 0,
+                        n_batch, nao, eff_dirs[dir], d_W_pao, d_GPao_scratch,
+                        dir == 0);
+                }
+            }
+
+            // 6. W_pao = w·v_ρσ·Paoσ + w·GPaoσ_eff
+            Launch_Device_Kernel(
+                QC_Build_W_Pao_UKS_Kernel,
+                (total_ao + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                d_weights_batch, ch.vrho, d_rho_total, ch.Pao,
+                ch.eff_x, ch.eff_y, ch.eff_z,
+                d_GPao_scratch, is_gga, d_W_pao);
+
+            // 7. 累加主项 + term b
+            Launch_Device_Kernel(
+                QC_XC_Grad_Accumulate_Kernel,
+                (n_batch + threads - 1) / threads, threads, 0, 0, n_batch, nao,
+                nbas, d_shell_atom, d_ao_offsets_grad,
+                d_gx_norm, d_gy_norm, d_gz_norm, d_W_pao, d_grad);
+
+            // 8. GGA term a: Hessian
+            if (is_gga)
+            {
+                float* d_hx = d_ao_grad_x;
+                float* d_hy = d_ao_grad_y;
+                float* d_hz = d_ao_grad_z;
+                int nao_hess = nao_s;
+                if (is_spherical)
+                {
+                    d_hx = d_ao_grad_x_cart;
+                    d_hy = d_ao_grad_y_cart;
+                    d_hz = d_ao_grad_z_cart;
+                    nao_hess = nao_c;
+                }
+                // 用 eff_grad 替代 ∇ρ 传入 Hessian kernel
+                Launch_Device_Kernel(
+                    QC_Eval_AO_Hessian_DotGradRho_Kernel,
+                    (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+                    nao_hess, nbas, d_coords_batch, d_centers, d_l_list, d_exps,
+                    d_coeffs, d_shell_offsets, d_shell_sizes, d_ao_offsets,
+                    d_shell_r2_screen, ch.eff_x, ch.eff_y, ch.eff_z,
+                    d_hx, d_hy, d_hz);
+
+                if (is_spherical)
+                {
+                    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                          d_hx, d_cart2sph_mat, d_ao_grad_x);
+                    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                          d_hy, d_cart2sph_mat, d_ao_grad_y);
+                    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c,
+                                          d_hz, d_cart2sph_mat, d_ao_grad_z);
+                    d_hx = d_ao_grad_x; d_hy = d_ao_grad_y; d_hz = d_ao_grad_z;
+                }
+                Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                     (total_ao + threads - 1) / threads, threads,
+                                     0, 0, n_batch, nao, d_norms, d_hx, d_gx_norm);
+                Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                     (total_ao + threads - 1) / threads, threads,
+                                     0, 0, n_batch, nao, d_norms, d_hy, d_gy_norm);
+                Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
+                                     (total_ao + threads - 1) / threads, threads,
+                                     0, 0, n_batch, nao, d_norms, d_hz, d_gz_norm);
+
+                // W_pao_a = w · Paoσ (v_σ 已含在 eff_grad 里)
+                Launch_Device_Kernel(
+                    QC_Build_W_Pao_TermA_UKS_Kernel,
+                    (total_ao + threads - 1) / threads, threads, 0, 0,
+                    n_batch, nao, d_weights_batch, d_rho_total, ch.Pao, d_W_pao);
+
+                Launch_Device_Kernel(
+                    QC_XC_Grad_Accumulate_Kernel,
+                    (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
+                    nao, nbas, d_shell_atom, d_ao_offsets_grad,
+                    d_gx_norm, d_gy_norm, d_gz_norm, d_W_pao, d_grad);
+            }
+        }
+    }
+}
