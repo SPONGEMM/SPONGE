@@ -65,8 +65,6 @@ struct QC_SCF_DIIS_Workspace
     std::vector<double*> d_diis_e_hist;
     std::vector<double*> d_diis_f_hist_b;
     std::vector<double*> d_diis_e_hist_b;
-    bool diis_extrapolated = false;
-
     int diis_hist_count = 0;
     int diis_hist_head = 0;
     int diis_hist_count_b = 0;
@@ -100,7 +98,6 @@ struct QC_SCF_Runtime_State
     int n_alpha = 0;
     int n_beta = 0;
     float occ_factor = 2.0f;
-    float density_mixing = 0.20f;
     int max_scf_iter = 100;
     bool use_diis = true;
     int diis_start_iter = 8;

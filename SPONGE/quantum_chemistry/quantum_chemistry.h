@@ -41,7 +41,7 @@ struct QUANTUM_CHEMISTRY
     // 计算方法
     QC_METHOD method = QC_METHOD::HF;
     // 初始猜测
-    QC_INITIAL_GUESS initial_guess = QC_INITIAL_GUESS::MINAO;
+    QC_INITIAL_GUESS initial_guess = QC_INITIAL_GUESS::SAP;
     bool need_initial_guess = true;
     // DFT信息
     QC_DFT dft;
@@ -100,7 +100,7 @@ struct QUANTUM_CHEMISTRY
     void Accumulate_SCF_Energy(int iter);
     void Apply_DIIS(int iter);
     void Diagonalize_And_Build_Density();
-    bool Mix_And_Check_Convergence(int iter, int md_step);
+    bool Check_Convergence(int iter, int md_step);
     void Build_Overlap_X();
     void Reset_SCF_State();
     void Build_Initial_Guess();

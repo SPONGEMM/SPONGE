@@ -1,39 +1,18 @@
 ﻿#pragma once
 
-static __global__ void QC_Mix_Density_Kernel(const int nao2, const int iter,
-                                             const float mix,
-                                             const float* P_new_row,
-                                             float* P_row)
+bool QUANTUM_CHEMISTRY::Check_Convergence(int iter, int md_step)
 {
-    SIMPLE_DEVICE_FOR(idx, nao2)
-    {
-        if (iter == 0)
-            P_row[idx] = P_new_row[idx];
-        else
-            P_row[idx] = (1.0f - mix) * P_row[idx] + mix * P_new_row[idx];
-    }
-}
+    const int nao2 = (int)mol.nao2;
 
-bool QUANTUM_CHEMISTRY::Mix_And_Check_Convergence(int iter, int md_step)
-{
-    const int mix_threads = 256;
-
-    // DIIS 外推成功时直接使用新密度，不做混合
-    const float mix =
-        scf_ws.diis.diis_extrapolated ? 1.0f : scf_ws.runtime.density_mixing;
-
-    Launch_Device_Kernel(QC_Mix_Density_Kernel,
-                         (mol.nao2 + mix_threads - 1) / mix_threads,
-                         mix_threads, 0, 0, (int)mol.nao2, iter, mix,
-                         scf_ws.alpha.d_P_new, scf_ws.alpha.d_P);
+    // 每步直接用新密度替换旧密度（与 PySCF 一致）
+    deviceMemcpy(scf_ws.alpha.d_P, scf_ws.alpha.d_P_new,
+                 sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
 
     if (scf_ws.runtime.unrestricted)
     {
-        Launch_Device_Kernel(QC_Mix_Density_Kernel,
-                             (mol.nao2 + mix_threads - 1) / mix_threads,
-                             mix_threads, 0, 0, mol.nao2, iter, mix,
-                             scf_ws.beta.d_P_new, scf_ws.beta.d_P);
-        QC_Add_Matrix((int)mol.nao2, scf_ws.alpha.d_P, scf_ws.beta.d_P,
+        deviceMemcpy(scf_ws.beta.d_P, scf_ws.beta.d_P_new,
+                     sizeof(float) * nao2, deviceMemcpyDeviceToDevice);
+        QC_Add_Matrix(nao2, scf_ws.alpha.d_P, scf_ws.beta.d_P,
                       scf_ws.direct.d_Ptot);
     }
 

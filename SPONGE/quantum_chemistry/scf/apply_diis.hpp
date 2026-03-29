@@ -207,7 +207,6 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
         scf_ws.diis.d_diis_e_hist.data(), dF, scf_ws.diis.d_diis_err);
 
-    scf_ws.diis.diis_extrapolated = false;
     if (scf_ws.diis.diis_hist_count >= 2)
     {
         bool extrapolated = QC_DIIS_Extrapolate_Double(
@@ -218,7 +217,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         if (extrapolated)
         {
             QC_Double_To_Float(nao2, dF, scf_ws.alpha.d_F);
-            scf_ws.diis.diis_extrapolated = true;
+
         }
     }
 
@@ -245,7 +244,7 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
                 dFb, scf_ws.diis.d_diis_accum))
         {
             QC_Double_To_Float(nao2, dFb, scf_ws.beta.d_F);
-            scf_ws.diis.diis_extrapolated = true;
+
         }
     }
 }

@@ -317,7 +317,7 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         scf_ws.runtime.use_diis = (qc_diis != 0);
     }
 
-    scf_ws.runtime.diis_start_iter = 1;
+    scf_ws.runtime.diis_start_iter = 2;
     if (controller->Command_Exist("qc_diis_start"))
     {
         controller->Check_Int("qc_diis_start", "QUANTUM_CHEMISTRY::Initial");
@@ -343,22 +343,6 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
                 spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
                 "Reason:\n    qc_diis_space must be >= 2, got \"%s\"\n",
                 controller->Command("qc_diis_space"));
-        }
-    }
-
-    scf_ws.runtime.density_mixing = 0.20f;
-    if (controller->Command_Exist("qc_diis_damp"))
-    {
-        controller->Check_Float("qc_diis_damp", "QUANTUM_CHEMISTRY::Initial");
-        scf_ws.runtime.density_mixing =
-            atof(controller->Command("qc_diis_damp"));
-        if (scf_ws.runtime.density_mixing < 0.0f ||
-            scf_ws.runtime.density_mixing > 1.0f)
-        {
-            controller->Throw_Formatted_SPONGE_Error(
-                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
-                "Reason:\n    qc_diis_damp must be in [0, 1], got \"%s\"\n",
-                controller->Command("qc_diis_damp"));
         }
     }
 
@@ -441,7 +425,7 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             std::min(590, atoi(controller->Command("qc_dft_angular_points"))));
     }
 
-    initial_guess = QC_INITIAL_GUESS::MINAO;
+    initial_guess = QC_INITIAL_GUESS::SAP;
     if (controller->Command_Exist("qc_initial_guess"))
     {
         std::string guess_str = controller->Command("qc_initial_guess");

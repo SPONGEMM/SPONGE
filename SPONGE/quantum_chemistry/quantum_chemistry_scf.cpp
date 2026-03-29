@@ -35,7 +35,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         Accumulate_SCF_Energy(iter);
         Apply_DIIS(iter);
         Diagonalize_And_Build_Density();
-        if (Mix_And_Check_Convergence(iter, md_step)) break;
+        if (Check_Convergence(iter, md_step)) break;
     }
 
 }
