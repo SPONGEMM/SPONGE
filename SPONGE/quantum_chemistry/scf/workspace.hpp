@@ -90,6 +90,7 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_from_host_float(&scf_ws.beta.d_P_new, scf_ws.beta.h_P_new);
         alloc_from_host_float(&scf_ws.beta.d_C, scf_ws.beta.h_C);
         alloc_zero_float(&scf_ws.direct.d_Ptot, nao2);
+        alloc_zero_float(&scf_ws.ortho.d_W_alpha, (int)nao);
     }
     else
     {

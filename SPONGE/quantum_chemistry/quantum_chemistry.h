@@ -10,6 +10,7 @@
 #include "structure/method.h"
 #include "structure/molecule.h"
 #include "structure/scf_workspace.h"
+#include "gradient/grad_workspace.h"
 
 #define ONE_E_BATCH_SIZE 4096
 #define PI_25 17.4934183276248628469f
@@ -51,6 +52,8 @@ struct QUANTUM_CHEMISTRY
     QC_INTEGRAL_TASKS task_ctx;
     // SCF计算内容
     QC_SCF_WORKSPACE scf_ws;
+    // 梯度工作空间
+    QC_GRAD_WORKSPACE grad_ws;
 
     BLAS_HANDLE blas_handle;
     SOLVER_HANDLE solver_handle;
@@ -63,6 +66,7 @@ struct QUANTUM_CHEMISTRY
                  const VECTOR* crd, const char* module_name = NULL);
     void Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                    bool need_energy = true, int md_step = -1);
+    void Compute_Gradient(VECTOR* frc, const VECTOR box_length);
 
     // 外部查询与输出
     void Step_Print(CONTROLLER* controller);
@@ -113,6 +117,7 @@ struct QUANTUM_CHEMISTRY
     void Build_Overlap_X();
     void Reset_SCF_State();
     void Build_Initial_Guess();
+    void Build_DFT_XC_Gradient();
     void Diag_Guess_And_Build_P();
     void Compute_Spin_Square();
 };

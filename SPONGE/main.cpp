@@ -434,6 +434,8 @@ void Main_Calculate_Force()
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
     qc.Solve_SCF(dd.crd, md_info.sys.box_length, true, md_info.sys.steps);
+    if (qc.is_initialized)
+        qc.Compute_Gradient(dd.frc, md_info.sys.box_length);
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;

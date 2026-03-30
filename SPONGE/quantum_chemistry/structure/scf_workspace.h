@@ -36,6 +36,7 @@ struct QC_SCF_Ortho_Workspace
     double* d_X = NULL;
     std::vector<float> h_W;
     float* d_W = NULL;
+    float* d_W_alpha = NULL; // UHF: 保存 alpha 特征值（beta 会覆盖 d_W）
     std::vector<float> h_Work;
     float* d_Work = NULL;
     float* d_solver_work = NULL;

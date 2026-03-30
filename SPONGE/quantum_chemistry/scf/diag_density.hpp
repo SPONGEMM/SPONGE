@@ -68,6 +68,11 @@ void QUANTUM_CHEMISTRY::Diagonalize_And_Build_Density()
 
     if (!scf_ws.runtime.unrestricted) return;
 
+    // UHF: 保存 alpha 特征值（beta 对角化会覆盖 d_W）
+    if (scf_ws.ortho.d_W_alpha)
+        memcpy(scf_ws.ortho.d_W_alpha, scf_ws.ortho.d_W,
+               sizeof(float) * ne);
+
     // ========================= beta 通道 =========================
     // 非限制体系下复用同一流程处理 beta Fock / 密度
     // ===========================================================

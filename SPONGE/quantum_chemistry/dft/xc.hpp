@@ -474,3 +474,5 @@ static inline __host__ __device__ void QC_Local_UKS_Derivs_FD(
     v_sigma_ab = (e_sabp - e_sabm) / fmax(1e-16, sabp - sabm);
     v_sigma_bb = (e_sbbp - e_sbbm) / fmax(1e-16, sbbp - sbbm);
 }
+
+#include "xc_deriv.hpp"

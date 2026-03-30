@@ -395,9 +395,9 @@ static __global__ void QC_Eval_XC_UKS_Kernel(
         {
             double e = 0.0, vra = 0.0, vrb = 0.0;
             double vsaa = 0.0, vsab = 0.0, vsbb = 0.0;
-            QC_Local_UKS_Derivs_FD((QC_METHOD)method_id, rho_a[ig], rho_b[ig],
-                                   sigma_aa[ig], sigma_ab[ig], sigma_bb[ig], e,
-                                   vra, vrb, vsaa, vsab, vsbb);
+            QC_VXC_Analytical_UKS((QC_METHOD)method_id, rho_a[ig], rho_b[ig],
+                                  sigma_aa[ig], sigma_ab[ig], sigma_bb[ig], e,
+                                  vra, vrb, vsaa, vsab, vsbb);
             exc[ig] = e;
             v_rho_a[ig] = vra;
             v_rho_b[ig] = vrb;

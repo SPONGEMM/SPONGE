@@ -1081,6 +1081,27 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
 
     // RI 内存分配在 Build_SCF_Workspace 之后，因为需要 n_alpha/n_beta
     if (scf_ws.ri.enabled) RI_Memory_Allocate();
+
+    // 分配梯度工作空间
+    Device_Malloc_Safely((void**)&grad_ws.d_grad,
+                         sizeof(double) * mol.natm * 3);
+    Device_Malloc_Safely((void**)&grad_ws.d_W_density,
+                         sizeof(float) * mol.nao2);
+    if (scf_ws.runtime.unrestricted)
+    {
+        Device_Malloc_Safely((void**)&grad_ws.d_W_density_beta,
+                             sizeof(float) * mol.nao2);
+    }
+    // 壳层到原子映射
+    {
+        std::vector<int> h_shell_atom(mol.nbas);
+        for (int ish = 0; ish < mol.nbas; ish++)
+            h_shell_atom[ish] = mol.h_bas[ish * 8 + 0];
+        Device_Malloc_Safely((void**)&grad_ws.d_shell_atom,
+                             sizeof(int) * mol.nbas);
+        deviceMemcpy(grad_ws.d_shell_atom, h_shell_atom.data(),
+                     sizeof(int) * mol.nbas, deviceMemcpyHostToDevice);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)
