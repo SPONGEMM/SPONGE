@@ -240,6 +240,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const int* shell_atom, double* grad, int hr_base, int hr_size,
     int shell_buf_size, float prim_screen_tol, const int thread_count)
 {
+    if (std::getenv("SPONGE_DEBUG_GRAD"))
+        std::fprintf(stderr, "ERI_GRAD: nao=%d is_sph=%d norms[0..2]=%.4f %.4f %.4f\n",
+                     nao, is_spherical, norms[0], norms[1], nao>2?norms[2]:0.f);
     const bool debug_small_eri_grad =
         (nao <= 2 && std::getenv("SPONGE_DEBUG_ERI_GRAD") != nullptr);
     int debug_natm = 0;
