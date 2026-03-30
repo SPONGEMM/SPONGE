@@ -251,9 +251,6 @@ static void QC_Build_DFT_XC_Gradient_RKS_Impl(
 {
     const int nao = nao_s;
     if (total_grid_size <= 0) return;
-    if (std::getenv("SPONGE_DEBUG_GRAD"))
-        std::fprintf(stderr, "XC_GRAD: total_grid=%d nao=%d nbas=%d\n",
-                     total_grid_size, nao, nbas);
     const int batch_size = std::max(1, grid_batch_size);
     const int threads = 128;
 

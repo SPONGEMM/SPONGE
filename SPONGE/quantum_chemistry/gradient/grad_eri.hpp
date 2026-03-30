@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cstdio>
 #include <cstdlib>
 #include <vector>
 
@@ -240,24 +239,13 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const int* shell_atom, double* grad, int hr_base, int hr_size,
     int shell_buf_size, float prim_screen_tol, const int thread_count)
 {
-    if (std::getenv("SPONGE_DEBUG_GRAD"))
-        std::fprintf(stderr, "ERI_GRAD: nao=%d is_sph=%d norms[0..2]=%.4f %.4f %.4f\n",
-                     nao, is_spherical, norms[0], norms[1], nao>2?norms[2]:0.f);
-    const bool debug_small_eri_grad =
-        (nao <= 2 && std::getenv("SPONGE_DEBUG_ERI_GRAD") != nullptr);
-    int debug_natm = 0;
-    if (debug_small_eri_grad)
-    {
-        for (int i = 0; i < nbas; i++)
-            if (shell_atom[i] + 1 > debug_natm) debug_natm = shell_atom[i] + 1;
-    }
-    std::vector<double> debug_grad_before;
-    if (debug_small_eri_grad)
-        debug_grad_before.assign(grad, grad + (size_t)debug_natm * 3);
+    int natm_max = 0;
+    for (int i = 0; i < nbas; i++)
+        natm_max = std::max(natm_max, shell_atom[i] + 1);
+
     const int n_pairs = task_ctx.topo.n_shell_pairs;
     if (n_pairs <= 0) return;
 
-    // 预计算 shell pair metadata (同 Fock build)
     std::vector<QC_Shell_Pair_Meta_CPU> pair_meta((size_t)n_pairs);
     for (int pair_id = 0; pair_id < n_pairs; pair_id++)
     {
@@ -266,7 +254,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                     is_spherical, pair_meta[(size_t)pair_id]);
     }
 
-    // 预计算 anchor activity (同 Fock build)
     std::vector<float> shell_max_exx_a((size_t)nbas, 0.0f);
     for (int pair_id = 0; pair_id < n_pairs; pair_id++)
     {
@@ -307,16 +294,10 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const float max_activity =
         anchor_activity[(size_t)sorted_activity_ids.front()];
 
-    int natm_max = 0;
-    for (int i = 0; i < nbas; i++)
-        natm_max = std::max(natm_max, shell_atom[i] + 1);
 
 #pragma omp parallel num_threads(thread_count)
     {
-        // 线程私有梯度累加器
-        std::vector<double> grad_local((size_t)natm_max * 3, 0.0);
-        // Gradient needs HR at order L_sum+1, one higher than the ERI itself.
-        // hr_base was sized for L_sum, so we use grad_hr_base = hr_base + 1.
+            std::vector<double> grad_local((size_t)natm_max * 3, 0.0);
         const int grad_hr_base = hr_base + 1;
         const int grad_hr_size =
             grad_hr_base * grad_hr_base * grad_hr_base * grad_hr_base;
@@ -325,6 +306,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
         std::vector<int> candidate_partners;
         candidate_partners.reserve(256);
         std::vector<QC_Bra_Prim_Cache_Grad_CPU> bra_prims;
+        std::vector<float> d_buf_A_cart, d_buf_B_cart, d_buf_C_cart;
+        std::vector<float> d_buf_A_sph, d_buf_B_sph, d_buf_C_sph;
+        std::vector<float> sph_buf0, sph_buf1;
 
 #pragma omp for schedule(dynamic)
         for (int pair_ij = 0; pair_ij < n_pairs; pair_ij++)
@@ -396,14 +380,11 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const int l[4] = {bra.l[0], bra.l[1], ket.l[0], ket.l[1]};
                 const int L_sum = l[0] + l[1] + l[2] + l[3];
 
-                // 壳层退化判断
                 const bool jk_same_bra = (ij.x == ij.y);
                 const bool jk_same_ket = (kl.x == kl.y);
                 const bool jk_same_braket =
                     (ij.x == kl.x && ij.y == kl.y);
 
-                // 导数积分先在 Cartesian shell buffer 上累加；
-                // spherical 基组时再按能量分支同样的顺序做 cart2sph。
                 const int ni_cart = bra.dims_cart[0], nj_cart = bra.dims_cart[1];
                 const int nk_cart = ket.dims_cart[0], nl_cart = ket.dims_cart[1];
                 const int shell_size_cart =
@@ -413,15 +394,14 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const int nk = ket.dims_eff[0], nl = ket.dims_eff[1];
                 const int shell_size_eff = ni * nj * nk * nl;
 
-                std::vector<float> d_buf_A_cart(shell_size_cart * 3, 0.0f);
-                std::vector<float> d_buf_B_cart(shell_size_cart * 3, 0.0f);
-                std::vector<float> d_buf_C_cart(shell_size_cart * 3, 0.0f);
+                d_buf_A_cart.assign((size_t)shell_size_cart * 3, 0.0f);
+                d_buf_B_cart.assign((size_t)shell_size_cart * 3, 0.0f);
+                d_buf_C_cart.assign((size_t)shell_size_cart * 3, 0.0f);
 
                 float E_ket[3][5][5][9];
                 const int lc_up = std::min(ket.l[0] + 1, 4);
                 const int ld_up = std::min(ket.l[1] + 1, 4);
 
-                // 对所有原始函数组合求和
                 for (const auto& bra_prim : bra_prims)
                 {
                     const float p = 1.0f / bra_prim.inv_p;
@@ -526,11 +506,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     }
                 }
 
-                // spherical 基组时，先将每个导数分量的 shell buffer 从
-                // Cartesian 变到 spherical；Cartesian 基组则直接使用。
-                std::vector<float> d_buf_A_sph;
-                std::vector<float> d_buf_B_sph;
-                std::vector<float> d_buf_C_sph;
                 float* d_buf_A_use = d_buf_A_cart.data();
                 float* d_buf_B_use = d_buf_B_cart.data();
                 float* d_buf_C_use = d_buf_C_cart.data();
@@ -550,21 +525,21 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     const int off_sph[4] = {bra.off_eff[0], bra.off_eff[1],
                                             ket.off_eff[0], ket.off_eff[1]};
 
-                    std::vector<float> buf0(shell_size_cart, 0.0f);
-                    std::vector<float> buf1(shell_size_cart, 0.0f);
+                    sph_buf0.assign((size_t)shell_size_cart, 0.0f);
+                    sph_buf1.assign((size_t)shell_size_cart, 0.0f);
                     auto transform_deriv = [&](const std::vector<float>& src3,
                                                std::vector<float>& dst3)
                     {
                         for (int d = 0; d < 3; d++)
                         {
                             for (int idx = 0; idx < shell_size_cart; idx++)
-                                buf0[(size_t)idx] = src3[(size_t)idx * 3 + d];
-                            std::fill(buf1.begin(), buf1.end(), 0.0f);
+                                sph_buf0[(size_t)idx] = src3[(size_t)idx * 3 + d];
+                            std::fill(sph_buf1.begin(), sph_buf1.end(), 0.0f);
                             QC_Cart2Sph_Shell_ERI_CPU(
                                 cart2sph_mat, nao_sph, off_cart, off_sph,
-                                dims_cart, dims_sph, buf0.data(), buf1.data());
+                                dims_cart, dims_sph, sph_buf0.data(), sph_buf1.data());
                             for (int idx = 0; idx < shell_size_eff; idx++)
-                                dst3[(size_t)idx * 3 + d] = buf0[(size_t)idx];
+                                dst3[(size_t)idx * 3 + d] = sph_buf0[(size_t)idx];
                         }
                     };
 
@@ -577,7 +552,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     d_buf_C_use = d_buf_C_sph.data();
                 }
 
-                // 应用归一化因子 (同 ERI buffer)
                 for (int ci = 0; ci < ni; ci++)
                 {
                     const float norm_i = norms[bra.off_eff[0] + ci];
@@ -605,7 +579,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     }
                 }
 
-                // 与密度矩阵收缩，累加到梯度
                 for (int ci = 0; ci < ni; ci++)
                 {
                     const int p = bra.off_eff[0] + ci;
@@ -655,12 +628,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
                                 double gamma_j = 0.0;
                                 double gamma_k = 0.0;
-                                double g_atom_debug[4][3] = {};
 
-                                // Helper: accumulate gradient from 8 permutations
-                                // with deduplication. perm_slot[8][4] defines the
-                                // index permutation; weight_fn computes the density
-                                // weight for each unique permutation.
                                 auto accumulate_8perm = [&](
                                     const int perm_slot[8][4],
                                     auto weight_fn,
@@ -699,7 +667,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                                     weight * d_slot[src][d];
                                                 grad_local[atom * 3 + d] +=
                                                     contrib;
-                                                g_atom_debug[src][d] += contrib;
                                             }
                                         }
                                     }
@@ -756,34 +723,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                         gamma_k);
                                 }
 
-                                if (debug_small_eri_grad)
-                                {
-                                    std::fprintf(
-                                        stderr,
-                                        "ERI_GRAD pqrs=(%d,%d|%d,%d) atoms=(%d,%d,%d,%d) "
-                                        "gamma=(J=% .12e,K=% .12e,T=% .12e)\n"
-                                        "  dA=(% .12e,% .12e,% .12e)\n"
-                                        "  dB=(% .12e,% .12e,% .12e)\n"
-                                        "  dC=(% .12e,% .12e,% .12e)\n"
-                                        "  dD=(% .12e,% .12e,% .12e)\n"
-                                        "  gA=(% .12e,% .12e,% .12e)\n"
-                                        "  gB=(% .12e,% .12e,% .12e)\n"
-                                        "  gC=(% .12e,% .12e,% .12e)\n"
-                                        "  gD=(% .12e,% .12e,% .12e)\n",
-                                        p, q_idx, r, s, atom_A, atom_B, atom_C,
-                                        atom_D, gamma_j, gamma_k,
-                                        gamma_j + gamma_k, d_slot[0][0],
-                                        d_slot[0][1], d_slot[0][2], d_slot[1][0],
-                                        d_slot[1][1], d_slot[1][2], d_slot[2][0],
-                                        d_slot[2][1], d_slot[2][2], d_slot[3][0],
-                                        d_slot[3][1], d_slot[3][2],
-                                        g_atom_debug[0][0], g_atom_debug[0][1],
-                                        g_atom_debug[0][2], g_atom_debug[1][0],
-                                        g_atom_debug[1][1], g_atom_debug[1][2],
-                                        g_atom_debug[2][0], g_atom_debug[2][1],
-                                        g_atom_debug[2][2], g_atom_debug[3][0],
-                                        g_atom_debug[3][1], g_atom_debug[3][2]);
-                                }
                             }
                         }
                     }
@@ -791,7 +730,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
             }
         }
 
-        // 归约线程私有梯度
 #pragma omp critical
         {
             for (size_t i = 0; i < grad_local.size(); i++)
@@ -800,18 +738,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
         free(HR);
     }
 
-    if (debug_small_eri_grad)
-    {
-        std::fprintf(stderr, "ERI_GRAD_TOTAL\n");
-        for (int ia = 0; ia < debug_natm; ia++)
-        {
-            const double gx = grad[ia * 3 + 0] - debug_grad_before[(size_t)ia * 3 + 0];
-            const double gy = grad[ia * 3 + 1] - debug_grad_before[(size_t)ia * 3 + 1];
-            const double gz = grad[ia * 3 + 2] - debug_grad_before[(size_t)ia * 3 + 2];
-            std::fprintf(stderr, "  atom %d : (% .12e,% .12e,% .12e)\n",
-                         ia, gx, gy, gz);
-        }
-    }
 }
 
 #endif // USE_GPU
