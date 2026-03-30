@@ -7,7 +7,7 @@
     Version="{{PRODUCT_VERSION}}"
     Manufacturer="SPONGE Development Team"
     UpgradeCode="B6B881BE-8652-4946-9097-831EF5C6D50B">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of SPONGE CPU is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
