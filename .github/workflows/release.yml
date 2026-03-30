@@ -75,11 +75,18 @@ jobs:
           pixi run -e ${{ matrix.env_name }} compile
           pixi run -e ${{ matrix.env_name }} package-conda
 
+      - name: Stage conda artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/conda
+          cp packaging/outputs/*.conda release-artifacts/conda/
+
       - name: Upload conda artifacts
         uses: actions/upload-artifact@v4
         with:
           name: sponge-conda-${{ matrix.feature }}-${{ matrix.target }}
-          path: packaging/outputs/*.conda
+          path: release-artifacts/conda/*.conda
           if-no-files-found: error
 
   release-prips-sdist:
@@ -106,11 +113,18 @@ jobs:
         run: |
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
+      - name: Stage PRIPS artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/prips
+          cp plugins/prips/dist/*.tar.gz release-artifacts/prips/
+
       - name: Upload PRIPS sdist artifact
         uses: actions/upload-artifact@v4
         with:
           name: prips-sdist
-          path: plugins/prips/dist/*.tar.gz
+          path: release-artifacts/prips/*.tar.gz
           if-no-files-found: error
 
   release-docker:
@@ -279,7 +293,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
-          merge-multiple: true
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
