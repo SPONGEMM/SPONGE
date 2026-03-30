@@ -213,6 +213,8 @@ jobs:
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -302,6 +304,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-artifacts
+          pattern: "!*.dockerbuild"
 
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
