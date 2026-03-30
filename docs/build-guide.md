@@ -100,10 +100,10 @@ See [Contributing](contributing.md) for details.
 ## Packaging
 
 ```bash
-pixi run -e dev-cuda13 package
+pixi run -e dev-cuda13 package-conda
 ```
 
-Produces a `.conda` package in `conda/outputs/`.
+Produces a `.conda` package in `packaging/outputs/`.
 
 ## Troubleshooting
 

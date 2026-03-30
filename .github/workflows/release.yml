@@ -1,18 +1,16 @@
-name: Package
+name: Release
 
 on:
-  pull_request:
-    branches:
-      - master
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - ready_for_review
-  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
 
 jobs:
-  package-sponge-conda:
+  release-sponge-conda:
+    name: Release conda package (${{ matrix.feature }} / ${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
@@ -133,13 +131,14 @@ jobs:
           pixi global uninstall verify-micromamba-exe || true
 
       - name: Upload conda artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: sponge-${{ matrix.feature }}-${{ matrix.target }}-${{ github.run_id }}
+          name: sponge-conda-${{ matrix.feature }}-${{ matrix.target }}
           path: packaging/outputs/*.conda
           if-no-files-found: error
 
-  package-prips-sdist:
+  release-prips-sdist:
+    name: Release PRIPS sdist
     runs-on: ubuntu-22.04
     permissions:
       contents: read
@@ -163,8 +162,124 @@ jobs:
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
       - name: Upload PRIPS sdist artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
-          name: prips-sdist-${{ github.run_id }}
+          name: prips-sdist
           path: plugins/prips/dist/*.tar.gz
           if-no-files-found: error
+
+  release-docker:
+    name: Release Docker image (${{ matrix.name }})
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cpu-x64
+            dockerfile: packaging/docker/cpu-x64.Dockerfile
+            platform: linux/amd64
+          - name: cpu-arm64
+            dockerfile: packaging/docker/cpu-arm64.Dockerfile
+            platform: linux/arm64
+          - name: cuda12-x64
+            dockerfile: packaging/docker/cuda12-x64.Dockerfile
+            platform: linux/amd64
+          - name: cuda13-x64
+            dockerfile: packaging/docker/cuda13-x64.Dockerfile
+            platform: linux/amd64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Classify release channel
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "stable=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive image name
+        id: image
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=ghcr.io/${owner}/sponge" >> "${GITHUB_OUTPUT}"
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=${{ github.ref_name }}-${{ matrix.name }}
+            type=raw,value=latest-${{ matrix.name }},enable=${{ steps.channel.outputs.stable == 'true' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs:
+      - release-sponge-conda
+      - release-prips-sdist
+      - release-docker
+    permissions:
+      contents: write
+
+    steps:
+      - name: Classify release channel
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "stable=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          prerelease: ${{ steps.channel.outputs.stable != 'true' }}
+          generate_release_notes: true
+          files: |
+            release-artifacts/**/*.conda
+            release-artifacts/**/*.tar.gz
