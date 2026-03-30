@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="SPONGE CPU"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="SPONGE Development Team"
+    UpgradeCode="B6B881BE-8652-4946-9097-831EF5C6D50B">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of SPONGE CPU is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="SPONGE" />
+      </Directory>
+    </Directory>
+
+    <Feature Id="MainFeature" Title="SPONGE CPU" Level="1">
+      <ComponentGroupRef Id="ProductFiles" />
+    </Feature>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+{{FILE_COMPONENTS}}
+    </DirectoryRef>
+
+    <ComponentGroup Id="ProductFiles">
+{{COMPONENT_REFS}}
+    </ComponentGroup>
+  </Product>
+</Wix>

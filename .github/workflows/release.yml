@@ -136,6 +136,45 @@ jobs:
           path: release-artifacts/prips/*.tar.gz
           if-no-files-found: error
 
+  release-windows-msi:
+    name: Release Windows MSI
+    runs-on: windows-2022
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Build Windows CPU binaries
+        shell: pwsh
+        run: |
+          pixi install -e dev-cpu
+          pixi run -e dev-cpu configure
+          pixi run -e dev-cpu compile
+
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          choco install wixtoolset --no-progress -y
+
+      - name: Build MSI package
+        shell: pwsh
+        run: |
+          .\packaging\windows\cpu.ps1 -EnvName dev-cpu -Tag "${{ github.ref_name }}"
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sponge-msi-cpu-win-64
+          path: release-artifacts/msi/*.msi
+          if-no-files-found: error
+
   release-docker:
     name: Release Docker image (${{ matrix.name }})
     runs-on: ${{ matrix.runner }}
@@ -285,6 +324,7 @@ jobs:
     needs:
       - release-sponge-conda
       - release-prips-sdist
+      - release-windows-msi
       - release-docker
     permissions:
       contents: write
@@ -314,6 +354,7 @@ jobs:
           generate_release_notes: true
           files: |
             release-artifacts/**/*.conda
+            release-artifacts/**/*.msi
             release-artifacts/**/*.tar
             release-artifacts/**/*.tar.gz
             release-artifacts/**/*.sif
