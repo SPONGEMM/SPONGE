@@ -2,6 +2,7 @@
 #define QC_STRUCTURE_SCF_WORKSPACE_H
 
 #include "../../common.h"
+#include "ri_workspace.h"
 
 // 持久 AO 核心矩阵与能量结果缓存
 struct QC_SCF_Core_Matrices
@@ -153,6 +154,7 @@ struct QC_SCF_WORKSPACE
     QC_SCF_DIIS_Workspace diis;
     QC_SCF_Direct_Workspace direct;
     QC_SCF_Runtime_State runtime;
+    QC_RI_WORKSPACE ri;
 };
 
 #endif

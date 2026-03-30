@@ -55,6 +55,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_dft.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_gradient.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_matrix.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_ri.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/gpu_eri.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/sp/sp_kernels.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/integrals/eri/gpu/md/md_kernels.cpp
@@ -67,12 +68,25 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-311g.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-311g_star.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-311g_starstar.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-31+g.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-31++g.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-31+g_star.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-31+g_starstar.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-31++g_starstar.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-311+g_star.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/pople/6-311++g_starstar.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-svp.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-tzvp.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-tzvpp.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-qzvp.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-svpd.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/def2-tzvpd.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/ma-def2-svp.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/def2/ma-def2-tzvp.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/cc/cc-pvdz.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/cc/cc-pvtz.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/cc/aug-cc-pvdz.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/basis/cc/aug-cc-pvtz.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/NO_PBC/Coulomb_Force_No_PBC.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/NO_PBC/Lennard_Jones_force_No_PBC.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/NO_PBC/generalized_Born.cpp

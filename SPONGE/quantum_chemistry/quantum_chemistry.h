@@ -72,6 +72,9 @@ struct QUANTUM_CHEMISTRY
     void Step_Print(CONTROLLER* controller);
 
    private:
+    // 轨道基组名称（RI 初始化时用于映射辅助基）
+    std::string orbital_basis_name;
+
     // 初始化内部流程
     bool Parsing_Arguments(CONTROLLER* controller, const int atom_numbers,
                            const char*& qc_type_file,
@@ -99,6 +102,12 @@ struct QUANTUM_CHEMISTRY
     void Update_DFT_Grid();
     void Build_DFT_VXC();
 
+    // RI (Density Fitting) 内部流程
+    void Initial_Auxiliary_Basis(CONTROLLER* controller);
+    void RI_Memory_Allocate();
+    void RI_Precompute();
+    void Build_Fock_RI(int iter);
+
     // SCF 循环内部流程
     void Build_Fock(int iter);
     void Accumulate_SCF_Energy(int iter);
@@ -109,6 +118,7 @@ struct QUANTUM_CHEMISTRY
     void Reset_SCF_State();
     void Build_Initial_Guess();
     void Build_DFT_XC_Gradient();
+    void Build_RI_Gradient();
     void Diag_Guess_And_Build_P();
     void Compute_Spin_Square();
 };

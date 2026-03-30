@@ -12,6 +12,9 @@ struct QC_GRAD_WORKSPACE
     // 壳层到原子映射 [nbas]，从 bas[ish*8+0] 预计算
     int* d_shell_atom = NULL;
 
+    // 辅助基壳层到原子映射 [naux_bas]，RI 梯度用
+    int* d_shell_atom_aux = NULL;
+
     // 能量加权密度矩阵 W [nao * nao]
     // W_μν = occ_factor × Σ_i ε_i × C_μi × C_νi
     float* d_W_density = NULL;

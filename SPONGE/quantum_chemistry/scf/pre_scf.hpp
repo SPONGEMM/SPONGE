@@ -49,6 +49,20 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
                          (mol.nbas + threads - 1) / threads, threads, 0, 0,
                          mol.nbas, mol.d_bas, mol.d_atm, mol.d_env,
                          mol.d_centers);
+
+    // RI: 同步辅助基坐标（原子相同，atm 格式相同）
+    if (scf_ws.ri.enabled)
+    {
+        auto& ri = scf_ws.ri;
+        Launch_Device_Kernel(
+            QC_Update_Env_From_Crd_Kernel, (mol.natm + threads - 1) / threads,
+            threads, 0, 0, mol.natm, d_atom_local, crd, ri.d_aux_atm,
+            ri.d_aux_env, CONSTANT_ANGSTROM_TO_BOHR, box_length);
+        Launch_Device_Kernel(QC_Update_Centers_From_Env_Kernel,
+                             (ri.naux_bas + threads - 1) / threads, threads, 0,
+                             0, ri.naux_bas, ri.d_aux_bas, ri.d_aux_atm,
+                             ri.d_aux_env, ri.d_aux_centers);
+    }
 }
 
 // ========================== SCF 状态重置 =========================

@@ -202,6 +202,44 @@ void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                     B, ldb, A, lda, &zero, C, ldc);
 }
 
+// ====================== RI BLAS 包装 ======================
+
+void QC_Sgemm_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                 const float* A, int lda, const float* B, int ldb, float beta,
+                 float* C, int ldc)
+{
+    // C[m×n] = alpha * A[m×k] * B[k×n] + beta * C (col-major)
+    deviceBlasSgemm(handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, m, n, k, &alpha,
+                    A, lda, B, ldb, &beta, C, ldc);
+}
+
+void QC_Sgemm_TN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                 const float* A, int lda, const float* B, int ldb, float beta,
+                 float* C, int ldc)
+{
+    // C[m×n] = alpha * A^T[m×k] * B[k×n] + beta * C (col-major)
+    deviceBlasSgemm(handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, m, n, k, &alpha,
+                    A, lda, B, ldb, &beta, C, ldc);
+}
+
+void QC_Sgemm_RowMajor_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc)
+{
+    // Row-major C[m×n] = alpha * A[m×k] * B[k×n] + beta * C[m×n].
+    deviceBlasSgemm(handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, n, m, k, &alpha,
+                    B, ldb, A, lda, &beta, C, ldc);
+}
+
+void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc)
+{
+    // Row-major C[m×n] = alpha * A[m×k] * B^T[k×n] + beta * C[m×n].
+    deviceBlasSgemm(handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_N, n, m, k, &alpha,
+                    B, ldb, A, lda, &beta, C, ldc);
+}
+
 // ====================== 常用通用矩阵函数包装 ======================
 
 static __global__ void QC_Add_Matrix_Kernel(const int n, const float* A,
@@ -510,6 +548,51 @@ static const float CART2SPH_MAT_G[15][9] = {
     {0.00000000f, 0.00000000f, 0.00000000f, 0.00000000f, 0.84628438f,
      0.00000000f, 0.00000000f, 0.00000000f, 0.00000000f},
 };
+
+std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
+                                              int nao_cart, int nao_sph)
+{
+    std::vector<float> mat(nao_cart * nao_sph, 0.0f);
+    int offset_c = 0, offset_s = 0;
+    for (int k = 0; k < (int)l_list.size(); k++)
+    {
+        int l = l_list[k];
+        int dim_c = (l + 1) * (l + 2) / 2;
+        int dim_s = 2 * l + 1;
+        switch (l)
+        {
+            case 0:
+                mat[offset_c * nao_sph + offset_s] = 0.28209479f;
+                break;
+            case 1:
+                mat[(offset_c + 0) * nao_sph + (offset_s + 0)] = 0.48860251f;
+                mat[(offset_c + 1) * nao_sph + (offset_s + 1)] = 0.48860251f;
+                mat[(offset_c + 2) * nao_sph + (offset_s + 2)] = 0.48860251f;
+                break;
+            case 2:
+                for (int i = 0; i < 6; i++)
+                    for (int j = 0; j < 5; j++)
+                        mat[(offset_c + i) * nao_sph + (offset_s + j)] =
+                            CART2SPH_MAT_D[i][j];
+                break;
+            case 3:
+                for (int i = 0; i < 10; i++)
+                    for (int j = 0; j < 7; j++)
+                        mat[(offset_c + i) * nao_sph + (offset_s + j)] =
+                            CART2SPH_MAT_F[i][j];
+                break;
+            case 4:
+                for (int i = 0; i < 15; i++)
+                    for (int j = 0; j < 9; j++)
+                        mat[(offset_c + i) * nao_sph + (offset_s + j)] =
+                            CART2SPH_MAT_G[i][j];
+                break;
+        }
+        offset_c += dim_c;
+        offset_s += dim_s;
+    }
+    return mat;
+}
 
 static __global__ void QC_Cart2Sph_MatMul_UT_RowRow_Kernel(
     const int m, const int n, const int kdim, const float* U_row_k_m,

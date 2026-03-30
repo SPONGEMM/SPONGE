@@ -21,6 +21,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     Compute_OneE_Integrals();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
+    if (scf_ws.ri.enabled) RI_Precompute();
     Build_Overlap_X();
 
     if (need_initial_guess)

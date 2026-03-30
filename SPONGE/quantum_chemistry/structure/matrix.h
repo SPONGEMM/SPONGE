@@ -42,6 +42,33 @@ void QC_Dgemm_TN(BLAS_HANDLE handle, int m, int n, int k, const double* A,
 void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                  int lda, const double* B, int ldb, double* C, int ldc);
 
+// ====================== Cart2Sph 通用构建 ======================
+
+// 根据 shell 角动量列表，构建 block-diagonal cart2sph 矩阵 (host vector)
+// 返回 host 数组 [nao_cart × nao_sph]，行优先
+std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
+                                              int nao_cart, int nao_sph);
+
+// ====================== RI (Density Fitting) BLAS wrappers
+// ======================
+
+// Sgemm: C = alpha * A * B + beta * C (col-major)
+void QC_Sgemm_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                 const float* A, int lda, const float* B, int ldb, float beta,
+                 float* C, int ldc);
+
+void QC_Sgemm_TN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                 const float* A, int lda, const float* B, int ldb, float beta,
+                 float* C, int ldc);
+
+void QC_Sgemm_RowMajor_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc);
+
+void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k, float alpha,
+                          const float* A, int lda, const float* B, int ldb,
+                          float beta, float* C, int ldc);
+
 // ====================== Common matrix utility wrappers ======================
 
 void QC_Add_Matrix(int n, const float* A, const float* B, float* C);
