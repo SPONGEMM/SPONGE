@@ -82,8 +82,47 @@ jobs:
           mkdir -p release-artifacts/conda
           cp packaging/outputs/*.conda release-artifacts/conda/
 
+      - name: Set up conda host SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${CONDA_HOST_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${CONDA_HOST_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+        env:
+          CONDA_HOST_KEY: ${{ secrets.CONDA_HOST_KEY }}
+          CONDA_HOST_KNOWN_HOSTS: ${{ secrets.CONDA_HOST_KNOWN_HOSTS }}
+
+      - name: Upload conda package to remote host
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_dir="${CONDA_HOST_PATH}/conda/${ARCH}"
+          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "mkdir -p '${remote_dir}'"
+          scp -i ~/.ssh/id_ed25519 -P "${CONDA_HOST_PORT}" release-artifacts/conda/*.conda "${CONDA_HOST_USER}@${CONDA_HOST}:${remote_dir}/"
+        env:
+          ARCH: ${{ matrix.target }}
+          CONDA_HOST: ${{ secrets.CONDA_HOST }}
+          CONDA_HOST_USER: ${{ secrets.CONDA_HOST_USER }}
+          CONDA_HOST_PORT: ${{ secrets.CONDA_HOST_PORT }}
+          CONDA_HOST_PATH: ${{ secrets.CONDA_HOST_PATH }}
+
+      - name: Rebuild remote conda index
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "cd '${CONDA_HOST_PATH}' && bash index.sh"
+        env:
+          CONDA_HOST: ${{ secrets.CONDA_HOST }}
+          CONDA_HOST_USER: ${{ secrets.CONDA_HOST_USER }}
+          CONDA_HOST_PORT: ${{ secrets.CONDA_HOST_PORT }}
+          CONDA_HOST_PATH: ${{ secrets.CONDA_HOST_PATH }}
+
       - name: Upload conda artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sponge-conda-${{ matrix.feature }}-${{ matrix.target }}
           path: release-artifacts/conda/*.conda
@@ -130,7 +169,7 @@ jobs:
           cp plugins/prips/dist/*.tar.gz release-artifacts/prips/
 
       - name: Upload PRIPS sdist artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: prips-sdist
           path: release-artifacts/prips/*.tar.gz
@@ -169,7 +208,7 @@ jobs:
           .\packaging\windows\cpu.ps1 -EnvName dev-cpu -Tag "${{ github.ref_name }}"
 
       - name: Upload MSI artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sponge-msi-cpu-win-64
           path: release-artifacts/msi/*.msi
@@ -310,7 +349,7 @@ jobs:
           pixi global uninstall release-apptainer || true
 
       - name: Upload container artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: sponge-container-${{ matrix.name }}
           path: |
@@ -341,7 +380,7 @@ jobs:
           fi
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: release-artifacts
           pattern: "!*.dockerbuild"
