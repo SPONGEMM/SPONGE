@@ -302,61 +302,6 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
 
-      - name: Select release image tag
-        id: release_tag
-        shell: bash
-        run: |
-          image_tag="${GITHUB_REF_NAME}-${{ matrix.name }}"
-          echo "value=${image_tag}" >> "${GITHUB_OUTPUT}"
-
-      - name: Pull release image
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker pull "${{ steps.image.outputs.name }}:${{ steps.release_tag.outputs.value }}"
-
-      - name: Export Docker image tarball
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-artifacts/docker
-          docker image save \
-            --output "release-artifacts/docker/${{ steps.release_tag.outputs.value }}.tar" \
-            "${{ steps.image.outputs.name }}:${{ steps.release_tag.outputs.value }}"
-
-      - name: Install Apptainer with Pixi
-        shell: bash
-        run: |
-          set -euo pipefail
-          pixi global install --environment release-apptainer \
-            --expose apptainer \
-            apptainer \
-            --force-reinstall
-
-      - name: Build Apptainer image
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p release-artifacts/apptainer
-          apptainer build \
-            "release-artifacts/apptainer/${{ steps.release_tag.outputs.value }}.sif" \
-            "docker-archive://$(pwd)/release-artifacts/docker/${{ steps.release_tag.outputs.value }}.tar"
-
-      - name: Remove Apptainer helper environment
-        if: always()
-        shell: bash
-        run: |
-          pixi global uninstall release-apptainer || true
-
-      - name: Upload container artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: sponge-container-${{ matrix.name }}
-          path: |
-            release-artifacts/docker/*.tar
-            release-artifacts/apptainer/*.sif
-          if-no-files-found: error
-
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
@@ -394,6 +339,4 @@ jobs:
           files: |
             release-artifacts/**/*.conda
             release-artifacts/**/*.msi
-            release-artifacts/**/*.tar
             release-artifacts/**/*.tar.gz
-            release-artifacts/**/*.sif

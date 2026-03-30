@@ -41,8 +41,9 @@ function New-WixGuid {
 
 $repoRoot = Resolve-Path "."
 $envPrefix = Join-Path $repoRoot ".pixi\envs\$EnvName"
-$binDir = Join-Path $envPrefix "Library\bin"
-$exePath = Join-Path $binDir "SPONGE.exe"
+$exeDir = Join-Path $envPrefix "bin"
+$runtimeBinDir = Join-Path $envPrefix "Library\bin"
+$exePath = Join-Path $exeDir "SPONGE.exe"
 
 if (-not (Test-Path $exePath)) {
     throw "SPONGE.exe not found at $exePath. Build the Windows CPU environment first."
@@ -55,8 +56,18 @@ if (Test-Path $StageDir) {
 New-Item -ItemType Directory -Force -Path $StageDir | Out-Null
 
 Copy-Item $exePath -Destination $StageDir
-Get-ChildItem -Path $binDir -Filter "*.dll" | ForEach-Object {
-    Copy-Item $_.FullName -Destination $StageDir
+
+$copiedDlls = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($dllDir in @($exeDir, $runtimeBinDir)) {
+    if (-not (Test-Path $dllDir)) {
+        continue
+    }
+
+    Get-ChildItem -Path $dllDir -Filter "*.dll" -File | ForEach-Object {
+        if ($copiedDlls.Add($_.Name)) {
+            Copy-Item $_.FullName -Destination $StageDir
+        }
+    }
 }
 
 $template = Get-Content $TemplatePath -Raw
