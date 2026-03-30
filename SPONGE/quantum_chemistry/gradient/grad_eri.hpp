@@ -307,10 +307,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const float max_activity =
         anchor_activity[(size_t)sorted_activity_ids.front()];
 
-    const int natm = (int)(std::count_if(
-        shell_atom, shell_atom + nbas,
-        [](int a) { return a >= 0; }));
-    // 获取最大原子索引
     int natm_max = 0;
     for (int i = 0; i < nbas; i++)
         natm_max = std::max(natm_max, shell_atom[i] + 1);
@@ -406,17 +402,21 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const bool jk_same_braket =
                     (ij.x == kl.x && ij.y == kl.y);
 
-                // 导数积分壳层缓冲 [ni*nj*nk*nl][3] for A, B, C
+                // 导数积分先在 Cartesian shell buffer 上累加；
+                // spherical 基组时再按能量分支同样的顺序做 cart2sph。
+                const int ni_cart = bra.dims_cart[0], nj_cart = bra.dims_cart[1];
+                const int nk_cart = ket.dims_cart[0], nl_cart = ket.dims_cart[1];
+                const int shell_size_cart =
+                    ni_cart * nj_cart * nk_cart * nl_cart;
+
                 const int ni = bra.dims_eff[0], nj = bra.dims_eff[1];
                 const int nk = ket.dims_eff[0], nl = ket.dims_eff[1];
-                const int shell_size = ni * nj * nk * nl;
+                const int shell_size_eff = ni * nj * nk * nl;
 
-                // 在栈上分配导数缓冲 (3 centers × 3 directions = 9 buffers)
-                std::vector<float> d_buf_A(shell_size * 3, 0.0f);
-                std::vector<float> d_buf_B(shell_size * 3, 0.0f);
-                std::vector<float> d_buf_C(shell_size * 3, 0.0f);
+                std::vector<float> d_buf_A_cart(shell_size_cart * 3, 0.0f);
+                std::vector<float> d_buf_B_cart(shell_size_cart * 3, 0.0f);
+                std::vector<float> d_buf_C_cart(shell_size_cart * 3, 0.0f);
 
-                const float p0 = 1.0f / bra_prims[0].inv_p; // rough estimate
                 float E_ket[3][5][5][9];
                 const int lc_up = std::min(ket.l[0] + 1, 4);
                 const int ld_up = std::min(ket.l[1] + 1, 4);
@@ -473,22 +473,22 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                                   0.5f * inv_q);
 
                             // 对每个 AO 组合计算导数
-                            for (int ci = 0; ci < ni; ci++)
+                            for (int ci = 0; ci < ni_cart; ci++)
                             {
                                 const int ix = bra.comp_x[0][ci];
                                 const int iy = bra.comp_y[0][ci];
                                 const int iz = bra.comp_z[0][ci];
-                                for (int cj = 0; cj < nj; cj++)
+                                for (int cj = 0; cj < nj_cart; cj++)
                                 {
                                     const int jx = bra.comp_x[1][cj];
                                     const int jy = bra.comp_y[1][cj];
                                     const int jz = bra.comp_z[1][cj];
-                                    for (int ck = 0; ck < nk; ck++)
+                                    for (int ck = 0; ck < nk_cart; ck++)
                                     {
                                         const int kx2 = ket.comp_x[0][ck];
                                         const int ky2 = ket.comp_y[0][ck];
                                         const int kz2 = ket.comp_z[0][ck];
-                                        for (int cl = 0; cl < nl; cl++)
+                                        for (int cl = 0; cl < nl_cart; cl++)
                                         {
                                             const int lx2 =
                                                 ket.comp_x[1][cl];
@@ -505,14 +505,18 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                                 grad_hr_base, n_abcd, dA, dB, dC);
 
                                             const int idx =
-                                                ((ci * nj + cj) * nk + ck) *
-                                                    nl +
+                                                ((ci * nj_cart + cj) * nk_cart +
+                                                 ck) *
+                                                    nl_cart +
                                                 cl;
                                             for (int d = 0; d < 3; d++)
                                             {
-                                                d_buf_A[idx * 3 + d] += dA[d];
-                                                d_buf_B[idx * 3 + d] += dB[d];
-                                                d_buf_C[idx * 3 + d] += dC[d];
+                                                d_buf_A_cart[idx * 3 + d] +=
+                                                    dA[d];
+                                                d_buf_B_cart[idx * 3 + d] +=
+                                                    dB[d];
+                                                d_buf_C_cart[idx * 3 + d] +=
+                                                    dC[d];
                                             }
                                         }
                                     }
@@ -520,6 +524,57 @@ static inline void QC_Build_ERI_Gradient_CPU(
                             }
                         }
                     }
+                }
+
+                // spherical 基组时，先将每个导数分量的 shell buffer 从
+                // Cartesian 变到 spherical；Cartesian 基组则直接使用。
+                std::vector<float> d_buf_A_sph;
+                std::vector<float> d_buf_B_sph;
+                std::vector<float> d_buf_C_sph;
+                float* d_buf_A_use = d_buf_A_cart.data();
+                float* d_buf_B_use = d_buf_B_cart.data();
+                float* d_buf_C_use = d_buf_C_cart.data();
+
+                if (is_spherical)
+                {
+                    d_buf_A_sph.assign((size_t)shell_size_eff * 3, 0.0f);
+                    d_buf_B_sph.assign((size_t)shell_size_eff * 3, 0.0f);
+                    d_buf_C_sph.assign((size_t)shell_size_eff * 3, 0.0f);
+
+                    const int dims_cart[4] = {bra.dims_cart[0], bra.dims_cart[1],
+                                              ket.dims_cart[0], ket.dims_cart[1]};
+                    const int dims_sph[4] = {bra.dims_sph[0], bra.dims_sph[1],
+                                             ket.dims_sph[0], ket.dims_sph[1]};
+                    const int off_cart[4] = {bra.off_cart[0], bra.off_cart[1],
+                                             ket.off_cart[0], ket.off_cart[1]};
+                    const int off_sph[4] = {bra.off_eff[0], bra.off_eff[1],
+                                            ket.off_eff[0], ket.off_eff[1]};
+
+                    std::vector<float> buf0(shell_size_cart, 0.0f);
+                    std::vector<float> buf1(shell_size_cart, 0.0f);
+                    auto transform_deriv = [&](const std::vector<float>& src3,
+                                               std::vector<float>& dst3)
+                    {
+                        for (int d = 0; d < 3; d++)
+                        {
+                            for (int idx = 0; idx < shell_size_cart; idx++)
+                                buf0[(size_t)idx] = src3[(size_t)idx * 3 + d];
+                            std::fill(buf1.begin(), buf1.end(), 0.0f);
+                            QC_Cart2Sph_Shell_ERI_CPU(
+                                cart2sph_mat, nao_sph, off_cart, off_sph,
+                                dims_cart, dims_sph, buf0.data(), buf1.data());
+                            for (int idx = 0; idx < shell_size_eff; idx++)
+                                dst3[(size_t)idx * 3 + d] = buf0[(size_t)idx];
+                        }
+                    };
+
+                    transform_deriv(d_buf_A_cart, d_buf_A_sph);
+                    transform_deriv(d_buf_B_cart, d_buf_B_sph);
+                    transform_deriv(d_buf_C_cart, d_buf_C_sph);
+
+                    d_buf_A_use = d_buf_A_sph.data();
+                    d_buf_B_use = d_buf_B_sph.data();
+                    d_buf_C_use = d_buf_C_sph.data();
                 }
 
                 // 应用归一化因子 (同 ERI buffer)
@@ -541,9 +596,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                     ((ci * nj + cj) * nk + ck) * nl + cl;
                                 for (int d = 0; d < 3; d++)
                                 {
-                                    d_buf_A[idx * 3 + d] *= nijkl;
-                                    d_buf_B[idx * 3 + d] *= nijkl;
-                                    d_buf_C[idx * 3 + d] *= nijkl;
+                                    d_buf_A_use[idx * 3 + d] *= nijkl;
+                                    d_buf_B_use[idx * 3 + d] *= nijkl;
+                                    d_buf_C_use[idx * 3 + d] *= nijkl;
                                 }
                             }
                         }
@@ -577,9 +632,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
                                 const int idx =
                                     ((ci * nj + cj) * nk + ck) * nl + cl;
-                                const float* dA = &d_buf_A[idx * 3];
-                                const float* dB = &d_buf_B[idx * 3];
-                                const float* dC = &d_buf_C[idx * 3];
+                                const float* dA = &d_buf_A_use[idx * 3];
+                                const float* dB = &d_buf_B_use[idx * 3];
+                                const float* dC = &d_buf_C_use[idx * 3];
 
                                 const int ao_idx[4] = {p, q_idx, r, s};
                                 const int atom_idx[4] = {atom_A, atom_B,
@@ -602,159 +657,103 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                 double gamma_k = 0.0;
                                 double g_atom_debug[4][3] = {};
 
+                                // Helper: accumulate gradient from 8 permutations
+                                // with deduplication. perm_slot[8][4] defines the
+                                // index permutation; weight_fn computes the density
+                                // weight for each unique permutation.
+                                auto accumulate_8perm = [&](
+                                    const int perm_slot[8][4],
+                                    auto weight_fn,
+                                    double& gamma_acc)
+                                {
+                                    for (int n = 0; n < 8; n++)
+                                    {
+                                        const int i0 = ao_idx[perm_slot[n][0]];
+                                        const int i1 = ao_idx[perm_slot[n][1]];
+                                        const int i2 = ao_idx[perm_slot[n][2]];
+                                        const int i3 = ao_idx[perm_slot[n][3]];
+                                        bool dup = false;
+                                        for (int pv = 0; pv < n; pv++)
+                                        {
+                                            if (i0 == ao_idx[perm_slot[pv][0]] &&
+                                                i1 == ao_idx[perm_slot[pv][1]] &&
+                                                i2 == ao_idx[perm_slot[pv][2]] &&
+                                                i3 == ao_idx[perm_slot[pv][3]])
+                                            {
+                                                dup = true;
+                                                break;
+                                            }
+                                        }
+                                        if (dup) continue;
+
+                                        const double weight =
+                                            weight_fn(i0, i1, i2, i3);
+                                        gamma_acc += weight;
+                                        for (int slot = 0; slot < 4; slot++)
+                                        {
+                                            const int src = perm_slot[n][slot];
+                                            const int atom = atom_idx[src];
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                const double contrib =
+                                                    weight * d_slot[src][d];
+                                                grad_local[atom * 3 + d] +=
+                                                    contrib;
+                                                g_atom_debug[src][d] += contrib;
+                                            }
+                                        }
+                                    }
+                                };
+
+                                // Coulomb (J) permutations: (pq|rs) symmetry
                                 const int jt_slot[8][4] = {
                                     {0, 1, 2, 3}, {1, 0, 2, 3},
                                     {0, 1, 3, 2}, {1, 0, 3, 2},
                                     {2, 3, 0, 1}, {3, 2, 0, 1},
                                     {2, 3, 1, 0}, {3, 2, 1, 0}};
-                                for (int n = 0; n < 8; n++)
-                                {
-                                    const int i0 = ao_idx[jt_slot[n][0]];
-                                    const int i1 = ao_idx[jt_slot[n][1]];
-                                    const int i2 = ao_idx[jt_slot[n][2]];
-                                    const int i3 = ao_idx[jt_slot[n][3]];
-                                    bool dup = false;
-                                    for (int pv = 0; pv < n; pv++)
+                                accumulate_8perm(
+                                    jt_slot,
+                                    [&](int i0, int i1, int i2, int i3)
                                     {
-                                        const int p0 = ao_idx[jt_slot[pv][0]];
-                                        const int p1 = ao_idx[jt_slot[pv][1]];
-                                        const int p2 = ao_idx[jt_slot[pv][2]];
-                                        const int p3 = ao_idx[jt_slot[pv][3]];
-                                        if (i0 == p0 && i1 == p1 && i2 == p2 &&
-                                            i3 == p3)
-                                        {
-                                            dup = true;
-                                            break;
-                                        }
-                                    }
-                                    if (dup) continue;
+                                        return 0.5 *
+                                               (double)P_coul[i0 * nao + i1] *
+                                               (double)P_coul[i2 * nao + i3];
+                                    },
+                                    gamma_j);
 
-                                    const double weight =
-                                        0.5 * (double)P_coul[i0 * nao + i1] *
-                                        (double)P_coul[i2 * nao + i3];
-                                    gamma_j += weight;
-                                    for (int slot = 0; slot < 4; slot++)
-                                    {
-                                        const int src = jt_slot[n][slot];
-                                        const int atom = atom_idx[src];
-                                        for (int d = 0; d < 3; d++)
-                                        {
-                                            const double contrib =
-                                                weight * d_slot[src][d];
-                                            grad_local[atom * 3 + d] += contrib;
-                                            g_atom_debug[src][d] += contrib;
-                                        }
-                                    }
-                                }
+                                // Exchange (K) permutations: (pr|qs) symmetry
+                                const int kt_slot[8][4] = {
+                                    {0, 2, 1, 3}, {0, 3, 1, 2},
+                                    {1, 2, 0, 3}, {1, 3, 0, 2},
+                                    {2, 0, 3, 1}, {2, 1, 3, 0},
+                                    {3, 0, 2, 1}, {3, 1, 2, 0}};
 
                                 if (exx_scale_a != 0.0f)
                                 {
-                                    const int kt_slot[8][4] = {
-                                        {0, 2, 1, 3}, {0, 3, 1, 2},
-                                        {1, 2, 0, 3}, {1, 3, 0, 2},
-                                        {2, 0, 3, 1}, {2, 1, 3, 0},
-                                        {3, 0, 2, 1}, {3, 1, 2, 0}};
-                                    for (int n = 0; n < 8; n++)
-                                    {
-                                        const int i0 = ao_idx[kt_slot[n][0]];
-                                        const int i1 = ao_idx[kt_slot[n][1]];
-                                        const int i2 = ao_idx[kt_slot[n][2]];
-                                        const int i3 = ao_idx[kt_slot[n][3]];
-                                        bool dup = false;
-                                        for (int pv = 0; pv < n; pv++)
+                                    accumulate_8perm(
+                                        kt_slot,
+                                        [&](int i0, int i1, int i2, int i3)
                                         {
-                                            const int p0 =
-                                                ao_idx[kt_slot[pv][0]];
-                                            const int p1 =
-                                                ao_idx[kt_slot[pv][1]];
-                                            const int p2 =
-                                                ao_idx[kt_slot[pv][2]];
-                                            const int p3 =
-                                                ao_idx[kt_slot[pv][3]];
-                                            if (i0 == p0 && i1 == p1 &&
-                                                i2 == p2 && i3 == p3)
-                                            {
-                                                dup = true;
-                                                break;
-                                            }
-                                        }
-                                        if (dup) continue;
-
-                                        const double weight =
-                                            -0.5 * (double)exx_scale_a *
-                                            (double)P_exx_a[i0 * nao + i1] *
-                                            (double)P_exx_a[i2 * nao + i3];
-                                        gamma_k += weight;
-                                        for (int slot = 0; slot < 4; slot++)
-                                        {
-                                            const int src = kt_slot[n][slot];
-                                            const int atom = atom_idx[src];
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                const double contrib =
-                                                    weight * d_slot[src][d];
-                                                grad_local[atom * 3 + d] +=
-                                                    contrib;
-                                                g_atom_debug[src][d] +=
-                                                    contrib;
-                                            }
-                                        }
-                                    }
+                                            return -0.5 *
+                                                   (double)exx_scale_a *
+                                                   (double)P_exx_a[i0 * nao + i1] *
+                                                   (double)P_exx_a[i2 * nao + i3];
+                                        },
+                                        gamma_k);
                                 }
 
                                 if (exx_scale_b != 0.0f && P_exx_b != nullptr)
                                 {
-                                    const int kt_slot_b[8][4] = {
-                                        {0, 2, 1, 3}, {0, 3, 1, 2},
-                                        {1, 2, 0, 3}, {1, 3, 0, 2},
-                                        {2, 0, 3, 1}, {2, 1, 3, 0},
-                                        {3, 0, 2, 1}, {3, 1, 2, 0}};
-                                    for (int n = 0; n < 8; n++)
-                                    {
-                                        const int i0 = ao_idx[kt_slot_b[n][0]];
-                                        const int i1 = ao_idx[kt_slot_b[n][1]];
-                                        const int i2 = ao_idx[kt_slot_b[n][2]];
-                                        const int i3 = ao_idx[kt_slot_b[n][3]];
-                                        bool dup = false;
-                                        for (int pv = 0; pv < n; pv++)
+                                    accumulate_8perm(
+                                        kt_slot,
+                                        [&](int i0, int i1, int i2, int i3)
                                         {
-                                            const int p0 =
-                                                ao_idx[kt_slot_b[pv][0]];
-                                            const int p1 =
-                                                ao_idx[kt_slot_b[pv][1]];
-                                            const int p2 =
-                                                ao_idx[kt_slot_b[pv][2]];
-                                            const int p3 =
-                                                ao_idx[kt_slot_b[pv][3]];
-                                            if (i0 == p0 && i1 == p1 &&
-                                                i2 == p2 && i3 == p3)
-                                            {
-                                                dup = true;
-                                                break;
-                                            }
-                                        }
-                                        if (dup) continue;
-
-                                        const double weight =
-                                            -0.5 * (double)exx_scale_b *
-                                            (double)P_exx_b[i0 * nao + i1] *
-                                            (double)P_exx_b[i2 * nao + i3];
-                                        gamma_k += weight;
-                                        for (int slot = 0; slot < 4; slot++)
-                                        {
-                                            const int src = kt_slot_b[n][slot];
-                                            const int atom = atom_idx[src];
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                const double contrib =
-                                                    weight * d_slot[src][d];
-                                                grad_local[atom * 3 + d] +=
-                                                    contrib;
-                                                g_atom_debug[src][d] +=
-                                                    contrib;
-                                            }
-                                        }
-                                    }
+                                            return -0.5 *
+                                                   (double)exx_scale_b *
+                                                   (double)P_exx_b[i0 * nao + i1] *
+                                                   (double)P_exx_b[i2 * nao + i3];
+                                        },
+                                        gamma_k);
                                 }
 
                                 if (debug_small_eri_grad)

@@ -7,6 +7,9 @@
 #include "gradient/grad_eri.hpp"
 #include "gradient/grad_ri.hpp"
 
+std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
+                                              int nao_cart, int nao_sph);
+
 static void _debug_print_grad(const char* label, const int natm,
                                const double* grad)
 {
@@ -17,7 +20,10 @@ static void _debug_print_grad(const char* label, const int natm,
                      grad[ia * 3 + 0], grad[ia * 3 + 1], grad[ia * 3 + 2]);
 }
 
-void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
+void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
+                                          const VECTOR box_length,
+                                          int need_virial,
+                                          LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
     const int natm = mol.natm;
@@ -36,10 +42,6 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
         scf_ws.runtime.level_shift = saved_ls;
     }
 
-    // Cartesian norms（spherical 基组时用于 1e 和 2e 梯度 kernel）
-    float* d_norms_cart = nullptr;
-
-    // 清零梯度累加器
     deviceMemset(grad_ws.d_grad, 0, sizeof(double) * natm * 3);
 
     // 1. 构建能量加权密度矩阵 W
@@ -81,10 +83,27 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     _debug_print_grad("AFTER_NUCLEAR", natm, grad_ws.d_grad);
 
     // 3. 单电子积分导数: Tr[P·dH/dR] - Tr[W·dS/dR]
-    // 1e kernel 在 Cartesian 基中计算积分，需要 Cartesian 版的 P, W, norms。
-    // 对 spherical 基组: 变换 P_sph → P_cart, W_sph → W_cart,
-    //                   并从 Cartesian 重叠矩阵构建 norms_cart。
     {
+#ifndef USE_GPU
+        if (mol.is_spherical)
+        {
+            std::vector<int> h_shell_atom(mol.nbas);
+            for (int ish = 0; ish < mol.nbas; ish++)
+                h_shell_atom[ish] = mol.h_bas[ish * 8 + 0];
+            const std::vector<float> h_cart2sph = QC_Build_Cart2Sph_Mat_Host(
+                mol.h_l_list, mol.nao_cart, mol.nao_sph);
+
+            QC_Build_OneE_Gradient_Spherical_CPU(
+                task_ctx.topo.h_1e_tasks, mol.h_centers, mol.h_l_list,
+                mol.h_exps, mol.h_coeffs, mol.h_shell_offsets,
+                mol.h_shell_sizes, mol.h_ao_offsets, mol.h_ao_offsets_sph,
+                mol.h_atm, mol.h_env, h_shell_atom, scf_ws.direct.d_P_coul,
+                grad_ws.d_W_density, scf_ws.ortho.d_norms,
+                h_cart2sph.data(), mol.natm, mol.nao_sph, grad_ws.d_grad);
+        }
+        else
+#endif
+        {
         const float* d_P_use = scf_ws.direct.d_P_coul;
         const float* d_W_use = grad_ws.d_W_density;
         const float* d_norms_use = scf_ws.ortho.d_norms;
@@ -111,64 +130,6 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                          mol.nbas>5?mol.d_ao_offsets[5]:0);
         }
 
-        // 临时 Cartesian 缓冲（spherical 时使用, norms_cart 延迟到 2e 后释放）
-        float* d_P_cart = nullptr;
-        float* d_W_cart = nullptr;
-
-        if (mol.is_spherical)
-        {
-            const int nao_c = mol.nao_cart;
-            const int nao_c2 = nao_c * nao_c;
-            nao_1e = nao_c;
-
-            // 分配临时缓冲
-            d_P_cart = (float*)malloc(sizeof(float) * nao_c2);
-            d_W_cart = (float*)malloc(sizeof(float) * nao_c2);
-            d_norms_cart = (float*)malloc(sizeof(float) * nao_c);
-
-            // Sph2Cart: M_cart = C · M_sph · C^T
-            // C = cart2sph_mat [nao_c × nao_s], C^T = [nao_s × nao_c]
-            // M_cart = C · M_sph · C^T
-            const float* C = cart2sph.d_cart2sph_mat;
-            const int nao_s = mol.nao;
-            float* tmp = (float*)malloc(sizeof(float) * nao_c * nao_s);
-
-            auto sph2cart = [&](const float* M_sph, float* M_cart) {
-                // tmp = C · M_sph  [nao_c × nao_s]
-                const float one = 1.0f, zero = 0.0f;
-                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
-                                nao_c, nao_s, nao_s, &one, C, nao_c, M_sph,
-                                nao_s, &zero, tmp, nao_c);
-                // M_cart = tmp · C^T  [nao_c × nao_c]
-                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                                nao_c, nao_c, nao_s, &one, tmp, nao_c, C,
-                                nao_c, &zero, M_cart, nao_c);
-            };
-
-            sph2cart(d_P_use, d_P_cart);
-            sph2cart(d_W_use, d_W_cart);
-            free(tmp);
-
-            d_P_use = d_P_cart;
-            d_W_use = d_W_cart;
-
-            // Cartesian norms: 直接从原始 Cartesian 重叠矩阵构建
-            // cart2sph.d_S_cart 保存了 Prepare_Integrals 之前的 Cartesian S
-            // 注意: d_S_cart 在 Prepare_Integrals 中未被 norms 缩放
-            const float* S_cart = cart2sph.d_S_cart;
-            for (int i = 0; i < nao_c; i++)
-                d_norms_cart[i] =
-                    1.0f / sqrtf(fmaxf(S_cart[i * nao_c + i], 1e-20f));
-
-            if (std::getenv("SPONGE_DEBUG_GRAD"))
-                std::fprintf(stderr, "  norms_cart[0..4]=%.6f %.6f %.6f %.6f %.6f  S_cart_diag=%.4f %.4f\n",
-                             d_norms_cart[0], d_norms_cart[1], d_norms_cart[2],
-                             d_norms_cart[3], nao_c>4?d_norms_cart[4]:0.f,
-                             S_cart[0], S_cart[nao_c+1]);
-
-            d_norms_use = d_norms_cart;
-        }
-
         const int chunk_size = ONE_E_BATCH_SIZE;
         for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
         {
@@ -184,45 +145,26 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                 d_norms_use, grad_ws.d_grad);
         }
 
-        if (d_P_cart) free(d_P_cart);
-        if (d_W_cart) free(d_W_cart);
-        // d_norms_cart 延迟释放 (2e gradient 也需要)
+        }
     }
     _debug_print_grad("AFTER_1E", natm, grad_ws.d_grad);
 
     // 4. 双电子积分导数: Tr[Γ·dERI/dR]
-    // ERI gradient 在 Cartesian 中计算导数积分并用 norms 归一化。
-    // 对 spherical 基组: 需要 Cartesian norms 和 Cartesian P。
-    const float* d_norms_eri = mol.is_spherical ? d_norms_cart
-                                                : scf_ws.ortho.d_norms;
-    // Sph2Cart 变换 P_coul 和 P_exx (spherical → Cartesian)
-    float* d_Pcoul_cart = nullptr;
-    float* d_Pexx_a_cart = nullptr;
+    // grad_eri 内部始终在 Cartesian primitive / shell buffer 上计算，
+    // 若 is_spherical=true，会在内核内部做 cart2sph 并使用 spherical AO
+    // offsets / norms / density 做最终收缩。
+    //
+    // 因此这里必须始终传入“当前 SCF AO 基”上的 density 与 norms：
+    //   - Cartesian 基: 归一化 Cartesian P / norms
+    //   - spherical 基: 归一化 spherical P / norms
+    //
+    // 不能在外层再做 sph->cart 变换，否则：
+    //   1) p/d/... 壳层会把 cart2sph 变换重复应用一次；
+    //   2) d/f/... 壳层还会因 grad_eri 使用 spherical offsets 而和 nao_cart
+    //      的 leading dimension 不一致，直接导致收缩错误。
+    const float* d_norms_eri = scf_ws.ortho.d_norms;
     const float* d_Pcoul_eri = scf_ws.direct.d_P_coul;
     const float* d_Pexx_a_eri = scf_ws.alpha.d_P;
-    if (mol.is_spherical)
-    {
-        const int nao_c = mol.nao_cart;
-        const int nao_s = mol.nao;
-        const float* C = cart2sph.d_cart2sph_mat;
-        d_Pcoul_cart = (float*)malloc(sizeof(float) * nao_c * nao_c);
-        d_Pexx_a_cart = (float*)malloc(sizeof(float) * nao_c * nao_c);
-        float* tmp = (float*)malloc(sizeof(float) * nao_c * nao_s);
-        auto s2c = [&](const float* M_sph, float* M_cart) {
-            const float one = 1.0f, zero = 0.0f;
-            deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
-                            nao_c, nao_s, nao_s, &one, C, nao_c, M_sph,
-                            nao_s, &zero, tmp, nao_c);
-            deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            nao_c, nao_c, nao_s, &one, tmp, nao_c, C,
-                            nao_c, &zero, M_cart, nao_c);
-        };
-        s2c(d_Pcoul_eri, d_Pcoul_cart);
-        s2c(d_Pexx_a_eri, d_Pexx_a_cart);
-        free(tmp);
-        d_Pcoul_eri = d_Pcoul_cart;
-        d_Pexx_a_eri = d_Pexx_a_cart;
-    }
 #ifndef USE_GPU
     if (scf_ws.ri.enabled)
     {
@@ -245,7 +187,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
             scf_ws.runtime.unrestricted ? dft.exx_fraction
                                         : (0.5f * dft.exx_fraction),
             scf_ws.runtime.unrestricted ? dft.exx_fraction : 0.0f,
-            mol.is_spherical ? mol.nao_cart : nao, mol.nao_sph, mol.is_spherical,
+            nao, mol.nao_sph, mol.is_spherical,
             cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom, grad_ws.d_grad,
             task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
             task_ctx.params.eri_shell_buf_size,
@@ -253,9 +195,6 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
             scf_ws.direct.fock_thread_count);
     }
 #endif
-    if (d_norms_cart) free(d_norms_cart);
-    if (d_Pcoul_cart) free(d_Pcoul_cart);
-    if (d_Pexx_a_cart) free(d_Pexx_a_cart);
     _debug_print_grad("AFTER_2E", natm, grad_ws.d_grad);
 
     // 5. DFT XC 网格梯度
@@ -267,7 +206,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
         const int threads = 256;
         Launch_Device_Kernel(QC_Writeback_Gradient_Kernel,
                              (natm + threads - 1) / threads, threads, 0, 0,
-                             natm, d_atom_local, grad_ws.d_grad, frc);
+                             natm, d_atom_local, grad_ws.d_grad, crd, frc,
+                             need_virial, atom_virial);
     }
 }
 

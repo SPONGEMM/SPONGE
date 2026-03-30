@@ -349,3 +349,452 @@ static __global__ void OneE_Grad_Kernel(
         }
     }
 }
+
+#ifndef USE_GPU
+static inline void QC_Cart2Sph_Step_OneE_CPU(const float* C, const int nc,
+                                             const int ns, const int leading,
+                                             const int tail,
+                                             const float* src, float* dst)
+{
+    for (int lead = 0; lead < leading; lead++)
+    {
+        const float* src_blk = src + (size_t)lead * nc * tail;
+        float* dst_blk = dst + (size_t)lead * ns * tail;
+        memset(dst_blk, 0, (size_t)ns * tail * sizeof(float));
+        for (int a = 0; a < nc; a++)
+        {
+            const float* src_row = src_blk + (size_t)a * tail;
+            for (int p = 0; p < ns; p++)
+            {
+                const float c = C[a * ns + p];
+                if (c == 0.0f) continue;
+                float* dst_row = dst_blk + (size_t)p * tail;
+                for (int idx = 0; idx < tail; idx++)
+                    dst_row[idx] += c * src_row[idx];
+            }
+        }
+    }
+}
+
+static inline void QC_Cart2Sph_Shell_OneE_CPU(
+    const float* U, const int nao_sph, const int off_i_cart,
+    const int off_j_cart, const int off_i_sph, const int off_j_sph,
+    const int ni_cart, const int nj_cart, const int ni_sph, const int nj_sph,
+    float* buf0, float* buf1)
+{
+    float Ci[MAX_CART_SHELL * MAX_CART_SHELL];
+    float Cj[MAX_CART_SHELL * MAX_CART_SHELL];
+    for (int a = 0; a < ni_cart; a++)
+        for (int p = 0; p < ni_sph; p++)
+            Ci[a * ni_sph + p] =
+                U[(off_i_cart + a) * nao_sph + (off_i_sph + p)];
+    for (int b = 0; b < nj_cart; b++)
+        for (int q = 0; q < nj_sph; q++)
+            Cj[b * nj_sph + q] =
+                U[(off_j_cart + b) * nao_sph + (off_j_sph + q)];
+
+    QC_Cart2Sph_Step_OneE_CPU(Ci, ni_cart, ni_sph, 1, nj_cart, buf0, buf1);
+    QC_Cart2Sph_Step_OneE_CPU(Cj, nj_cart, nj_sph, ni_sph, 1, buf1, buf0);
+}
+
+static inline void QC_Cart2Sph_Shell_OneE_Block3_CPU(
+    const float* U, const int nao_sph, const int off_i_cart,
+    const int off_j_cart, const int off_i_sph, const int off_j_sph,
+    const int ni_cart, const int nj_cart, const int ni_sph, const int nj_sph,
+    const std::vector<float>& src3, std::vector<float>& dst3,
+    std::vector<float>& buf0, std::vector<float>& buf1)
+{
+    dst3.assign((size_t)ni_sph * nj_sph * 3, 0.0f);
+    for (int d = 0; d < 3; d++)
+    {
+        for (int idx = 0; idx < ni_cart * nj_cart; idx++)
+            buf0[(size_t)idx] = src3[(size_t)idx * 3 + d];
+        QC_Cart2Sph_Shell_OneE_CPU(U, nao_sph, off_i_cart, off_j_cart,
+                                   off_i_sph, off_j_sph, ni_cart, nj_cart,
+                                   ni_sph, nj_sph, buf0.data(), buf1.data());
+        for (int idx = 0; idx < ni_sph * nj_sph; idx++)
+            dst3[(size_t)idx * 3 + d] = buf0[(size_t)idx];
+    }
+}
+
+static inline void QC_Build_OneE_Gradient_Spherical_CPU(
+    const std::vector<QC_ONE_E_TASK>& tasks, const std::vector<VECTOR>& centers,
+    const std::vector<int>& l_list, const std::vector<float>& exps,
+    const std::vector<float>& coeffs, const std::vector<int>& shell_offsets,
+    const std::vector<int>& shell_sizes, const std::vector<int>& ao_offsets_cart,
+    const std::vector<int>& ao_offsets_sph, const std::vector<int>& atm,
+    const std::vector<float>& env, const std::vector<int>& shell_atom,
+    const float* P, const float* W, const float* norms,
+    const float* cart2sph_mat, const int natm, const int nao_sph, double* grad)
+{
+    for (const QC_ONE_E_TASK& sh_idx : tasks)
+    {
+        const int i_sh = sh_idx.x;
+        const int j_sh = sh_idx.y;
+        const int li = l_list[(size_t)i_sh];
+        const int lj = l_list[(size_t)j_sh];
+        const int ni_cart = (li + 1) * (li + 2) / 2;
+        const int nj_cart = (lj + 1) * (lj + 2) / 2;
+        const int ni_sph = 2 * li + 1;
+        const int nj_sph = 2 * lj + 1;
+        const int off_i_cart = ao_offsets_cart[(size_t)i_sh];
+        const int off_j_cart = ao_offsets_cart[(size_t)j_sh];
+        const int off_i_sph = ao_offsets_sph[(size_t)i_sh];
+        const int off_j_sph = ao_offsets_sph[(size_t)j_sh];
+        const int atom_i = shell_atom[(size_t)i_sh];
+        const VECTOR A = centers[(size_t)i_sh];
+        const VECTOR B = centers[(size_t)j_sh];
+        const float Ax = A.x, Ay = A.y, Az = A.z;
+        const float Bx = B.x, By = B.y, Bz = B.z;
+        const float dist_sq = (Ax - Bx) * (Ax - Bx) + (Ay - By) * (Ay - By) +
+                              (Az - Bz) * (Az - Bz);
+
+        const int shell_size_cart = ni_cart * nj_cart;
+        std::vector<float> dS_cart((size_t)shell_size_cart * 3, 0.0f);
+        std::vector<float> dT_cart((size_t)shell_size_cart * 3, 0.0f);
+        std::vector<float> dV_A_cart((size_t)shell_size_cart * 3, 0.0f);
+        std::vector<float> dV_C_cart((size_t)natm * shell_size_cart * 3, 0.0f);
+
+        for (int idx_i = 0; idx_i < ni_cart; idx_i++)
+        {
+            for (int idx_j = 0; idx_j < nj_cart; idx_j++)
+            {
+                int lx_i, ly_i, lz_i, lx_j, ly_j, lz_j;
+                QC_Get_Lxyz_Host(li, idx_i, lx_i, ly_i, lz_i);
+                QC_Get_Lxyz_Host(lj, idx_j, lx_j, ly_j, lz_j);
+                const int idx = idx_i * nj_cart + idx_j;
+
+                for (int pi = 0; pi < shell_sizes[(size_t)i_sh]; pi++)
+                {
+                    const float ei =
+                        exps[(size_t)shell_offsets[(size_t)i_sh] + pi];
+                    const float ci =
+                        coeffs[(size_t)shell_offsets[(size_t)i_sh] + pi];
+                    for (int pj = 0; pj < shell_sizes[(size_t)j_sh]; pj++)
+                    {
+                        const float ej =
+                            exps[(size_t)shell_offsets[(size_t)j_sh] + pj];
+                        const float cj =
+                            coeffs[(size_t)shell_offsets[(size_t)j_sh] + pj];
+                        const float g = ei + ej;
+                        const float Kab = expf(-ei * ej / g * dist_sq);
+                        const float cc = ci * cj * Kab;
+                        if (fabsf(cc) < 1e-20f) continue;
+
+                        const float Px = (ei * Ax + ej * Bx) / g;
+                        const float Py = (ei * Ay + ej * By) / g;
+                        const float Pz = (ei * Az + ej * Bz) / g;
+                        const float one2p = 0.5f / g;
+
+                        float res_x[6][6], res_y[6][6], res_z[6][6];
+                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
+                                          g, res_x);
+                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
+                                          g, res_y);
+                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az, Pz - Bz,
+                                          g, res_z);
+
+                        const float sx = res_x[lx_i][lx_j];
+                        const float sy = res_y[ly_i][ly_j];
+                        const float sz = res_z[lz_i][lz_j];
+
+                        float dsx_dAx = 2.0f * ei * res_x[lx_i + 1][lx_j];
+                        if (lx_i > 0)
+                            dsx_dAx -= (float)lx_i * res_x[lx_i - 1][lx_j];
+                        float dsy_dAy = 2.0f * ei * res_y[ly_i + 1][ly_j];
+                        if (ly_i > 0)
+                            dsy_dAy -= (float)ly_i * res_y[ly_i - 1][ly_j];
+                        float dsz_dAz = 2.0f * ei * res_z[lz_i + 1][lz_j];
+                        if (lz_i > 0)
+                            dsz_dAz -= (float)lz_i * res_z[lz_i - 1][lz_j];
+
+                        dS_cart[(size_t)idx * 3 + 0] += cc * dsx_dAx * sy * sz;
+                        dS_cart[(size_t)idx * 3 + 1] += cc * sx * dsy_dAy * sz;
+                        dS_cart[(size_t)idx * 3 + 2] += cc * sx * sy * dsz_dAz;
+
+                        auto kin1d = [&](float res[6][6], int la, int lb,
+                                         float ai, float bj) -> float
+                        {
+                            float t = 2.0f * ai * bj * res[la + 1][lb + 1];
+                            if (lb > 0)
+                                t -= ai * (float)lb * res[la + 1][lb - 1];
+                            if (la > 0)
+                                t -= bj * (float)la * res[la - 1][lb + 1];
+                            if (la > 0 && lb > 0)
+                                t += 0.5f * (float)la * (float)lb *
+                                     res[la - 1][lb - 1];
+                            return t;
+                        };
+
+                        const float tx = kin1d(res_x, lx_i, lx_j, ei, ej);
+                        const float ty = kin1d(res_y, ly_i, ly_j, ei, ej);
+                        const float tz = kin1d(res_z, lz_i, lz_j, ei, ej);
+
+                        float dtx_dAx =
+                            2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
+                        if (lx_i > 0)
+                            dtx_dAx -=
+                                (float)lx_i * kin1d(res_x, lx_i - 1, lx_j, ei, ej);
+                        float dty_dAy =
+                            2.0f * ei * kin1d(res_y, ly_i + 1, ly_j, ei, ej);
+                        if (ly_i > 0)
+                            dty_dAy -=
+                                (float)ly_i * kin1d(res_y, ly_i - 1, ly_j, ei, ej);
+                        float dtz_dAz =
+                            2.0f * ei * kin1d(res_z, lz_i + 1, lz_j, ei, ej);
+                        if (lz_i > 0)
+                            dtz_dAz -=
+                                (float)lz_i * kin1d(res_z, lz_i - 1, lz_j, ei, ej);
+
+                        dT_cart[(size_t)idx * 3 + 0] +=
+                            cc * (dtx_dAx * sy * sz + dsx_dAx * ty * sz +
+                                  dsx_dAx * sy * tz);
+                        dT_cart[(size_t)idx * 3 + 1] +=
+                            cc * (tx * dsy_dAy * sz + sx * dty_dAy * sz +
+                                  sx * dsy_dAy * tz);
+                        dT_cart[(size_t)idx * 3 + 2] +=
+                            cc * (tx * sy * dsz_dAz + sx * ty * dsz_dAz +
+                                  sx * sy * dtz_dAz);
+
+                        float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
+                        compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx, one2p);
+                        compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By, one2p);
+                        compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
+                        float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
+                        if (lx_i + 1 < 5)
+                            compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax,
+                                              Px - Bx, one2p);
+                        if (ly_i + 1 < 5)
+                            compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay,
+                                              Py - By, one2p);
+                        if (lz_i + 1 < 5)
+                            compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az,
+                                              Pz - Bz, one2p);
+
+                        for (int iat = 0; iat < natm; iat++)
+                        {
+                            const int ptr_coord = atm[(size_t)iat * 6 + 1];
+                            const float Cx = env[(size_t)ptr_coord];
+                            const float Cy = env[(size_t)ptr_coord + 1];
+                            const float Cz = env[(size_t)ptr_coord + 2];
+                            const float PC2 = (Px - Cx) * (Px - Cx) +
+                                              (Py - Cy) * (Py - Cy) +
+                                              (Pz - Cz) * (Pz - Cz);
+                            float PC[3] = {Px - Cx, Py - Cy, Pz - Cz};
+                            const int L_tot = li + lj;
+                            const float Z_C = (float)atm[(size_t)iat * 6];
+
+                            double F_vals[ONEE_MD_BASE];
+                            float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
+                                         ONEE_MD_BASE * ONEE_MD_BASE];
+                            compute_boys_double(F_vals, g * PC2, L_tot + 1);
+                            compute_r_tensor_1e(R_vals, F_vals, g, PC,
+                                                L_tot + 1);
+
+                            const float prefac =
+                                cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
+
+                            double dv_dAx = 0.0, dv_dAy = 0.0, dv_dAz = 0.0;
+                            for (int t = 0; t <= lx_i + lx_j + 1; t++)
+                            {
+                                float dex = 0.0f;
+                                if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
+                                    dex += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
+                                if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
+                                    dex -= (float)lx_i *
+                                           Ex0[lx_i - 1][lx_j][t];
+
+                                for (int u = 0; u <= ly_i + ly_j; u++)
+                                {
+                                    const float ey = Ey0[ly_i][ly_j][u];
+                                    if (fabsf(ey) < 1e-30f &&
+                                        fabsf(dex) < 1e-30f)
+                                        continue;
+                                    for (int v = 0; v <= lz_i + lz_j; v++)
+                                    {
+                                        const float ez = Ez0[lz_i][lz_j][v];
+                                        const float r0 =
+                                            R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        if (fabsf(dex) > 1e-30f)
+                                            dv_dAx +=
+                                                (double)dex * (double)ey *
+                                                (double)ez * (double)r0;
+                                    }
+                                }
+                            }
+                            for (int t = 0; t <= lx_i + lx_j; t++)
+                            {
+                                const float ex = Ex0[lx_i][lx_j][t];
+                                if (fabsf(ex) < 1e-30f) continue;
+                                for (int u = 0; u <= ly_i + ly_j + 1; u++)
+                                {
+                                    float dey = 0.0f;
+                                    if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
+                                        dey +=
+                                            2.0f * ei * Ey1[ly_i + 1][ly_j][u];
+                                    if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
+                                        dey -= (float)ly_i *
+                                               Ey0[ly_i - 1][ly_j][u];
+                                    if (fabsf(dey) < 1e-30f) continue;
+                                    for (int v = 0; v <= lz_i + lz_j; v++)
+                                    {
+                                        const float ez = Ez0[lz_i][lz_j][v];
+                                        const float r0 =
+                                            R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        dv_dAy += (double)ex * (double)dey *
+                                                  (double)ez * (double)r0;
+                                    }
+                                }
+                            }
+                            for (int t = 0; t <= lx_i + lx_j; t++)
+                            {
+                                const float ex = Ex0[lx_i][lx_j][t];
+                                if (fabsf(ex) < 1e-30f) continue;
+                                for (int u = 0; u <= ly_i + ly_j; u++)
+                                {
+                                    const float ey = Ey0[ly_i][ly_j][u];
+                                    if (fabsf(ey) < 1e-30f) continue;
+                                    for (int v = 0; v <= lz_i + lz_j + 1; v++)
+                                    {
+                                        float dez = 0.0f;
+                                        if (v <= (lz_i + 1) + lz_j &&
+                                            (lz_i + 1) < 5)
+                                            dez +=
+                                                2.0f * ei * Ez1[lz_i + 1][lz_j][v];
+                                        if (lz_i > 0 &&
+                                            v <= (lz_i - 1) + lz_j)
+                                            dez -= (float)lz_i *
+                                                   Ez0[lz_i - 1][lz_j][v];
+                                        const float r0 =
+                                            R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        dv_dAz += (double)ex * (double)ey *
+                                                  (double)dez * (double)r0;
+                                    }
+                                }
+                            }
+
+                            dV_A_cart[(size_t)idx * 3 + 0] +=
+                                (float)(dv_dAx * (double)prefac);
+                            dV_A_cart[(size_t)idx * 3 + 1] +=
+                                (float)(dv_dAy * (double)prefac);
+                            dV_A_cart[(size_t)idx * 3 + 2] +=
+                                (float)(dv_dAz * (double)prefac);
+
+                            double dv_dCx = 0.0, dv_dCy = 0.0, dv_dCz = 0.0;
+                            for (int t = 0; t <= lx_i + lx_j; t++)
+                            {
+                                const float ex = Ex0[lx_i][lx_j][t];
+                                if (fabsf(ex) < 1e-30f) continue;
+                                for (int u = 0; u <= ly_i + ly_j; u++)
+                                {
+                                    const float ey = Ey0[ly_i][ly_j][u];
+                                    if (fabsf(ey) < 1e-30f) continue;
+                                    for (int v = 0; v <= lz_i + lz_j; v++)
+                                    {
+                                        const float ez = Ez0[lz_i][lz_j][v];
+                                        if (fabsf(ez) < 1e-30f) continue;
+                                        const double eee =
+                                            (double)ex * (double)ey * (double)ez;
+                                        dv_dCx -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t + 1, u, v, 0)];
+                                        dv_dCy -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t, u + 1, v, 0)];
+                                        dv_dCz -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t, u, v + 1, 0)];
+                                    }
+                                }
+                            }
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                                      0] += (float)(dv_dCx * (double)prefac);
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                                      1] += (float)(dv_dCy * (double)prefac);
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                                      2] += (float)(dv_dCz * (double)prefac);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Scratch buffers for cart2sph, allocated once per shell pair
+        std::vector<float> sph_buf0((size_t)ni_cart * nj_cart, 0.0f);
+        std::vector<float> sph_buf1(
+            (size_t)std::max(ni_sph * nj_cart, ni_cart * nj_sph), 0.0f);
+
+        std::vector<float> dS_sph, dT_sph, dV_A_sph;
+        QC_Cart2Sph_Shell_OneE_Block3_CPU(
+            cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
+            ni_cart, nj_cart, ni_sph, nj_sph, dS_cart, dS_sph,
+            sph_buf0, sph_buf1);
+        QC_Cart2Sph_Shell_OneE_Block3_CPU(
+            cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
+            ni_cart, nj_cart, ni_sph, nj_sph, dT_cart, dT_sph,
+            sph_buf0, sph_buf1);
+        QC_Cart2Sph_Shell_OneE_Block3_CPU(
+            cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
+            ni_cart, nj_cart, ni_sph, nj_sph, dV_A_cart, dV_A_sph,
+            sph_buf0, sph_buf1);
+
+        std::vector<float> dV_C_sph_one;
+        for (int ci = 0; ci < ni_sph; ci++)
+        {
+            const int p = off_i_sph + ci;
+            const float norm_p = norms[p];
+            const int pn = p * nao_sph;
+            for (int cj = 0; cj < nj_sph; cj++)
+            {
+                const int q = off_j_sph + cj;
+                const float scale = norm_p * norms[q];
+                const int idx = ci * nj_sph + cj;
+                const float p_val = P[pn + q];
+                const float w_val = W[pn + q];
+                for (int d = 0; d < 3; d++)
+                {
+                    const double ds = (double)dS_sph[(size_t)idx * 3 + d] *
+                                      (double)scale;
+                    const double dt = (double)dT_sph[(size_t)idx * 3 + d] *
+                                      (double)scale;
+                    const double dvA = (double)dV_A_sph[(size_t)idx * 3 + d] *
+                                       (double)scale;
+                    grad[atom_i * 3 + d] +=
+                        -2.0 * (double)w_val * ds +
+                        2.0 * (double)p_val * (dt + dvA);
+                }
+            }
+        }
+
+        for (int iat = 0; iat < natm; iat++)
+        {
+            const float* src_iat =
+                dV_C_cart.data() + (size_t)iat * shell_size_cart * 3;
+            std::vector<float> src3(src_iat, src_iat + (size_t)shell_size_cart * 3);
+            QC_Cart2Sph_Shell_OneE_Block3_CPU(
+                cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph,
+                off_j_sph, ni_cart, nj_cart, ni_sph, nj_sph, src3,
+                dV_C_sph_one, sph_buf0, sph_buf1);
+            for (int ci = 0; ci < ni_sph; ci++)
+            {
+                const int p = off_i_sph + ci;
+                const float norm_p = norms[p];
+                const int pn = p * nao_sph;
+                for (int cj = 0; cj < nj_sph; cj++)
+                {
+                    const int q = off_j_sph + cj;
+                    const double scale = (double)norm_p * (double)norms[q];
+                    const float p_val = P[pn + q];
+                    const int idx = ci * nj_sph + cj;
+                    for (int d = 0; d < 3; d++)
+                    {
+                        grad[iat * 3 + d] +=
+                            (double)p_val *
+                            ((double)dV_C_sph_one[(size_t)idx * 3 + d] * scale);
+                    }
+                }
+            }
+        }
+    }
+}
+#endif

@@ -61,12 +61,17 @@ struct QUANTUM_CHEMISTRY
     // 笛卡尔基组转球形基组
     QC_CARTESIAN_TO_SPHERICAL cart2sph;
 
+    int need_gradient = 1; // 是否计算梯度/力 (qc_need_gradient)
+
     // 外部入口
     void Initial(CONTROLLER* controller, const int atom_numbers,
                  const VECTOR* crd, const char* module_name = NULL);
     void Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                    bool need_energy = true, int md_step = -1);
-    void Compute_Gradient(VECTOR* frc, const VECTOR box_length);
+    void Compute_Gradient(VECTOR* frc, const VECTOR* crd,
+                          const VECTOR box_length,
+                          int need_virial = 0,
+                          LTMatrix3* atom_virial = NULL);
 
     // 外部查询与输出
     void Step_Print(CONTROLLER* controller);

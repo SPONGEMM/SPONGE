@@ -434,8 +434,6 @@ void Main_Calculate_Force()
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
     qc.Solve_SCF(dd.crd, md_info.sys.box_length, true, md_info.sys.steps);
-    if (qc.is_initialized)
-        qc.Compute_Gradient(dd.frc, md_info.sys.box_length);
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;
@@ -461,6 +459,10 @@ void Main_Calculate_Force()
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         dd.Reset_Force_and_Virial(&md_info);
+        // QC 梯度必须在 dd.Reset_Force_and_Virial 之后调用
+        if (qc.is_initialized && qc.need_gradient)
+            qc.Compute_Gradient(dd.frc, dd.crd, md_info.sys.box_length,
+                                md_info.need_pressure, dd.d_virial);
         dd.Update_Ghost(&controller);
         neighbor_list.Update(
             dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,

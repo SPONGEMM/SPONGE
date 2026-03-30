@@ -223,6 +223,11 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             model_chemistry.c_str());
     }
 
+    if (controller->Command_Exist("qc_need_gradient"))
+    {
+        need_gradient = atoi(controller->Command("qc_need_gradient"));
+    }
+
     task_ctx.params.eri_prim_screen_tol = 1e-12f;
     if (controller->Command_Exist("qc_eri_prim_screen_tol"))
     {
