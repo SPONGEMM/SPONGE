@@ -175,11 +175,21 @@ jobs:
           path: release-artifacts/prips/*.tar.gz
           if-no-files-found: error
 
-  release-windows-msi:
-    name: Release Windows MSI
+  release-windows-installer:
+    name: Release Windows Installer (${{ matrix.variant }})
     runs-on: windows-2022
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env_name: dev-cpu
+            variant: CPU
+          - env_name: dev-cuda12
+            variant: CUDA12
+          - env_name: dev-cuda13
+            variant: CUDA13
 
     steps:
       - name: Checkout repository
@@ -190,28 +200,28 @@ jobs:
         with:
           run-install: false
 
-      - name: Build Windows CPU binaries
+      - name: Build Windows binaries
         shell: pwsh
         run: |
-          pixi install -e dev-cpu
-          pixi run -e dev-cpu configure
-          pixi run -e dev-cpu compile
+          pixi install -e ${{ matrix.env_name }}
+          pixi run -e ${{ matrix.env_name }} configure
+          pixi run -e ${{ matrix.env_name }} compile
 
-      - name: Install WiX Toolset
+      - name: Install NSIS
         shell: pwsh
         run: |
-          choco install wixtoolset --no-progress -y
+          choco install nsis --no-progress -y
 
-      - name: Build MSI package
+      - name: Build installer
         shell: pwsh
         run: |
-          .\packaging\windows\cpu.ps1 -EnvName dev-cpu -Tag "${{ github.ref_name }}"
+          .\packaging\windows\installer.ps1 -EnvName ${{ matrix.env_name }} -Variant ${{ matrix.variant }} -Tag "${{ github.ref_name }}"
 
-      - name: Upload MSI artifact
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v6
         with:
-          name: sponge-msi-cpu-win-64
-          path: release-artifacts/msi/*.msi
+          name: sponge-installer-${{ matrix.variant }}-win-64
+          path: release-artifacts/nsis/*-installer.exe
           if-no-files-found: error
 
   release-docker:
@@ -308,7 +318,7 @@ jobs:
     needs:
       - release-sponge-conda
       - release-prips-sdist
-      - release-windows-msi
+      - release-windows-installer
       - release-docker
     permissions:
       contents: write
@@ -338,5 +348,5 @@ jobs:
           generate_release_notes: true
           files: |
             release-artifacts/**/*.conda
-            release-artifacts/**/*.msi
+            release-artifacts/**/*.exe
             release-artifacts/**/*.tar.gz

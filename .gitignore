@@ -27,6 +27,7 @@ restart.rst7
 .trae-cn/
 
 outputs/
+release-artifacts/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
