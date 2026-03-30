@@ -75,13 +75,13 @@ jobs:
           pixi install -e ${{ matrix.env_name }}
           pixi run -e ${{ matrix.env_name }} configure
           pixi run -e ${{ matrix.env_name }} compile
-          pixi run -e ${{ matrix.env_name }} package
+          pixi run -e ${{ matrix.env_name }} package-conda
 
       - name: Verify package install with pixi
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("packaging/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-pixi \
             --path "${package_path}" \
             --expose SPONGE \
@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("packaging/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-conda-exe \
             --expose conda \
             conda \
@@ -106,7 +106,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("packaging/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-mamba-exe \
             --expose mamba \
             mamba \
@@ -121,7 +121,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("conda/outputs").glob("*.conda"))[0].resolve())')"
+          package_path="$(pixi run -e ${{ matrix.env_name }} python -c 'from pathlib import Path; print(sorted(Path("packaging/outputs").glob("*.conda"))[0].resolve())')"
           pixi global install --environment verify-micromamba-exe \
             --expose micromamba \
             micromamba \
@@ -136,7 +136,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: sponge-${{ matrix.feature }}-${{ matrix.target }}-${{ github.run_id }}
-          path: conda/outputs/*.conda
+          path: packaging/outputs/*.conda
           if-no-files-found: error
 
   package-prips-sdist:
