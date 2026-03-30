@@ -74,9 +74,77 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
     _debug_print_grad("AFTER_NUCLEAR", natm, grad_ws.d_grad);
 
     // 3. 单电子积分导数: Tr[P·dH/dR] - Tr[W·dS/dR]
+    // 1e kernel 在 Cartesian 基中计算积分，需要 Cartesian 版的 P, W, norms。
+    // 对 spherical 基组: 变换 P_sph → P_cart, W_sph → W_cart,
+    //                   并从 Cartesian 重叠矩阵构建 norms_cart。
     {
         const float* d_P_use = scf_ws.direct.d_P_coul;
         const float* d_W_use = grad_ws.d_W_density;
+        const float* d_norms_use = scf_ws.ortho.d_norms;
+        int nao_1e = mol.nao;
+
+        // 临时 Cartesian 缓冲（spherical 时使用）
+        float* d_P_cart = nullptr;
+        float* d_W_cart = nullptr;
+        float* d_norms_cart = nullptr;
+
+        if (mol.is_spherical)
+        {
+            const int nao_c = mol.nao_cart;
+            const int nao_c2 = nao_c * nao_c;
+            nao_1e = nao_c;
+
+            // 分配临时缓冲
+            d_P_cart = (float*)malloc(sizeof(float) * nao_c2);
+            d_W_cart = (float*)malloc(sizeof(float) * nao_c2);
+            d_norms_cart = (float*)malloc(sizeof(float) * nao_c);
+
+            // Sph2Cart: M_cart = C · M_sph · C^T
+            // C = cart2sph_mat [nao_c × nao_s], C^T = [nao_s × nao_c]
+            // M_cart = C · M_sph · C^T
+            const float* C = cart2sph.d_cart2sph_mat;
+            const int nao_s = mol.nao;
+            float* tmp = (float*)malloc(sizeof(float) * nao_c * nao_s);
+
+            auto sph2cart = [&](const float* M_sph, float* M_cart) {
+                // tmp = C · M_sph  [nao_c × nao_s]
+                const float one = 1.0f, zero = 0.0f;
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
+                                nao_c, nao_s, nao_s, &one, C, nao_c, M_sph,
+                                nao_s, &zero, tmp, nao_c);
+                // M_cart = tmp · C^T  [nao_c × nao_c]
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                nao_c, nao_c, nao_s, &one, tmp, nao_c, C,
+                                nao_c, &zero, M_cart, nao_c);
+            };
+
+            sph2cart(d_P_use, d_P_cart);
+            sph2cart(d_W_use, d_W_cart);
+            free(tmp);
+
+            d_P_use = d_P_cart;
+            d_W_use = d_W_cart;
+
+            // Cartesian norms from Cartesian overlap: S_cart = C · S_sph · C^T
+            float* S_cart = (float*)malloc(sizeof(float) * nao_c2);
+            {
+                float* tmp2 = (float*)malloc(sizeof(float) * nao_c * nao_s);
+                const float one2 = 1.0f, zero2 = 0.0f;
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
+                                nao_c, nao_s, nao_s, &one2, C, nao_c,
+                                scf_ws.core.d_S, nao_s, &zero2, tmp2, nao_c);
+                deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                nao_c, nao_c, nao_s, &one2, tmp2, nao_c, C,
+                                nao_c, &zero2, S_cart, nao_c);
+                free(tmp2);
+            }
+            for (int i = 0; i < nao_c; i++)
+                d_norms_cart[i] =
+                    1.0f / sqrtf(fmaxf(S_cart[i * nao_c + i], 1e-20f));
+            free(S_cart);
+
+            d_norms_use = d_norms_cart;
+        }
 
         const int chunk_size = ONE_E_BATCH_SIZE;
         for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
@@ -89,9 +157,13 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR box_length)
                 current_chunk, task_ptr, mol.d_centers, mol.d_l_list,
                 mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
                 mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm, mol.d_env,
-                mol.natm, mol.nao, grad_ws.d_shell_atom, d_P_use, d_W_use,
-                scf_ws.ortho.d_norms, grad_ws.d_grad);
+                mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use, d_W_use,
+                d_norms_use, grad_ws.d_grad);
         }
+
+        if (d_P_cart) free(d_P_cart);
+        if (d_W_cart) free(d_W_cart);
+        if (d_norms_cart) free(d_norms_cart);
     }
     _debug_print_grad("AFTER_1E", natm, grad_ws.d_grad);
 
