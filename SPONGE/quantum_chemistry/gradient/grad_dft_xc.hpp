@@ -805,15 +805,22 @@ static void QC_Build_DFT_XC_Gradient_UKS(
                                           d_hz, d_cart2sph_mat, d_ao_grad_z);
                     d_hx = d_ao_grad_x; d_hy = d_ao_grad_y; d_hz = d_ao_grad_z;
                 }
+                // Hessian norms 写入空闲缓冲区 (不覆盖 d_gx_norm 等!)
+                // d_ao_vals, d_ao_norm, d_ao_grad_z 此时空闲 (Pao 已算完)
+                float* d_hx_norm = d_ao_vals;
+                float* d_hy_norm = d_ao_norm;
+                // d_hz_norm: 复用 d_GPao_scratch 的前 n_batch*nao 个 float
+                // (GPao_scratch 是 float[nao*n_batch]，此时已用完)
+                float* d_hz_norm = d_GPao_scratch;
                 Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
                                      (total_ao + threads - 1) / threads, threads,
-                                     0, 0, n_batch, nao, d_norms, d_hx, d_gx_norm);
+                                     0, 0, n_batch, nao, d_norms, d_hx, d_hx_norm);
                 Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
                                      (total_ao + threads - 1) / threads, threads,
-                                     0, 0, n_batch, nao, d_norms, d_hy, d_gy_norm);
+                                     0, 0, n_batch, nao, d_norms, d_hy, d_hy_norm);
                 Launch_Device_Kernel(QC_Apply_Norms_AO_Kernel,
                                      (total_ao + threads - 1) / threads, threads,
-                                     0, 0, n_batch, nao, d_norms, d_hz, d_gz_norm);
+                                     0, 0, n_batch, nao, d_norms, d_hz, d_hz_norm);
 
                 Launch_Device_Kernel(
                     QC_Build_W_Pao_TermA_UKS_Kernel,
@@ -825,7 +832,7 @@ static void QC_Build_DFT_XC_Gradient_UKS(
                     QC_XC_Grad_Accumulate_Kernel,
                     (n_batch + threads - 1) / threads, threads, 0, 0, n_batch,
                     nao, nbas, d_shell_atom, d_ao_offsets_grad,
-                    d_gx_norm, d_gy_norm, d_gz_norm, d_W_pao, d_grad);
+                    d_hx_norm, d_hy_norm, d_hz_norm, d_W_pao, d_grad);
             }
         }
     }
