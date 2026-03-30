@@ -113,6 +113,15 @@ jobs:
         run: |
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
+      - name: Upload PRIPS package with Twine
+        env:
+          TWINE_REPOSITORY_URL: ${{ secrets.TWINE_REPOSITORY_URL }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          pixi run -e dev-cpu pip install --disable-pip-version-check twine
+          pixi run -e dev-cpu twine upload plugins/prips/dist/*.tar.gz
+
       - name: Stage PRIPS artifacts
         shell: bash
         run: |
