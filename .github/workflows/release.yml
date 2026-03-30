@@ -343,9 +343,73 @@ jobs:
       - name: Create or update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: "SPONGE ${{ github.ref_name }}"
           draft: false
           prerelease: ${{ steps.channel.outputs.stable != 'true' }}
-          generate_release_notes: true
+          body: |
+            ## 安装
+
+            ### Conda 包
+
+            Conda 包可通过 [pixi](https://pixi.sh)、conda、mamba 或 micromamba 安装。
+
+            **可用包：**
+
+            | 包名 | 说明 | 平台 |
+            |------|------|------|
+            | `sponge-cuda13` | NVIDIA GPU（驱动 ≥ 570） | Linux x64、Windows x64 |
+            | `sponge-cuda12` | NVIDIA GPU（驱动 ≥ 525） | Linux x64、Windows x64 |
+            | `sponge-cpu` | 仅 CPU | Linux x64/ARM64、Windows x64、macOS ARM64 |
+            | `sponge-cpu-mpi` | CPU + MPI 并行 | Linux x64/ARM64 |
+
+            **pixi：**
+
+            ```bash
+            pixi global install --channel https://conda.spongemm.cn/conda sponge-cuda13
+            ```
+
+            **conda / mamba / micromamba：**
+
+            ```bash
+            conda install -c https://conda.spongemm.cn/conda sponge-cuda13
+            ```
+
+            ### Windows 安装包
+
+            从下方 Assets 下载 `.exe` 安装包并运行，可选版本：
+            - **CPU** — 无需 GPU
+            - **CUDA 12** — 适用于 NVIDIA GPU（驱动 ≥ 525）
+            - **CUDA 13** — 适用于 NVIDIA GPU（驱动 ≥ 570）
+
+            ### 容器镜像
+
+            **Docker：**
+
+            ```bash
+            docker pull spongemm/sponge:${{ github.ref_name }}-cuda13-x64
+            ```
+
+            **Apptainer / Singularity：**
+
+            ```bash
+            apptainer pull sponge.sif docker://spongemm/sponge:${{ github.ref_name }}-cuda13-x64
+            ```
+
+            可用镜像标签：`cpu-x64`、`cpu-arm64`、`cuda12-x64`、`cuda13-x64`。
+
+            ### PRIPS（Python 接口）
+
+            ```bash
+            pip install prips
+            ```
+
+            ### 从源码编译
+
+            参见 [构建指南](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/build-guide.md)。
+
+            ---
+
+            **完整更新日志**：https://github.com/${{ github.repository }}/compare/.../${{ github.ref_name }}
           files: |
             release-artifacts/**/*.conda
             release-artifacts/**/*.exe
