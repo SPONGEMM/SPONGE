@@ -427,6 +427,12 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
     const float* P, const float* W, const float* norms,
     const float* cart2sph_mat, const int natm, const int nao_sph, double* grad)
 {
+    // Reusable buffers hoisted out of the task loop to avoid repeated allocation.
+    std::vector<float> dS_cart, dT_cart, dV_A_cart, dV_C_cart;
+    std::vector<float> sph_buf0, sph_buf1;
+    std::vector<float> dS_sph, dT_sph, dV_A_sph, dV_C_sph_one;
+    std::vector<float> src3;
+
     for (const QC_ONE_E_TASK& sh_idx : tasks)
     {
         const int i_sh = sh_idx.x;
@@ -450,10 +456,10 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                               (Az - Bz) * (Az - Bz);
 
         const int shell_size_cart = ni_cart * nj_cart;
-        std::vector<float> dS_cart((size_t)shell_size_cart * 3, 0.0f);
-        std::vector<float> dT_cart((size_t)shell_size_cart * 3, 0.0f);
-        std::vector<float> dV_A_cart((size_t)shell_size_cart * 3, 0.0f);
-        std::vector<float> dV_C_cart((size_t)natm * shell_size_cart * 3, 0.0f);
+        dS_cart.assign((size_t)shell_size_cart * 3, 0.0f);
+        dT_cart.assign((size_t)shell_size_cart * 3, 0.0f);
+        dV_A_cart.assign((size_t)shell_size_cart * 3, 0.0f);
+        dV_C_cart.assign((size_t)natm * shell_size_cart * 3, 0.0f);
 
         for (int idx_i = 0; idx_i < ni_cart; idx_i++)
         {
@@ -719,12 +725,9 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
             }
         }
 
-        // Scratch buffers for cart2sph, allocated once per shell pair
-        std::vector<float> sph_buf0((size_t)ni_cart * nj_cart, 0.0f);
-        std::vector<float> sph_buf1(
+        sph_buf0.assign((size_t)ni_cart * nj_cart, 0.0f);
+        sph_buf1.assign(
             (size_t)std::max(ni_sph * nj_cart, ni_cart * nj_sph), 0.0f);
-
-        std::vector<float> dS_sph, dT_sph, dV_A_sph;
         QC_Cart2Sph_Shell_OneE_Block3_CPU(
             cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
             ni_cart, nj_cart, ni_sph, nj_sph, dS_cart, dS_sph,
@@ -738,7 +741,6 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
             ni_cart, nj_cart, ni_sph, nj_sph, dV_A_cart, dV_A_sph,
             sph_buf0, sph_buf1);
 
-        std::vector<float> dV_C_sph_one;
         for (int ci = 0; ci < ni_sph; ci++)
         {
             const int p = off_i_sph + ci;
@@ -770,7 +772,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
         {
             const float* src_iat =
                 dV_C_cart.data() + (size_t)iat * shell_size_cart * 3;
-            std::vector<float> src3(src_iat, src_iat + (size_t)shell_size_cart * 3);
+            src3.assign(src_iat, src_iat + (size_t)shell_size_cart * 3);
             QC_Cart2Sph_Shell_OneE_Block3_CPU(
                 cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph,
                 off_j_sph, ni_cart, nj_cart, ni_sph, nj_sph, src3,

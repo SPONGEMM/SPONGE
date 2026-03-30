@@ -37,7 +37,6 @@ static __global__ void QC_Nuclear_Gradient_Kernel(const int natm,
             gz += zj * (double)dr.z * r3_inv;
         }
 
-        // dE_nuc/dR_Ax = -Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
         atomicAdd(&grad[i * 3 + 0], -zi * gx);
         atomicAdd(&grad[i * 3 + 1], -zi * gy);
         atomicAdd(&grad[i * 3 + 2], -zi * gz);

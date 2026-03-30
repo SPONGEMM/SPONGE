@@ -294,10 +294,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const float max_activity =
         anchor_activity[(size_t)sorted_activity_ids.front()];
 
-
 #pragma omp parallel num_threads(thread_count)
     {
-            std::vector<double> grad_local((size_t)natm_max * 3, 0.0);
+        std::vector<double> grad_local((size_t)natm_max * 3, 0.0);
         const int grad_hr_base = hr_base + 1;
         const int grad_hr_size =
             grad_hr_base * grad_hr_base * grad_hr_base * grad_hr_base;

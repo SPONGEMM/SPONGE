@@ -191,22 +191,6 @@ static __global__ void QC_Build_W_Pao_TermA_Kernel(
     }
 }
 
-// 双权重 GPao 累积: GPao += scale1[g] * scale2[g] * Pgao[idx]
-static __global__ void QC_Accumulate_GPao_TwoScale_Kernel(
-    const int n_grid, const int nao, const double* scale1, const double* scale2,
-    const float* Pgao_dir, float* GPao_rho, bool reset)
-{
-    SIMPLE_DEVICE_FOR(idx, n_grid * nao)
-    {
-        const int g = idx % n_grid;
-        float val = (float)(scale1[g] * scale2[g]) * Pgao_dir[idx];
-        if (reset)
-            GPao_rho[idx] = val;
-        else
-            GPao_rho[idx] += val;
-    }
-}
-
 // 构建 GPao_rho: Σ_dir ∇ρ_dir · (P @ ∇φ_dir)
 // 逐方向累积到 scratch 缓冲
 static __global__ void QC_Accumulate_GPao_Rho_Kernel(
@@ -516,30 +500,6 @@ static __global__ void QC_Build_UKS_Eff_Grad_One_Kernel(
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
         out[ig] = 2.0 * vs_same[ig] * gr_this[ig] + vsab[ig] * gr_other[ig];
-    }
-}
-
-// 构建 UKS 的 effective gradient (覆写到 output 缓冲) [保留兼容]
-static __global__ void QC_Build_UKS_Eff_Grad_Kernel(
-    const int n_grid,
-    const double* vsaa, const double* vsab, const double* vsbb,
-    const double* gra_x, const double* gra_y, const double* gra_z,
-    const double* grb_x, const double* grb_y, const double* grb_z,
-    double* eff_a_x, double* eff_a_y, double* eff_a_z,
-    double* eff_b_x, double* eff_b_y, double* eff_b_z)
-{
-    SIMPLE_DEVICE_FOR(ig, n_grid)
-    {
-        const double vaa = vsaa[ig], vab = vsab[ig], vbb = vsbb[ig];
-        // 先读原始值（输出缓冲可能与输入重叠）
-        const double ax = gra_x[ig], ay = gra_y[ig], az = gra_z[ig];
-        const double bx = grb_x[ig], by = grb_y[ig], bz = grb_z[ig];
-        eff_a_x[ig] = 2.0 * vaa * ax + vab * bx;
-        eff_a_y[ig] = 2.0 * vaa * ay + vab * by;
-        eff_a_z[ig] = 2.0 * vaa * az + vab * bz;
-        eff_b_x[ig] = 2.0 * vbb * bx + vab * ax;
-        eff_b_y[ig] = 2.0 * vbb * by + vab * ay;
-        eff_b_z[ig] = 2.0 * vbb * bz + vab * az;
     }
 }
 
