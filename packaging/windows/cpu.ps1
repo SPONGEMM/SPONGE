@@ -118,6 +118,7 @@ if (-not (Test-Path $wixBin)) {
     $wxsPath
 
 & (Join-Path $wixBin "light.exe") `
+    -ext WixUIExtension `
     -out $msiPath `
     $wixObjPath
 

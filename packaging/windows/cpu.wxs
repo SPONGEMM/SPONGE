@@ -10,6 +10,8 @@
     <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of SPONGE CPU is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Property Id="WIXUI_INSTALLDIR" Value="INSTALLFOLDER" />
+    <Property Id="ADDTOPATH" Value="0" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
@@ -19,14 +21,41 @@
 
     <Feature Id="MainFeature" Title="SPONGE CPU" Level="1">
       <ComponentGroupRef Id="ProductFiles" />
+      <ComponentRef Id="AddInstallDirToPath" />
     </Feature>
 
     <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AddInstallDirToPath" Guid="4A1B5C2B-5B2B-44A7-BD53-E8D470B9B6F4" Win64="yes">
+        <Condition><![CDATA[ADDTOPATH = "1"]]></Condition>
+        <Environment
+          Id="AddToPath"
+          Action="set"
+          Name="PATH"
+          Part="last"
+          System="yes"
+          Value="[INSTALLFOLDER]" />
+      </Component>
 {{FILE_COMPONENTS}}
     </DirectoryRef>
 
     <ComponentGroup Id="ProductFiles">
 {{COMPONENT_REFS}}
     </ComponentGroup>
+
+    <UIRef Id="WixUI_InstallDir" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    <UI>
+      <DialogRef Id="InstallDirDlg" />
+      <Control
+        Id="AddToPathCheckbox"
+        Type="CheckBox"
+        X="20"
+        Y="243"
+        Width="300"
+        Height="17"
+        Property="ADDTOPATH"
+        CheckBoxValue="1"
+        Text="Add SPONGE to the system PATH" />
+    </UI>
   </Product>
 </Wix>
