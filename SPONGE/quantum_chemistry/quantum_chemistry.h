@@ -118,6 +118,7 @@ struct QUANTUM_CHEMISTRY
     void Reset_SCF_State();
     void Build_Initial_Guess();
     void Build_DFT_XC_Gradient();
+    void Build_RI_Gradient();
     void Diag_Guess_And_Build_P();
     void Compute_Spin_Square();
 };

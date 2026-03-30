@@ -1102,6 +1102,18 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         deviceMemcpy(grad_ws.d_shell_atom, h_shell_atom.data(),
                      sizeof(int) * mol.nbas, deviceMemcpyHostToDevice);
     }
+    // 辅助基壳层到原子映射 (RI 梯度用)
+    if (scf_ws.ri.enabled)
+    {
+        const auto& ri = scf_ws.ri;
+        std::vector<int> h_shell_atom_aux(ri.naux_bas);
+        for (int ish = 0; ish < ri.naux_bas; ish++)
+            h_shell_atom_aux[ish] = ri.h_aux_bas[ish * 8 + 0];
+        Device_Malloc_Safely((void**)&grad_ws.d_shell_atom_aux,
+                             sizeof(int) * ri.naux_bas);
+        deviceMemcpy(grad_ws.d_shell_atom_aux, h_shell_atom_aux.data(),
+                     sizeof(int) * ri.naux_bas, deviceMemcpyHostToDevice);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)

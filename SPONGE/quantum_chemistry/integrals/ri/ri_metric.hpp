@@ -14,6 +14,8 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
                                       BLAS_HANDLE blas_handle, int naux,
                                       const double* d_metric,
                                       double* d_inv_sqrt,
+                                      std::vector<double>* out_eigval = nullptr,
+                                      std::vector<double>* out_eigvec = nullptr,
                                       double lindep_thresh = 1e-10)
 {
     const int naux2 = naux * naux;
@@ -93,6 +95,10 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
     deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, naux, naux,
                     naux_eff, &one, d_V, naux, d_V, naux, &zero, d_inv_sqrt,
                     naux);
+
+    // 保存特征值/向量供梯度使用 (Daleckii-Kreĭn 公式)
+    if (out_eigval) *out_eigval = h_eigval;
+    if (out_eigvec) *out_eigvec = h_eigvec;
 
     if (d_V) deviceFree(d_V);
     if (d_work) deviceFree(d_work);

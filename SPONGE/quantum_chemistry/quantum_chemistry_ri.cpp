@@ -537,7 +537,8 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
 
     // ---- 3. 特征分解 → (P|Q)^{-1/2} ----
     ri.naux_eff = QC_RI_Build_Metric_InvSqrt(solver_handle, blas_handle, naux,
-                                             ri.d_metric, ri.d_metric_inv_sqrt);
+                                             ri.d_metric, ri.d_metric_inv_sqrt,
+                                             &ri.h_eigval, &ri.h_eigvec);
 
     // ---- 4. 构建 (P|Q)^{-1} (RI-J 用) ----
     QC_RI_Build_Metric_Inv(solver_handle, blas_handle, naux, ri.d_metric,

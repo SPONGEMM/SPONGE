@@ -69,9 +69,13 @@ struct QC_RI_WORKSPACE
     double* d_g_vec = NULL;  // [naux] 求解后的拟合系数
     float* d_B_occ = NULL;   // [naux × nao × nocc] B 与 MO 系数收缩
 
-    // ---- 辅助基 cart2sph（host，用于 direct 模式在线变换） ----
+    // ---- 辅助基 cart2sph（host，用于在线变换） ----
     std::vector<float> h_U_aux;  // [naux_cart × naux] 行优先
     std::vector<float> h_U_orb;  // [nao_cart × nao] 行优先
+
+    // ---- 特征分解数据（梯度用 D2_K Daleckii-Kreĭn 公式） ----
+    std::vector<double> h_eigval;  // [naux] metric 特征值
+    std::vector<double> h_eigvec;  // [naux × naux] 列优先特征向量
 
     // ---- 内存管理 ----
     int naux_eff = 0;  // 去除线性依赖后的有效辅助基维度
