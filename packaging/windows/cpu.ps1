@@ -82,7 +82,7 @@ Get-ChildItem -Path $StageDir -File | Sort-Object Name | ForEach-Object {
     $name = $_.Name
     $source = $_.FullName
 
-    $componentLines.Add("      <Component Id=""$componentId"" Guid=""$guid"">")
+    $componentLines.Add("      <Component Id=""$componentId"" Guid=""$guid"" Win64=""yes"">")
     $componentLines.Add("        <File Id=""$fileId"" Source=""$source"" KeyPath=""yes"" />")
     $componentLines.Add("      </Component>")
     $refLines.Add("      <ComponentRef Id=""$componentId"" />")
