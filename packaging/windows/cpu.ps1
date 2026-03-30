@@ -7,12 +7,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSNativeCommandUseErrorActionPreference = $true
 
 function Get-ProductVersion {
     param([string]$TagName)
 
     if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)$') {
-        return "$($Matches[1]).$($Matches[2]).$($Matches[3])"
+        return "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
     }
 
     if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)(alpha|beta|rc)(\d+)$') {
@@ -29,10 +30,10 @@ function Get-ProductVersion {
             default { 0 }
         }
 
-        return "$major.$minor.$($patch * 100 + $offset + $number)"
+        return "$major.$minor.$patch.$($offset + $number)"
     }
 
-    return "2.0.0"
+    return "2.0.0.0"
 }
 
 function New-WixGuid {
@@ -92,6 +93,7 @@ $rendered = $rendered.Replace("{{COMPONENT_REFS}}", ($refLines -join "`r`n"))
 
 $tagLabel = if ($Tag) { $Tag } else { "dev" }
 $productVersion = Get-ProductVersion $Tag
+$rendered = $rendered.Replace("{{PRODUCT_VERSION}}", $productVersion)
 $wxsPath = Join-Path $OutputDir "cpu.generated.wxs"
 $wixObjPath = Join-Path $OutputDir "cpu.wixobj"
 $msiPath = Join-Path $OutputDir "SPONGE-CPU-$tagLabel.msi"
@@ -112,7 +114,6 @@ if (-not (Test-Path $wixBin)) {
 }
 
 & (Join-Path $wixBin "candle.exe") `
-    -dProductVersion=$productVersion `
     -out $wixObjPath `
     $wxsPath
 

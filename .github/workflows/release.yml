@@ -100,7 +100,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          remote_dir="${CONDA_HOST_PATH}/conda/${ARCH}"
+          remote_base="$(ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "if [[ \"${CONDA_HOST_PATH}\" == ~/* ]]; then printf '%s\n' \"\$HOME/${CONDA_HOST_PATH#~/}\"; else printf '%s\n' \"${CONDA_HOST_PATH}\"; fi")"
+          remote_dir="${remote_base}/conda/${ARCH}"
           ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "mkdir -p '${remote_dir}'"
           scp -i ~/.ssh/id_ed25519 -P "${CONDA_HOST_PORT}" release-artifacts/conda/*.conda "${CONDA_HOST_USER}@${CONDA_HOST}:${remote_dir}/"
         env:
@@ -114,7 +115,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "cd '${CONDA_HOST_PATH}' && bash index.sh"
+          remote_base="$(ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "if [[ \"${CONDA_HOST_PATH}\" == ~/* ]]; then printf '%s\n' \"\$HOME/${CONDA_HOST_PATH#~/}\"; else printf '%s\n' \"${CONDA_HOST_PATH}\"; fi")"
+          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "export PATH=\"\$HOME/.pixi/bin:\$PATH\" && cd '${remote_base}' && bash index.sh"
         env:
           CONDA_HOST: ${{ secrets.CONDA_HOST }}
           CONDA_HOST_USER: ${{ secrets.CONDA_HOST_USER }}
