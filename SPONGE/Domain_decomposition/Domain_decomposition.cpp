@@ -16,10 +16,6 @@ static void throw_unsupported_domain_decomposition(CONTROLLER* controller,
 }
 
 #ifdef USE_CPU  // CPU 线程并行内存分配
-extern int max_omp_threads;
-extern int frc_size;
-extern int atom_energy_size;
-extern int atom_virial_size;
 #endif
 
 void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
@@ -448,21 +444,24 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
     tmp_frc_size = (md_info->atom_numbers) / controller->PP_MPI_size + 10000 +
                    md_info->no_direct_interaction_virtual_atom_numbers;
     Device_Malloc_Safely((void**)&frc,
-                         sizeof(VECTOR) * tmp_frc_size * max_omp_threads);
+                         sizeof(VECTOR) * tmp_frc_size *
+                             CONTROLLER::force_replica_count);
     Device_Malloc_Safely((void**)&frc_buffer,
                          sizeof(VECTOR) * max_atom_numbers);
     Device_Malloc_Safely((void**)&d_virial,
-                         sizeof(LTMatrix3) * tmp_frc_size * max_omp_threads);
+                         sizeof(LTMatrix3) * tmp_frc_size *
+                             CONTROLLER::force_replica_count);
     Device_Malloc_Safely((void**)&d_energy,
-                         sizeof(float) * tmp_frc_size * max_omp_threads);
-    deviceMemset(frc, 0, sizeof(VECTOR) * tmp_frc_size * max_omp_threads);
+                         sizeof(float) * tmp_frc_size *
+                             CONTROLLER::force_replica_count);
+    deviceMemset(frc, 0, sizeof(VECTOR) * tmp_frc_size *
+                             CONTROLLER::force_replica_count);
     deviceMemset(frc_buffer, 0, sizeof(VECTOR) * max_atom_numbers);
     deviceMemset(d_virial, 0,
-                 sizeof(LTMatrix3) * tmp_frc_size * max_omp_threads);
-    deviceMemset(d_energy, 0, sizeof(float) * tmp_frc_size * max_omp_threads);
-    frc_size = tmp_frc_size;
-    atom_energy_size = tmp_frc_size;
-    atom_virial_size = tmp_frc_size;
+                 sizeof(LTMatrix3) * tmp_frc_size *
+                     CONTROLLER::force_replica_count);
+    deviceMemset(d_energy, 0, sizeof(float) * tmp_frc_size *
+                                  CONTROLLER::force_replica_count);
 #endif
     Device_Malloc_Safely((void**)&d_mass, sizeof(float) * max_atom_numbers);
     Device_Malloc_Safely((void**)&d_mass_inverse,
@@ -1274,11 +1273,10 @@ void DOMAIN_INFORMATION::Exchange_Particles(CONTROLLER* controller,
 void DOMAIN_INFORMATION::Reset_Force_and_Virial(MD_INFORMATION* md_info)
 {
     // frc, d_virial and d_energy are allocated (on CPU path) with size
-    // tmp_frc_size * max_omp_threads (see Get_Atoms). Use that allocated
+    // tmp_frc_size * force_replica_count (see Get_Atoms). Use that allocated
     // capacity when resetting to avoid writing past the end of the buffer.
 #ifdef USE_CPU
-    extern int max_omp_threads;
-    int allocated_atoms = tmp_frc_size * max_omp_threads;
+    int allocated_atoms = tmp_frc_size * CONTROLLER::force_replica_count;
     deviceMemset(frc, 0, sizeof(VECTOR) * allocated_atoms);
     deviceMemset(d_virial, 0, sizeof(LTMatrix3) * allocated_atoms);
     deviceMemset(d_energy, 0, sizeof(float) * allocated_atoms);

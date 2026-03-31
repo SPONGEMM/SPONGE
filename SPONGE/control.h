@@ -14,6 +14,7 @@ struct CONTROLLER
     static unsigned int device_optimized_block;
     static unsigned int device_warp;
     static unsigned int device_max_thread;
+    static int force_replica_count;
 
     // CPU MPI 相关
     // PP, PM 可能有多个进程，需要构造通信器；
@@ -73,6 +74,7 @@ struct CONTROLLER
     int working_device = 0;            // 使用的设备
     void Init_Host_MPI();              // 对主机MPI初始化
     void Init_Device();                // 对设备初始化
+    void Initial_Force_Replica_Count();  // 初始化力/能量/virial副本数量
     void Init_Device_MPI();  // 对设备MPI初始化 (优先初始化xccl，否则使用mpi)
     // 本部分的上面的内容最好不要外部调用
 
@@ -163,8 +165,8 @@ struct CONTROLLER
     void Throw_SPONGE_Error(const int error_number, const char* error_by = NULL,
                             const char* extra_error_string = NULL);
     void Throw_Formatted_SPONGE_Error(const int error_number,
-                                      const char* error_by, const char* format,
-                                      ...);
+                                      const char* error_by,
+                                      const char* format, ...);
 
     // 警告
     StringVector warnings;

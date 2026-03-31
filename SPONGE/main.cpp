@@ -1,20 +1,15 @@
 ﻿#include "main.h"
 
-#include "manybody/edip.h"
-#include "manybody/reaxff/bond.h"
-#include "manybody/reaxff/bond_order.h"
-#include "manybody/reaxff/eeq.h"
-#include "manybody/reaxff/hydrogen_bond.h"
-#include "manybody/reaxff/torsion.h"
-#include "manybody/reaxff/vdw.h"
-#include "neighbor_list/full_neighbor_list.h"
-#include "xponge/xponge.h"
-
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
-#define THERMOSTAT_IS(name)                             \
-    (controller.Command_Choice("thermostat", (name)) || \
-     controller.Command_Choice("thermostat_mode", (name)))
+#define THERMOSTAT_IS(name)                                              \
+    (md_info.mode >= md_info.NVT &&                                      \
+     (controller.Command_Choice("thermostat", (name)) ||                 \
+      controller.Command_Choice("thermostat_mode", (name))))
+#define BAROSTAT_IS(name)                                                \
+    (md_info.mode == md_info.NPT &&                                      \
+     (controller.Command_Choice("barostat", (name)) ||                   \
+      controller.Command_Choice("barostat_mode", (name))))
 
 CONTROLLER controller;
 Xponge::System Xponge::system;
@@ -63,16 +58,11 @@ STILLINGER_WEBER_INFORMATION sw;
 EDIP_INFORMATION edip;
 EAM_INFORMATION eam;
 TERSOFF_INFORMATION tersoff;
-REAXFF_EEQ reaxff_eeq;
-REAXFF_BOND_ORDER reaxff_bond_order;
-REAXFF_BOND reaxff_bond;
-REAXFF_VDW reaxff_vdw;
-REAXFF_OVER_UNDER reaxff_ovun;
-REAXFF_VALENCE_ANGLE reaxff_angle;
-REAXFF_TORSION reaxff_torsion;
-REAXFF_HYDROGEN_BOND reaxff_hb;
+REAXFF reaxff;
 QUANTUM_CHEMISTRY qc;
 SPONGE_PLUGIN plugin;
+
+deviceStream_t main_stream;
 
 int main(int argc, char* argv[])
 {
@@ -91,67 +81,17 @@ int main(int argc, char* argv[])
 
 void Main_Initial(int argc, char* argv[])
 {
-#ifdef USE_CPU
-    max_omp_threads = omp_get_max_threads();
-#endif
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
     Xponge::system.Load_Inputs(&controller);
     cv_controller.Initial(&controller,
                           &md_info.no_direct_interaction_virtual_atom_numbers);
     md_info.Initial(&controller);
-    qc.Initial(&controller, md_info.atom_numbers, md_info.crd);
     controller.Step_Print_Initial("potential", "%.2f");
+    controller.Step_Print_Initial("eff_pot", "%.7e");
+    qc.Initial(&controller, md_info.atom_numbers, md_info.crd);
     cv_controller.atom_numbers = md_info.atom_numbers;
     plugin.Initial(&md_info, &controller, &cv_controller, &neighbor_list);
 
-    if (controller.Command_Exist("REAXFF", "in_file"))
-    {
-        reaxff_eeq.Initial(&controller, md_info.atom_numbers,
-                           controller.Command("REAXFF", "in_file"),
-                           controller.Command("REAXFF", "type_in_file"));
-        reaxff_bond_order.Initial(&controller, md_info.atom_numbers,
-                                  controller.Command("REAXFF", "in_file"),
-                                  controller.Command("REAXFF", "type_in_file"),
-                                  md_info.nb.cutoff,
-                                  &neighbor_list.cutoff_full);
-        reaxff_bond.Initial(&controller, md_info.atom_numbers, "REAXFF",
-                            &neighbor_list.is_needed_full);
-        reaxff_bond.d_bo_s = reaxff_bond_order.d_corrected_bo_s;
-        reaxff_bond.d_bo_pi = reaxff_bond_order.d_corrected_bo_pi;
-        reaxff_bond.d_bo_pi2 = reaxff_bond_order.d_corrected_bo_pi2;
-        reaxff_bond.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
-        reaxff_bond.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
-        reaxff_bond.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-        reaxff_bond.d_bond_count = reaxff_bond_order.d_bond_count;
-        reaxff_bond.d_bond_offset = reaxff_bond_order.d_bond_offset;
-        reaxff_bond.d_bond_nbr = reaxff_bond_order.d_bond_nbr;
-        reaxff_bond.d_bond_idx = reaxff_bond_order.d_bond_idx;
-
-        reaxff_vdw.Initial(&controller, md_info.atom_numbers, "REAXFF",
-                           &neighbor_list.is_needed_full);
-        reaxff_ovun.Initial(&controller, md_info.atom_numbers, "REAXFF");
-        reaxff_ovun.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
-        reaxff_ovun.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
-        reaxff_ovun.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-
-        reaxff_angle.Initial(&controller, md_info.atom_numbers, "REAXFF");
-        reaxff_angle.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
-        reaxff_angle.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
-        reaxff_angle.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-        reaxff_angle.d_CdDelta = reaxff_ovun.d_CdDelta;
-
-        reaxff_torsion.Initial(&controller, md_info.atom_numbers, "REAXFF");
-        reaxff_torsion.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
-        reaxff_torsion.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
-        reaxff_torsion.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-        reaxff_torsion.d_CdDelta = reaxff_ovun.d_CdDelta;
-        reaxff_hb.Initial(&controller, md_info.atom_numbers, "REAXFF");
-        reaxff_hb.d_dE_dBO_s = reaxff_bond_order.d_dE_dBO_s;
-        reaxff_hb.d_dE_dBO_pi = reaxff_bond_order.d_dE_dBO_pi;
-        reaxff_hb.d_dE_dBO_pi2 = reaxff_bond_order.d_dE_dBO_pi2;
-    }
-
-    //------------------------- thermostat initialization-----------------------
     if (md_info.mode >= md_info.NVT &&
         (!controller.Command_Exist("thermostat") &&
          !controller.Command_Exist("thermostat_mode")))
@@ -160,33 +100,31 @@ void Main_Initial(int argc, char* argv[])
             spongeErrorMissingCommand, "Main_Initial",
             "Reason:\n\tthermostat is required for NVT or NPT simulations\n");
     }
-    if (md_info.mode >= md_info.NVT &&
-        (THERMOSTAT_IS("middle_langevin") || THERMOSTAT_IS("langevin")))
+    if (THERMOSTAT_IS("middle_langevin") || THERMOSTAT_IS("langevin"))
     {
         middle_langevin.Initial(&controller, md_info.atom_numbers,
                                 md_info.sys.target_temperature, md_info.h_mass);
     }
-    else if (md_info.mode >= md_info.NVT && THERMOSTAT_IS("andersen"))
+    else if (THERMOSTAT_IS("andersen"))
     {
         ad_thermo.Initial(&controller, md_info.sys.target_temperature,
                           md_info.atom_numbers, md_info.sys.dt_in_ps,
                           md_info.h_mass);
     }
-    else if (md_info.mode >= md_info.NVT && THERMOSTAT_IS("bussi_thermostat"))
+    else if (THERMOSTAT_IS("bussi_thermostat"))
     {
         bussi_thermo.Initial(&controller, md_info.sys.target_temperature);
     }
-    else if (md_info.mode >= md_info.NVT &&
-             THERMOSTAT_IS("berendsen_thermostat"))
+    else if (THERMOSTAT_IS("berendsen_thermostat"))
     {
         bd_thermo.Initial(&controller, md_info.sys.target_temperature);
     }
-    else if (md_info.mode >= md_info.NVT && THERMOSTAT_IS("nose_hoover_chain"))
+    else if (THERMOSTAT_IS("nose_hoover_chain"))
     {
         nhc.Initial(&controller, md_info.atom_numbers,
                     md_info.sys.target_temperature, md_info.h_mass);
     }
-    //------------------------- barostat initialization-----------------------
+
     if (md_info.mode == md_info.NPT && !controller.Command_Exist("barostat") &&
         !controller.Command_Exist("barostat_mode"))
     {
@@ -194,26 +132,19 @@ void Main_Initial(int argc, char* argv[])
             spongeErrorMissingCommand, "Main_Initial",
             "Reason:\n\tbarostat is required for NPT simulations\n");
     }
-    if (md_info.mode == md_info.NPT &&
-        (controller.Command_Choice("barostat", "andersen_barostat") ||
-         (controller.Command_Choice("barostat_mode", "andersen_barostat") ||
-          controller.Command_Choice("barostat", "bussi_barostat") ||
-          (controller.Command_Choice("barostat_mode", "bussi_barostat"))) ||
-         controller.Command_Choice("barostat", "berendsen_barostat") ||
-         (controller.Command_Choice("barostat_mode", "berendsen_barostat"))))
+    if (BAROSTAT_IS("andersen_barostat") || BAROSTAT_IS("bussi_barostat") ||
+        BAROSTAT_IS("berendsen_barostat"))
     {
         press_baro.Initial(&controller, md_info.sys.target_pressure,
                            md_info.pbc.cell, &Main_Box_Change);
     }
-    if (md_info.mode == md_info.NPT &&
-        (controller.Command_Choice("barostat", "monte_carlo_barostat") ||
-         controller.Command_Choice("barostat_mode", "monte_carlo_barostat")))
+    if (BAROSTAT_IS("monte_carlo_barostat"))
     {
         mc_baro.Initial(&controller, md_info.atom_numbers,
                         md_info.sys.target_pressure, md_info.sys.box_length,
                         md_info.pbc.cell);
     }
-    // -----------------force field initialization-------------------------
+
     if (md_info.pbc.pbc)
     {
         lj.Initial(&controller, md_info.nb.cutoff);
@@ -223,7 +154,7 @@ void Main_Initial(int argc, char* argv[])
                    md_info.no_direct_interaction_virtual_atom_numbers);
         pairwise_force.Initial(&controller);
         nb14.Initial(&controller, lj.h_LJ_A, lj.h_LJ_B, lj.h_atom_LJ_type);
-        // SITS initialization
+
         sits.Initial(&controller, md_info.atom_numbers);
         if (sits.is_initialized && sits.selectively_applied)
         {
@@ -247,6 +178,14 @@ void Main_Initial(int argc, char* argv[])
                      LJ_NOPBC.h_atom_LJ_type);
         sits.Initial(&controller, md_info.atom_numbers);
     }
+
+    bond.Initial(&controller, &md_info.sys.connectivity,
+                 &md_info.sys.connected_distance);
+    angle.Initial(&controller);
+    urey_bradley.Initial(&controller);
+    cmap.Initial(&controller);
+    dihedral.Initial(&controller);
+    improper.Initial(&controller);
     listed_forces.Initial(&controller, &md_info.sys.connectivity,
                           &md_info.sys.connected_distance);
 
@@ -256,14 +195,9 @@ void Main_Initial(int argc, char* argv[])
                 &neighbor_list.is_needed_full);
     tersoff.Initial(&controller, md_info.atom_numbers, "TERSOFF",
                     &neighbor_list.is_needed_full);
+    reaxff.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
+                   &neighbor_list.cutoff_full, &neighbor_list.is_needed_full);
 
-    angle.Initial(&controller);
-    urey_bradley.Initial(&controller);
-    bond.Initial(&controller, &md_info.sys.connectivity,
-                 &md_info.sys.connected_distance);
-    cmap.Initial(&controller);
-    dihedral.Initial(&controller);
-    improper.Initial(&controller);
     restrain.Initial(&controller, md_info.atom_numbers, md_info.crd);
     hard_wall.Initial(&controller, md_info.sys.target_temperature,
                       md_info.sys.target_pressure, md_info.mode == md_info.NPT);
@@ -311,124 +245,33 @@ void Main_Initial(int argc, char* argv[])
     plugin.After_Initial();
     cv_controller.Input_Check();
 
-    // Initialize UG connectivity
     md_info.ug.Initial_Edge(md_info.atom_numbers);
     constrain.update_ug_connectivity(&md_info.ug.connectivity);
     settle.update_ug_connectivity(&md_info.ug.connectivity);
     vatom.update_ug_connectivity(&md_info.ug.connectivity);
     md_info.ug.Read_Update_Group(md_info.atom_numbers);
     md_info.mol.Initial(&controller);
-
-    // Acceleration of solvent LJ initialization by UG info
     if (md_info.pbc.pbc)
     {
         solvent_lj.Initial(&controller, &lj, &lj_soft, &md_info,
                            md_info.mode >= md_info.NVT);
     }
     Main_Process_Management();
-    if (CONTROLLER::PP_MPI_size > 1)
-    {
-        md_info.nb.Excluded_List_Reform(md_info.atom_numbers);
-    }
-    pm.exclude_factor = CONTROLLER::PP_MPI_size == 1 ? 1.0f : 0.5f;
-
-    // ---------------end process partition---------------
-    deviceStreamCreate(&main_stream);
-    dd.Create_Stream();
-    pm.Create_Stream();
-
-    dd.Domain_Decomposition(&controller, &md_info);
-    pm.Domain_Decomposition(&controller, md_info.sys.box_length,
-                            dd.dom_dec_split_num);
-    pm.Send_Recv_Dom_Dec(&controller);
-    pm.Find_Neighbor_Domain(&controller);
 
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
-        dd.Send_Recv_Dom_Dec(&controller);
-        dd.Find_Neighbor_Domain(&controller, &md_info);
-        dd.Get_Atoms(&controller, &md_info);
-        dd.Get_Ghost(&controller, &md_info);
-        dd.Get_Excluded(&controller, &md_info);
-        plugin.Set_Domain_Information(&dd);
-        printf("rank_id=%d, atom_numbers=%d, ghost_numbers=%d\n",
-               CONTROLLER::PP_MPI_rank, dd.atom_numbers, dd.ghost_numbers);
-
-        neighbor_list.Update(
-            dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-            md_info.pbc.cell, md_info.pbc.rcell, 0, neighbor_list.FORCED_UPDATE,
-            md_info.nb.d_excluded_list_start, md_info.nb.d_excluded_list,
-            md_info.nb.d_excluded_numbers);
-
-        middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
-        ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
-        nhc.Get_Local(dd.atom_local, dd.atom_numbers);
-
-        lj.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        lj_soft.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        solvent_lj.Get_Local(dd.res_numbers, dd.res_len, dd.atom_numbers,
-                             dd.d_mass);
-        listed_forces.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-        pairwise_force.Get_Local(dd.atom_local, dd.atom_numbers,
-                                 dd.ghost_numbers, dd.atom_local_label,
-                                 dd.atom_local_id);
-
-        angle.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                        dd.atom_local_label, dd.atom_local_id);
-        urey_bradley.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                               dd.atom_local_label, dd.atom_local_id);
-        bond.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        dihedral.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                           dd.atom_local_label, dd.atom_local_id);
-        improper.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                           dd.atom_local_label, dd.atom_local_id);
-        nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        restrain.Get_Local(dd.atom_local, dd.atom_numbers, dd.atom_local_label,
-                           dd.atom_local_id);
-        constrain.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                            dd.atom_numbers);
-        settle.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                         dd.atom_numbers);
-        vatom.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
-        sits.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        if (sits.is_initialized && sits.selectively_applied)
-        {
-            sits_dihedral.Get_Local(dd.atom_local, dd.atom_numbers,
-                                    dd.ghost_numbers, dd.atom_local_label,
-                                    dd.atom_local_id);
-            sits_nb14.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-            sits_cmap.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-        }
+        Main_Refresh_Local_State(true);
     }
 
-    deviceMemset(md_info.crd, 0, sizeof(VECTOR) * md_info.atom_numbers);
     pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge, dd.atom_numbers,
                  dd.crd, dd.d_charge, dd.atom_local, true, true, true, true);
 
-    if (pm.is_initialized)
-        Reset_List(pm.d_direct_atom_energy, 0, md_info.atom_numbers);
-    if (lj.is_initialized)
-        Reset_List(lj.d_LJ_energy_atom, 0, md_info.atom_numbers);
-    if (lj_soft.is_initialized)
-        Reset_List(lj_soft.d_LJ_energy_atom, 0, md_info.atom_numbers);
-
-    MPI_Barrier(MPI_COMM_WORLD);
     controller.Print_First_Line_To_Mdout();
 }
 
 void Main_Calculate_Force()
 {
-    bool use_reaxff_eeq = reaxff_eeq.is_initialized;
+    bool use_reaxff_eeq = reaxff.eeq.is_initialized;
     const int cv_atom_numbers =
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
@@ -466,66 +309,8 @@ void Main_Calculate_Force()
             neighbor_list.CONDITIONAL_UPDATE, md_info.nb.d_excluded_list_start,
             md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
 
-        reaxff_eeq.Calculate_Charges(dd.atom_numbers, md_info.d_charge, dd.crd,
-                                     md_info.pbc.cell, md_info.pbc.rcell,
-                                     neighbor_list.full_neighbor_list.d_nl,
-                                     md_info.nb.cutoff, dd.d_energy, dd.frc,
-                                     md_info.need_pressure, dd.d_virial);
-        if (CONTROLLER::PP_MPI_size == 1 && dd.d_charge != md_info.d_charge)
-        {
-            dd.Sync_Local_Charge_From_Global(md_info.d_charge);
-        }
-        reaxff_bond_order.Calculate_Bond_Order(
-            dd.atom_numbers, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-            neighbor_list.full_neighbor_list.d_nl, md_info.nb.cutoff);
+        reaxff.Calculate_Force(&dd, &md_info, &neighbor_list);
 
-        if (reaxff_bond_order.is_initialized)
-        {
-            reaxff_bond_order.Clear_Derivatives(dd.atom_numbers,
-                                                reaxff_ovun.d_CdDelta);
-        }
-
-        reaxff_bond.REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.d_nl, md_info.need_potential,
-            dd.d_energy, md_info.need_pressure, dd.d_virial);
-        reaxff_vdw.REAXFF_VDW_Force_With_Atom_Energy_And_Virial(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.d_nl, md_info.nb.cutoff,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
-        reaxff_ovun.Calculate_Over_Under_Energy_And_Force(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, &reaxff_bond_order, md_info.need_potential,
-            dd.d_energy, md_info.need_pressure, dd.d_virial);
-        reaxff_angle.Calculate_Valence_Angle_Energy_And_Force(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            &reaxff_bond_order, reaxff_ovun.d_Delta, reaxff_ovun.d_Delta_boc,
-            reaxff_ovun.d_Delta_val, reaxff_ovun.d_nlp, reaxff_ovun.d_vlpex,
-            reaxff_ovun.d_dDelta_lp, reaxff_ovun.d_CdDelta,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
-        reaxff_torsion.Calculate_Torsion_Energy_And_Force(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            &reaxff_bond_order, reaxff_ovun.d_Delta_boc, md_info.need_potential,
-            dd.d_energy, md_info.need_pressure, dd.d_virial);
-        reaxff_hb.Calculate_HB_Energy_And_Force(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            &reaxff_bond_order, md_info.need_potential, dd.d_energy,
-            md_info.need_pressure, dd.d_virial);
-
-        if (reaxff_bond_order.is_initialized)
-        {
-            reaxff_bond_order.Calculate_Forces(
-                dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-                md_info.pbc.rcell, md_info.nb.cutoff, reaxff_ovun.d_CdDelta,
-                md_info.need_pressure, dd.d_virial);
-        }
-
-        // NOPBC START
         LJ_NOPBC.LJ_Force_With_Atom_Energy(
             dd.atom_numbers, dd.crd, dd.frc, md_info.need_potential,
             dd.d_energy, dd.d_excluded_list_start, dd.d_excluded_list,
@@ -537,7 +322,6 @@ void Main_Calculate_Force()
         gb.Get_Effective_Born_Radius(dd.crd);
         gb.GB_Force_With_Atom_Energy(dd.atom_numbers, dd.crd, dd.d_charge,
                                      dd.frc, dd.d_energy);
-        // NOPBC END
 
         if (!use_reaxff_eeq)
         {
@@ -680,8 +464,6 @@ void Main_Calculate_Force()
                            md_info.need_pressure, dd.d_virial, dd.frc, &md_info,
                            &dd);
 
-        // 如果单进程，PP-PM 共享进程， PM直接调用dd.crd等
-        // frc, virial, energy 直接存到原位，即不必再pme通信力等
         if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
         {
             vatom.Coordinate_Refresh_CV(dd.crd, md_info.pbc.cell,
@@ -712,7 +494,6 @@ void Main_Calculate_Force()
                                  md_info.need_potential, md_info.need_pressure,
                                  dd.frc, dd.d_energy, dd.d_virial,
                                  md_info.sys.h_temperature);
-            // CV虚原子的力重分配就地进行
             vatom.Force_Redistribute_CV(dd.crd, md_info.pbc.cell,
                                         md_info.pbc.rcell, dd.frc);
         }
@@ -737,7 +518,6 @@ void Main_Calculate_Force()
         {
             pm.reset_global_force(
                 md_info.no_direct_interaction_virtual_atom_numbers);
-            // CV虚原子坐标更新在此处进行
             vatom.Coordinate_Refresh_CV(pm.g_crd, md_info.pbc.cell,
                                         md_info.pbc.rcell);
             pm.PME_Reciprocal_Force_With_Energy_And_Virial(
@@ -764,7 +544,6 @@ void Main_Calculate_Force()
                 md_info.sys.steps, md_info.need_potential,
                 md_info.need_pressure, pm.g_frc, md_info.d_atom_energy,
                 md_info.d_atom_virial_tensor, md_info.sys.h_temperature);
-            // CV虚原子的力重分配就地进行
             vatom.Force_Redistribute_CV(pm.g_crd, md_info.pbc.cell,
                                         md_info.pbc.rcell, pm.g_frc);
             pm.add_force_g_to_l(md_info.frc);
@@ -777,20 +556,79 @@ void Main_Calculate_Force()
     controller.Get_Time_Recorder("Calculate_Force")->Stop();
 }
 
+void Main_Refresh_Local_State(bool rebuild_dd)
+{
+    if (rebuild_dd)
+    {
+        dd.Send_Recv_Dom_Dec(&controller);
+        dd.Find_Neighbor_Domain(&controller, &md_info);
+        dd.Get_Atoms(&controller, &md_info);
+    }
+    dd.Get_Ghost(&controller, &md_info);
+    dd.Get_Excluded(&controller, &md_info);
+
+    neighbor_list.Update(
+        dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
+        md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
+        neighbor_list.FORCED_UPDATE, md_info.nb.d_excluded_list_start,
+        md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+
+    middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
+    ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
+    nhc.Get_Local(dd.atom_local, dd.atom_numbers);
+
+    lj.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
+    lj_soft.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
+    solvent_lj.Get_Local(dd.res_numbers, dd.res_len, dd.atom_numbers,
+                         dd.d_mass);
+    listed_forces.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                            dd.atom_local_label, dd.atom_local_id);
+    pairwise_force.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                             dd.atom_local_label, dd.atom_local_id);
+
+    angle.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                    dd.atom_local_label, dd.atom_local_id);
+    urey_bradley.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                           dd.atom_local_label, dd.atom_local_id);
+    bond.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                   dd.atom_local_label, dd.atom_local_id);
+    cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                   dd.atom_local_label, dd.atom_local_id);
+    dihedral.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                       dd.atom_local_label, dd.atom_local_id);
+    improper.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                       dd.atom_local_label, dd.atom_local_id);
+    nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                   dd.atom_local_label, dd.atom_local_id);
+    restrain.Get_Local(dd.atom_local, dd.atom_numbers, dd.atom_local_label,
+                       dd.atom_local_id);
+    constrain.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
+    settle.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
+    vatom.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
+    sits.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
+    if (sits.is_initialized && sits.selectively_applied)
+    {
+        sits_dihedral.Get_Local(dd.atom_local, dd.atom_numbers,
+                                dd.ghost_numbers, dd.atom_local_label,
+                                dd.atom_local_id);
+        sits_nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                            dd.atom_local_label, dd.atom_local_id);
+        sits_cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                            dd.atom_local_label, dd.atom_local_id);
+    }
+}
+
 void Main_Iteration()
 {
     controller.Get_Time_Recorder("Iteration")->Start();
-    // calc ek, potential
     if (md_info.need_potential || md_info.need_pressure || md_info.need_kinetic)
     {
         dd.Get_Ek_and_Temperature(&controller, &md_info);
     }
     dd.Get_Potential(&controller, &md_info);
-
     if (md_info.mode != md_info.RERUN)
     {
         Main_MC_Barostat();
-        //   thermostat and constraint
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
         {
             settle.Remember_Last_Coordinates(dd.crd, md_info.pbc.cell,
@@ -871,7 +709,6 @@ void Main_Iteration()
                             md_info.need_pressure, md_info.sys.d_stress);
             hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
         }
-        // barostat
         if (md_info.need_pressure && !mc_baro.is_initialized)
         {
             md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
@@ -883,7 +720,7 @@ void Main_Iteration()
                 md_info.sys.target_temperature);
         }
     }
-    else  // for rerun update
+    else
     {
         md_info.rerun.Iteration();
         if (md_info.rerun.need_box_update)
@@ -894,11 +731,9 @@ void Main_Iteration()
                                      dd.atom_local_id, main_stream);
     }
 
-    // vatom refresh and domain-decomposition get-local
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         vatom.Coordinate_Refresh(dd.crd, md_info.pbc.cell, md_info.pbc.rcell);
-        // need_change_particles
         if ((md_info.sys.steps + 1) % dd.update_interval == 0 ||
             md_info.mode == md_info.RERUN)
         {
@@ -906,73 +741,21 @@ void Main_Iteration()
             {
                 controller.Get_Time_Recorder("Communication")->Start();
                 dd.Exchange_Particles(&controller, &md_info);
-                dd.Get_Ghost(&controller, &md_info);
                 controller.Get_Time_Recorder("Communication")->Stop();
-                dd.Get_Excluded(&controller, &md_info);
-                middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
-                ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
-                nhc.Get_Local(dd.atom_local, dd.atom_numbers);
-                lj.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-                lj_soft.Get_Local(dd.atom_local, dd.atom_numbers,
-                                  dd.ghost_numbers);
-                solvent_lj.Get_Local(dd.res_numbers, dd.res_len,
-                                     dd.atom_numbers, dd.d_mass);
-                angle.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-                urey_bradley.Get_Local(dd.atom_local, dd.atom_numbers,
-                                       dd.ghost_numbers, dd.atom_local_label,
-                                       dd.atom_local_id);
-                listed_forces.Get_Local(dd.atom_local, dd.atom_numbers,
-                                        dd.ghost_numbers, dd.atom_local_label,
-                                        dd.atom_local_id);
-                pairwise_force.Get_Local(dd.atom_local, dd.atom_numbers,
-                                         dd.ghost_numbers, dd.atom_local_label,
-                                         dd.atom_local_id);
-                bond.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                               dd.atom_local_label, dd.atom_local_id);
-                cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                               dd.atom_local_label, dd.atom_local_id);
-                dihedral.Get_Local(dd.atom_local, dd.atom_numbers,
-                                   dd.ghost_numbers, dd.atom_local_label,
-                                   dd.atom_local_id);
-                improper.Get_Local(dd.atom_local, dd.atom_numbers,
-                                   dd.ghost_numbers, dd.atom_local_label,
-                                   dd.atom_local_id);
-                nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                               dd.atom_local_label, dd.atom_local_id);
-                restrain.Get_Local(dd.atom_local, dd.atom_numbers,
-                                   dd.atom_local_label, dd.atom_local_id);
-                constrain.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                                    dd.atom_numbers);
-                settle.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                                 dd.atom_numbers);
-                vatom.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                                dd.atom_numbers);
-                sits.Get_Local(dd.atom_local, dd.atom_numbers,
-                               dd.ghost_numbers);
-                if (sits.is_initialized && sits.selectively_applied)
-                {
-                    sits_dihedral.Get_Local(
-                        dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                        dd.atom_local_label, dd.atom_local_id);
-                    sits_nb14.Get_Local(dd.atom_local, dd.atom_numbers,
-                                        dd.ghost_numbers, dd.atom_local_label,
-                                        dd.atom_local_id);
-                    sits_cmap.Get_Local(dd.atom_local, dd.atom_numbers,
-                                        dd.ghost_numbers, dd.atom_local_label,
-                                        dd.atom_local_id);
-                }
+                Main_Refresh_Local_State(false);
             }
-            neighbor_list.Update(
-                dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-                md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
-                neighbor_list.FORCED_UPDATE, md_info.nb.d_excluded_list_start,
-                md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+            else
+            {
+                neighbor_list.Update(
+                    dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
+                    md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
+                    neighbor_list.FORCED_UPDATE,
+                    md_info.nb.d_excluded_list_start,
+                    md_info.nb.d_excluded_list,
+                    md_info.nb.d_excluded_numbers);
+            }
         }
     }
-
-    // pme refresh atoms
     if ((md_info.sys.steps + 1) % dd.update_interval == 0 ||
         md_info.mode == md_info.RERUN)
     {
@@ -985,8 +768,6 @@ void Main_Iteration()
     controller.Get_Time_Recorder("Iteration")->Stop();
 }
 
-// -------  temporary test print function for domain decomposition -------
-
 void Main_Print()
 {
     if (md_info.output.Check_Mdout_Step())
@@ -994,7 +775,6 @@ void Main_Print()
         md_info.Step_Print(&controller);
         if (!md_info.pbc.pbc)
         {
-            // NoPBC non-bonded benergy
             CF_NOPBC.Step_Print(&controller);
             LJ_NOPBC.Step_Print(&controller);
             gb.Step_Print(&controller);
@@ -1007,7 +787,6 @@ void Main_Print()
             sits.Step_Print(&controller, 1.0f / md_info.sys.target_temperature /
                                              CONSTANT_kB);
         }
-        // SITS information
         sits_dihedral.Step_Print(&controller, false);
         sits_nb14.Step_Print(&controller, false);
         sits_cmap.Step_Print(&controller, false);
@@ -1015,35 +794,7 @@ void Main_Print()
         sw.Step_Print(&controller);
         eam.Step_Print(&controller);
         tersoff.Step_Print(&controller);
-        reaxff_bond.Step_Print(&controller);
-        reaxff_vdw.Step_Print(&controller);
-        reaxff_eeq.Step_Print(&controller);
-        if (reaxff_eeq.is_initialized)
-        {
-            reaxff_eeq.Print_Charges(md_info.d_charge);
-        }
-        reaxff_ovun.Step_Print_ELP(&controller);
-        reaxff_ovun.Step_Print(&controller);
-        reaxff_angle.Step_Print(&controller);
-        reaxff_torsion.Step_Print(&controller);
-        reaxff_hb.Step_Print(&controller);
-
-        if (reaxff_bond.is_initialized && reaxff_vdw.is_initialized &&
-            reaxff_eeq.is_initialized)
-        {
-            float total_reaxff =
-                reaxff_bond.h_energy_sum + reaxff_vdw.h_energy_sum +
-                reaxff_eeq.h_energy + reaxff_ovun.h_energy_lp +
-                reaxff_ovun.h_energy_ovun + reaxff_angle.h_energy_ang +
-                reaxff_angle.h_energy_pen + reaxff_angle.h_energy_coa +
-                reaxff_torsion.h_energy_tor + reaxff_torsion.h_energy_cot +
-                reaxff_hb.h_energy_hb;
-            controller.Step_Print("REAXFF", total_reaxff);
-        }
-
-        // potential total is already summed in dd.d_energy by all modules
-        controller.Step_Print("potential", dd.h_sum_ene_total);
-
+        reaxff.Step_Print(&controller, md_info.d_charge);
         pairwise_force.Step_Print(&controller);
         angle.Step_Print(&controller);
         urey_bradley.Step_Print(&controller);
@@ -1053,6 +804,9 @@ void Main_Print()
         dihedral.Step_Print(&controller);
         improper.Step_Print(&controller);
         nb14.Step_Print(&controller);
+
+        controller.Step_Print("potential", dd.h_sum_ene_total);
+
         restrain.Step_Print(&controller);
         if (qc.is_initialized)
         {
@@ -1064,31 +818,6 @@ void Main_Print()
         restrain_cv.Step_Print(&controller);
         meta.Step_Print(&controller);
         soft_walls.Step_Print(&controller);
-        controller.Step_Print(
-            "pressure", md_info.sys.h_pressure * CONSTANT_PRES_CONVERTION);
-        if (md_info.output.print_virial)
-        {
-            controller.Step_Print(
-                "Pxx", md_info.sys.h_stress.a11 * CONSTANT_PRES_CONVERTION);
-            controller.Step_Print(
-                "Pyy", md_info.sys.h_stress.a22 * CONSTANT_PRES_CONVERTION);
-            controller.Step_Print(
-                "Pzz", md_info.sys.h_stress.a33 * CONSTANT_PRES_CONVERTION);
-            controller.Step_Print("Pxy", md_info.sys.h_stress.a21 * 0.5f *
-                                             CONSTANT_PRES_CONVERTION);
-            controller.Step_Print("Pxz", md_info.sys.h_stress.a31 * 0.5f *
-                                             CONSTANT_PRES_CONVERTION);
-            controller.Step_Print("Pyz", md_info.sys.h_stress.a32 * 0.5f *
-                                             CONSTANT_PRES_CONVERTION);
-        }
-        deviceMemcpy(&md_info.sys.h_potential, md_info.sys.d_potential,
-                     sizeof(float), deviceMemcpyDeviceToHost);
-        controller.Step_Print("potential", md_info.sys.h_potential);
-        if (press_baro.is_initialized || mc_baro.is_initialized)
-        {
-            md_info.sys.Get_Density();
-        }
-        controller.Step_Print("density", md_info.sys.density);
         controller.Print_To_Screen_And_Mdout();
     }
 
@@ -1125,10 +854,6 @@ void Main_Print()
 
 void Main_Clear()
 {
-    dd.Destroy_Stream();
-    pm.Destroy_Stream();
-    deviceStreamDestroy(main_stream);
-
     controller.Final_Time_Summary(
         md_info.sys.steps, md_info.sys.speed_time_factor,
         md_info.sys.speed_unit_name.c_str(), md_info.mode);
@@ -1158,9 +883,7 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
     {
         Main_Box_Change_Largely();
     }
-
-    // 更新域分解盒子
-    else
+    else    // 更新域分解盒子
     {
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
         {
@@ -1182,8 +905,6 @@ void Main_Box_Change_Largely()
         "precise "
         "to re-initialize these modules now for a large box change.\n");
 
-    // 先清零md_info.crd, 然后把dd.crd赋值给md_info.crd,
-    // 最后规约所有进程的md_info.crd
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         md_info.Crd_Vel_dd_to_Device(dd.crd, dd.vel, dd.atom_local_label,
@@ -1204,75 +925,10 @@ void Main_Box_Change_Largely()
     pm.Find_Neighbor_Domain(&controller);
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
-        dd.Send_Recv_Dom_Dec(&controller);
-        dd.Find_Neighbor_Domain(&controller, &md_info);
-        dd.Get_Atoms(&controller, &md_info);
-        dd.Get_Ghost(&controller, &md_info);
-        dd.Get_Excluded(&controller, &md_info);
-        printf("rank %d, atom_number %d, ghost_number %d\n",
-               controller.MPI_rank, dd.atom_numbers, dd.ghost_numbers);
-
-        neighbor_list.Update(
-            dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-            md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
-            neighbor_list.FORCED_UPDATE, md_info.nb.d_excluded_list_start,
-            md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
-
-        middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
-        ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
-        nhc.Get_Local(dd.atom_local, dd.atom_numbers);
-
-        lj.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        lj_soft.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        solvent_lj.Get_Local(dd.res_numbers, dd.res_len, dd.atom_numbers,
-                             dd.d_mass);
-        angle.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                        dd.atom_local_label, dd.atom_local_id);
-        urey_bradley.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                               dd.atom_local_label, dd.atom_local_id);
-        listed_forces.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-        pairwise_force.Get_Local(dd.atom_local, dd.atom_numbers,
-                                 dd.ghost_numbers, dd.atom_local_label,
-                                 dd.atom_local_id);
-        bond.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        dihedral.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                           dd.atom_local_label, dd.atom_local_id);
-        improper.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                           dd.atom_local_label, dd.atom_local_id);
-        nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                       dd.atom_local_label, dd.atom_local_id);
-        restrain.Get_Local(dd.atom_local, dd.atom_numbers, dd.atom_local_label,
-                           dd.atom_local_id);
-        constrain.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                            dd.atom_numbers);
-        settle.Get_Local(dd.atom_local_id, dd.atom_local_label,
-                         dd.atom_numbers);
-        vatom.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
-        sits.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
-        if (sits.is_initialized && sits.selectively_applied)
-        {
-            sits_dihedral.Get_Local(dd.atom_local, dd.atom_numbers,
-                                    dd.ghost_numbers, dd.atom_local_label,
-                                    dd.atom_local_id);
-            sits_nb14.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-            sits_cmap.Get_Local(dd.atom_local, dd.atom_numbers,
-                                dd.ghost_numbers, dd.atom_local_label,
-                                dd.atom_local_id);
-        }
+        Main_Refresh_Local_State(true);
     }
     pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge, dd.atom_numbers,
                  dd.crd, dd.d_charge, dd.atom_local, true, true, true, true);
-    // pm.Get_Ghost(&controller, md_info.crd, md_info.d_charge,
-    // md_info.pbc.cell, md_info.pbc.rcell); pm.Get_Local(&controller, 0,
-    // md_info.sys.box_length, md_info.d_charge);   //
-    // 这里设置step为零以重初始化PME相关内存
     MPI_Barrier(MPI_COMM_WORLD);
     controller.printf(
         "------------------------------------------------------------------"
@@ -1282,17 +938,6 @@ void Main_Box_Change_Largely()
 
 void Main_Process_Management()
 {
-    /*
-    粒子进程(Particle Process, PP)和静电进程(Particle Mesh, PM)划分
-    PM 进程数 = 0：不计算Particle Mesh 倒空间部分
-    PM 进程数 >= 1: 计算Particle Mesh 倒空间部分。
-    2025-10-14:暂时只支持单进程PM 若总进程数=1， 则PP进程与PM进程为同一进程
-    若总进程数>1， 则PP进程与PM进程分开，PM进程独享一组进程
-    若多进程，最后一个进程一定包括CC进程
-*/
-
-    // ---------------start process partition---------------
-    // PP 进程划分，至少要有一个PP进程
     CONTROLLER::PM_MPI_size = pm.PM_MPI_size;
     CONTROLLER::PP_MPI_size =
         (CONTROLLER::MPI_size - CONTROLLER::PM_MPI_size -
@@ -1301,14 +946,12 @@ void Main_Process_Management()
             : (CONTROLLER::MPI_size - CONTROLLER::PM_MPI_size -
                CONTROLLER::CC_MPI_size);
 
-    // Case 1: 单进程，不需要MPI_Comm_split
     if (CONTROLLER::MPI_size == 1)
     {
         CONTROLLER::pp_comm = MPI_COMM_WORLD;
         CONTROLLER::pm_comm = MPI_COMM_WORLD;
         CONTROLLER::PP_MPI_rank = 0;
         dd.pp_rank = 0;
-        // 若开启PM，则PP进程与PM进程为同一进程
         if (CONTROLLER::PM_MPI_size != 0)
         {
             CONTROLLER::PM_MPI_rank = 0;
@@ -1320,7 +963,6 @@ void Main_Process_Management()
             pm.pm_rank = -1;
         }
     }
-    // Case 2: 多进程，PM进程数=0, 初始化PP进程
     else if (CONTROLLER::PM_MPI_size == 0)
     {
         CONTROLLER::pp_comm = MPI_COMM_WORLD;
@@ -1328,7 +970,6 @@ void Main_Process_Management()
         dd.pp_rank = CONTROLLER::PP_MPI_rank;
         pm.pm_rank = -1;
 #ifdef USE_XCCL
-        printf("Init XCCL for PP processes\n");
         xcclUniqueId pp_id;
         if (CONTROLLER::PP_MPI_rank == 0)
         {
@@ -1341,7 +982,6 @@ void Main_Process_Management()
         CONTROLLER::d_pp_comm = CONTROLLER::pp_comm;
 #endif
     }
-    // Case 3: 多进程，PM进程数>=1, 初始化PP进程与PM进程
     else
     {
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
@@ -1351,7 +991,6 @@ void Main_Process_Management()
             MPI_Comm_rank(CONTROLLER::pp_comm, &dd.pp_rank);
             CONTROLLER::PP_MPI_rank = dd.pp_rank;
 #ifdef USE_XCCL
-            printf("Init XCCL for PP processes\n");
             xcclUniqueId pp_id;
             if (CONTROLLER::PP_MPI_rank == 0)
             {
@@ -1374,7 +1013,6 @@ void Main_Process_Management()
             MPI_Comm_rank(CONTROLLER::pm_comm, &pm.pm_rank);
             CONTROLLER::PM_MPI_rank = pm.pm_rank;
 #ifdef USE_XCCL
-            printf("Init XCCL for PM processes\n");
             xcclUniqueId pm_id;
             if (CONTROLLER::PM_MPI_rank == 0)
             {
@@ -1396,6 +1034,23 @@ void Main_Process_Management()
         "MPI process partition: MPI_rank=%d, PP_MPI_rank=%d, "
         "PM_MPI_rank=%d\n",
         CONTROLLER::MPI_rank, CONTROLLER::PP_MPI_rank, CONTROLLER::PM_MPI_rank);
+
+    if (CONTROLLER::PP_MPI_size > 1)
+    {
+        md_info.nb.Excluded_List_Reform(md_info.atom_numbers);
+    }
+    pm.exclude_factor = CONTROLLER::PP_MPI_size == 1 ? 1.0f : 0.5f;
+
+    deviceStreamCreate(&main_stream);
+    dd.Create_Stream();
+    pm.Create_Stream();
+
+    dd.Domain_Decomposition(&controller, &md_info);
+    pm.Domain_Decomposition(&controller, md_info.sys.box_length,
+                            dd.dom_dec_split_num);
+    pm.Send_Recv_Dom_Dec(&controller);
+    pm.Find_Neighbor_Domain(&controller);
+    plugin.Set_Domain_Information(&dd);
 }
 
 void Main_MC_Barostat()

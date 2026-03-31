@@ -921,6 +921,28 @@ void MD_INFORMATION::Step_Print(CONTROLLER* controller)
         controller->Step_Print("time", this->sys.Get_Current_Time(false));
         controller->Step_Print("temperature", sys.h_temperature);
     }
+    deviceMemcpy(&sys.h_potential, sys.d_potential, sizeof(float),
+                 deviceMemcpyDeviceToHost);
+    controller->Step_Print("eff_pot", sys.h_potential);
+    sys.Get_Density();
+    controller->Step_Print("density", sys.density);
+    controller->Step_Print("pressure",
+                           sys.h_pressure * CONSTANT_PRES_CONVERTION);
+    if (output.print_virial)
+    {
+        controller->Step_Print("Pxx",
+                               sys.h_stress.a11 * CONSTANT_PRES_CONVERTION);
+        controller->Step_Print("Pyy",
+                               sys.h_stress.a22 * CONSTANT_PRES_CONVERTION);
+        controller->Step_Print("Pzz",
+                               sys.h_stress.a33 * CONSTANT_PRES_CONVERTION);
+        controller->Step_Print("Pxy", sys.h_stress.a21 * 0.5f *
+                                          CONSTANT_PRES_CONVERTION);
+        controller->Step_Print("Pxz", sys.h_stress.a31 * 0.5f *
+                                          CONSTANT_PRES_CONVERTION);
+        controller->Step_Print("Pyz", sys.h_stress.a32 * 0.5f *
+                                          CONSTANT_PRES_CONVERTION);
+    }
 }
 
 void MD_INFORMATION::Get_pressure(CONTROLLER* controller, float dd_atom_numbers,
