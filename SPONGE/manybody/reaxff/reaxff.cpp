@@ -13,8 +13,8 @@ void REAXFF::Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
     const char* type_in_file = controller->Command("REAXFF", "type_in_file");
 
     eeq.Initial(controller, atom_numbers, parameter_in_file, type_in_file);
-    bond_order.Initial(controller, atom_numbers, parameter_in_file, type_in_file,
-                       cutoff, cutoff_full);
+    bond_order.Initial(controller, atom_numbers, parameter_in_file,
+                       type_in_file, cutoff, cutoff_full);
     bond.Initial(controller, atom_numbers, "REAXFF", need_full_nl_flag);
     vdw.Initial(controller, atom_numbers, "REAXFF", need_full_nl_flag);
     ovun.Initial(controller, atom_numbers, "REAXFF");
@@ -121,10 +121,9 @@ void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
         dd->Sync_Local_Charge_From_Global(md_info->d_charge);
     }
 
-    bond_order.Calculate_Bond_Order(dd->atom_numbers, dd->crd, md_info->pbc.cell,
-                                    md_info->pbc.rcell,
-                                    neighbor_list->full_neighbor_list.d_nl,
-                                    md_info->nb.cutoff);
+    bond_order.Calculate_Bond_Order(
+        dd->atom_numbers, dd->crd, md_info->pbc.cell, md_info->pbc.rcell,
+        neighbor_list->full_neighbor_list.d_nl, md_info->nb.cutoff);
 
     if (bond_order.is_initialized)
     {
@@ -161,9 +160,8 @@ void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
         dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
         md_info->pbc.rcell, neighbor_list->full_neighbor_list.d_nl, &bond_order,
         ovun.d_Delta, ovun.d_Delta_boc, ovun.d_Delta_val, ovun.d_nlp,
-        ovun.d_vlpex, ovun.d_dDelta_lp, ovun.d_CdDelta,
-        md_info->need_potential, dd->d_energy, md_info->need_pressure,
-        dd->d_virial);
+        ovun.d_vlpex, ovun.d_dDelta_lp, ovun.d_CdDelta, md_info->need_potential,
+        dd->d_energy, md_info->need_pressure, dd->d_virial);
     torsion.Calculate_Torsion_Energy_And_Force(
         dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
         md_info->pbc.rcell, neighbor_list->full_neighbor_list.d_nl, &bond_order,

@@ -32,7 +32,7 @@ struct REAXFF
                          NEIGHBOR_LIST* neighbor_list);
     void Step_Print(CONTROLLER* controller, const float* d_charge);
 
-private:
+   private:
     void Wire_Shared_State();
 };
 

@@ -936,12 +936,12 @@ void MD_INFORMATION::Step_Print(CONTROLLER* controller)
                                sys.h_stress.a22 * CONSTANT_PRES_CONVERTION);
         controller->Step_Print("Pzz",
                                sys.h_stress.a33 * CONSTANT_PRES_CONVERTION);
-        controller->Step_Print("Pxy", sys.h_stress.a21 * 0.5f *
-                                          CONSTANT_PRES_CONVERTION);
-        controller->Step_Print("Pxz", sys.h_stress.a31 * 0.5f *
-                                          CONSTANT_PRES_CONVERTION);
-        controller->Step_Print("Pyz", sys.h_stress.a32 * 0.5f *
-                                          CONSTANT_PRES_CONVERTION);
+        controller->Step_Print(
+            "Pxy", sys.h_stress.a21 * 0.5f * CONSTANT_PRES_CONVERTION);
+        controller->Step_Print(
+            "Pxz", sys.h_stress.a31 * 0.5f * CONSTANT_PRES_CONVERTION);
+        controller->Step_Print(
+            "Pyz", sys.h_stress.a32 * 0.5f * CONSTANT_PRES_CONVERTION);
     }
 }
 

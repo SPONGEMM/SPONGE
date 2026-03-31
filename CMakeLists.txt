@@ -10,6 +10,10 @@ get_filename_component(PROJECT_ROOT_DIR ${PROJECT_SOURCE_DIR} ABSOLUTE)
 set(COMMON_FILE "${PROJECT_ROOT_DIR}/cmake/utils/common.cmake")
 include("${COMMON_FILE}")
 
+# Parse version from pixi.toml
+set(VERSION_FILE "${PROJECT_ROOT_DIR}/cmake/utils/version.cmake")
+include("${VERSION_FILE}")
+
 # Set Parallel Backend
 set(PARALLEL_FILE "${PROJECT_ROOT_DIR}/cmake/utils/parallel.cmake")
 include("${PARALLEL_FILE}")

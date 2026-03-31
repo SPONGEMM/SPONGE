@@ -194,6 +194,12 @@ def git_add(paths):
     return result.returncode == 0
 
 
+def unstaged_files(paths):
+    if not paths:
+        return []
+    return run_capture(["git", "diff", "--name-only", "--", *paths])
+
+
 def print_format_hint():
     print()
     print("📝 修复方法：")
@@ -375,6 +381,39 @@ def format_or_check_cpp(cpp_files, do_modify):
     return True
 
 
+def sync_version(check_only):
+    """Sync or check version consistency."""
+    cmd = [sys.executable, str(Path(__file__).parent / "sync-version.py")]
+    changed_files = []
+    if check_only:
+        cmd.append("--check")
+    else:
+        cmd.append("--changed-paths")
+    result = subprocess.run(cmd, check=False, capture_output=True, text=True)
+    if result.stdout.strip():
+        if check_only:
+            print(result.stdout.strip())
+        else:
+            changed_files = [
+                line.strip()
+                for line in result.stdout.splitlines()
+                if line.strip()
+            ]
+            if changed_files:
+                print(f"Synced version files: {', '.join(changed_files)}")
+    return result.returncode == 0, changed_files
+
+
+def version_sync_targets():
+    """Return tracked files governed by sync-version.py."""
+    cmd = [
+        sys.executable,
+        str(Path(__file__).parent / "sync-version.py"),
+        "--targets",
+    ]
+    return run_capture(cmd)
+
+
 def main():
     do_modify = env_flag("GITHOOK_MODIFY", "0")
     do_auto_add = env_flag("GITHOOK_AUTO_ADD", "1")
@@ -398,13 +437,48 @@ def main():
     for file in missing_files:
         print(f"⚠️ 已跳过不存在的文件: {file}")
 
+    preexisting_unstaged_sync = set()
+    if do_modify and do_auto_add:
+        preexisting_unstaged_sync = set(unstaged_files(version_sync_targets()))
+
     ok = True
+
+    if do_modify:
+        sync_ok, sync_files_to_add = sync_version(check_only=False)
+        ok = sync_ok and ok
+    else:
+        sync_ok, _ = sync_version(check_only=True)
+        sync_files_to_add = []
+        ok = sync_ok and ok
     ok = format_or_check_cpp(cpp_files, do_modify) and ok
     ok = format_or_check_python(py_files, do_modify) and ok
     ok = format_or_check_cmake(cmake_files, do_modify) and ok
 
     if do_modify and do_auto_add:
-        files_to_add = unique_keep_order(cpp_files + py_files + cmake_files)
+        conflicted_sync_files = [
+            file
+            for file in sync_files_to_add
+            if file in preexisting_unstaged_sync
+        ]
+        if conflicted_sync_files:
+            print(
+                "❌ 以下版本同步文件在 hook 运行前已有未暂存改动，已停止自动暂存："
+            )
+            for file in conflicted_sync_files:
+                print(f"  {file}")
+            print("   请先处理这些文件的未暂存改动，再重新提交。")
+            ok = False
+        sync_files_to_add = [
+            file
+            for file in sync_files_to_add
+            if file not in preexisting_unstaged_sync
+        ]
+        sync_files_to_add, missing_sync = existing_files(sync_files_to_add)
+        for file in missing_sync:
+            print(f"⚠️ 已跳过不存在的文件: {file}")
+        files_to_add = unique_keep_order(
+            cpp_files + py_files + cmake_files + sync_files_to_add
+        )
         if files_to_add and not git_add(files_to_add):
             print("❌ git add 失败。")
             return 1

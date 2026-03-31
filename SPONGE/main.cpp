@@ -2,13 +2,13 @@
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
-#define THERMOSTAT_IS(name)                                              \
-    (md_info.mode >= md_info.NVT &&                                      \
-     (controller.Command_Choice("thermostat", (name)) ||                 \
+#define THERMOSTAT_IS(name)                              \
+    (md_info.mode >= md_info.NVT &&                      \
+     (controller.Command_Choice("thermostat", (name)) || \
       controller.Command_Choice("thermostat_mode", (name))))
-#define BAROSTAT_IS(name)                                                \
-    (md_info.mode == md_info.NPT &&                                      \
-     (controller.Command_Choice("barostat", (name)) ||                   \
+#define BAROSTAT_IS(name)                              \
+    (md_info.mode == md_info.NPT &&                    \
+     (controller.Command_Choice("barostat", (name)) || \
       controller.Command_Choice("barostat_mode", (name))))
 
 CONTROLLER controller;
@@ -751,8 +751,7 @@ void Main_Iteration()
                     md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
                     neighbor_list.FORCED_UPDATE,
                     md_info.nb.d_excluded_list_start,
-                    md_info.nb.d_excluded_list,
-                    md_info.nb.d_excluded_numbers);
+                    md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
             }
         }
     }
@@ -883,7 +882,7 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
     {
         Main_Box_Change_Largely();
     }
-    else    // 更新域分解盒子
+    else  // 更新域分解盒子
     {
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
         {

@@ -443,25 +443,26 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
     // 每个区域的frc最起码要预留非直接作用的虚拟原子数量+10000个粒子的空间
     tmp_frc_size = (md_info->atom_numbers) / controller->PP_MPI_size + 10000 +
                    md_info->no_direct_interaction_virtual_atom_numbers;
-    Device_Malloc_Safely((void**)&frc,
-                         sizeof(VECTOR) * tmp_frc_size *
-                             CONTROLLER::force_replica_count);
+    Device_Malloc_Safely((void**)&frc, sizeof(VECTOR) * tmp_frc_size *
+                                           CONTROLLER::force_replica_count);
     Device_Malloc_Safely((void**)&frc_buffer,
                          sizeof(VECTOR) * max_atom_numbers);
-    Device_Malloc_Safely((void**)&d_virial,
-                         sizeof(LTMatrix3) * tmp_frc_size *
-                             CONTROLLER::force_replica_count);
-    Device_Malloc_Safely((void**)&d_energy,
-                         sizeof(float) * tmp_frc_size *
-                             CONTROLLER::force_replica_count);
-    deviceMemset(frc, 0, sizeof(VECTOR) * tmp_frc_size *
-                             CONTROLLER::force_replica_count);
+    Device_Malloc_Safely(
+        (void**)&d_virial,
+        sizeof(LTMatrix3) * tmp_frc_size * CONTROLLER::force_replica_count);
+    Device_Malloc_Safely(
+        (void**)&d_energy,
+        sizeof(float) * tmp_frc_size * CONTROLLER::force_replica_count);
+    deviceMemset(
+        frc, 0,
+        sizeof(VECTOR) * tmp_frc_size * CONTROLLER::force_replica_count);
     deviceMemset(frc_buffer, 0, sizeof(VECTOR) * max_atom_numbers);
-    deviceMemset(d_virial, 0,
-                 sizeof(LTMatrix3) * tmp_frc_size *
-                     CONTROLLER::force_replica_count);
-    deviceMemset(d_energy, 0, sizeof(float) * tmp_frc_size *
-                                  CONTROLLER::force_replica_count);
+    deviceMemset(
+        d_virial, 0,
+        sizeof(LTMatrix3) * tmp_frc_size * CONTROLLER::force_replica_count);
+    deviceMemset(
+        d_energy, 0,
+        sizeof(float) * tmp_frc_size * CONTROLLER::force_replica_count);
 #endif
     Device_Malloc_Safely((void**)&d_mass, sizeof(float) * max_atom_numbers);
     Device_Malloc_Safely((void**)&d_mass_inverse,
