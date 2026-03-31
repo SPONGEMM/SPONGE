@@ -1,0 +1,416 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release-sponge-conda:
+    name: Release conda package (${{ matrix.feature }} / ${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu
+            env_name: dev-cpu
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - feature: cpu-mpi
+            env_name: dev-cpu-mpi
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda12
+            env_name: dev-cuda12
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cuda13
+            env_name: dev-cuda13
+            target: linux-64
+            runner: ubuntu-22.04
+          - feature: cpu
+            env_name: dev-cpu
+            target: win-64
+            runner: windows-2022
+          - feature: cpu
+            env_name: dev-cpu
+            target: osx-arm64
+            runner: macos-14
+          - feature: cuda12
+            env_name: dev-cuda12
+            target: win-64
+            runner: windows-2022
+          - feature: cuda13
+            env_name: dev-cuda13
+            target: win-64
+            runner: windows-2022
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Build conda package(s)
+        run: |
+          pixi install -e ${{ matrix.env_name }}
+          pixi run -e ${{ matrix.env_name }} configure
+          pixi run -e ${{ matrix.env_name }} compile
+          pixi run -e ${{ matrix.env_name }} package-conda
+
+      - name: Stage conda artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/conda
+          cp packaging/outputs/*.conda release-artifacts/conda/
+
+      - name: Set up conda host SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "${CONDA_HOST_KEY}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${CONDA_HOST_KNOWN_HOSTS}" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+        env:
+          CONDA_HOST_KEY: ${{ secrets.CONDA_HOST_KEY }}
+          CONDA_HOST_KNOWN_HOSTS: ${{ secrets.CONDA_HOST_KNOWN_HOSTS }}
+
+      - name: Upload conda package to remote host
+        shell: bash
+        run: |
+          set -euo pipefail
+          remote_dir="${CONDA_HOST_PATH}/conda/${ARCH}"
+          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "mkdir -p '${remote_dir}'"
+          scp -i ~/.ssh/id_ed25519 -P "${CONDA_HOST_PORT}" release-artifacts/conda/*.conda "${CONDA_HOST_USER}@${CONDA_HOST}:${remote_dir}/"
+        env:
+          ARCH: ${{ matrix.target }}
+          CONDA_HOST: ${{ secrets.CONDA_HOST }}
+          CONDA_HOST_USER: ${{ secrets.CONDA_HOST_USER }}
+          CONDA_HOST_PORT: ${{ secrets.CONDA_HOST_PORT }}
+          CONDA_HOST_PATH: ${{ secrets.CONDA_HOST_PATH }}
+
+      - name: Rebuild remote conda index
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_ed25519 -p "${CONDA_HOST_PORT}" "${CONDA_HOST_USER}@${CONDA_HOST}" "export PATH=\"\$HOME/.pixi/bin:\$PATH\" && cd '${CONDA_HOST_PATH}' && bash index.sh"
+        env:
+          CONDA_HOST: ${{ secrets.CONDA_HOST }}
+          CONDA_HOST_USER: ${{ secrets.CONDA_HOST_USER }}
+          CONDA_HOST_PORT: ${{ secrets.CONDA_HOST_PORT }}
+          CONDA_HOST_PATH: ${{ secrets.CONDA_HOST_PATH }}
+
+      - name: Upload conda artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: sponge-conda-${{ matrix.feature }}-${{ matrix.target }}
+          path: release-artifacts/conda/*.conda
+          if-no-files-found: error
+
+  release-prips-sdist:
+    name: Release PRIPS sdist
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Build PRIPS sdist
+        run: |
+          pixi install -e dev-cpu
+          pixi run -e dev-cpu prips-build
+
+      - name: Verify PRIPS sdist install with pip
+        run: |
+          pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
+
+      - name: Upload PRIPS package with Twine
+        env:
+          TWINE_REPOSITORY_URL: ${{ secrets.TWINE_REPOSITORY_URL }}
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          pixi run -e dev-cpu pip install --disable-pip-version-check twine
+          pixi run -e dev-cpu twine upload plugins/prips/dist/*.tar.gz
+
+      - name: Stage PRIPS artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/prips
+          cp plugins/prips/dist/*.tar.gz release-artifacts/prips/
+
+      - name: Upload PRIPS sdist artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: prips-sdist
+          path: release-artifacts/prips/*.tar.gz
+          if-no-files-found: error
+
+  release-windows-installer:
+    name: Release Windows Installer (${{ matrix.variant }})
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env_name: dev-cpu
+            variant: CPU
+          - env_name: dev-cuda12
+            variant: CUDA12
+          - env_name: dev-cuda13
+            variant: CUDA13
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          pixi install -e ${{ matrix.env_name }}
+          pixi run -e ${{ matrix.env_name }} configure
+          pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          .\packaging\windows\installer.ps1 -EnvName ${{ matrix.env_name }} -Variant ${{ matrix.variant }} -Tag "${{ github.ref_name }}"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: sponge-installer-${{ matrix.variant }}-win-64
+          path: release-artifacts/nsis/*-installer.exe
+          if-no-files-found: error
+
+  release-docker:
+    name: Release Docker image (${{ matrix.name }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: cpu-x64
+            dockerfile: packaging/docker/cpu-x64.Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - name: cpu-arm64
+            dockerfile: packaging/docker/cpu-arm64.Dockerfile
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+          - name: cuda12-x64
+            dockerfile: packaging/docker/cuda12-x64.Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-22.04
+          - name: cuda13-x64
+            dockerfile: packaging/docker/cuda13-x64.Dockerfile
+            platform: linux/amd64
+            runner: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Classify release channel
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "stable=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Derive image name
+        id: image
+        shell: bash
+        run: |
+          namespace="${DOCKERHUB_USERNAME,,}"
+          echo "name=${namespace}/sponge" >> "${GITHUB_OUTPUT}"
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=${{ github.ref_name }}-${{ matrix.name }}
+            type=raw,value=latest-${{ matrix.name }},enable=${{ steps.channel.outputs.stable == 'true' }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platform }}
+          push: true
+          provenance: false
+          labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
+
+  publish-release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-22.04
+    needs:
+      - release-sponge-conda
+      - release-prips-sdist
+      - release-windows-installer
+      - release-docker
+    permissions:
+      contents: write
+
+    steps:
+      - name: Classify release channel
+        id: channel
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "stable=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "stable=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: release-artifacts
+          pattern: "!*.dockerbuild"
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "SPONGE ${{ github.ref_name }}"
+          draft: false
+          prerelease: ${{ steps.channel.outputs.stable != 'true' }}
+          body: |
+            ## 安装
+
+            ### Conda 包
+
+            Conda 包可通过 [pixi](https://pixi.sh)、conda、mamba 或 micromamba 安装。
+
+            **可用包：**
+
+            | 包名 | 说明 | 平台 |
+            |------|------|------|
+            | `sponge-cuda13` | NVIDIA GPU（驱动 ≥ 570） | Linux x64、Windows x64 |
+            | `sponge-cuda12` | NVIDIA GPU（驱动 ≥ 525） | Linux x64、Windows x64 |
+            | `sponge-cpu` | 仅 CPU | Linux x64/ARM64、Windows x64、macOS ARM64 |
+            | `sponge-cpu-mpi` | CPU + MPI 并行 | Linux x64/ARM64 |
+
+            **pixi：**
+
+            ```bash
+            pixi global install --channel https://conda.spongemm.cn/conda sponge-cuda13
+            ```
+
+            **conda / mamba / micromamba：**
+
+            ```bash
+            conda install -c https://conda.spongemm.cn/conda sponge-cuda13
+            ```
+
+            ### Windows 安装包
+
+            从下方 Assets 下载 `.exe` 安装包并运行，可选版本：
+            - **CPU** — 无需 GPU
+            - **CUDA 12** — 适用于 NVIDIA GPU（驱动 ≥ 525）
+            - **CUDA 13** — 适用于 NVIDIA GPU（驱动 ≥ 570）
+
+            ### 容器镜像
+
+            **Docker：**
+
+            ```bash
+            docker pull spongemm/sponge:${{ github.ref_name }}-cuda13-x64
+            ```
+
+            **Apptainer / Singularity：**
+
+            ```bash
+            apptainer pull sponge.sif docker://spongemm/sponge:${{ github.ref_name }}-cuda13-x64
+            ```
+
+            可用镜像标签：`cpu-x64`、`cpu-arm64`、`cuda12-x64`、`cuda13-x64`。
+
+            ### PRIPS（Python 接口）
+
+            ```bash
+            pip install prips
+            ```
+
+            ### 从源码编译
+
+            参见 [构建指南](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/build-guide.md)。
+
+            ---
+
+            **完整更新日志**：https://github.com/${{ github.repository }}/compare/.../${{ github.ref_name }}
+          files: |
+            release-artifacts/**/*.conda
+            release-artifacts/**/*.exe
+            release-artifacts/**/*.tar.gz

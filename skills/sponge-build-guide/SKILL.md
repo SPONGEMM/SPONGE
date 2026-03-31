@@ -161,10 +161,10 @@ pixi run -e dev-cuda13 format-check  # 仅检查，不修改
 ## 打包
 
 ```bash
-pixi run -e dev-cuda13 package
+pixi run -e dev-cuda13 package-conda
 ```
 
-生成 conda v2 格式（`.conda`）包到 `conda/outputs/`。打包脚本会：
+生成 conda v2 格式（`.conda`）包到 `packaging/outputs/`。打包脚本会：
 
 - 根据环境名提取后端变体（如 `dev-cuda13` → `cuda13`）
 - 自动探测平台和架构

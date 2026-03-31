@@ -3,11 +3,11 @@
 Build a .conda package for SPONGE.
 
 Usage:
-    python build_package.py [--env ENV_NAME] [--output-dir DIR]
+    python conda.py [--env ENV_NAME] [--output-dir DIR]
 
 Examples:
-    python build_package.py --env dev-cpu
-    python build_package.py --env dev-cuda --output-dir ../output
+    python conda.py --env dev-cpu
+    python conda.py --env dev-cuda --output-dir ../output
 """
 
 import argparse
@@ -434,7 +434,7 @@ def main():
     parser.add_argument(
         "--output-dir",
         default=str(Path(__file__).resolve().parent / "outputs"),
-        help="Output directory for the .conda file (default: conda/outputs)",
+        help="Output directory for the .conda file (default: packaging/outputs)",
     )
     args = parser.parse_args()
 
