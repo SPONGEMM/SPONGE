@@ -51,33 +51,44 @@ static inline void QC_Build_D3_eff(
     }
 
     // D3_K[Q,μ,λ] = Σ_{P,ν,i} M^{-1/2}[QP] B_occ[P,ν,i] C[λ,i] D[μ,ν]
+    // 分解:
+    //   X_P[ν,λ] = Σ_i B_occ[P,ν,i] × C[λ,i]   (per-P matmul)
+    //   Y_P[μ,λ] = Σ_ν D[μ,ν] × X_P[ν,λ]       (per-P matmul)
+    //   D3_K[Q,ml] = -exx × Σ_P M^{-1/2}[Q,P] × Y[P,ml]  (matmul)
     if (exx_fraction != 0.0f && nocc > 0 && B_occ != nullptr)
     {
         const int M_dim = naux * nao;
 
+        // Step 1+2: 对每个 P, 计算 Y_P = D @ X_P = D @ (B_occ_P @ C^T)
         std::vector<double> Y((size_t)naux * nao2, 0.0);
+        std::vector<double> X_P((size_t)nao * nao, 0.0);
         for (int P = 0; P < naux; P++)
         {
+            // X_P[ν,λ] = Σ_i B_occ[P,ν,i] × C[λ,i]
+            std::fill(X_P.begin(), X_P.end(), 0.0);
             for (int nu = 0; nu < nao; nu++)
-            {
                 for (int i = 0; i < nocc; i++)
                 {
                     double bval =
                         (double)B_occ[(size_t)(P * nao + nu) + (size_t)M_dim * i];
                     if (bval == 0.0) continue;
                     for (int lam = 0; lam < nao; lam++)
-                    {
-                        double c = (double)C_occ[lam * nao + i];
-                        for (int mu = 0; mu < nao; mu++)
-                        {
-                            Y[(long long)P * nao2 + (long long)mu * nao + lam] +=
-                                (double)P_density[mu * nao + nu] * bval * c;
-                        }
-                    }
+                        X_P[nu * nao + lam] +=
+                            bval * (double)C_occ[lam * nao + i];
                 }
-            }
+            // Y_P[μ,λ] = Σ_ν D[μ,ν] × X_P[ν,λ]
+            double* Y_P = Y.data() + (long long)P * nao2;
+            for (int mu = 0; mu < nao; mu++)
+                for (int nu = 0; nu < nao; nu++)
+                {
+                    double d = (double)P_density[mu * nao + nu];
+                    if (d == 0.0) continue;
+                    for (int lam = 0; lam < nao; lam++)
+                        Y_P[mu * nao + lam] += d * X_P[nu * nao + lam];
+                }
         }
 
+        // Step 3: D3_K[Q,ml] = -exx × Σ_P M^{-1/2}[Q,P] × Y[P,ml]
         const double neg_exx = -(double)exx_fraction;
         for (int Q = 0; Q < naux; Q++)
         {
