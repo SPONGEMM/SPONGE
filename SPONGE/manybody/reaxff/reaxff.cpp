@@ -28,6 +28,9 @@ void REAXFF::Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
 
 void REAXFF::Wire_Shared_State()
 {
+    bond.d_bo_s = bond_order.d_corrected_bo_s;
+    bond.d_bo_pi = bond_order.d_corrected_bo_pi;
+    bond.d_bo_pi2 = bond_order.d_corrected_bo_pi2;
     bond.d_dE_dBO_s = bond_order.d_dE_dBO_s;
     bond.d_dE_dBO_pi = bond_order.d_dE_dBO_pi;
     bond.d_dE_dBO_pi2 = bond_order.d_dE_dBO_pi2;
@@ -41,6 +44,10 @@ void REAXFF::Wire_Shared_State()
     bond.d_dbo_pi_dDelta_j = bond_order.d_dbo_pi_dDelta_j;
     bond.d_dbo_pi2_dDelta_j = bond_order.d_dbo_pi2_dDelta_j;
     bond.d_dbo_raw_total_dr = bond_order.d_dbo_raw_total_dr;
+    bond.d_bond_count = bond_order.d_bond_count;
+    bond.d_bond_offset = bond_order.d_bond_offset;
+    bond.d_bond_nbr = bond_order.d_bond_nbr;
+    bond.d_bond_idx = bond_order.d_bond_idx;
 
     ovun.d_dE_dBO_s = bond_order.d_dE_dBO_s;
     ovun.d_dE_dBO_pi = bond_order.d_dE_dBO_pi;
@@ -114,8 +121,9 @@ void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
 {
     eeq.Calculate_Charges(dd->atom_numbers, md_info->d_charge, dd->crd,
                           md_info->pbc.cell, md_info->pbc.rcell,
-                          neighbor_list->d_nl, md_info->nb.cutoff, dd->d_energy,
-                          dd->frc, md_info->need_pressure, dd->d_virial);
+                          neighbor_list->full_neighbor_list.d_nl,
+                          md_info->nb.cutoff, dd->d_energy, dd->frc,
+                          md_info->need_pressure, dd->d_virial);
     if (CONTROLLER::PP_MPI_size == 1 && dd->d_charge != md_info->d_charge)
     {
         dd->Sync_Local_Charge_From_Global(md_info->d_charge);
@@ -128,19 +136,6 @@ void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
     if (bond_order.is_initialized)
     {
         bond_order.Clear_Derivatives(dd->atom_numbers, ovun.d_CdDelta);
-    }
-
-    if (bond.is_initialized && bond_order.is_initialized)
-    {
-        deviceMemcpy(bond.d_bo_s, bond_order.d_corrected_bo_s,
-                     sizeof(float) * dd->atom_numbers * dd->atom_numbers,
-                     deviceMemcpyDeviceToDevice);
-        deviceMemcpy(bond.d_bo_pi, bond_order.d_corrected_bo_pi,
-                     sizeof(float) * dd->atom_numbers * dd->atom_numbers,
-                     deviceMemcpyDeviceToDevice);
-        deviceMemcpy(bond.d_bo_pi2, bond_order.d_corrected_bo_pi2,
-                     sizeof(float) * dd->atom_numbers * dd->atom_numbers,
-                     deviceMemcpyDeviceToDevice);
     }
 
     bond.REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
