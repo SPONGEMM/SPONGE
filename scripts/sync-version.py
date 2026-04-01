@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Sync version from pixi.toml to README and SKILL.md files."""
+
 import re
 import sys
 from pathlib import Path
@@ -16,7 +17,9 @@ def get_version() -> str:
     raise RuntimeError("version not found in pixi.toml")
 
 
-def check_or_sync(path: Path, pattern: str, replacement: str, write: bool) -> bool:
+def check_or_sync(
+    path: Path, pattern: str, replacement: str, write: bool
+) -> bool:
     """Return True if file needed (or received) an update."""
     text = path.read_text()
     new_text = re.sub(pattern, replacement, text)
@@ -32,7 +35,9 @@ def version_targets(version: str):
     targets = []
 
     prips_init = ROOT / "plugins" / "prips" / "prips" / "__init__.py"
-    targets.append((prips_init, r'(__version__ = ")[^"]+(")', rf"\g<1>{version}\2"))
+    targets.append(
+        (prips_init, r'(__version__ = ")[^"]+(")', rf"\g<1>{version}\2")
+    )
 
     for name in ("README.md", "README_en.md"):
         targets.append((ROOT / name, r"`v\d[^`]*`", f"`v{version}`"))
