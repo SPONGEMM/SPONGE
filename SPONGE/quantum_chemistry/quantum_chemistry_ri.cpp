@@ -416,7 +416,6 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
     // ---- 2. 计算三中心积分 (P|μν)（仅 stored 模式）----
     if (!ri.direct)
     {
-        // 三中心积分先输出到笛卡尔维度的临时缓冲
         const long long n3c_cart =
             (long long)ri.naux_cart * mol.nao_cart * mol.nao_cart;
         double* d_eri3c_cart = NULL;
@@ -424,12 +423,60 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         Device_Malloc_Safely((void**)&d_eri3c_cart, sizeof(double) * n3c_cart);
         deviceMemset(d_eri3c_cart, 0, sizeof(double) * n3c_cart);
 
+        // Schwarz 筛选: |(P|μν)| ≤ sqrt(P|P) × sqrt(μν|μν)
+        // 辅助基 bound: 从 2c metric 对角元素取 sqrt（归一化后）
+        std::vector<double> h_metric_diag(Ps);
+        {
+            std::vector<double> h_metric_full((size_t)Ps * Ps);
+            deviceMemcpy(h_metric_full.data(), ri.d_metric,
+                         sizeof(double) * Ps * Ps, deviceMemcpyDeviceToHost);
+            for (int p = 0; p < Ps; p++)
+                h_metric_diag[p] = sqrt(fabs(h_metric_full[(size_t)p * Ps + p]));
+        }
+        // 每个辅助 shell 的最大 bound
+        std::vector<float> aux_shell_bound(ri.naux_bas, 0.0f);
+        for (int sh = 0; sh < ri.naux_bas; sh++)
+        {
+            int off = mol.is_spherical ? ri.h_aux_ao_offsets_sph[sh]
+                                       : ri.h_aux_ao_offsets[sh];
+            int dim = mol.is_spherical ? (2 * ri.h_aux_l_list[sh] + 1)
+                                       : ((ri.h_aux_l_list[sh] + 1) *
+                                          (ri.h_aux_l_list[sh] + 2) / 2);
+            for (int i = 0; i < dim; i++)
+                aux_shell_bound[sh] = std::max(
+                    aux_shell_bound[sh], (float)h_metric_diag[off + i]);
+        }
+        // 轨道基 pair bound: 从 task_ctx 获取（Prepare_Integrals 中已计算）
+        // 建立 (mu_sh, nu_sh) → pair_bound 映射
+        std::vector<std::vector<float>> orb_pair_bound(
+            mol.nbas, std::vector<float>(mol.nbas, 0.0f));
+        for (int pid = 0; pid < task_ctx.topo.n_shell_pairs; pid++)
+        {
+            const auto& p = task_ctx.topo.h_shell_pairs[pid];
+            float b = task_ctx.topo.h_shell_pair_bounds[pid];
+            orb_pair_bound[p.x][p.y] = b;
+            orb_pair_bound[p.y][p.x] = b;
+        }
+
+        const float screen_tol = task_ctx.params.eri_shell_screen_tol;
         std::vector<QC_RI_3C_TASK> h_3c_tasks;
+        int n_screened = 0;
         for (int P = 0; P < ri.naux_bas; P++)
             for (int mu = 0; mu < mol.nbas; mu++)
                 for (int nu = 0; nu <= mu; nu++)
+                {
+                    if (aux_shell_bound[P] * orb_pair_bound[mu][nu] <
+                        screen_tol)
+                    {
+                        n_screened++;
+                        continue;
+                    }
                     h_3c_tasks.push_back({P, mu, nu});
+                }
         const int n_3c = h_3c_tasks.size();
+        const int n_total = n_3c + n_screened;
+        printf("    [QC-RI] 3c screening: %d/%d tasks kept (%.0f%% screened)\n",
+               n_3c, n_total, 100.0 * n_screened / std::max(n_total, 1));
 
         Device_Malloc_Safely((void**)&d_3c_tasks, sizeof(QC_RI_3C_TASK) * n_3c);
         deviceMemcpy(d_3c_tasks, h_3c_tasks.data(),
