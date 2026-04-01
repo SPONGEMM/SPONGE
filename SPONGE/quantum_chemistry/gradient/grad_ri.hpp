@@ -289,31 +289,56 @@ static inline void QC_Build_D2_eff_Stored(
         eigval != nullptr && eigvec != nullptr)
     {
         const int M_dim = naux * nao;
-        std::vector<double> Z_K(naux2, 0.0);
-        for (int Pp = 0; Pp < naux; Pp++)
+
+        // Z_K[P,Q] = -Σ_{m,l} eri3c[Q,m,l] × V[P,m,l]
+        //   V[P,m,l] = Σ_{n,i} B_occ[P,n,i] × C[l,i] × D[m,n]
+        // 分解为矩阵乘法链:
+        //   R[P,i,m] = Σ_n B_occ[P,n,i] × D[m,n]
+        //   V[P,m,l] = Σ_i R[P,i,m] × C[l,i] = Σ_i D[m,n]·B_occ[P,n,i]·C[l,i]
+        //   Z_K = -V_flat @ eri3c^T   (将 P,ml 展开)
+        //
+        // 实际用 V[naux, nao²] 和 eri3c[naux, nao²]:
+        //   Z_K[P,Q] = -Σ_{ml} V[P, m*nao+l] × eri3c[Q, m*nao+l]
+
+        // Step 1: V[P, m*nao+l] = Σ_{n,i} B_occ[P,n,i] × D[m,n] × C[l,i]
+        std::vector<double> V(naux * nao2, 0.0);
+        for (int P = 0; P < naux; P++)
         {
-            for (int Qp = 0; Qp < naux; Qp++)
+            // R_P[nocc, nao] = B_occ_P^T[nocc, nao] × D^T[nao, nao]
+            // V_P[nao, nao] = D[nao,nao] × B_occ_P[nao,nocc] × C^T[nocc,nao]
+            // 直接逐元素:
+            for (int i = 0; i < nocc; i++)
             {
-                double z = 0.0;
                 for (int m = 0; m < nao; m++)
+                {
+                    double r = 0.0;
+                    for (int n = 0; n < nao; n++)
+                        r += (double)B_occ[(size_t)(P * nao + n) +
+                                           (size_t)M_dim * i] *
+                             (double)P_density[m * nao + n];
+                    // V[P,m,l] += r × C[l,i]
                     for (int l = 0; l < nao; l++)
-                    {
-                        double ql = eri3c[(long long)Qp * nao2 +
-                                          (long long)m * nao + l];
-                        if (ql == 0.0) continue;
-                        for (int i = 0; i < nocc; i++)
-                        {
-                            double c = (double)C_occ[l * nao + i];
-                            for (int n = 0; n < nao; n++)
-                                z -= ql * c *
-                                     (double)B_occ[(size_t)(Pp * nao + n) +
-                                                   (size_t)M_dim * i] *
-                                     (double)P_density[m * nao + n];
-                        }
-                    }
-                Z_K[(size_t)Pp * naux + Qp] = z;
+                        V[(long long)P * nao2 + m * nao + l] +=
+                            r * (double)C_occ[l * nao + i];
+                }
             }
         }
+
+        // Step 2: Z_K[P,Q] = -Σ_{ml} V[P,ml] × eri3c[Q,ml]
+        // 这是矩阵乘法: Z_K = -V × eri3c^T
+        // V 行优先 [naux, nao²], eri3c 行优先 [naux, nao²]
+        // Z_K 行优先 [naux, naux]
+        std::vector<double> Z_K(naux2, 0.0);
+        for (int P = 0; P < naux; P++)
+            for (int Q = 0; Q < naux; Q++)
+            {
+                double z = 0.0;
+                for (long long ml = 0; ml < nao2; ml++)
+                    z += V[(long long)P * nao2 + ml] *
+                         eri3c[(long long)Q * nao2 + ml];
+                Z_K[(size_t)P * naux + Q] = -z;
+            }
+
         QC_Build_D2K_DaleckiiKrein(naux, Z_K.data(), eigval, eigvec, D2_eff);
     }
 }

@@ -95,19 +95,23 @@ static __device__ void compute_boys_double_grad(double* F, float t, int max_m)
     }
 }
 
-// 扩展版 R 张量
+// 扩展版 R 张量（动态 base，避免固定 11⁴ 的浪费）
 static __device__ void compute_r_tensor_grad(
     float* R, double* F, float alpha, float PC[3], int L_tot)
 {
-    const int base = RI_GRAD_R_BASE;
+    const int base = L_tot + 2;  // 实际需要的最小 base
     const int total_size = base * base * base * base;
     for (int i = 0; i < total_size; i++) R[i] = 0.0f;
+
+    // 使用动态 base 的索引宏
+    #define R_IDX(t, u, v, n) \
+        ((((t) * base + (u)) * base + (v)) * base + (n))
 
     double m2a = -2.0 * (double)alpha;
     double fac = 1.0;
     for (int n = 0; n <= L_tot; n++)
     {
-        R[RI_GRAD_R_IDX(0, 0, 0, n)] = (float)(fac * F[n]);
+        R[R_IDX(0, 0, 0, n)] = (float)(fac * F[n]);
         fac *= m2a;
     }
 
@@ -124,33 +128,31 @@ static __device__ void compute_r_tensor_grad(
                     double val = 0.0;
                     if (t > 0)
                     {
-                        val = (double)PC[0] *
-                              R[RI_GRAD_R_IDX(t - 1, u, v, n + 1)];
+                        val = (double)PC[0] * R[R_IDX(t - 1, u, v, n + 1)];
                         if (t > 1)
                             val += (double)(t - 1) *
-                                   R[RI_GRAD_R_IDX(t - 2, u, v, n + 1)];
+                                   R[R_IDX(t - 2, u, v, n + 1)];
                     }
                     else if (u > 0)
                     {
-                        val = (double)PC[1] *
-                              R[RI_GRAD_R_IDX(t, u - 1, v, n + 1)];
+                        val = (double)PC[1] * R[R_IDX(t, u - 1, v, n + 1)];
                         if (u > 1)
                             val += (double)(u - 1) *
-                                   R[RI_GRAD_R_IDX(t, u - 2, v, n + 1)];
+                                   R[R_IDX(t, u - 2, v, n + 1)];
                     }
                     else if (v > 0)
                     {
-                        val = (double)PC[2] *
-                              R[RI_GRAD_R_IDX(t, u, v - 1, n + 1)];
+                        val = (double)PC[2] * R[R_IDX(t, u, v - 1, n + 1)];
                         if (v > 1)
                             val += (double)(v - 1) *
-                                   R[RI_GRAD_R_IDX(t, u, v - 2, n + 1)];
+                                   R[R_IDX(t, u, v - 2, n + 1)];
                     }
-                    R[RI_GRAD_R_IDX(t, u, v, n)] = (float)val;
+                    R[R_IDX(t, u, v, n)] = (float)val;
                 }
             }
         }
     }
+    #undef R_IDX
 }
 
 // 二中心积分导数内核
@@ -255,6 +257,7 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                             const float alpha_pq = eP * eQ / (eP + eQ);
                             const float T_val = alpha_pq * dist_sq;
                             const int L_tot = lP + lQ;
+                            const int R_base = L_tot + 3;
 
                             double F_vals[RI_GRAD_R_BASE];
                             compute_boys_double_grad(F_vals, T_val, L_tot + 1);
@@ -318,10 +321,7 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                                                             eQx * eQy * eQz *
                                                             sign *
                                                             (double)R_vals
-                                                                [RI_GRAD_R_IDX(
-                                                                    t + tt,
-                                                                    u + uu,
-                                                                    v + vv, 0)];
+                                                                [(((t + tt) * R_base + (u + uu)) * R_base + (v + vv)) * R_base];
                                                     }
                                                 }
                                             }
