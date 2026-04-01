@@ -342,9 +342,30 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
 
     QC_Build_RI_Aux_Norms(this);
 
+    const int Pc = ri.naux_cart, Ps = ri.naux;
+    const int Mc = mol.nao_cart, Ms = mol.nao;
+
+    // 上传 U_aux/U_orb 到 device (float → double, 用于 DGEMM cart2sph)
+    double* d_U_aux = NULL;
+    double* d_U_orb = NULL;
+    {
+        Device_Malloc_Safely((void**)&d_U_aux, sizeof(double) * Pc * Ps);
+        std::vector<double> h_Ud(Pc * Ps);
+        for (int i = 0; i < Pc * Ps; i++) h_Ud[i] = (double)ri.h_U_aux[i];
+        deviceMemcpy(d_U_aux, h_Ud.data(), sizeof(double) * Pc * Ps,
+                     deviceMemcpyHostToDevice);
+        if (mol.is_spherical && Mc > 0 && Ms > 0)
+        {
+            Device_Malloc_Safely((void**)&d_U_orb, sizeof(double) * Mc * Ms);
+            h_Ud.resize(Mc * Ms);
+            for (int i = 0; i < Mc * Ms; i++) h_Ud[i] = (double)ri.h_U_orb[i];
+            deviceMemcpy(d_U_orb, h_Ud.data(), sizeof(double) * Mc * Ms,
+                         deviceMemcpyHostToDevice);
+        }
+    }
+
     // ---- 1. 计算二中心 metric (P|Q) ----
     {
-        const int Pc = ri.naux_cart;
         const long long n2c_cart = (long long)Pc * Pc;
         double* d_metric_cart = NULL;
         QC_ONE_E_TASK* d_2c_tasks = NULL;
@@ -368,26 +389,23 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
 
         deviceFree(d_2c_tasks);
 
-        const int Ps = naux;
-        std::vector<double> h_mc(n2c_cart);
-        deviceMemcpy(h_mc.data(), d_metric_cart, sizeof(double) * n2c_cart,
-                     deviceMemcpyDeviceToHost);
-        std::vector<double> h_ms(Ps * Ps, 0.0);
-        // T1 = U^T @ M_cart: [Ps × Pc]
-        std::vector<double> tmp(Ps * Pc, 0.0);
-        for (int i = 0; i < Ps; i++)
-            for (int j = 0; j < Pc; j++)
-                for (int k = 0; k < Pc; k++)
-                    tmp[i * Pc + j] +=
-                        (double)ri.h_U_aux[k * Ps + i] * h_mc[k * Pc + j];
-        // M_sph = T1 @ U: [Ps × Ps]
-        for (int i = 0; i < Ps; i++)
-            for (int j = 0; j < Ps; j++)
-                for (int k = 0; k < Pc; k++)
-                    h_ms[i * Ps + j] +=
-                        tmp[i * Pc + k] * (double)ri.h_U_aux[k * Ps + j];
-        deviceMemcpy(ri.d_metric, h_ms.data(), sizeof(double) * Ps * Ps,
-                     deviceMemcpyHostToDevice);
+        // M_sph = U^T @ M_cart @ U  (device DGEMM)
+        // d_U_aux 列优先 = U^T[Ps,Pc], lda=Ps; op=N → U^T, op=T → U
+        // d_metric_cart 列优先 = M[Pc,Pc] (对称), lda=Pc
+        const double one = 1.0, zero = 0.0;
+        double* d_tmp = NULL;
+        Device_Malloc_Safely((void**)&d_tmp, sizeof(double) * Ps * Pc);
+        // Step A: tmp[Ps,Pc] = U^T @ M_cart
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
+                        Ps, Pc, Pc, &one,
+                        d_U_aux, Ps, d_metric_cart, Pc,
+                        &zero, d_tmp, Ps);
+        // Step B: M_sph[Ps,Ps] = tmp @ U = tmp @ (U^T)^T
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                        Ps, Ps, Pc, &one,
+                        d_tmp, Ps, d_U_aux, Ps,
+                        &zero, ri.d_metric, Ps);
+        deviceFree(d_tmp);
         deviceFree(d_metric_cart);
         Launch_Device_Kernel(QC_Scale_RI_Metric_Kernel,
                              ((long long)naux * naux + threads - 1) / threads,
@@ -429,105 +447,60 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         deviceFree(d_3c_tasks);
         // 3c kernel done
 
+        // Cart2Sph 变换: 全部在 device 上用 DGEMM
+        // d_U_aux 列优先 = U_aux^T[Ps,Pc], lda=Ps; op=N → U^T, op=T → U
+        // d_U_orb 列优先 = U_orb^T[Ms,Mc], lda=Ms; op=N → U_orb^T, op=T → U_orb
+        // d_eri3c_cart 行优先 [Pc,Mc,Mc] = 列优先视为 T^T 各种切片
+        const double one = 1.0, zero = 0.0;
+
         if (!mol.is_spherical)
         {
-            const int Pc = ri.naux_cart, Ps = ri.naux;
-            const int Mc = mol.nao_cart;
-            const long long n3c_sph = (long long)Ps * Mc * Mc;
-            std::vector<double> h_3c_cart(n3c_cart);
-            deviceMemcpy(h_3c_cart.data(), d_eri3c_cart,
-                         sizeof(double) * n3c_cart, deviceMemcpyDeviceToHost);
-            deviceFree(d_eri3c_cart);
-
-            std::vector<double> h_3c_sph(n3c_sph, 0.0);
-            for (int ps = 0; ps < Ps; ps++)
-            {
-                for (int pc = 0; pc < Pc; pc++)
-                {
-                    double u = (double)ri.h_U_aux[pc * Ps + ps];
-                    if (u == 0.0) continue;
-                    for (long long mn = 0; mn < (long long)Mc * Mc; mn++)
-                        h_3c_sph[(long long)ps * Mc * Mc + mn] +=
-                            u * h_3c_cart[(long long)pc * Mc * Mc + mn];
-                }
-            }
-
-            deviceMemcpy(ri.d_eri3c, h_3c_sph.data(), sizeof(double) * n3c_sph,
-                         deviceMemcpyHostToDevice);
+            // 仅 P 变换: T_sph[Ps,Mc²] = U_aux^T @ T_cart[Pc,Mc²]
+            // 列优先: T_sph^T[Mc²,Ps] = T_cart^T[Mc²,Pc] @ U[Pc,Ps]
+            deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                            Mc * Mc, Ps, Pc, &one,
+                            d_eri3c_cart, Mc * Mc,
+                            d_U_aux, Ps,
+                            &zero, ri.d_eri3c, Mc * Mc);
         }
         else
         {
-            // Cart2Sph 变换（在 host 上做，规模不大）
-            const int Pc = ri.naux_cart, Ps = ri.naux;
-            const int Mc = mol.nao_cart, Ms = mol.nao;
-
-            // 3c: T_cart[Pc, Mc, Mc] → T_sph[Ps, Ms, Ms]
-            // Step 1: 对 ν 指标变换 → T1[Pc, Mc, Ms]
-            // Step 2: 对 μ 指标变换 → T2[Pc, Ms, Ms]
-            // Step 3: 对 P 指标变换 → T3[Ps, Ms, Ms]
-            std::vector<double> h_3c_cart(n3c_cart);
-            deviceMemcpy(h_3c_cart.data(), d_eri3c_cart,
-                         sizeof(double) * n3c_cart, deviceMemcpyDeviceToHost);
-            deviceFree(d_eri3c_cart);
-
-            // Step 1: ν 变换
-            // T1[P,μ,ν_s] = Σ_{ν_c} T[P,μ,ν_c] U_orb[ν_c, ν_s]
+            // Step 1 (ν): T1[Pc*Mc, Ms] = T_cart[Pc*Mc, Mc] @ U_orb[Mc, Ms]
+            // 列优先: T1^T[Ms, Pc*Mc] = U_orb^T[Ms,Mc] @ T_cart^T[Mc, Pc*Mc]
             const long long n_step1 = (long long)Pc * Mc * Ms;
-            std::vector<double> h_step1(n_step1, 0.0);
-            for (long long Pidx = 0; Pidx < Pc; Pidx++)
-            {
-                for (int mu = 0; mu < Mc; mu++)
-                {
-                    for (int ns = 0; ns < Ms; ns++)
-                    {
-                        double sum = 0.0;
-                        for (int nc = 0; nc < Mc; nc++)
-                            sum += h_3c_cart[Pidx * Mc * Mc + mu * Mc + nc] *
-                                   (double)ri.h_U_orb[nc * Ms + ns];
-                        h_step1[Pidx * Mc * Ms + mu * Ms + ns] = sum;
-                    }
-                }
-            }
+            double* d_step1 = NULL;
+            Device_Malloc_Safely((void**)&d_step1, sizeof(double) * n_step1);
+            deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
+                            Ms, Pc * Mc, Mc, &one,
+                            d_U_orb, Ms,
+                            d_eri3c_cart, Mc,
+                            &zero, d_step1, Ms);
 
-            // Step 2: μ 变换
-            // T2[P,μ_s,ν_s] = Σ_{μ_c} U_orb[μ_c, μ_s]^T T1[P, μ_c, ν_s]
-            //               = Σ_{μ_c} U_orb[μ_c, μ_s] T1[P, μ_c, ν_s]
+            // Step 2 (μ): 对每个 P, T2_P[Ms,Ms] = U_orb^T @ T1_P (行优先乘法)
+            // 列优先: T2_P^T[Ms,Ms] = T1_P^T[Ms,Mc] @ U_orb[Mc,Ms]
             const long long n_step2 = (long long)Pc * Ms * Ms;
-            std::vector<double> h_step2(n_step2, 0.0);
-            for (long long Pidx = 0; Pidx < Pc; Pidx++)
+            double* d_step2 = NULL;
+            Device_Malloc_Safely((void**)&d_step2, sizeof(double) * n_step2);
+            for (int P = 0; P < Pc; P++)
             {
-                for (int ms = 0; ms < Ms; ms++)
-                {
-                    for (int ns = 0; ns < Ms; ns++)
-                    {
-                        double sum = 0.0;
-                        for (int mc = 0; mc < Mc; mc++)
-                            sum += (double)ri.h_U_orb[mc * Ms + ms] *
-                                   h_step1[Pidx * Mc * Ms + mc * Ms + ns];
-                        h_step2[Pidx * Ms * Ms + ms * Ms + ns] = sum;
-                    }
-                }
+                deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                                Ms, Ms, Mc, &one,
+                                d_step1 + (long long)P * Mc * Ms, Ms,
+                                d_U_orb, Ms,
+                                &zero, d_step2 + (long long)P * Ms * Ms, Ms);
             }
+            deviceFree(d_step1);
 
-            // Step 3: P 变换
-            // T3[P_s,μ_s,ν_s] = Σ_{P_c} U_aux[P_c, P_s] T2[P_c, μ_s, ν_s]
-            const long long n3c_sph = (long long)Ps * Ms * Ms;
-            std::vector<double> h_3c_sph(n3c_sph, 0.0);
-            for (int ps = 0; ps < Ps; ps++)
-            {
-                for (int pc = 0; pc < Pc; pc++)
-                {
-                    double u = (double)ri.h_U_aux[pc * Ps + ps];
-                    if (u == 0.0) continue;
-                    for (long long mn = 0; mn < (long long)Ms * Ms; mn++)
-                        h_3c_sph[(long long)ps * Ms * Ms + mn] +=
-                            u * h_step2[(long long)pc * Ms * Ms + mn];
-                }
-            }
-
-            deviceMemcpy(ri.d_eri3c, h_3c_sph.data(), sizeof(double) * n3c_sph,
-                         deviceMemcpyHostToDevice);
+            // Step 3 (P): T_sph[Ps, Ms²] = U_aux^T @ T2[Pc, Ms²]
+            // 列优先: T_sph^T[Ms²,Ps] = T2^T[Ms²,Pc] @ U[Pc,Ps]
+            deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
+                            Ms * Ms, Ps, Pc, &one,
+                            d_step2, Ms * Ms,
+                            d_U_aux, Ps,
+                            &zero, ri.d_eri3c, Ms * Ms);
+            deviceFree(d_step2);
         }
+        deviceFree(d_eri3c_cart);
 
         Launch_Device_Kernel(
             QC_Scale_RI_3Center_Kernel,
@@ -562,6 +535,9 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         QC_Double_To_Float((int)n3c, d_B_double, ri.d_B);
         deviceFree(d_B_double);
     }
+
+    deviceFree(d_U_aux);
+    deviceFree(d_U_orb);
 
     printf("    [QC-RI] Precomputation done (%s, naux_eff=%d/%d)\n",
            ri.direct ? "direct" : "stored", ri.naux_eff, naux);
