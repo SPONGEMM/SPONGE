@@ -1,6 +1,6 @@
 # SPONGE
 
-! Note: The current repository version is the SPONGE2 `v2.0.0beta1` prerelease
+! Note: The current repository version is the SPONGE2 `v2.0.0-beta.1` prerelease
 
 [中文](README.md)
 

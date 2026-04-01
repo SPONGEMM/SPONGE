@@ -1,6 +1,6 @@
 [workspace]
 name = "SPONGE"
-version = "2.0.0beta1"
+version = "2.0.0-beta.1"
 description = "Simulation Package Toward Next GEneration of molecular modelling"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64", "win-64", "osx-arm64"]

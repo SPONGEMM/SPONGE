@@ -1,6 +1,6 @@
 # SPONGE
 
-! 注意：当前仓库版本为 SPONGE2 `v2.0.0beta1` 预发布版本
+! 注意：当前仓库版本为 SPONGE2 `v2.0.0-beta.1` 预发布版本
 
 [English](README_en.md)
 

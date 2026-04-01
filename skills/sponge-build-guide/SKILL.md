@@ -5,7 +5,7 @@ description: >
   适用于 pixi 环境选择、CMake 配置、多后端编译、格式化、打包。
 ---
 
-本技能适配 SPONGE 版本号：2.0.0beta1
+本技能适配 SPONGE 版本号：2.0.0-beta.1
 
 用于指导 SPONGE 项目的构建流程，包括环境选择、CMake 配置、编译、格式化和打包。
 
