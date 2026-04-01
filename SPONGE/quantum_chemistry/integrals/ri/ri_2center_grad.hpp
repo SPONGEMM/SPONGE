@@ -1,13 +1,11 @@
 #pragma once
 
-// 二中心 Coulomb 积分导数 d(P|Q)/dR 的 CPU 内核
+// 二中心 Coulomb 积分导数 d(P|Q)/dR 的内核
 // 使用 McMurchie-Davidson 方案，与 ri_2center.hpp 对应
 // 导数公式: d(P|Q)/dA_{P,x} = 2*alpha_P * ((P+1_x)|Q) - l_{P,x} * ((P-1_x)|Q)
 // 平移不变性: d(P|Q)/dA_Q = -d(P|Q)/dA_P
 
 #include "../one_e.hpp"
-
-#ifndef USE_GPU
 
 // 扩展维度的 E 系数和 R 张量，用于梯度计算
 // 最大角动量 l=4 (g函数)，导数需要 l+1=5，E 数组需 [6][6][11]
@@ -20,7 +18,7 @@
     ((((t) * RI_GRAD_R_BASE + (u)) * RI_GRAD_R_BASE + (v)) * RI_GRAD_R_BASE + (n))
 
 // 扩展版 compute_md_coeffs，支持更大数组维度
-static inline void compute_md_coeffs_grad(
+static __device__ void compute_md_coeffs_grad(
     float E[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3],
     int la_max, int lb_max, float PA, float PB, float one_over_2p)
 {
@@ -62,8 +60,8 @@ static inline void compute_md_coeffs_grad(
     }
 }
 
-// 扩展版 Boys 函数 (host, double 精度)
-static inline void compute_boys_double_host(double* F, float t, int max_m)
+// 扩展版 Boys 函数 (double 精度)
+static __device__ void compute_boys_double_grad(double* F, float t, int max_m)
 {
     const double td = (double)t;
     if (td < 1e-15)
@@ -97,8 +95,8 @@ static inline void compute_boys_double_host(double* F, float t, int max_m)
     }
 }
 
-// 扩展版 R 张量 (host)
-static inline void compute_r_tensor_host(
+// 扩展版 R 张量
+static __device__ void compute_r_tensor_grad(
     float* R, double* F, float alpha, float PC[3], int L_tot)
 {
     const int base = RI_GRAD_R_BASE;
@@ -155,48 +153,27 @@ static inline void compute_r_tensor_host(
     }
 }
 
-// host 端获取笛卡尔分量
-static inline void QC_Get_Lxyz_Inline(int l, int idx, int& lx, int& ly,
-                                       int& lz)
-{
-    static const int LX[35] = {0, 1, 0, 0, 2, 1, 1, 0, 0, 0, 3, 2,
-                                2, 1, 1, 1, 0, 0, 0, 0, 4, 3, 3, 2,
-                                2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0};
-    static const int LY[35] = {0, 0, 1, 0, 0, 1, 0, 2, 1, 0, 0, 1,
-                                0, 2, 1, 0, 3, 2, 1, 0, 0, 1, 0, 2,
-                                1, 0, 3, 2, 1, 0, 4, 3, 2, 1, 0};
-    static const int LZ[35] = {0, 0, 0, 1, 0, 0, 1, 0, 1, 2, 0, 0,
-                                1, 0, 1, 2, 0, 1, 2, 3, 0, 0, 1, 0,
-                                1, 2, 0, 1, 2, 3, 0, 1, 2, 3, 4};
-    int offset = QC_Comp_Offset(l);
-    lx = LX[offset + idx];
-    ly = LY[offset + idx];
-    lz = LZ[offset + idx];
-}
-
-// 二中心积分导数 CPU 内核
-// 对每个辅助 shell 对 (P_sh, Q_sh)，计算 d(P|Q)/dA_P 并与 D2_eff 收缩
-// 累加到 grad[natm * 3]
-static inline void QC_RI_2Center_Grad_CPU(
+// 二中心积分导数内核
+// 对每个辅助 shell P_sh 并行，内部循环 Q_sh <= P_sh
+// workspace: 预分配缓冲 [n_workers × ws_stride] doubles
+static __global__ void QC_RI_2Center_Grad_Kernel(
     const int naux_bas,
-    // 辅助基参数 (host)
     const VECTOR* aux_centers, const int* aux_l_list, const float* aux_exps,
     const float* aux_coeffs, const int* aux_shell_offsets,
     const int* aux_shell_sizes, const int* aux_ao_offsets_cart,
     const int* aux_ao_offsets_sph,
-    // 归一化与 cart2sph
     const float* aux_norms, const float* U_aux,
     int naux_cart, int naux_sph,
-    // 有效密度 [naux_sph × naux_sph]
     const double* D2_eff,
-    // 壳层到原子映射 [naux_bas]
     const int* shell_atom_aux,
-    // 输出: 梯度累加器 [natm * 3]
+    double* workspace, int ws_stride, int n_workers,
     double* grad)
 {
-    // 对所有辅助 shell 对循环
-    for (int P_sh = 0; P_sh < naux_bas; P_sh++)
+    SIMPLE_DEVICE_FOR(P_sh, naux_bas)
     {
+        const int worker_id = P_sh % n_workers;
+        double* d_cart = workspace + (size_t)worker_id * ws_stride;
+
         for (int Q_sh = 0; Q_sh <= P_sh; Q_sh++)
         {
             const int lP = aux_l_list[P_sh], lQ = aux_l_list[Q_sh];
@@ -220,18 +197,19 @@ static inline void QC_RI_2Center_Grad_CPU(
             const int atom_P = shell_atom_aux[P_sh];
             const int atom_Q = shell_atom_aux[Q_sh];
 
-            // 笛卡尔导数缓冲: d(P_cart|Q_cart)/dA_P [nP_cart × nQ_cart × 3]
-            std::vector<double> d_cart((size_t)nP_cart * nQ_cart * 3, 0.0);
+            // 清零 workspace 用于本 shell pair
+            const int d_cart_size = nP_cart * nQ_cart * 3;
+            for (int k = 0; k < d_cart_size; k++) d_cart[k] = 0.0;
 
             for (int idxP = 0; idxP < nP_cart; idxP++)
             {
                 int lxP, lyP, lzP;
-                QC_Get_Lxyz_Inline(lP, idxP, lxP, lyP, lzP);
+                QC_Get_Lxyz_Device(lP, idxP, lxP, lyP, lzP);
 
                 for (int idxQ = 0; idxQ < nQ_cart; idxQ++)
                 {
                     int lxQ, lyQ, lzQ;
-                    QC_Get_Lxyz_Inline(lQ, idxQ, lxQ, lyQ, lzQ);
+                    QC_Get_Lxyz_Device(lQ, idxQ, lxQ, lyQ, lzQ);
 
                     double dA[3] = {0.0, 0.0, 0.0};
 
@@ -248,7 +226,6 @@ static inline void QC_RI_2Center_Grad_CPU(
                             const float cQ =
                                 aux_coeffs[aux_shell_offsets[Q_sh] + pj];
 
-                            // E 系数: P 需算到 lP+1 以支持导数
                             float E_Px[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
                                       [RI_GRAD_E_DIM3];
                             float E_Py[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
@@ -279,13 +256,12 @@ static inline void QC_RI_2Center_Grad_CPU(
                             const float T_val = alpha_pq * dist_sq;
                             const int L_tot = lP + lQ;
 
-                            // Boys 和 R 张量在 L_tot+1 阶
                             double F_vals[RI_GRAD_R_BASE];
-                            compute_boys_double_host(F_vals, T_val, L_tot + 1);
+                            compute_boys_double_grad(F_vals, T_val, L_tot + 1);
                             float AB[3] = {Ax - Bx, Ay - By, Az - Bz};
                             float R_vals[RI_GRAD_R_BASE * RI_GRAD_R_BASE *
                                          RI_GRAD_R_BASE * RI_GRAD_R_BASE];
-                            compute_r_tensor_host(R_vals, F_vals, alpha_pq, AB,
+                            compute_r_tensor_grad(R_vals, F_vals, alpha_pq, AB,
                                                   L_tot + 1);
 
                             const double prefactor =
@@ -294,8 +270,6 @@ static inline void QC_RI_2Center_Grad_CPU(
                                 ((double)eP * (double)eQ *
                                  sqrt((double)(eP + eQ)));
 
-                            // 对每个笛卡尔方向 d 计算导数
-                            // d/dA_{P,x}: 2*eP * E^{lxP+1} - lxP * E^{lxP-1}
                             auto contract_2c =
                                 [&](int axP, int ayP, int azP) -> double
                             {
@@ -357,19 +331,16 @@ static inline void QC_RI_2Center_Grad_CPU(
                                 return v_sum;
                             };
 
-                            // d/dA_{P,x}
                             double dx = 2.0 * (double)eP *
                                         contract_2c(lxP + 1, lyP, lzP);
                             if (lxP > 0)
                                 dx -= (double)lxP *
                                       contract_2c(lxP - 1, lyP, lzP);
-                            // d/dA_{P,y}
                             double dy = 2.0 * (double)eP *
                                         contract_2c(lxP, lyP + 1, lzP);
                             if (lyP > 0)
                                 dy -= (double)lyP *
                                       contract_2c(lxP, lyP - 1, lzP);
-                            // d/dA_{P,z}
                             double dz = 2.0 * (double)eP *
                                         contract_2c(lxP, lyP, lzP + 1);
                             if (lzP > 0)
@@ -382,17 +353,14 @@ static inline void QC_RI_2Center_Grad_CPU(
                         }
                     }
 
-                    const int cart_idx =
-                        (idxP * nQ_cart + idxQ) * 3;
+                    const int cart_idx = (idxP * nQ_cart + idxQ) * 3;
                     d_cart[cart_idx + 0] = dA[0];
                     d_cart[cart_idx + 1] = dA[1];
                     d_cart[cart_idx + 2] = dA[2];
                 }
             }
 
-            // Cart2Sph 变换 + 归一化 + 与 D2_eff 收缩
-            // d_sph[Ps, Qs, 3] = U_aux^T[Ps,Pc] * d_cart[Pc,Qc,3] * U_aux[Qc,Qs]
-            // 然后乘以 aux_norms[Ps] * aux_norms[Qs]
+            // Cart2Sph + 归一化 + D2_eff 收缩 → atomicAdd 到 grad
             for (int ps = 0; ps < nP_sph; ps++)
             {
                 const int P_sph = offP_sph + ps;
@@ -403,7 +371,6 @@ static inline void QC_RI_2Center_Grad_CPU(
                     const int Q_sph = offQ_sph + qs;
                     const double normQ = (double)aux_norms[Q_sph];
 
-                    // Cart2sph 变换
                     double d_sph[3] = {0.0, 0.0, 0.0};
                     for (int pc = 0; pc < nP_cart; pc++)
                     {
@@ -424,28 +391,22 @@ static inline void QC_RI_2Center_Grad_CPU(
                         }
                     }
 
-                    // 乘归一化
                     double norm_pq = normP * normQ;
                     d_sph[0] *= norm_pq;
                     d_sph[1] *= norm_pq;
                     d_sph[2] *= norm_pq;
 
-                    // 与 D2_eff 收缩: D2_eff[P,Q] + D2_eff[Q,P] (对称)
                     double dens = D2_eff[P_sph * naux_sph + Q_sph];
                     if (P_sh != Q_sh) dens += D2_eff[Q_sph * naux_sph + P_sph];
 
-                    // d(P|Q)/dA_P 累加到 atom_P，
-                    // d(P|Q)/dA_Q = -d(P|Q)/dA_P 累加到 atom_Q
                     for (int d = 0; d < 3; d++)
                     {
                         double contrib = dens * d_sph[d];
-                        grad[atom_P * 3 + d] += contrib;
-                        grad[atom_Q * 3 + d] -= contrib;
+                        atomicAdd(&grad[atom_P * 3 + d], contrib);
+                        atomicAdd(&grad[atom_Q * 3 + d], -contrib);
                     }
                 }
             }
         }
     }
 }
-
-#endif // USE_GPU

@@ -1,48 +1,40 @@
 #pragma once
 
-// 三中心 Coulomb 积分导数 d(P|μν)/dR 的 CPU 内核
-// 使用 McMurchie-Davidson 方案，与 ri_3center.hpp 对应
-// 三个中心: A_P (辅助), A_mu (轨道), A_nu (轨道)
-// 导数:
-//   d/dA_P: bra E 系数在 lP+1
-//   d/dA_mu: ket E 系数在 (l_mu+1, l_nu)
-//   d/dA_nu = -(d/dA_P + d/dA_mu) (平移不变性)
+// 三中心积分导数 d(P|μν)/dR 的内核
+// 对每个 shell 三元组 (P_sh, mu_sh, nu_sh) 并行
+// 计算 d/dA_P 和 d/dA_mu，d/dA_nu 由平移不变性得出
 
-#include "ri_2center_grad.hpp"  // 复用 grad E/R/Boys 工具函数
+#include "ri_2center_grad.hpp"
 
-#ifndef USE_GPU
-
-// 三中心积分导数 CPU 内核
-// 对每个 (P_sh, mu_sh, nu_sh) 任务，计算 d(P|μν)/dA_P 和 d(P|μν)/dA_mu
-// 与 D3_eff 收缩后累加到 grad[natm * 3]
-static inline void QC_RI_3Center_Grad_CPU(
+// 三中心积分导数内核
+// n_tasks = naux_bas（按辅助 shell 并行，内部循环轨道 shell pair）
+// workspace: [n_workers × ws_stride] doubles, 每个 worker 持有 d_cart_P + d_cart_mu
+static __global__ void QC_RI_3Center_Grad_Kernel(
     const int naux_bas, const int norb_bas,
-    // 辅助基参数 (host)
     const VECTOR* aux_centers, const int* aux_l_list, const float* aux_exps,
     const float* aux_coeffs, const int* aux_shell_offsets,
     const int* aux_shell_sizes, const int* aux_ao_offsets_cart,
     const int* aux_ao_offsets_sph,
-    // 轨道基参数 (host)
     const VECTOR* orb_centers, const int* orb_l_list, const float* orb_exps,
     const float* orb_coeffs, const int* orb_shell_offsets,
     const int* orb_shell_sizes, const int* orb_ao_offsets_cart,
-    const int* orb_ao_offsets_sph, bool is_spherical,
-    // 归一化与 cart2sph
+    const int* orb_ao_offsets_sph, int is_spherical,
     const float* aux_norms, const float* orb_norms,
     const float* U_aux, const float* U_orb,
     int naux_cart, int naux_sph, int nao_cart, int nao_sph,
-    // 有效密度 [naux_sph × nao_sph × nao_sph]
     const double* D3_eff,
-    // 壳层到原子映射
-    const int* shell_atom_aux,  // [naux_bas]
-    const int* shell_atom_orb,  // [norb_bas]
-    // 输出: 梯度累加器 [natm * 3]
+    const int* shell_atom_aux, const int* shell_atom_orb,
+    double* workspace, int ws_stride, int n_workers,
     double* grad)
 {
     const int nao = nao_sph;
 
-    for (int P_sh = 0; P_sh < naux_bas; P_sh++)
+    SIMPLE_DEVICE_FOR(P_sh, naux_bas)
     {
+        const int worker_id = P_sh % n_workers;
+        double* my_ws = workspace + (size_t)worker_id * ws_stride;
+        const int half_ws = ws_stride / 2;
+
         const int lP = aux_l_list[P_sh];
         const int nP_cart = (lP + 1) * (lP + 2) / 2;
         const int offP_cart = aux_ao_offsets_cart[P_sh];
@@ -74,34 +66,34 @@ static inline void QC_RI_3Center_Grad_CPU(
                 const VECTOR C = orb_centers[nu_sh];
                 const int atom_nu = shell_atom_orb[nu_sh];
 
-                // 笛卡尔导数缓冲:
-                // d(P_c|mu_c,nu_c)/dA_P [nP_cart × nmu_cart × nnu_cart × 3]
-                // d(P_c|mu_c,nu_c)/dA_mu [同上 × 3]
-                const size_t n_cart_total =
-                    (size_t)nP_cart * nmu_cart * nnu_cart;
-                std::vector<double> d_cart_P(n_cart_total * 3, 0.0);
-                std::vector<double> d_cart_mu(n_cart_total * 3, 0.0);
+                const int n_cart_total = nP_cart * nmu_cart * nnu_cart;
+                double* d_cart_P = my_ws;
+                double* d_cart_mu = my_ws + half_ws;
+                for (int k = 0; k < n_cart_total * 3; k++)
+                {
+                    d_cart_P[k] = 0.0;
+                    d_cart_mu[k] = 0.0;
+                }
 
                 for (int idxP = 0; idxP < nP_cart; idxP++)
                 {
                     int lxP, lyP, lzP;
-                    QC_Get_Lxyz_Inline(lP, idxP, lxP, lyP, lzP);
+                    QC_Get_Lxyz_Device(lP, idxP, lxP, lyP, lzP);
 
                     for (int idx_mu = 0; idx_mu < nmu_cart; idx_mu++)
                     {
                         int lx_mu, ly_mu, lz_mu;
-                        QC_Get_Lxyz_Inline(lmu, idx_mu, lx_mu, ly_mu, lz_mu);
+                        QC_Get_Lxyz_Device(lmu, idx_mu, lx_mu, ly_mu, lz_mu);
 
                         for (int idx_nu = 0; idx_nu < nnu_cart; idx_nu++)
                         {
                             int lx_nu, ly_nu, lz_nu;
-                            QC_Get_Lxyz_Inline(lnu, idx_nu, lx_nu, ly_nu,
-                                               lz_nu);
+                            QC_Get_Lxyz_Device(lnu, idx_nu, lx_nu, ly_nu,
+                                             lz_nu);
 
                             double dAP[3] = {0.0, 0.0, 0.0};
                             double dAmu[3] = {0.0, 0.0, 0.0};
 
-                            // 辅助基原始函数循环
                             for (int pP = 0; pP < aux_shell_sizes[P_sh]; pP++)
                             {
                                 const float eP =
@@ -109,7 +101,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                                 const float cP =
                                     aux_coeffs[aux_shell_offsets[P_sh] + pP];
 
-                                // Bra E 系数: 算到 lP+1 以支持 d/dA_P
                                 float E_Px[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
                                           [RI_GRAD_E_DIM3];
                                 float E_Py[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
@@ -123,7 +114,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                                 compute_md_coeffs_grad(E_Pz, lzP + 1, 0, 0.0f,
                                                        0.0f, 0.5f / eP);
 
-                                // μν 原始函数循环
                                 for (int p_mu = 0;
                                      p_mu < orb_shell_sizes[mu_sh]; p_mu++)
                                 {
@@ -160,7 +150,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                                         const float Qz =
                                             (e_mu * B.z + e_nu * C.z) / g_ket;
 
-                                        // Ket E 系数: 算到 (l_mu+1, l_nu+1) 以支持 d/dA_mu 和 d/dA_nu
                                         float E_Kx[RI_GRAD_E_DIM1]
                                                   [RI_GRAD_E_DIM2]
                                                   [RI_GRAD_E_DIM3];
@@ -190,18 +179,17 @@ static inline void QC_RI_3Center_Grad_CPU(
                                             (A.y - Qy) * (A.y - Qy) +
                                             (A.z - Qz) * (A.z - Qz);
                                         const float T_val = alpha_pq * AQ2;
-
                                         const int L_tot = lP + lmu + lnu;
 
                                         double F_vals[RI_GRAD_R_BASE];
-                                        compute_boys_double_host(
+                                        compute_boys_double_grad(
                                             F_vals, T_val, L_tot + 1);
                                         float AQ[3] = {A.x - Qx, A.y - Qy,
                                                        A.z - Qz};
                                         float R_vals
                                             [RI_GRAD_R_BASE * RI_GRAD_R_BASE *
                                              RI_GRAD_R_BASE * RI_GRAD_R_BASE];
-                                        compute_r_tensor_host(
+                                        compute_r_tensor_grad(
                                             R_vals, F_vals, alpha_pq, AQ,
                                             L_tot + 1);
 
@@ -212,7 +200,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                                             ((double)eP * (double)g_ket *
                                              sqrt((double)(eP + g_ket)));
 
-                                        // 收缩函数: 给定 bra 和 ket 角动量，求 E*E*R 乘积
                                         auto contract_3c =
                                             [&](int axP, int ayP, int azP,
                                                 int ax_mu, int ay_mu, int az_mu,
@@ -322,7 +309,7 @@ static inline void QC_RI_3Center_Grad_CPU(
                                             return v_sum;
                                         };
 
-                                        // d(P|μν)/dA_P: 对 bra P 的 E 系数求导
+                                        // d(P|μν)/dA_P
                                         {
                                             double dx =
                                                 2.0 * (double)eP *
@@ -365,7 +352,7 @@ static inline void QC_RI_3Center_Grad_CPU(
                                             dAP[2] += prefactor * dz;
                                         }
 
-                                        // d(P|μν)/dA_mu: 对 ket 中 μ 的 E 系数求导
+                                        // d(P|μν)/dA_mu
                                         {
                                             double dx =
                                                 2.0 * (double)e_mu *
@@ -415,9 +402,9 @@ static inline void QC_RI_3Center_Grad_CPU(
                                 }
                             }
 
-                            const size_t cidx =
-                                ((size_t)idxP * nmu_cart * nnu_cart +
-                                 (size_t)idx_mu * nnu_cart + idx_nu);
+                            const int cidx =
+                                (idxP * nmu_cart * nnu_cart +
+                                 idx_mu * nnu_cart + idx_nu);
                             d_cart_P[cidx * 3 + 0] = dAP[0];
                             d_cart_P[cidx * 3 + 1] = dAP[1];
                             d_cart_P[cidx * 3 + 2] = dAP[2];
@@ -428,7 +415,7 @@ static inline void QC_RI_3Center_Grad_CPU(
                     }
                 }
 
-                // Cart2Sph 变换 + 归一化 + 与 D3_eff 收缩
+                // Cart2Sph + 归一化 + D3_eff 收缩 → atomicAdd
                 for (int ps = 0; ps < nP_sph; ps++)
                 {
                     const int P_sph = offP_sph + ps;
@@ -444,7 +431,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                             const int nu_sph = offnu_sph + ns;
                             const double normNu = (double)orb_norms[nu_sph];
 
-                            // Cart2sph 变换
                             double d_sph_P[3] = {0.0, 0.0, 0.0};
                             double d_sph_mu[3] = {0.0, 0.0, 0.0};
 
@@ -474,9 +460,9 @@ static inline void QC_RI_3Center_Grad_CPU(
                                         if (u_n == 0.0) continue;
 
                                         double w = u_p * u_m * u_n;
-                                        const size_t cidx =
-                                            ((size_t)pc * nmu_cart * nnu_cart +
-                                             (size_t)mc * nnu_cart + nc);
+                                        const int cidx =
+                                            (pc * nmu_cart * nnu_cart +
+                                             mc * nnu_cart + nc);
                                         d_sph_P[0] +=
                                             w * d_cart_P[cidx * 3 + 0];
                                         d_sph_P[1] +=
@@ -493,7 +479,6 @@ static inline void QC_RI_3Center_Grad_CPU(
                                 }
                             }
 
-                            // 乘归一化
                             double norm_all = normP_val * normMu * normNu;
                             for (int d = 0; d < 3; d++)
                             {
@@ -501,27 +486,23 @@ static inline void QC_RI_3Center_Grad_CPU(
                                 d_sph_mu[d] *= norm_all;
                             }
 
-                            // 与 D3_eff 收缩
-                            // D3_eff[P, mu, nu] 索引
                             double dens =
                                 D3_eff[(long long)P_sph * nao * nao +
                                        (long long)mu_sph * nao + nu_sph];
-                            // 对称 shell pair: 还需加上 D3_eff[P, nu, mu]
                             if (mu_sh != nu_sh)
                                 dens +=
                                     D3_eff[(long long)P_sph * nao * nao +
                                            (long long)nu_sph * nao + mu_sph];
 
-                            // d/dA_nu = -(d/dA_P + d/dA_mu) (平移不变性)
                             for (int d = 0; d < 3; d++)
                             {
                                 double g_P = dens * d_sph_P[d];
                                 double g_mu = dens * d_sph_mu[d];
                                 double g_nu = -(g_P + g_mu);
 
-                                grad[atom_P * 3 + d] += g_P;
-                                grad[atom_mu * 3 + d] += g_mu;
-                                grad[atom_nu * 3 + d] += g_nu;
+                                atomicAdd(&grad[atom_P * 3 + d], g_P);
+                                atomicAdd(&grad[atom_mu * 3 + d], g_mu);
+                                atomicAdd(&grad[atom_nu * 3 + d], g_nu);
                             }
                         }
                     }
@@ -530,5 +511,3 @@ static inline void QC_RI_3Center_Grad_CPU(
         }
     }
 }
-
-#endif // USE_GPU
