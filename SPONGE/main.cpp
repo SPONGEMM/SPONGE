@@ -261,6 +261,7 @@ void Main_Initial(int argc, char* argv[])
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         Main_Refresh_Local_State(true);
+        plugin.Set_Domain_Information(&dd);
     }
 
     pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge, dd.atom_numbers,
@@ -925,6 +926,7 @@ void Main_Box_Change_Largely()
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         Main_Refresh_Local_State(true);
+        plugin.Set_Domain_Information(&dd);
     }
     pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge, dd.atom_numbers,
                  dd.crd, dd.d_charge, dd.atom_local, true, true, true, true);
@@ -1049,7 +1051,6 @@ void Main_Process_Management()
                             dd.dom_dec_split_num);
     pm.Send_Recv_Dom_Dec(&controller);
     pm.Find_Neighbor_Domain(&controller);
-    plugin.Set_Domain_Information(&dd);
 }
 
 void Main_MC_Barostat()
