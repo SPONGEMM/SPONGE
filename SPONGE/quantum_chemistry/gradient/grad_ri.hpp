@@ -38,16 +38,20 @@ static inline void QC_Build_D3_eff(
 {
     const long long nao2 = (long long)nao * nao;
 
-    D3_eff.assign((size_t)naux * nao2, 0.0);
+    D3_eff.resize((size_t)naux * nao2);
 
-    // D3_J[P, μ, ν] = g_P * D_μν
-    for (int P = 0; P < naux; P++)
+    // D3_J[P, μν] = g_P * D_μν — 外积，P 在外层连续写入
     {
-        const double gP = g_vec[P];
-        for (int mu = 0; mu < nao; mu++)
-            for (int nu = 0; nu < nao; nu++)
-                D3_eff[(long long)P * nao2 + (long long)mu * nao + nu] =
-                    gP * (double)P_density[mu * nao + nu];
+        // 先转换 D 为 double
+        std::vector<double> D_d(nao2);
+        for (int i = 0; i < nao2; i++) D_d[i] = (double)P_density[i];
+        for (int P = 0; P < naux; P++)
+        {
+            const double gP = g_vec[P];
+            double* dst = D3_eff.data() + (long long)P * nao2;
+            for (long long mn = 0; mn < nao2; mn++)
+                dst[mn] = gP * D_d[mn];
+        }
     }
 
     // D3_K[Q,μ,λ] = Σ_{P,ν,i} M^{-1/2}[QP] B_occ[P,ν,i] C[λ,i] D[μ,ν]
@@ -88,20 +92,29 @@ static inline void QC_Build_D3_eff(
                 }
         }
 
-        // Step 3: D3_K[Q,ml] = -exx × Σ_P M^{-1/2}[Q,P] × Y[P,ml]
+        // Step 3: D3_eff += -exx × M^{-1/2} @ Y
+        // D3_eff 行优先 [naux, nao²], Y 行优先 [naux, nao²]
+        // M^{-1/2} 行优先 [naux, naux]
+        // 列优先: D3^T[nao², naux] += neg_exx × Y^T[nao², naux] × M^{-1/2}^T[naux, naux]
+        // M^{-1/2} 对称: M^T = M
+        // DGEMM(N, N, nao², naux, naux, neg_exx, Y^T, nao², M, naux, 1.0, D3^T, nao²)
         const double neg_exx = -(double)exx_fraction;
+        const double one_d = 1.0;
+        // Y^T 列优先 [nao², naux]: Y 行优先 [naux, nao²] 的相同数据
+        // M^{-1/2} 列优先 [naux, naux]: metric_inv_sqrt 行优先 [naux, naux]
+        //   对称矩阵列优先 = 行优先
+        // D3^T 列优先 [nao², naux]: D3_eff 行优先 [naux, nao²] 的相同数据
+        // D3_eff += neg_exx × M^{-1/2} @ Y  (行优先矩阵乘法)
+        // 遍历 Q 和 ml，内层 P 求和连续访问 M^{-1/2}[Q,P]
         for (int Q = 0; Q < naux; Q++)
-        {
             for (int P = 0; P < naux; P++)
             {
-                double s = metric_inv_sqrt[(size_t)Q * naux + P];
-                if (s == 0.0) continue;
-                double w = neg_exx * s;
+                double w = neg_exx * metric_inv_sqrt[(size_t)Q * naux + P];
+                if (w == 0.0) continue;
                 for (long long mn = 0; mn < nao2; mn++)
                     D3_eff[(long long)Q * nao2 + mn] +=
                         w * Y[(long long)P * nao2 + mn];
             }
-        }
     }
 }
 
