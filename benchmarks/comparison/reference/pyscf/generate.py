@@ -46,6 +46,19 @@ REFERENCE_CASES = [
     ("fe_quintet", "HF", "6-31++g", False),
 ]
 
+# 梯度参考案例: (case_name, method_name, basis_name, restricted, coords_angstrom)
+GRADIENT_CASES = [
+    ("h2", "HF", "sto-3g", True,
+     [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+    ("h2", "HF", "6-31g", True,
+     [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+]
+
+# H2 平衡键长参考案例: (case_name, basis_name)
+MINIMIZE_CASES = [
+    ("h2_min_sto3g", "HF", "sto-3g"),
+]
+
 # 需要做 UHF/UKS 稳定性分析的案例（过渡金属等容易收敛到鞍点）
 STABILITY_CASES = {"fe_quintet"}
 
@@ -114,6 +127,60 @@ def build_reference_entries(statics_path: Path):
             }
         )
 
+    # 梯度参考数据
+    from pyscf import gto, scf, grad as pyscf_grad
+
+    for case_name, method_name, basis_name, restricted, coords in GRADIENT_CASES:
+        atom_str = "; ".join(
+            f"H {c[0]} {c[1]} {c[2]}" for c in coords
+        )
+        mol = gto.M(atom=atom_str, basis=basis_name, unit="Angstrom", verbose=0)
+        mf = scf.RHF(mol) if restricted else scf.UHF(mol)
+        mf.kernel()
+        g = mf.nuc_grad_method().kernel()  # (natm, 3), Ha/Bohr
+
+        entries.append(
+            {
+                "case_name": case_name,
+                "method_name": method_name,
+                "basis_name": basis_name,
+                "restricted": restricted,
+                "type": "gradient",
+                "gradient_ha_bohr": g.tolist(),
+                "coords_angstrom": coords,
+            }
+        )
+
+    # H2 平衡键长参考数据
+    import numpy as _np
+
+    for case_name, method_name, basis_name in MINIMIZE_CASES:
+        best_r, best_e = None, 1e10
+        for r in _np.arange(0.5, 1.2, 0.001):
+            mol = gto.M(
+                atom=f"H 0 0 {-r/2}; H 0 0 {r/2}",
+                basis=basis_name,
+                unit="Angstrom",
+                verbose=0,
+            )
+            mf = scf.RHF(mol)
+            mf.kernel()
+            if mf.e_tot < best_e:
+                best_e = float(mf.e_tot)
+                best_r = float(r)
+
+        entries.append(
+            {
+                "case_name": case_name,
+                "method_name": method_name,
+                "basis_name": basis_name,
+                "restricted": True,
+                "type": "minimize",
+                "equilibrium_bond_length_angstrom": best_r,
+                "equilibrium_energy_ha": best_e,
+            }
+        )
+
     entries.sort(
         key=lambda v: (
             v["case_name"],
@@ -145,13 +212,23 @@ def build_payload(statics_path: Path):
 def _entries_to_map(payload):
     result = {}
     for entry in payload["entries"]:
+        entry_type = entry.get("type", "energy")
         key = (
             entry["case_name"],
             entry["method_name"],
             entry["basis_name"],
             bool(entry["restricted"]),
+            entry_type,
         )
-        result[key] = float(entry["energy_ha"])
+        if entry_type == "energy":
+            result[key] = float(entry["energy_ha"])
+        elif entry_type == "gradient":
+            result[key] = entry["gradient_ha_bohr"]
+        elif entry_type == "minimize":
+            result[key] = (
+                entry["equilibrium_bond_length_angstrom"],
+                entry["equilibrium_energy_ha"],
+            )
     return result
 
 
@@ -179,14 +256,31 @@ def compare_payloads(current, generated, abs_tol: float):
     max_diff = 0.0
     max_key = None
     for key in current_map:
-        diff = abs(current_map[key] - generated_map[key])
+        entry_type = key[-1]
+        if entry_type == "energy":
+            diff = abs(current_map[key] - generated_map[key])
+        elif entry_type == "minimize":
+            diff = abs(current_map[key][1] - generated_map[key][1])
+        elif entry_type == "gradient":
+            import numpy as _np
+
+            diff = float(
+                _np.max(
+                    _np.abs(
+                        _np.array(current_map[key])
+                        - _np.array(generated_map[key])
+                    )
+                )
+            )
+        else:
+            continue
         if diff > max_diff:
             max_diff = diff
             max_key = key
     if max_diff > abs_tol:
         return (
             False,
-            "Energy differs above tolerance: "
+            "Reference data differs above tolerance: "
             f"max_diff={max_diff:.3e} at {max_key}",
         )
     return True, f"max_diff={max_diff:.3e}"

@@ -3,6 +3,12 @@
 // 依赖: 此文件需要在 vxc.hpp 相关 kernel 可用之后 include
 // (dft.hpp 定义了 QC_Eval_AO_Grid_Kernel, QC_Eval_Rho_Kernel 等)
 
+static __global__ void QC_Double_Accumulate_Kernel(int n, double* dst,
+                                                   const double* src)
+{
+    SIMPLE_DEVICE_FOR(i, n) { dst[i] += src[i]; }
+}
+
 // ====================== DFT XC 网格梯度 ======================
 // dE_xc/dR_A_d = -2 Σ_g Σ_{μ∈A} ∂φ_μ/∂r_d · W_pao_μ(g)
 //              + -2 Σ_g Σ_{μ∈A} H_d_μ(g) · W_pao_a_μ(g)  [GGA term a]
@@ -651,8 +657,9 @@ static void QC_Build_DFT_XC_Gradient_UKS(
 
         // 用 d_rho_a 临时存储 rho_total = rho_a + rho_b (用于密度截断)
         // 注意：这会覆盖 d_rho_a，但后面不再使用 rho_a 的值
-        for (int ig = 0; ig < n_batch; ig++)
-            d_rho_a[ig] = d_rho_a[ig] + d_rho_b[ig];
+        Launch_Device_Kernel(QC_Double_Accumulate_Kernel,
+                             (n_batch + 255) / 256, 256, 0, 0, n_batch,
+                             d_rho_a, d_rho_b);
         double* d_rho_total = d_rho_a; // alias
 
         // ====== 处理 alpha 和 beta ======

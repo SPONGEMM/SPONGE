@@ -148,7 +148,8 @@ ase = "*"
 
 [feature.dev.tasks]
 comp-lammps = "python -X utf8 -m pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
+comp-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py --ignore=benchmarks/comparison/tests/pyscf/tests/comp_ri.py -s --tb=short"
+comp-pyscf-ri = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_ri.py -s --tb=short"
 perf-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/perf_*.py -s --tb=short"
 comp-amber = "python -X utf8 -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
 comp-gromacs = "python -X utf8 -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"

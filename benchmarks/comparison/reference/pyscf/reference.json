@@ -293,6 +293,33 @@
       "basis_name": "def2-svp",
       "restricted": false,
       "energy_ha": -129.73306597863177
+    },
+    {
+      "case_name": "h2",
+      "method_name": "HF",
+      "basis_name": "sto-3g",
+      "restricted": true,
+      "type": "gradient",
+      "gradient_ha_bohr": [[0.0, 0.0, -0.027679600706794538], [0.0, 0.0, 0.027679600706794538]],
+      "coords_angstrom": [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]
+    },
+    {
+      "case_name": "h2",
+      "method_name": "HF",
+      "basis_name": "6-31g",
+      "restricted": true,
+      "type": "gradient",
+      "gradient_ha_bohr": [[0.0, 0.0, -0.007561163489053446], [0.0, 0.0, 0.007561163489053446]],
+      "coords_angstrom": [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]
+    },
+    {
+      "case_name": "h2_min_sto3g",
+      "method_name": "HF",
+      "basis_name": "sto-3g",
+      "restricted": true,
+      "type": "minimize",
+      "equilibrium_bond_length_angstrom": 0.7120000000000002,
+      "equilibrium_energy_ha": -1.1175058310435149
     }
   ]
 }

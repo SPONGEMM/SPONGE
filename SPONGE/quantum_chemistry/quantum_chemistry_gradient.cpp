@@ -11,6 +11,12 @@
 std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
                                               int nao_cart, int nao_sph);
 
+static __global__ void QC_Float_Accumulate_Kernel(int n, float* dst,
+                                                  const float* src)
+{
+    SIMPLE_DEVICE_FOR(i, n) { dst[i] += src[i]; }
+}
+
 void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                                           const VECTOR box_length,
                                           int need_virial,
@@ -51,8 +57,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 blas_handle, nao, scf_ws.runtime.n_beta, 1.0f,
                 scf_ws.beta.d_C, scf_ws.ortho.d_W,
                 grad_ws.d_W_density_beta, d_D_tmp_b);
-            for (int i = 0; i < nao2; i++)
-                grad_ws.d_W_density[i] += grad_ws.d_W_density_beta[i];
+            Launch_Device_Kernel(QC_Float_Accumulate_Kernel,
+                                 (nao2 + 255) / 256, 256, 0, 0, nao2,
+                                 grad_ws.d_W_density,
+                                 grad_ws.d_W_density_beta);
         }
     }
 

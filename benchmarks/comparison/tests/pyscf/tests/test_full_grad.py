@@ -3,56 +3,35 @@
 NOTE: SPONGE uses float precision for energies, so finite difference accuracy
 is limited to ~0.001 Ha/Bohr for small molecules. This test validates that
 forces have the correct sign and magnitude, not exact numerical agreement.
-For precise gradient validation, see test_h2_minimize.py.
 """
-import subprocess, os, tempfile, shutil
+import math
+import shutil
+import tempfile
+
 import numpy as np
+import pytest
 
-_script_dir = os.path.dirname(os.path.abspath(__file__))
-_repo_root = os.path.normpath(os.path.join(_script_dir, '..', '..', '..', '..', '..'))
-SPONGE_BIN = os.path.join(_repo_root, '.pixi', 'envs', 'dev-cpu', 'bin', 'SPONGE')
-if not os.path.exists(SPONGE_BIN):
-    SPONGE_BIN = os.path.join(_repo_root, 'build-dev-cpu', 'SPONGE')
-STATICS = os.path.join(_script_dir, '..', 'statics')
+from benchmarks.comparison.tests.pyscf.tests.utils import (
+    HARTREE_TO_KCAL_MOL,
+    get_pyscf_reference_gradient,
+    run_sponge_scf_energy_ha,
+)
+from benchmarks.utils import Outputer
 
+GRAD_FD_TOL_HA_BOHR = 0.005  # float precision limits FD accuracy
+BOHR_PER_ANGSTROM = 1.8897259886
 
-def sponge_energy(case_dir, coords, box=40.0):
-    """Run SPONGE single point, return QC energy in kcal/mol."""
-    tmpdir = tempfile.mkdtemp()
-    try:
-        for f in ['qc_type.txt', 'mass.txt', 'charge.txt', 'mdin.txt']:
-            shutil.copy(os.path.join(case_dir, f), tmpdir)
-        with open(os.path.join(tmpdir, 'coordinate.txt'), 'w') as f:
-            f.write(f"{len(coords)}\n")
-            for c in coords:
-                f.write(f"{c[0]:.10f} {c[1]:.10f} {c[2]:.10f}\n")
-            f.write(f"{box} {box} {box} 90.0 90.0 90.0\n")
-        with open(os.path.join(tmpdir, 'mdin.txt'), 'r') as f:
-            mdin = f.read()
-        if 'qc_need_gradient' not in mdin:
-            mdin += "\nqc_need_gradient = 0\n"
-        with open(os.path.join(tmpdir, 'mdin.txt'), 'w') as f:
-            f.write(mdin)
-        result = subprocess.run(
-            [SPONGE_BIN, '-mdin', 'mdin.txt'],
-            cwd=tmpdir, capture_output=True, text=True, timeout=300)
-        for line in result.stdout.split('\n'):
-            parts = line.split()
-            for i, p in enumerate(parts):
-                if p == 'QC' and i + 2 < len(parts):
-                    val = parts[i + 2].rstrip(',')
-                    if val != '=':
-                        try:
-                            return float(val)
-                        except ValueError:
-                            pass
-        return None
-    finally:
-        shutil.rmtree(tmpdir, ignore_errors=True)
+GRAD_CASES = [
+    ("h2", "HF", "sto-3g"),
+    ("h2", "HF", "6-31g"),
+]
 
 
-def sponge_fd_gradient(case_dir, coords, h=0.002):
-    """Compute gradient via central finite differences (h in Angstrom)."""
+def _sponge_fd_gradient(sponge_dir, model_chemistry, coords, h=0.002):
+    """Compute gradient via central finite differences (h in Angstrom).
+
+    Returns gradient in Ha/Bohr.
+    """
     natm = len(coords)
     grad = np.zeros((natm, 3))
     for ia in range(natm):
@@ -61,54 +40,77 @@ def sponge_fd_gradient(case_dir, coords, h=0.002):
             cm = [list(c) for c in coords]
             cp[ia][d] += h
             cm[ia][d] -= h
-            ep = sponge_energy(case_dir, cp)
-            em = sponge_energy(case_dir, cm)
-            if ep is not None and em is not None:
-                grad[ia, d] = (ep - em) / (2 * h)
-    # kcal/mol/Å → Ha/Bohr
-    grad /= (627.509474 * 1.8897259886)
+
+            # Write perturbed coordinate and run
+            for delta_coords, sign in [(cp, +1), (cm, -1)]:
+                tmpdir = tempfile.mkdtemp()
+                try:
+                    for f in sponge_dir.iterdir():
+                        if f.name != "coordinate.txt":
+                            shutil.copy(f, tmpdir)
+                    coord_path = tmpdir + "/coordinate.txt"
+                    with open(coord_path, "w") as f:
+                        f.write(f"{natm}\n")
+                        for c in delta_coords:
+                            f.write(f"{c[0]:.10f} {c[1]:.10f} {c[2]:.10f}\n")
+                        f.write("40.0 40.0 40.0 90.0 90.0 90.0\n")
+
+                    from pathlib import Path
+
+                    energy_ha = run_sponge_scf_energy_ha(
+                        sponge_dir=Path(tmpdir),
+                        model_chemistry=model_chemistry,
+                        restricted=True,
+                    )
+                    if sign == +1:
+                        ep = energy_ha
+                    else:
+                        em = energy_ha
+                finally:
+                    shutil.rmtree(tmpdir, ignore_errors=True)
+
+            # kcal/mol → Ha, Angstrom → Bohr
+            grad[ia, d] = (ep - em) / (2 * h * BOHR_PER_ANGSTROM)
+
     return grad
 
 
-def pyscf_gradient(atoms_str, basis):
-    from pyscf import gto, scf
-    mol = gto.M(atom=atoms_str, basis=basis, unit='Angstrom', verbose=0)
-    mf = scf.RHF(mol)
-    mf.kernel()
-    return mf.nuc_grad_method().kernel(), mf.e_tot
+@pytest.mark.parametrize(
+    "case_name,method_name,basis_name",
+    GRAD_CASES,
+    ids=[f"{c}_{b}" for c, m, b in GRAD_CASES],
+)
+def test_gradient_fd(
+    case_name, method_name, basis_name, statics_path, outputs_path
+):
+    ref_grad, ref_coords = get_pyscf_reference_gradient(
+        statics_path=statics_path,
+        case_name=case_name,
+        method_name=method_name,
+        basis_name=basis_name,
+        restricted=True,
+    )
+    ref_grad = np.array(ref_grad)
+    model_chemistry = f"{method_name}/{basis_name}"
 
+    sponge_dir = statics_path / case_name / "sponge"
+    fd_grad = _sponge_fd_gradient(sponge_dir, model_chemistry, ref_coords)
 
-test_cases = [
-    ("H2/STO-3G", "h2_sto3g",
-     [[0, 0, -0.37], [0, 0, 0.37]],
-     "H 0 0 -0.37; H 0 0 0.37", "sto-3g"),
-    ("H2/6-31G", "h2",
-     [[0, 0, -0.37], [0, 0, 0.37]],
-     "H 0 0 -0.37; H 0 0 0.37", "6-31g"),
-]
+    max_err = float(np.max(np.abs(fd_grad - ref_grad)))
+    status = "PASS" if max_err < GRAD_FD_TOL_HA_BOHR else "FAIL"
 
-print("=" * 70)
-print("RHF Gradient: SPONGE (finite diff, h=0.002A) vs PySCF (analytical)")
-print("=" * 70)
+    headers = ["Case", "Method/Basis", "Max |FD - Ref| (Ha/Bohr)", "Tol", "Status"]
+    rows = [
+        [
+            case_name,
+            model_chemistry,
+            f"{max_err:.6f}",
+            f"{GRAD_FD_TOL_HA_BOHR:.6f}",
+            status,
+        ]
+    ]
+    Outputer.print_table(headers, rows, title="Gradient FD vs PySCF")
 
-results = []
-for name, case_dir, coords, atoms_str, basis in test_cases:
-    full_dir = os.path.join(STATICS, case_dir, 'sponge')
-    if not os.path.isdir(full_dir):
-        print(f"SKIP {name}")
-        continue
-
-    print(f"\n--- {name} ---")
-    pyscf_grad, _ = pyscf_gradient(atoms_str, basis)
-    sponge_grad = sponge_fd_gradient(full_dir, coords)
-
-    max_abs = np.max(np.abs(sponge_grad - pyscf_grad))
-    status = 'PASS' if max_abs < 0.005 else 'FAIL'
-    print(f"  SPONGE FD:  {sponge_grad[0]}")
-    print(f"  PySCF anal: {pyscf_grad[0]}")
-    print(f"  Max abs err = {max_abs:.6f}  [{status}]")
-    results.append((name, max_abs, status))
-
-print(f"\n{'='*70}")
-for name, err, status in results:
-    print(f"  {name:<20} err={err:.6f}  {status}")
+    assert max_err < GRAD_FD_TOL_HA_BOHR, (
+        f"FD gradient error {max_err:.6f} exceeds tolerance {GRAD_FD_TOL_HA_BOHR}"
+    )

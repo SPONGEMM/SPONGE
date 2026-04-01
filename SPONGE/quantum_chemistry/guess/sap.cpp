@@ -21,7 +21,7 @@ struct SAP_ATOM_DATA
 };
 
 // clang-format off
-static const SAP_ATOM_DATA SAP_DATA[] = {
+static __device__ const SAP_ATOM_DATA SAP_DATA[] = {
     // Z=0 dummy
     {0, {}},
     // Z=1  H (4 terms)
@@ -577,7 +577,7 @@ static const SAP_ATOM_DATA SAP_DATA[] = {
 };
 // clang-format on
 
-static const int SAP_MAX_Z = (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
+static __device__ const int SAP_MAX_Z = (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
 
 // ====================== V_SAP 积分核函数 ======================
 // 基于 arXiv:2603.16989 的方法：对核吸引积分的 Boys 函数做修正
