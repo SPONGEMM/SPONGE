@@ -180,40 +180,14 @@ void QC_Build_Fock_Direct_GPU(
                 break;
             default:
             {
-                const int l_max =
-                    std::max({combo.l0, combo.l1, combo.l2, combo.l3});
                 const int l_sum = combo.l0 + combo.l1 + combo.l2 + combo.l3;
-                if (l_max <= 2)
                 {
+                    // 统一用 Rys (VRR+HRR)，比 MD 的 E 系数收缩 register 压力更小
                     switch (l_sum)
                     {
                         case 2:
-                            launch_eri(combo_index, QC_Launch_D_L2);
+                            launch_eri(combo_index, QC_Launch_Rys_L2);
                             break;
-                        case 3:
-                            launch_eri(combo_index, QC_Launch_D_L3);
-                            break;
-                        case 4:
-                            launch_eri(combo_index, QC_Launch_D_L4);
-                            break;
-                        case 5:
-                            launch_eri(combo_index, QC_Launch_D_L5);
-                            break;
-                        case 6:
-                            launch_eri(combo_index, QC_Launch_D_L6);
-                            break;
-                        case 7:
-                            launch_eri(combo_index, QC_Launch_D_L7);
-                            break;
-                        case 8:
-                            launch_eri(combo_index, QC_Launch_D_L8);
-                            break;
-                    }
-                }
-                else
-                {
-                    switch (l_sum)
-                    {
                         case 3:
                             launch_eri(combo_index, QC_Launch_Rys_L3);
                             break;
