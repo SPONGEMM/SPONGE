@@ -366,9 +366,14 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             }
         };
 
-        // ---- Pass 1: 累积 d_vec 和 B_occ ----
+        // ---- Pass 1: 累积 d_vec 和 B_occ, 同时缓存 3c 积分块 ----
         std::vector<double> h_d_vec(naux, 0.0);
         std::vector<double> h_B_occ_d((size_t)M * nocc, 0.0);
+
+        // 缓存 3c 积分块以复用于 Pass 2 (避免重复 GPU kernel 调用)
+        const int n_shell_pairs = mol.nbas * (mol.nbas + 1) / 2;
+        std::vector<std::vector<double>> blk_cache(
+            need_exx && nocc > 0 ? n_shell_pairs : 0);
 
         for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
         {
@@ -441,6 +446,11 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                                             (double)h_C_occ[mu_idx * nao + oc];
                                 }
                             }
+
+                    // 缓存 blk 用于 Pass 2
+                    const int pair_idx =
+                        mu_sh * (mu_sh + 1) / 2 + nu_sh;
+                    blk_cache[pair_idx] = std::move(blk);
                 }
             }
         }
@@ -451,10 +461,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             for (int Q = 0; Q < naux; Q++)
                 h_g[P] += h_metric_inv[(size_t)P * naux + Q] * h_d_vec[Q];
 
-        // ---- Pass 2 (仅 EXX): 累积 Z_K ----
-        // Z_K[P',Q'] = -Σ_{m,l} eri3c[Q',m,l] * V[P',m,l]
-        //   V[P',m,l] = Σ_{n,oc} B_occ[P',n,oc] * C[l,oc] * D[m,n]
-        // 预计算 R[P',oc,m] = Σ_n B_occ_d[(P'*nao+n)+M*oc] * D[m,n]
+        // ---- Pass 2 (仅 EXX): 累积 Z_K (复用缓存的 3c 积分块) ----
         std::vector<double> h_Z_K;
         if (need_exx && nocc > 0)
         {
@@ -474,32 +481,32 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
 
             h_Z_K.assign((size_t)naux * naux, 0.0);
 
-            // 预分配 shell pair 缓冲区
             const int max_sh_sph = mol.is_spherical
                                        ? (2 * max_l_cart + 1) : max_cart;
-            std::vector<double> blk;
             std::vector<double> T((size_t)naux * max_sh_sph * nocc);
             std::vector<double> Tt((size_t)naux * max_sh_sph * nocc);
 
             for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
             {
                 const int l_mu = mol.h_l_list[mu_sh];
-                const int dmc = (l_mu + 1) * (l_mu + 2) / 2;
-                const int dms = mol.is_spherical ? (2 * l_mu + 1) : dmc;
+                const int dms = mol.is_spherical ? (2 * l_mu + 1)
+                                    : ((l_mu + 1) * (l_mu + 2) / 2);
                 const int off_mu_s = mol.is_spherical
                                          ? mol.h_ao_offsets_sph[mu_sh]
                                          : mol.h_ao_offsets[mu_sh];
                 for (int nu_sh = 0; nu_sh <= mu_sh; nu_sh++)
                 {
                     const int l_nu = mol.h_l_list[nu_sh];
-                    const int dnc = (l_nu + 1) * (l_nu + 2) / 2;
-                    const int dns = mol.is_spherical ? (2 * l_nu + 1) : dnc;
+                    const int dns = mol.is_spherical ? (2 * l_nu + 1)
+                                        : ((l_nu + 1) * (l_nu + 2) / 2);
                     const int off_nu_s = mol.is_spherical
                                              ? mol.h_ao_offsets_sph[nu_sh]
                                              : mol.h_ao_offsets[nu_sh];
 
-                    compute_block_sph(mu_sh, nu_sh, dmc, dnc, dms, dns,
-                                      off_mu_s, off_nu_s, blk);
+                    // 从缓存取出 blk (避免重复计算 3c 积分)
+                    const int pair_idx =
+                        mu_sh * (mu_sh + 1) / 2 + nu_sh;
+                    const std::vector<double>& blk = blk_cache[pair_idx];
 
                     // T[Q, i, oc] = Σ_j blk[Q,i,j] * C[off_nu+j, oc]
                     const size_t T_size = (size_t)naux * dms * nocc;
@@ -535,7 +542,6 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
 
                     if (mu_sh != nu_sh)
                     {
-                        // T_t[Q, j, oc] = Σ_i blk[Q,i,j] * C[off_mu+i, oc]
                         const size_t Tt_size = (size_t)naux * dns * nocc;
                         std::fill_n(Tt.begin(), Tt_size, 0.0);
                         for (int Q = 0; Q < naux; Q++)
@@ -568,6 +574,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                     }
                 }
             }
+            blk_cache.clear(); // 释放缓存
         }
 
         // B_occ: double -> float (deferred until after Pass 2 which uses h_B_occ_d)

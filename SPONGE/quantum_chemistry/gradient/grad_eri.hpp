@@ -226,6 +226,119 @@ static inline void QC_Compute_AO_Quartet_Deriv(
     }
 }
 
+// =================== Optimized ERI gradient via R-tensor factorization =============
+// Instead of 18 full 6-nested contract_quartet calls per AO quartet,
+// precompute half-contracted intermediates:
+//   R_ket[m] = sum_n E_ket(n) * (-1)^|n| * HR(m+n)  — reused across all (ci,cj)
+//   R_bra[n] = sum_m E_bra(m) * HR(m+n)              — reused across all (ck,cl)
+// Then each derivative is just a 3-nested contraction (~8x faster for p-p quartets).
+
+// Precompute R_ket: half-contract HR with ket E-coefficients
+static inline void QC_Precompute_R_ket(
+    const float E_ket[3][5][5][9],
+    int kx, int lx, int ky, int ly, int kz, int lz,
+    const float* HR, int hr_base,
+    int mx_max, int my_max, int mz_max,
+    float* __restrict R, int r_yz, int r_z)
+{
+    const int ket_mx = kx + lx, ket_my = ky + ly, ket_mz = kz + lz;
+    const int sx = hr_base * hr_base * hr_base;
+    const int sy = hr_base * hr_base;
+    const float* ekx = E_ket[0][kx][lx];
+    const float* eky = E_ket[1][ky][ly];
+    const float* ekz = E_ket[2][kz][lz];
+
+    for (int mx = 0; mx <= mx_max; mx++)
+        for (int my = 0; my <= my_max; my++)
+            for (int mz = 0; mz <= mz_max; mz++)
+            {
+                double s = 0.0;
+                for (int nx = 0; nx <= ket_mx; nx++)
+                    for (int ny = 0; ny <= ket_my; ny++)
+                    {
+                        float exy = ekx[nx] * eky[ny];
+                        if (fabsf(exy) < 1e-30f) continue;
+                        for (int nz = 0; nz <= ket_mz; nz++)
+                        {
+                            float e3 = exy * ekz[nz];
+                            if (fabsf(e3) < 1e-30f) continue;
+                            float ph = ((nx + ny + nz) & 1) ? -1.0f : 1.0f;
+                            s += (double)(e3 * ph *
+                                          HR[(mx + nx) * sx + (my + ny) * sy +
+                                             (mz + nz) * hr_base]);
+                        }
+                    }
+                R[mx * r_yz + my * r_z + mz] = (float)s;
+            }
+}
+
+// Precompute R_bra: half-contract HR with bra E-coefficients (no ket phase)
+static inline void QC_Precompute_R_bra(
+    const float E_bra[3][5][5][9],
+    int ix, int jx, int iy, int jy, int iz, int jz,
+    const float* HR, int hr_base,
+    int nx_max, int ny_max, int nz_max,
+    float* __restrict R, int r_yz, int r_z)
+{
+    const int bra_mx = ix + jx, bra_my = iy + jy, bra_mz = iz + jz;
+    const int sx = hr_base * hr_base * hr_base;
+    const int sy = hr_base * hr_base;
+    const float* ebx = E_bra[0][ix][jx];
+    const float* eby = E_bra[1][iy][jy];
+    const float* ebz = E_bra[2][iz][jz];
+
+    for (int nx = 0; nx <= nx_max; nx++)
+        for (int ny = 0; ny <= ny_max; ny++)
+            for (int nz = 0; nz <= nz_max; nz++)
+            {
+                double s = 0.0;
+                for (int mx = 0; mx <= bra_mx; mx++)
+                    for (int my = 0; my <= bra_my; my++)
+                    {
+                        float exy = ebx[mx] * eby[my];
+                        if (fabsf(exy) < 1e-30f) continue;
+                        for (int mz = 0; mz <= bra_mz; mz++)
+                            s += (double)(exy * ebz[mz] *
+                                          HR[(mx + nx) * sx + (my + ny) * sy +
+                                             (mz + nz) * hr_base]);
+                    }
+                R[nx * r_yz + ny * r_z + nz] = (float)s;
+            }
+}
+
+// Contract bra E-coeff with R_ket (no phase — already in R_ket)
+static inline float QC_Contract_NoPhase(
+    const float* ex, int mx, const float* ey, int my,
+    const float* ez, int mz,
+    const float* R, int r_yz, int r_z)
+{
+    double v = 0.0;
+    for (int x = 0; x <= mx; x++)
+        for (int y = 0; y <= my; y++)
+            for (int z = 0; z <= mz; z++)
+                v += (double)(ex[x] * ey[y] * ez[z]) *
+                     (double)R[x * r_yz + y * r_z + z];
+    return (float)v;
+}
+
+// Contract ket E-coeff with R_bra (includes (-1)^|n| phase)
+static inline float QC_Contract_WithPhase(
+    const float* ex, int mx, const float* ey, int my,
+    const float* ez, int mz,
+    const float* R, int r_yz, int r_z)
+{
+    double v = 0.0;
+    for (int x = 0; x <= mx; x++)
+        for (int y = 0; y <= my; y++)
+            for (int z = 0; z <= mz; z++)
+            {
+                float ph = ((x + y + z) & 1) ? -1.0f : 1.0f;
+                v += (double)(ex[x] * ey[y] * ez[z] * ph) *
+                     (double)R[x * r_yz + y * r_z + z];
+            }
+    return (float)v;
+}
+
 static inline void QC_Build_ERI_Gradient_CPU(
     const QC_INTEGRAL_TASKS& task_ctx, const int nbas, const int* atm,
     const int* bas, const float* env, const int* ao_offsets_cart,
@@ -308,6 +421,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
         std::vector<float> d_buf_A_cart, d_buf_B_cart, d_buf_C_cart;
         std::vector<float> d_buf_A_sph, d_buf_B_sph, d_buf_C_sph;
         std::vector<float> sph_buf0, sph_buf1;
+        std::vector<float> R_ket_buf, R_bra_buf;
 
 #pragma omp for schedule(dynamic)
         for (int pair_ij = 0; pair_ij < n_pairs; pair_ij++)
@@ -451,7 +565,39 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                                   Q[d] - ket.R[1][d],
                                                   0.5f * inv_q);
 
-                            // 对每个 AO 组合计算导数
+                            // R-tensor factorization: precompute half-contracted
+                            // intermediates to reduce 18×O(N^6) to O(N^6)+18×O(N^3)
+                            const int bra_ext = l[0] + l[1] + 1;
+                            const int ket_ext = l[2] + l[3] + 1;
+                            const int rk_dim = bra_ext + 1;
+                            const int rk_yz = rk_dim * rk_dim;
+                            const int rk_elem = rk_dim * rk_dim * rk_dim;
+                            const int rb_dim = ket_ext + 1;
+                            const int rb_yz = rb_dim * rb_dim;
+                            const int rb_elem = rb_dim * rb_dim * rb_dim;
+                            const int nkl = nk_cart * nl_cart;
+
+                            R_ket_buf.resize((size_t)nkl * rk_elem);
+                            R_bra_buf.resize((size_t)rb_elem);
+
+                            // Step 1: precompute R_ket for all (ck,cl)
+                            for (int ck = 0; ck < nk_cart; ck++)
+                                for (int cl = 0; cl < nl_cart; cl++)
+                                    QC_Precompute_R_ket(
+                                        E_ket,
+                                        ket.comp_x[0][ck], ket.comp_x[1][cl],
+                                        ket.comp_y[0][ck], ket.comp_y[1][cl],
+                                        ket.comp_z[0][ck], ket.comp_z[1][cl],
+                                        HR, grad_hr_base,
+                                        bra_ext, bra_ext, bra_ext,
+                                        &R_ket_buf[(ck * nl_cart + cl) * rk_elem],
+                                        rk_yz, rk_dim);
+
+                            const float ai = bra_prim.ai;
+                            const float aj = bra_prim.aj;
+                            const auto& E = bra_prim.E_bra;
+
+                            // Step 2: compute derivatives with precomputed R
                             for (int ci = 0; ci < ni_cart; ci++)
                             {
                                 const int ix = bra.comp_x[0][ci];
@@ -462,6 +608,14 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                     const int jx = bra.comp_x[1][cj];
                                     const int jy = bra.comp_y[1][cj];
                                     const int jz = bra.comp_z[1][cj];
+
+                                    // Precompute R_bra for this (ci,cj)
+                                    QC_Precompute_R_bra(
+                                        E, ix, jx, iy, jy, iz, jz,
+                                        HR, grad_hr_base,
+                                        ket_ext, ket_ext, ket_ext,
+                                        R_bra_buf.data(), rb_yz, rb_dim);
+
                                     for (int ck = 0; ck < nk_cart; ck++)
                                     {
                                         const int kx2 = ket.comp_x[0][ck];
@@ -469,19 +623,93 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                         const int kz2 = ket.comp_z[0][ck];
                                         for (int cl = 0; cl < nl_cart; cl++)
                                         {
-                                            const int lx2 =
-                                                ket.comp_x[1][cl];
-                                            const int ly2 =
-                                                ket.comp_y[1][cl];
-                                            const int lz2 =
-                                                ket.comp_z[1][cl];
+                                            const int lx2 = ket.comp_x[1][cl];
+                                            const int ly2 = ket.comp_y[1][cl];
+                                            const int lz2 = ket.comp_z[1][cl];
 
-                                            float dA[3], dB[3], dC[3];
-                                            QC_Compute_AO_Quartet_Deriv(
-                                                bra_prim, E_ket, ak, ix,
-                                                jx, iy, jy, iz, jz, kx2, lx2,
-                                                ky2, ly2, kz2, lz2, HR,
-                                                grad_hr_base, n_abcd, dA, dB, dC);
+                                            const float* rk = &R_ket_buf[
+                                                (ck * nl_cart + cl) * rk_elem];
+                                            float dA[3] = {}, dB[3] = {}, dC[3] = {};
+
+                                            // dA: d/dA via shifted bra + R_ket
+                                            const int bra_i[3] = {ix, iy, iz};
+                                            const int bra_j[3] = {jx, jy, jz};
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                int ip1[3] = {ix,iy,iz};
+                                                int im1[3] = {ix,iy,iz};
+                                                ip1[d]++;
+                                                im1[d]--;
+                                                if (ip1[d] < 5)
+                                                    dA[d] = 2.0f * ai *
+                                                        QC_Contract_NoPhase(
+                                                            E[0][ip1[0]][bra_j[0]], ip1[0]+bra_j[0],
+                                                            E[1][ip1[1]][bra_j[1]], ip1[1]+bra_j[1],
+                                                            E[2][ip1[2]][bra_j[2]], ip1[2]+bra_j[2],
+                                                            rk, rk_yz, rk_dim);
+                                                if (bra_i[d] > 0)
+                                                    dA[d] -= (float)bra_i[d] *
+                                                        QC_Contract_NoPhase(
+                                                            E[0][im1[0]][bra_j[0]], im1[0]+bra_j[0],
+                                                            E[1][im1[1]][bra_j[1]], im1[1]+bra_j[1],
+                                                            E[2][im1[2]][bra_j[2]], im1[2]+bra_j[2],
+                                                            rk, rk_yz, rk_dim);
+                                            }
+
+                                            // dB: d/dB via shifted bra + R_ket
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                int jp1[3] = {jx,jy,jz};
+                                                int jm1[3] = {jx,jy,jz};
+                                                jp1[d]++;
+                                                jm1[d]--;
+                                                if (jp1[d] < 5)
+                                                    dB[d] = 2.0f * aj *
+                                                        QC_Contract_NoPhase(
+                                                            E[0][bra_i[0]][jp1[0]], bra_i[0]+jp1[0],
+                                                            E[1][bra_i[1]][jp1[1]], bra_i[1]+jp1[1],
+                                                            E[2][bra_i[2]][jp1[2]], bra_i[2]+jp1[2],
+                                                            rk, rk_yz, rk_dim);
+                                                if (bra_j[d] > 0)
+                                                    dB[d] -= (float)bra_j[d] *
+                                                        QC_Contract_NoPhase(
+                                                            E[0][bra_i[0]][jm1[0]], bra_i[0]+jm1[0],
+                                                            E[1][bra_i[1]][jm1[1]], bra_i[1]+jm1[1],
+                                                            E[2][bra_i[2]][jm1[2]], bra_i[2]+jm1[2],
+                                                            rk, rk_yz, rk_dim);
+                                            }
+
+                                            // dC: d/dC via shifted ket + R_bra
+                                            const int ket_k[3] = {kx2, ky2, kz2};
+                                            const int ket_l[3] = {lx2, ly2, lz2};
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                int kp1[3] = {kx2,ky2,kz2};
+                                                int km1[3] = {kx2,ky2,kz2};
+                                                kp1[d]++;
+                                                km1[d]--;
+                                                if (kp1[d] < 5)
+                                                    dC[d] = 2.0f * ak *
+                                                        QC_Contract_WithPhase(
+                                                            E_ket[0][kp1[0]][ket_l[0]], kp1[0]+ket_l[0],
+                                                            E_ket[1][kp1[1]][ket_l[1]], kp1[1]+ket_l[1],
+                                                            E_ket[2][kp1[2]][ket_l[2]], kp1[2]+ket_l[2],
+                                                            R_bra_buf.data(), rb_yz, rb_dim);
+                                                if (ket_k[d] > 0)
+                                                    dC[d] -= (float)ket_k[d] *
+                                                        QC_Contract_WithPhase(
+                                                            E_ket[0][km1[0]][ket_l[0]], km1[0]+ket_l[0],
+                                                            E_ket[1][km1[1]][ket_l[1]], km1[1]+ket_l[1],
+                                                            E_ket[2][km1[2]][ket_l[2]], km1[2]+ket_l[2],
+                                                            R_bra_buf.data(), rb_yz, rb_dim);
+                                            }
+
+                                            for (int d = 0; d < 3; d++)
+                                            {
+                                                dA[d] *= n_abcd;
+                                                dB[d] *= n_abcd;
+                                                dC[d] *= n_abcd;
+                                            }
 
                                             const int idx =
                                                 ((ci * nj_cart + cj) * nk_cart +

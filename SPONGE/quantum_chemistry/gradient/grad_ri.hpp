@@ -22,6 +22,13 @@
 #include <cstring>
 #include <vector>
 
+// cblas.h 已通过 device_backend/cpu_api.h 引入，此处仅做特性检测
+#if !defined(USE_GPU) && (defined(USE_MKL) || defined(USE_OPENBLAS))
+#define RI_GRAD_HAS_BLAS 1
+#else
+#define RI_GRAD_HAS_BLAS 0
+#endif
+
 // ---- 共用辅助函数 ----
 
 // 构建 D3_eff = D3_J - exx * D3_K (三中心有效密度)
@@ -62,13 +69,67 @@ static inline void QC_Build_D3_eff(
     if (exx_fraction != 0.0f && nocc > 0 && B_occ != nullptr)
     {
         const int M_dim = naux * nao;
+        const double neg_exx = -(double)exx_fraction;
+        const double one_d = 1.0;
+        const double zero_d = 0.0;
 
-        // Step 1+2: 对每个 P, 计算 Y_P = D @ X_P = D @ (B_occ_P @ C^T)
+#if RI_GRAD_HAS_BLAS
+        // BLAS 路径: 使用 cblas_dgemm 加速矩阵乘法
+
+        // 准备 double 精度缓冲
+        std::vector<double> D_d(nao2);
+        for (long long i = 0; i < nao2; i++) D_d[i] = (double)P_density[i];
+
+        // C_occ 前 nocc 列的 double 版本，行优先 [nao, nocc]
+        std::vector<double> C_d((size_t)nao * nocc);
+        for (int lam = 0; lam < nao; lam++)
+            for (int i = 0; i < nocc; i++)
+                C_d[lam * nocc + i] = (double)C_occ[lam * nao + i];
+
+        // B_P_d: 行优先 [nao, nocc] 连续缓冲
+        std::vector<double> B_P_d((size_t)nao * nocc);
+        std::vector<double> X_P((size_t)nao * nao);
+        std::vector<double> Y((size_t)naux * nao2, 0.0);
+
+        for (int P = 0; P < naux; P++)
+        {
+            // 拷贝 B_P → 行优先 [nao, nocc]: B_P_d[ν*nocc+i]
+            for (int i = 0; i < nocc; i++)
+                for (int nu = 0; nu < nao; nu++)
+                    B_P_d[(size_t)nu * nocc + i] =
+                        (double)B_occ[(size_t)(P * nao + nu) + (size_t)M_dim * i];
+
+            // X_P[ν,λ] = Σ_i B_P[ν,i] × C[λ,i]
+            // 行优先: X_P(nao×nao) = B_P_d(nao×nocc) @ C_d^T(nocc×nao)
+            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                        nao, nao, nocc,
+                        1.0, B_P_d.data(), nocc, C_d.data(), nocc,
+                        0.0, X_P.data(), nao);
+
+            // Y_P[μ,λ] = Σ_ν D[μ,ν] × X_P[ν,λ]
+            // 行优先: Y_P(nao×nao) = D(nao×nao) @ X_P(nao×nao)
+            double* Y_P = Y.data() + (long long)P * nao2;
+            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                        nao, nao, nao,
+                        1.0, D_d.data(), nao, X_P.data(), nao,
+                        0.0, Y_P, nao);
+        }
+
+        // Step 3: D3_eff += neg_exx × M^{-1/2} @ Y
+        // 行优先: D3_eff[naux, nao²] += neg_exx * M[naux,naux] @ Y[naux,nao²]
+        // 列优先视角: D3^T[nao²,naux] += neg_exx * Y^T[nao²,naux] * M^T[naux,naux]
+        // M^{-1/2} 对称 → M^T = M
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                    naux, (int)nao2, naux,
+                    neg_exx, metric_inv_sqrt, naux, Y.data(), (int)nao2,
+                    one_d, D3_eff.data(), (int)nao2);
+
+#else
+        // 回退: 标量循环 (无 BLAS 可用)
         std::vector<double> Y((size_t)naux * nao2, 0.0);
         std::vector<double> X_P((size_t)nao * nao, 0.0);
         for (int P = 0; P < naux; P++)
         {
-            // X_P[ν,λ] = Σ_i B_occ[P,ν,i] × C[λ,i]
             std::fill(X_P.begin(), X_P.end(), 0.0);
             for (int nu = 0; nu < nao; nu++)
                 for (int i = 0; i < nocc; i++)
@@ -80,7 +141,6 @@ static inline void QC_Build_D3_eff(
                         X_P[nu * nao + lam] +=
                             bval * (double)C_occ[lam * nao + i];
                 }
-            // Y_P[μ,λ] = Σ_ν D[μ,ν] × X_P[ν,λ]
             double* Y_P = Y.data() + (long long)P * nao2;
             for (int mu = 0; mu < nao; mu++)
                 for (int nu = 0; nu < nao; nu++)
@@ -91,21 +151,6 @@ static inline void QC_Build_D3_eff(
                         Y_P[mu * nao + lam] += d * X_P[nu * nao + lam];
                 }
         }
-
-        // Step 3: D3_eff += -exx × M^{-1/2} @ Y
-        // D3_eff 行优先 [naux, nao²], Y 行优先 [naux, nao²]
-        // M^{-1/2} 行优先 [naux, naux]
-        // 列优先: D3^T[nao², naux] += neg_exx × Y^T[nao², naux] × M^{-1/2}^T[naux, naux]
-        // M^{-1/2} 对称: M^T = M
-        // DGEMM(N, N, nao², naux, naux, neg_exx, Y^T, nao², M, naux, 1.0, D3^T, nao²)
-        const double neg_exx = -(double)exx_fraction;
-        const double one_d = 1.0;
-        // Y^T 列优先 [nao², naux]: Y 行优先 [naux, nao²] 的相同数据
-        // M^{-1/2} 列优先 [naux, naux]: metric_inv_sqrt 行优先 [naux, naux]
-        //   对称矩阵列优先 = 行优先
-        // D3^T 列优先 [nao², naux]: D3_eff 行优先 [naux, nao²] 的相同数据
-        // D3_eff += neg_exx × M^{-1/2} @ Y  (行优先矩阵乘法)
-        // 遍历 Q 和 ml，内层 P 求和连续访问 M^{-1/2}[Q,P]
         for (int Q = 0; Q < naux; Q++)
             for (int P = 0; P < naux; P++)
             {
@@ -115,6 +160,7 @@ static inline void QC_Build_D3_eff(
                     D3_eff[(long long)Q * nao2 + mn] +=
                         w * Y[(long long)P * nao2 + mn];
             }
+#endif
     }
 }
 
@@ -141,9 +187,50 @@ static inline void QC_Build_D2K_DaleckiiKrein(
 {
     const size_t naux2 = (size_t)naux * naux;
 
-    // U^T Z_K U
     std::vector<double> UZU(naux2, 0.0);
     std::vector<double> tmp(naux2, 0.0);
+
+#if RI_GRAD_HAS_BLAS
+    // BLAS 路径: U^T Z_K U → D2_K = U (F ⊙ UZU) U^T
+    // Z_K 行优先 [naux,naux], eigvec 列优先 [naux,naux]
+
+    // tmp = Z_K @ U: Z_K 行优先, U 列优先
+    // 行优先 Z_K × 列优先 U: 用 cblas_dgemm(RowMajor, N, N, ...)
+    // Z_K[i,k] * U_col[k,j] = Z_K[i,k] * eigvec[k + j*naux]
+    // cblas_dgemm(CblasRowMajor, N, N, naux, naux, naux, 1, Z_K, naux, eigvec(列→行等价T), naux, 0, tmp, naux)
+    // eigvec 列优先 [naux,naux] 用行优先读 = eigvec^T
+    // 所以 Z_K @ U = Z_K(行) @ eigvec^T(行)^T → RowMajor, N, N 不对
+    // 正确: tmp[i,j] = Σ_k Z_K[i,k] * U[k,j]
+    // U[k,j] = eigvec[k + j*naux] (col-major) = eigvec_rowmajor^T
+    // → tmp = Z_K @ U, 其中 U 列优先
+    // CblasRowMajor: C = A × B, A 行优先 [M,K], B 行优先 [K,N]
+    // 但 U 是列优先, 行优先读就是 U^T, 需要转置标记
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                naux, naux, naux,
+                1.0, Z_K, naux, eigvec, naux,
+                0.0, tmp.data(), naux);
+    // 上面: RowMajor, N, T → tmp[i,j] = Σ_k Z_K[i,k] * eigvec_row[j,k]
+    //   = Σ_k Z_K[i,k] * eigvec[j*naux+k] ← 不对，应该是 eigvec[k+j*naux]
+    // eigvec 列优先: eigvec[k + j*naux]
+    // CblasRowMajor 把指针读为行优先: B_row[j,k] = eigvec[j*naux + k]
+    // CblasTrans → B^T[k,j] = B_row[j,k] = eigvec[j*naux + k]
+    // tmp[i,j] = Σ_k Z_K[i,k] * B^T[k,j] = Σ_k Z_K[i,k] * eigvec[j*naux+k]
+    // 但我们要 Σ_k Z_K[i,k] * eigvec[k + j*naux]
+    // eigvec[j*naux+k] = eigvec[k + j*naux] ← 只有 naux*j+k vs k+j*naux → 是同一个东西！
+    // ✓ 正确
+
+    // UZU = U^T @ tmp: UZU[i,j] = Σ_k U[k,i] * tmp[k,j]
+    //   = Σ_k eigvec[k + i*naux] * tmp[k,j]
+    // RowMajor: U_row(行优先读 eigvec) = eigvec[i*naux+k], 即 U^T[i,k]
+    // UZU = U_row @ tmp (RowMajor, NoTrans, NoTrans)
+    // UZU[i,j] = Σ_k U_row[i,k] * tmp[k,j] = Σ_k eigvec[i*naux+k] * tmp[k,j]
+    //   = Σ_k eigvec[k + i*naux] * tmp[k,j] ✓
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                naux, naux, naux,
+                1.0, eigvec, naux, tmp.data(), naux,
+                0.0, UZU.data(), naux);
+
+#else
     // tmp = Z_K @ U
     for (int i = 0; i < naux; i++)
         for (int j = 0; j < naux; j++)
@@ -158,6 +245,7 @@ static inline void QC_Build_D2K_DaleckiiKrein(
                 UZU[(size_t)i * naux + j] +=
                     eigvec[(size_t)k + (size_t)i * naux] *
                     tmp[(size_t)k * naux + j];
+#endif
 
     // F ⊙ UZU (Hadamard 积)
     for (int k = 0; k < naux; k++)
@@ -174,6 +262,34 @@ static inline void QC_Build_D2K_DaleckiiKrein(
         }
     }
 
+#if RI_GRAD_HAS_BLAS
+    // D2_K = U @ (F⊙UZU) @ U^T
+    // tmp = (F⊙UZU) @ U^T: tmp[i,j] = Σ_k UZU[i,k] * U[j,k]^T
+    //   = Σ_k UZU[i,k] * eigvec[j + k*naux]
+    // RowMajor 读 eigvec: eigvec_row[k,j] = eigvec[k*naux+j]
+    // tmp = UZU @ eigvec_row^T → RowMajor, N, T
+    // tmp[i,j] = Σ_k UZU[i,k] * eigvec_row[j,k] = Σ_k UZU[i,k] * eigvec[j*naux+k]
+    //   = Σ_k UZU[i,k] * eigvec[k*naux+j]? No.
+    // eigvec_row[j,k] = eigvec[j*naux+k] (RowMajor 解释)
+    // 我们要 eigvec[j + k*naux] ← 不等于 eigvec[j*naux+k]
+    // 用 NoTrans: tmp = UZU @ eigvec_row(NoTrans)
+    // tmp[i,j] = Σ_k UZU[i,k] * eigvec_row[k,j] = Σ_k UZU[i,k] * eigvec[k*naux+j]
+    //   = Σ_k UZU[i,k] * eigvec[j + k*naux] ✓ (因为 k*naux+j = j + k*naux)
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                naux, naux, naux,
+                1.0, UZU.data(), naux, eigvec, naux,
+                0.0, tmp.data(), naux);
+
+    // D2_eff += U @ tmp: D2_eff[i,j] += Σ_k U[i,k] * tmp[k,j]
+    //   = Σ_k eigvec[i + k*naux] * tmp[k,j]
+    //   = Σ_k eigvec_row[k,i]^T * tmp[k,j]
+    // D2_eff += eigvec_row^T @ tmp → RowMajor, Trans, NoTrans
+    // 但 eigvec_row^T[i,k] = eigvec_row[k,i] = eigvec[k*naux+i] = eigvec[i + k*naux] ✓
+    cblas_dgemm(CblasRowMajor, CblasTrans, CblasNoTrans,
+                naux, naux, naux,
+                1.0, eigvec, naux, tmp.data(), naux,
+                1.0, D2_eff.data(), naux);
+#else
     // D2_K = U @ (F⊙UZU) @ U^T
     std::fill(tmp.begin(), tmp.end(), 0.0);
     for (int i = 0; i < naux; i++)
@@ -188,6 +304,7 @@ static inline void QC_Build_D2K_DaleckiiKrein(
                 D2_eff[(size_t)i * naux + j] +=
                     eigvec[(size_t)i + (size_t)k * naux] *
                     tmp[(size_t)k * naux + j];
+#endif
 }
 
 // 上传 D2/D3 有效密度到 device，分配 workspace，启动 2c/3c 梯度内核。
@@ -324,13 +441,51 @@ static inline void QC_Build_D2_eff_Stored(
         // 实际用 V[naux, nao²] 和 eri3c[naux, nao²]:
         //   Z_K[P,Q] = -Σ_{ml} V[P, m*nao+l] × eri3c[Q, m*nao+l]
 
-        // Step 1: V[P, m*nao+l] = Σ_{n,i} B_occ[P,n,i] × D[m,n] × C[l,i]
+#if RI_GRAD_HAS_BLAS
+        // BLAS 路径: V_P = D @ B_P @ C^T, Z_K = -V @ eri3c^T
+        std::vector<double> D_d(nao2);
+        for (long long i = 0; i < nao2; i++) D_d[i] = (double)P_density[i];
+
+        std::vector<double> C_d((size_t)nao * nocc);
+        for (int lam = 0; lam < nao; lam++)
+            for (int i = 0; i < nocc; i++)
+                C_d[lam * nocc + i] = (double)C_occ[lam * nao + i];
+
+        std::vector<double> V(naux * nao2, 0.0);
+        std::vector<double> B_P_d((size_t)nao * nocc);
+        std::vector<double> X_P((size_t)nao * nao);
+        for (int P = 0; P < naux; P++)
+        {
+            for (int i = 0; i < nocc; i++)
+                for (int n = 0; n < nao; n++)
+                    B_P_d[(size_t)n * nocc + i] =
+                        (double)B_occ[(size_t)(P * nao + n) + (size_t)M_dim * i];
+
+            // X_P[n,l] = Σ_i B_P[n,i] × C[l,i]
+            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                        nao, nao, nocc,
+                        1.0, B_P_d.data(), nocc, C_d.data(), nocc,
+                        0.0, X_P.data(), nao);
+
+            // V_P[m,l] = Σ_n D[m,n] × X_P[n,l]
+            double* V_P = V.data() + (long long)P * nao2;
+            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                        nao, nao, nao,
+                        1.0, D_d.data(), nao, X_P.data(), nao,
+                        0.0, V_P, nao);
+        }
+
+        // Z_K = -V @ eri3c^T: [naux,nao²] @ [nao²,naux] → [naux,naux]
+        std::vector<double> Z_K(naux2, 0.0);
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans,
+                    naux, naux, (int)nao2,
+                    -1.0, V.data(), (int)nao2, eri3c, (int)nao2,
+                    0.0, Z_K.data(), naux);
+#else
+        // 标量回退
         std::vector<double> V(naux * nao2, 0.0);
         for (int P = 0; P < naux; P++)
         {
-            // R_P[nocc, nao] = B_occ_P^T[nocc, nao] × D^T[nao, nao]
-            // V_P[nao, nao] = D[nao,nao] × B_occ_P[nao,nocc] × C^T[nocc,nao]
-            // 直接逐元素:
             for (int i = 0; i < nocc; i++)
             {
                 for (int m = 0; m < nao; m++)
@@ -340,7 +495,6 @@ static inline void QC_Build_D2_eff_Stored(
                         r += (double)B_occ[(size_t)(P * nao + n) +
                                            (size_t)M_dim * i] *
                              (double)P_density[m * nao + n];
-                    // V[P,m,l] += r × C[l,i]
                     for (int l = 0; l < nao; l++)
                         V[(long long)P * nao2 + m * nao + l] +=
                             r * (double)C_occ[l * nao + i];
@@ -348,10 +502,6 @@ static inline void QC_Build_D2_eff_Stored(
             }
         }
 
-        // Step 2: Z_K[P,Q] = -Σ_{ml} V[P,ml] × eri3c[Q,ml]
-        // 这是矩阵乘法: Z_K = -V × eri3c^T
-        // V 行优先 [naux, nao²], eri3c 行优先 [naux, nao²]
-        // Z_K 行优先 [naux, naux]
         std::vector<double> Z_K(naux2, 0.0);
         for (int P = 0; P < naux; P++)
             for (int Q = 0; Q < naux; Q++)
@@ -362,6 +512,7 @@ static inline void QC_Build_D2_eff_Stored(
                          eri3c[(long long)Q * nao2 + ml];
                 Z_K[(size_t)P * naux + Q] = -z;
             }
+#endif
 
         QC_Build_D2K_DaleckiiKrein(naux, Z_K.data(), eigval, eigvec, D2_eff);
     }

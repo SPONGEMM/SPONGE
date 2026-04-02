@@ -215,79 +215,75 @@ static __global__ void OneE_Grad_Kernel(
 
                             float prefac = cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
 
-                            // AO 中心 A 导数
+                            // AO 中心 A 导数 — 融合三个方向到一次 (t,u,v) 遍历
                             double dv_dAx = 0.0, dv_dAy = 0.0, dv_dAz = 0.0;
 
-                            for (int t = 0; t <= lx_i + lx_j + 1; t++)
+                            // 预计算 dE/dA 一维数组 (避免循环内重复计算)
+                            const int tmax_x = lx_i + lx_j;
+                            const int tmax_y = ly_i + ly_j;
+                            const int tmax_z = lz_i + lz_j;
+                            float dEx[9], dEy[9], dEz[9];
+                            for (int t = 0; t <= tmax_x + 1; t++)
                             {
-                                float dex = 0.0f;
+                                float d = 0.0f;
                                 if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
-                                    dex += 2.0f * ei *
-                                           Ex1[lx_i + 1][lx_j][t];
+                                    d += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
                                 if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
-                                    dex -= (float)lx_i *
-                                           Ex0[lx_i - 1][lx_j][t];
+                                    d -= (float)lx_i * Ex0[lx_i - 1][lx_j][t];
+                                dEx[t] = d;
+                            }
+                            for (int u = 0; u <= tmax_y + 1; u++)
+                            {
+                                float d = 0.0f;
+                                if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
+                                    d += 2.0f * ei * Ey1[ly_i + 1][ly_j][u];
+                                if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
+                                    d -= (float)ly_i * Ey0[ly_i - 1][ly_j][u];
+                                dEy[u] = d;
+                            }
+                            for (int v = 0; v <= tmax_z + 1; v++)
+                            {
+                                float d = 0.0f;
+                                if (v <= (lz_i + 1) + lz_j && (lz_i + 1) < 5)
+                                    d += 2.0f * ei * Ez1[lz_i + 1][lz_j][v];
+                                if (lz_i > 0 && v <= (lz_i - 1) + lz_j)
+                                    d -= (float)lz_i * Ez0[lz_i - 1][lz_j][v];
+                                dEz[v] = d;
+                            }
 
-                                for (int u = 0; u <= ly_i + ly_j; u++)
+                            // 单次融合遍历: 基础范围 [0..tmax_x] × [0..tmax_y] × [0..tmax_z]
+                            // dv_dAx 额外需要 t = tmax_x+1; dv_dAy 额外需要 u = tmax_y+1; dv_dAz 额外需要 v = tmax_z+1
+                            for (int t = 0; t <= tmax_x + 1; t++)
+                            {
+                                const float ex = (t <= tmax_x) ? Ex0[lx_i][lx_j][t] : 0.0f;
+                                const float dex = dEx[t];
+                                if (fabsf(ex) < 1e-30f && fabsf(dex) < 1e-30f)
+                                    continue;
+                                for (int u = 0; u <= tmax_y + 1; u++)
                                 {
-                                    float ey = Ey0[ly_i][ly_j][u];
-                                    if (fabsf(ey) < 1e-30f && fabsf(dex) < 1e-30f)
+                                    const float ey = (u <= tmax_y) ? Ey0[ly_i][ly_j][u] : 0.0f;
+                                    const float dey = dEy[u];
+                                    // 在基础范围外只有对应导数分量非零
+                                    const bool in_base = (t <= tmax_x && u <= tmax_y);
+                                    if (fabsf(ey) < 1e-30f && fabsf(dey) < 1e-30f)
                                         continue;
-                                    for (int v = 0; v <= lz_i + lz_j; v++)
+                                    for (int v = 0; v <= tmax_z + 1; v++)
                                     {
-                                        float ez = Ez0[lz_i][lz_j][v];
-                                        float r0 = R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        const float ez = (v <= tmax_z) ? Ez0[lz_i][lz_j][v] : 0.0f;
+                                        const float dez = dEz[v];
+                                        const float r0 = R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        if (fabsf(r0) < 1e-30f) continue;
 
-                                        if (fabsf(dex) > 1e-30f)
-                                            dv_dAx += (double)dex * (double)ey *
-                                                      (double)ez * (double)r0;
-                                    }
-                                }
-                            }
-                            for (int t = 0; t <= lx_i + lx_j; t++)
-                            {
-                                float ex = Ex0[lx_i][lx_j][t];
-                                if (fabsf(ex) < 1e-30f) continue;
-                                for (int u = 0; u <= ly_i + ly_j + 1; u++)
-                                {
-                                    float dey = 0.0f;
-                                    if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
-                                        dey += 2.0f * ei *
-                                               Ey1[ly_i + 1][ly_j][u];
-                                    if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
-                                        dey -= (float)ly_i *
-                                               Ey0[ly_i - 1][ly_j][u];
-                                    if (fabsf(dey) < 1e-30f) continue;
-                                    for (int v = 0; v <= lz_i + lz_j; v++)
-                                    {
-                                        float ez = Ez0[lz_i][lz_j][v];
-                                        float r0 = R_vals[ONEE_MD_IDX(t, u, v, 0)];
-                                        dv_dAy += (double)ex * (double)dey *
-                                                  (double)ez * (double)r0;
-                                    }
-                                }
-                            }
-                            for (int t = 0; t <= lx_i + lx_j; t++)
-                            {
-                                float ex = Ex0[lx_i][lx_j][t];
-                                if (fabsf(ex) < 1e-30f) continue;
-                                for (int u = 0; u <= ly_i + ly_j; u++)
-                                {
-                                    float ey = Ey0[ly_i][ly_j][u];
-                                    if (fabsf(ey) < 1e-30f) continue;
-                                    for (int v = 0; v <= lz_i + lz_j + 1; v++)
-                                    {
-                                        float dez = 0.0f;
-                                        if (v <= (lz_i + 1) + lz_j &&
-                                            (lz_i + 1) < 5)
-                                            dez += 2.0f * ei *
-                                                   Ez1[lz_i + 1][lz_j][v];
-                                        if (lz_i > 0 && v <= (lz_i - 1) + lz_j)
-                                            dez -= (float)lz_i *
-                                                   Ez0[lz_i - 1][lz_j][v];
-                                        float r0 = R_vals[ONEE_MD_IDX(t, u, v, 0)];
-                                        dv_dAz += (double)ex * (double)ey *
-                                                  (double)dez * (double)r0;
+                                        const double dr = (double)r0;
+                                        // dV/dAx: dEx * ey * ez (需要 u<=tmax_y, v<=tmax_z)
+                                        if (u <= tmax_y && v <= tmax_z && fabsf(dex) > 1e-30f)
+                                            dv_dAx += (double)dex * (double)ey * (double)ez * dr;
+                                        // dV/dAy: ex * dEy * ez (需要 t<=tmax_x, v<=tmax_z)
+                                        if (t <= tmax_x && v <= tmax_z && fabsf(dey) > 1e-30f)
+                                            dv_dAy += (double)ex * (double)dey * (double)ez * dr;
+                                        // dV/dAz: ex * ey * dEz (需要 t<=tmax_x, u<=tmax_y)
+                                        if (in_base && fabsf(dez) > 1e-30f)
+                                            dv_dAz += (double)ex * (double)ey * (double)dez * dr;
                                     }
                                 }
                             }
@@ -296,22 +292,22 @@ static __global__ void OneE_Grad_Kernel(
                             dv_dAy *= (double)prefac;
                             dv_dAz *= (double)prefac;
 
-                            // 核中心 C 导数
+                            // 核中心 C 导数: dR/dC = -R_{t+1,u,v}, etc.
                             double dv_dCx = 0.0, dv_dCy = 0.0, dv_dCz = 0.0;
-                            for (int t = 0; t <= lx_i + lx_j; t++)
+                            for (int t = 0; t <= tmax_x; t++)
                             {
                                 float ex = Ex0[lx_i][lx_j][t];
                                 if (fabsf(ex) < 1e-30f) continue;
-                                for (int u = 0; u <= ly_i + ly_j; u++)
+                                for (int u = 0; u <= tmax_y; u++)
                                 {
                                     float ey = Ey0[ly_i][ly_j][u];
                                     if (fabsf(ey) < 1e-30f) continue;
-                                    for (int v = 0; v <= lz_i + lz_j; v++)
+                                    double exy = (double)ex * (double)ey;
+                                    for (int v = 0; v <= tmax_z; v++)
                                     {
                                         float ez = Ez0[lz_i][lz_j][v];
                                         if (fabsf(ez) < 1e-30f) continue;
-                                        double eee = (double)ex * (double)ey *
-                                                     (double)ez;
+                                        double eee = exy * (double)ez;
                                         dv_dCx -= eee * (double)R_vals
                                                             [ONEE_MD_IDX(
                                                                 t + 1, u, v, 0)];
