@@ -616,6 +616,33 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                         ket_ext, ket_ext, ket_ext,
                                         R_bra_buf.data(), rb_yz, rb_dim);
 
+                                    // Base bra E-coefficients for this (ci,cj)
+                                    const float* ex_b = E[0][ix][jx];
+                                    const float* ey_b = E[1][iy][jy];
+                                    const float* ez_b = E[2][iz][jz];
+                                    const int mx_b = ix + jx;
+                                    const int my_b = iy + jy;
+                                    const int mz_b = iz + jz;
+
+                                    // 1D dot product helpers
+                                    auto dot1d = [](const float* e, int n,
+                                                    const float* r) {
+                                        double v = 0.0;
+                                        for (int t = 0; t <= n; t++)
+                                            v += (double)e[t] * (double)r[t];
+                                        return (float)v;
+                                    };
+                                    auto dot1d_ph = [](const float* e, int n,
+                                                       const float* r) {
+                                        double v = 0.0;
+                                        for (int t = 0; t <= n; t++)
+                                        {
+                                            float ph = (t & 1) ? -1.0f : 1.0f;
+                                            v += (double)(e[t] * ph) * (double)r[t];
+                                        }
+                                        return (float)v;
+                                    };
+
                                     for (int ck = 0; ck < nk_cart; ck++)
                                     {
                                         const int kx2 = ket.comp_x[0][ck];
@@ -629,80 +656,126 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
                                             const float* rk = &R_ket_buf[
                                                 (ck * nl_cart + cl) * rk_elem];
+                                            const float* rb = R_bra_buf.data();
                                             float dA[3] = {}, dB[3] = {}, dC[3] = {};
 
-                                            // dA: d/dA via shifted bra + R_ket
-                                            const int bra_i[3] = {ix, iy, iz};
-                                            const int bra_j[3] = {jx, jy, jz};
-                                            for (int d = 0; d < 3; d++)
+                                            // Partial contractions of R_ket:
+                                            // reduce 3D→1D by fixing the derivative
+                                            // dimension and summing the other two
+                                            float pc_yz[10], pc_xz[10], pc_xy[10];
+                                            for (int mx = 0; mx <= bra_ext; mx++)
                                             {
-                                                int ip1[3] = {ix,iy,iz};
-                                                int im1[3] = {ix,iy,iz};
-                                                ip1[d]++;
-                                                im1[d]--;
-                                                if (ip1[d] < 5)
-                                                    dA[d] = 2.0f * ai *
-                                                        QC_Contract_NoPhase(
-                                                            E[0][ip1[0]][bra_j[0]], ip1[0]+bra_j[0],
-                                                            E[1][ip1[1]][bra_j[1]], ip1[1]+bra_j[1],
-                                                            E[2][ip1[2]][bra_j[2]], ip1[2]+bra_j[2],
-                                                            rk, rk_yz, rk_dim);
-                                                if (bra_i[d] > 0)
-                                                    dA[d] -= (float)bra_i[d] *
-                                                        QC_Contract_NoPhase(
-                                                            E[0][im1[0]][bra_j[0]], im1[0]+bra_j[0],
-                                                            E[1][im1[1]][bra_j[1]], im1[1]+bra_j[1],
-                                                            E[2][im1[2]][bra_j[2]], im1[2]+bra_j[2],
-                                                            rk, rk_yz, rk_dim);
+                                                double s = 0.0;
+                                                for (int my = 0; my <= my_b; my++)
+                                                    for (int mz = 0; mz <= mz_b; mz++)
+                                                        s += (double)(ey_b[my] * ez_b[mz]) *
+                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
+                                                pc_yz[mx] = (float)s;
+                                            }
+                                            for (int my = 0; my <= bra_ext; my++)
+                                            {
+                                                double s = 0.0;
+                                                for (int mx = 0; mx <= mx_b; mx++)
+                                                    for (int mz = 0; mz <= mz_b; mz++)
+                                                        s += (double)(ex_b[mx] * ez_b[mz]) *
+                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
+                                                pc_xz[my] = (float)s;
+                                            }
+                                            for (int mz = 0; mz <= bra_ext; mz++)
+                                            {
+                                                double s = 0.0;
+                                                for (int mx = 0; mx <= mx_b; mx++)
+                                                    for (int my = 0; my <= my_b; my++)
+                                                        s += (double)(ex_b[mx] * ey_b[my]) *
+                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
+                                                pc_xy[mz] = (float)s;
                                             }
 
-                                            // dB: d/dB via shifted bra + R_ket
-                                            for (int d = 0; d < 3; d++)
+                                            // dA: 1D dot with shifted bra E-coeff
+                                            if (ix + 1 < 5)
+                                                dA[0] = 2.0f*ai * dot1d(E[0][ix+1][jx], ix+1+jx, pc_yz);
+                                            if (ix > 0)
+                                                dA[0] -= (float)ix * dot1d(E[0][ix-1][jx], ix-1+jx, pc_yz);
+                                            if (iy + 1 < 5)
+                                                dA[1] = 2.0f*ai * dot1d(E[1][iy+1][jy], iy+1+jy, pc_xz);
+                                            if (iy > 0)
+                                                dA[1] -= (float)iy * dot1d(E[1][iy-1][jy], iy-1+jy, pc_xz);
+                                            if (iz + 1 < 5)
+                                                dA[2] = 2.0f*ai * dot1d(E[2][iz+1][jz], iz+1+jz, pc_xy);
+                                            if (iz > 0)
+                                                dA[2] -= (float)iz * dot1d(E[2][iz-1][jz], iz-1+jz, pc_xy);
+
+                                            // dB: 1D dot with shifted bra E-coeff
+                                            if (jx + 1 < 5)
+                                                dB[0] = 2.0f*aj * dot1d(E[0][ix][jx+1], ix+jx+1, pc_yz);
+                                            if (jx > 0)
+                                                dB[0] -= (float)jx * dot1d(E[0][ix][jx-1], ix+jx-1, pc_yz);
+                                            if (jy + 1 < 5)
+                                                dB[1] = 2.0f*aj * dot1d(E[1][iy][jy+1], iy+jy+1, pc_xz);
+                                            if (jy > 0)
+                                                dB[1] -= (float)jy * dot1d(E[1][iy][jy-1], iy+jy-1, pc_xz);
+                                            if (jz + 1 < 5)
+                                                dB[2] = 2.0f*aj * dot1d(E[2][iz][jz+1], iz+jz+1, pc_xy);
+                                            if (jz > 0)
+                                                dB[2] -= (float)jz * dot1d(E[2][iz][jz-1], iz+jz-1, pc_xy);
+
+                                            // Partial contractions of R_bra for dC
+                                            const float* ekx_b = E_ket[0][kx2][lx2];
+                                            const float* eky_b = E_ket[1][ky2][ly2];
+                                            const float* ekz_b = E_ket[2][kz2][lz2];
+                                            const int nkx_b = kx2+lx2, nky_b = ky2+ly2, nkz_b = kz2+lz2;
+
+                                            float qc_yz[10], qc_xz[10], qc_xy[10];
+                                            for (int nx = 0; nx <= ket_ext; nx++)
                                             {
-                                                int jp1[3] = {jx,jy,jz};
-                                                int jm1[3] = {jx,jy,jz};
-                                                jp1[d]++;
-                                                jm1[d]--;
-                                                if (jp1[d] < 5)
-                                                    dB[d] = 2.0f * aj *
-                                                        QC_Contract_NoPhase(
-                                                            E[0][bra_i[0]][jp1[0]], bra_i[0]+jp1[0],
-                                                            E[1][bra_i[1]][jp1[1]], bra_i[1]+jp1[1],
-                                                            E[2][bra_i[2]][jp1[2]], bra_i[2]+jp1[2],
-                                                            rk, rk_yz, rk_dim);
-                                                if (bra_j[d] > 0)
-                                                    dB[d] -= (float)bra_j[d] *
-                                                        QC_Contract_NoPhase(
-                                                            E[0][bra_i[0]][jm1[0]], bra_i[0]+jm1[0],
-                                                            E[1][bra_i[1]][jm1[1]], bra_i[1]+jm1[1],
-                                                            E[2][bra_i[2]][jm1[2]], bra_i[2]+jm1[2],
-                                                            rk, rk_yz, rk_dim);
+                                                double s = 0.0;
+                                                for (int ny = 0; ny <= nky_b; ny++)
+                                                    for (int nz = 0; nz <= nkz_b; nz++)
+                                                    {
+                                                        float ph = ((ny+nz) & 1) ? -1.0f : 1.0f;
+                                                        s += (double)(eky_b[ny]*ekz_b[nz]*ph) *
+                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
+                                                    }
+                                                qc_yz[nx] = (float)s;
+                                            }
+                                            for (int ny = 0; ny <= ket_ext; ny++)
+                                            {
+                                                double s = 0.0;
+                                                for (int nx = 0; nx <= nkx_b; nx++)
+                                                    for (int nz = 0; nz <= nkz_b; nz++)
+                                                    {
+                                                        float ph = ((nx+nz) & 1) ? -1.0f : 1.0f;
+                                                        s += (double)(ekx_b[nx]*ekz_b[nz]*ph) *
+                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
+                                                    }
+                                                qc_xz[ny] = (float)s;
+                                            }
+                                            for (int nz = 0; nz <= ket_ext; nz++)
+                                            {
+                                                double s = 0.0;
+                                                for (int nx = 0; nx <= nkx_b; nx++)
+                                                    for (int ny = 0; ny <= nky_b; ny++)
+                                                    {
+                                                        float ph = ((nx+ny) & 1) ? -1.0f : 1.0f;
+                                                        s += (double)(ekx_b[nx]*eky_b[ny]*ph) *
+                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
+                                                    }
+                                                qc_xy[nz] = (float)s;
                                             }
 
-                                            // dC: d/dC via shifted ket + R_bra
-                                            const int ket_k[3] = {kx2, ky2, kz2};
-                                            const int ket_l[3] = {lx2, ly2, lz2};
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                int kp1[3] = {kx2,ky2,kz2};
-                                                int km1[3] = {kx2,ky2,kz2};
-                                                kp1[d]++;
-                                                km1[d]--;
-                                                if (kp1[d] < 5)
-                                                    dC[d] = 2.0f * ak *
-                                                        QC_Contract_WithPhase(
-                                                            E_ket[0][kp1[0]][ket_l[0]], kp1[0]+ket_l[0],
-                                                            E_ket[1][kp1[1]][ket_l[1]], kp1[1]+ket_l[1],
-                                                            E_ket[2][kp1[2]][ket_l[2]], kp1[2]+ket_l[2],
-                                                            R_bra_buf.data(), rb_yz, rb_dim);
-                                                if (ket_k[d] > 0)
-                                                    dC[d] -= (float)ket_k[d] *
-                                                        QC_Contract_WithPhase(
-                                                            E_ket[0][km1[0]][ket_l[0]], km1[0]+ket_l[0],
-                                                            E_ket[1][km1[1]][ket_l[1]], km1[1]+ket_l[1],
-                                                            E_ket[2][km1[2]][ket_l[2]], km1[2]+ket_l[2],
-                                                            R_bra_buf.data(), rb_yz, rb_dim);
-                                            }
+                                            // dC: 1D dot with shifted ket E-coeff
+                                            if (kx2 + 1 < 5)
+                                                dC[0] = 2.0f*ak * dot1d_ph(E_ket[0][kx2+1][lx2], kx2+1+lx2, qc_yz);
+                                            if (kx2 > 0)
+                                                dC[0] -= (float)kx2 * dot1d_ph(E_ket[0][kx2-1][lx2], kx2-1+lx2, qc_yz);
+                                            if (ky2 + 1 < 5)
+                                                dC[1] = 2.0f*ak * dot1d_ph(E_ket[1][ky2+1][ly2], ky2+1+ly2, qc_xz);
+                                            if (ky2 > 0)
+                                                dC[1] -= (float)ky2 * dot1d_ph(E_ket[1][ky2-1][ly2], ky2-1+ly2, qc_xz);
+                                            if (kz2 + 1 < 5)
+                                                dC[2] = 2.0f*ak * dot1d_ph(E_ket[2][kz2+1][lz2], kz2+1+lz2, qc_xy);
+                                            if (kz2 > 0)
+                                                dC[2] -= (float)kz2 * dot1d_ph(E_ket[2][kz2-1][lz2], kz2-1+lz2, qc_xy);
 
                                             for (int d = 0; d < 3; d++)
                                             {
