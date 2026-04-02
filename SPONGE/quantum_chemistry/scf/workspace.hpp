@@ -133,6 +133,11 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     scf_ws.direct.fock_thread_count = 1;
     scf_ws.direct.d_F_thread = NULL;
     scf_ws.direct.d_F_b_thread = NULL;
+    alloc_zero_double(&scf_ws.alpha.d_F_double, nao2);
+    if (unrestricted)
+        alloc_zero_double(&scf_ws.beta.d_F_double, nao2);
+    else
+        scf_ws.beta.d_F_double = NULL;
 #else
     scf_ws.direct.fock_thread_count = std::max(1, omp_get_max_threads());
     alloc_zero_double(&scf_ws.direct.d_F_thread,

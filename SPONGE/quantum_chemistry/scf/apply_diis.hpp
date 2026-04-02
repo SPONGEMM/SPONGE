@@ -448,12 +448,13 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         scf_ws.diis.energy_hist.data(), current_energy);
     if (scf_ws.diis.diis_hist_count_b >= 2)
     {
-        if (QC_CDIIS_Extrapolate(
-                mol.nao, scf_ws.runtime.diis_space,
-                scf_ws.diis.diis_hist_count_b, scf_ws.diis.diis_hist_head_b,
-                scf_ws.diis.d_diis_f_hist_b.data(),
-                scf_ws.diis.d_diis_e_hist_b.data(), scf_ws.runtime.diis_reg,
-                dFb, scf_ws.diis.d_diis_accum))
+        const bool ok = QC_CDIIS_Extrapolate(
+            mol.nao, scf_ws.runtime.diis_space,
+            scf_ws.diis.diis_hist_count_b, scf_ws.diis.diis_hist_head_b,
+            scf_ws.diis.d_diis_f_hist_b.data(),
+            scf_ws.diis.d_diis_e_hist_b.data(), scf_ws.runtime.diis_reg, dFb,
+            scf_ws.diis.d_diis_accum);
+        if (ok)
         {
             QC_Double_To_Float(nao2, dFb, scf_ws.beta.d_F);
         }

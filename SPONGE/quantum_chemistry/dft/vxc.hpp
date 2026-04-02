@@ -515,7 +515,6 @@ static void QC_Build_DFT_VXC_UKS(
     deviceMemset(d_Vxc_b, 0, sizeof(float) * nao2);
     deviceMemset(d_exc_total, 0, sizeof(double));
     if (total_grid_size <= 0) return;
-
     const int batch_size = std::max(1, grid_batch_size);
     const int threads = 128;
     const bool is_gga = (method != QC_METHOD::LDA);
@@ -684,5 +683,6 @@ static void QC_Build_DFT_VXC_UKS(
                                 d_ao_norm, nao, &one, d_Vxc_b, nao);
             }
         }
+
     }
 }

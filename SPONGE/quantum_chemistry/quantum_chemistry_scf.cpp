@@ -125,10 +125,18 @@ void QUANTUM_CHEMISTRY::Compute_Spin_Square()
 
     // Tr(P_alpha * S * P_beta * S) = Σ_ij (P_alpha·S·P_beta)_ij * S_ij
     double trace = 0.0;
-    deviceMemset(scf_ws.diis.d_diis_accum, 0, sizeof(double));
-    QC_Double_Dot(nao2, d_tmp4, d_tmp2, scf_ws.diis.d_diis_accum);
-    deviceMemcpy(&trace, scf_ws.diis.d_diis_accum, sizeof(double),
-                 deviceMemcpyDeviceToHost);
+    double* d_accum = scf_ws.diis.d_diis_accum;
+    if (d_accum == NULL)
+    {
+        Device_Malloc_Safely((void**)&d_accum, sizeof(double));
+    }
+    deviceMemset(d_accum, 0, sizeof(double));
+    QC_Double_Dot(nao2, d_tmp4, d_tmp2, d_accum);
+    deviceMemcpy(&trace, d_accum, sizeof(double), deviceMemcpyDeviceToHost);
+    if (scf_ws.diis.d_diis_accum == NULL)
+    {
+        deviceFree(d_accum);
+    }
 
     double s = 0.5 * (scf_ws.runtime.n_alpha - scf_ws.runtime.n_beta);
     scf_ws.runtime.spin_square_exact = s * (s + 1.0);
