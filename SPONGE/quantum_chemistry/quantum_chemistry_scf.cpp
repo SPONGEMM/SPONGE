@@ -13,11 +13,13 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                                   bool need_energy, int md_step)
 {
     if (!is_initialized) return;
+    auto scf_t0 = std::chrono::high_resolution_clock::now();
 
     Update_Coordinates_From_MD(crd, box_length);
     if (dft.enable_dft) Update_DFT_Grid();
 
     Reset_SCF_State();
+    auto scf_t1 = std::chrono::high_resolution_clock::now();
     Compute_OneE_Integrals();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
@@ -50,14 +52,24 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     double dft_ls = dft_warmup_ls;
     int stable_count = 0;
 
+    double t_fock = 0, t_energy = 0, t_diis = 0, t_diag = 0, t_conv = 0;
+    int n_iter = 0;
     for (int iter = 0; iter < scf_ws.runtime.max_scf_iter; ++iter)
     {
+        auto it0 = std::chrono::high_resolution_clock::now();
         Build_Fock(iter);
+#ifdef USE_GPU
+        hostDeviceSynchronize();
+#endif
+        auto it1 = std::chrono::high_resolution_clock::now();
         Accumulate_SCF_Energy(iter);
+#ifdef USE_GPU
+        hostDeviceSynchronize();
+#endif
+        auto it2 = std::chrono::high_resolution_clock::now();
 
         if (dft.enable_dft && iter < dft_warmup)
         {
-            // DFT Phase 1: 禁用 DIIS，大 level shift 稳定
             scf_ws.runtime.level_shift = dft_warmup_ls;
         }
         else
@@ -66,7 +78,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
 
             if (dft.enable_dft)
             {
-                // 追踪连续能量下降
                 double h_delta_e = 0.0;
                 if (iter > 0)
                     deviceMemcpy(&h_delta_e, scf_ws.runtime.d_delta_e,
@@ -76,12 +87,10 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 else
                     stable_count = 0;
 
-                // DFT Phase 2/3: shift 缓慢衰减，稳定后加速
                 if (stable_count >= 2)
-                    dft_ls *= 0.8;  // 连续稳定 → 衰减
+                    dft_ls *= 0.8;
                 else
-                    dft_ls =
-                        fmin(dft_ls * 1.2, dft_warmup_ls);  // 不稳定 → 适度回升
+                    dft_ls = fmin(dft_ls * 1.2, dft_warmup_ls);
 
                 scf_ws.runtime.level_shift = fmax(dft_ls, 0.0);
             }
@@ -90,10 +99,40 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 scf_ws.runtime.level_shift = 0.25;
             }
         }
+#ifdef USE_GPU
+        hostDeviceSynchronize();
+#endif
+        auto it3 = std::chrono::high_resolution_clock::now();
 
         Diagonalize_And_Build_Density();
-        if (Check_Convergence(iter, md_step)) break;
+#ifdef USE_GPU
+        hostDeviceSynchronize();
+#endif
+        auto it4 = std::chrono::high_resolution_clock::now();
+        bool done = Check_Convergence(iter, md_step);
+#ifdef USE_GPU
+        hostDeviceSynchronize();
+#endif
+        auto it5 = std::chrono::high_resolution_clock::now();
+        auto ms = [](auto a, auto b)
+        { return std::chrono::duration<double, std::milli>(b - a).count(); };
+        t_fock += ms(it0, it1);
+        t_energy += ms(it1, it2);
+        t_diis += ms(it2, it3);
+        t_diag += ms(it3, it4);
+        t_conv += ms(it4, it5);
+        n_iter = iter + 1;
+        if (done) break;
     }
+    printf("    [SCF] %d iters: Fock=%.1f Ene=%.1f DIIS=%.1f Diag=%.1f Conv=%.1f (ms)\n",
+           n_iter, t_fock, t_energy, t_diis, t_diag, t_conv);
+
+    auto scf_t2 = std::chrono::high_resolution_clock::now();
+    auto ms = [](auto a, auto b)
+    { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    printf("    [SCF] Pre-SCF (grid+1e+X): %.1f ms\n", ms(scf_t0, scf_t1));
+    printf("    [SCF] SCF loop: %.1f ms\n", ms(scf_t1, scf_t2));
+    printf("    [SCF] Total: %.1f ms\n", ms(scf_t0, scf_t2));
 }
 
 void QUANTUM_CHEMISTRY::Compute_Spin_Square()

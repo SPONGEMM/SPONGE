@@ -820,17 +820,33 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
                                            qc_type_file, basis_set_name);
     if (!need_qc) return;
 
+    auto t0 = std::chrono::high_resolution_clock::now();
     Initial_Molecule(controller, qc_type_file, basis_set_name);
     orbital_basis_name = basis_set_name;
+    auto t1 = std::chrono::high_resolution_clock::now();
 
     if (scf_ws.ri.enabled) Initial_Auxiliary_Basis(controller);
 
     Initial_Integral_Tasks(controller);
+    auto t2 = std::chrono::high_resolution_clock::now();
 
     is_initialized = 1;
     deviceBlasCreate(&blas_handle);
+    auto t3 = std::chrono::high_resolution_clock::now();
     deviceSolverCreate(&solver_handle);
+    auto t4 = std::chrono::high_resolution_clock::now();
     Memory_Allocate(controller);
+    auto t5 = std::chrono::high_resolution_clock::now();
+
+    auto ms = [](auto a, auto b)
+    { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    printf("    [QC Init] Molecule: %.1f ms\n", ms(t0, t1));
+    printf("    [QC Init] Integrals: %.1f ms\n", ms(t1, t2));
+    printf("    [QC Init] BlasCreate: %.1f ms\n", ms(t2, t3));
+    printf("    [QC Init] SolverCreate: %.1f ms\n", ms(t3, t4));
+    printf("    [QC Init] MemoryAlloc: %.1f ms\n", ms(t4, t5));
+    printf("    [QC Init] Total: %.1f ms\n", ms(t0, t5));
+
     controller->Step_Print_Initial("QC", "%e");
     if (scf_ws.runtime.unrestricted)
         controller->Step_Print_Initial("QC_S_sq", "%.4f");

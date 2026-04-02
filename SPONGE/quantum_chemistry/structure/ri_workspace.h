@@ -69,6 +69,13 @@ struct QC_RI_WORKSPACE
     double* d_g_vec = NULL;  // [naux] 求解后的拟合系数
     float* d_B_occ = NULL;   // [naux × nao × nocc] B 与 MO 系数收缩
 
+    // ---- 持久化 scratch（消除每轮 malloc/free）----
+    double* d_P_double = NULL;  // [nao²] RI-J 密度矩阵 double 缓冲
+    double* d_J_double = NULL;  // [nao²] RI-J Coulomb double 缓冲
+    float* d_J_float = NULL;    // [nao²] RI-J Coulomb float 缓冲
+    float* d_K_scratch = NULL;  // [nao²] RI-K exchange 累加缓冲
+    float* d_B_flat = NULL;     // [nao × naux × nocc] RI-K 重排缓冲
+
     // ---- 辅助基 cart2sph（host，用于在线变换） ----
     std::vector<float> h_U_aux;  // [naux_cart × naux] 行优先
     std::vector<float> h_U_orb;  // [nao_cart × nao] 行优先

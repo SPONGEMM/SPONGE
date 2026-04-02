@@ -96,6 +96,12 @@ struct QC_SCF_DIIS_Workspace
     double last_enorm = 1e10;
 
     double* d_diis_accum = NULL;
+
+    // 批量 Tr 用连续缓冲: 两块 [diis_space × nao²]，存 gather 后的历史向量
+    double* d_gather_a = NULL;
+    double* d_gather_b = NULL;
+    // 批量 Tr 输出: [diis_space × diis_space]
+    double* d_dot_out = NULL;
 };
 
 // direct SCF 的 pair density、线程私有 Fock 与 ERI 工作池

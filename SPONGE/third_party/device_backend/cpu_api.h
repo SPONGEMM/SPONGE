@@ -162,6 +162,9 @@ enum deviceEigMode_t
                 (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),    \
                 (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m, \
                 n, k, *(alpha), A, lda, B, ldb, *(beta), C, ldc)
+
+#define deviceBlasDdot(handle, n, x, incx, y, incy, result) \
+    (*(result) = cblas_ddot(n, x, incx, y, incy), 0)
 #endif
 
 #endif  // BLAS_BACKEND_H

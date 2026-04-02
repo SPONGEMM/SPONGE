@@ -215,6 +215,7 @@ static inline deviceModuleResult_t deviceModuleLaunchKernel(
 #define deviceBlasSgeam cublasSgeam
 #define deviceBlasSgemm cublasSgemm
 #define deviceBlasDgemm cublasDgemm
+#define deviceBlasDdot cublasDdot
 
 #endif  // BLAS_BACKEND_H
 

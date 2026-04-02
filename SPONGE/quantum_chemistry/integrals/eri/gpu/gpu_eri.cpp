@@ -42,26 +42,32 @@ void QC_Build_Fock_Direct_GPU(
     deviceMemset(task_ctx.buffers.d_screen_counts, 0,
                  sizeof(int) * task_ctx.topo.n_combos);
 
-    int* d_combo_prefix = NULL;
-    Device_Malloc_And_Copy_Safely((void**)&d_combo_prefix,
-                                  (void*)task_ctx.topo.combo_prefix,
-                                  sizeof(int) * (task_ctx.topo.n_combos + 1));
+    // 持久化 combo_prefix 缓冲，避免每次 malloc/free
+    static int* s_d_combo_prefix = NULL;
+    static int s_combo_prefix_size = 0;
+    const int needed = task_ctx.topo.n_combos + 1;
+    if (!s_d_combo_prefix || s_combo_prefix_size < needed)
+    {
+        if (s_d_combo_prefix) deviceFree(s_d_combo_prefix);
+        Device_Malloc_Safely((void**)&s_d_combo_prefix, sizeof(int) * needed);
+        s_combo_prefix_size = needed;
+    }
+    deviceMemcpy(s_d_combo_prefix, (void*)task_ctx.topo.combo_prefix,
+                 sizeof(int) * needed, deviceMemcpyHostToDevice);
 
     QC_Launch_Screen(
-        task_ctx.topo.total_quartets, task_ctx.buffers.d_combos, d_combo_prefix,
-        task_ctx.topo.n_combos, task_ctx.buffers.d_sorted_pair_ids,
-        task_ctx.buffers.d_shell_pairs, task_ctx.buffers.d_shell_pair_bounds,
-        pair_density_coul, pair_density_exx_a, pair_density_exx_b,
-        shell_screen_tol, exx_scale_a, exx_scale_b,
-        task_ctx.buffers.d_screened_tasks, task_ctx.buffers.d_screen_counts);
-
-    deviceFree(d_combo_prefix);
+        task_ctx.topo.total_quartets, task_ctx.buffers.d_combos,
+        s_d_combo_prefix, task_ctx.topo.n_combos,
+        task_ctx.buffers.d_sorted_pair_ids, task_ctx.buffers.d_shell_pairs,
+        task_ctx.buffers.d_shell_pair_bounds, pair_density_coul,
+        pair_density_exx_a, pair_density_exx_b, shell_screen_tol, exx_scale_a,
+        exx_scale_b, task_ctx.buffers.d_screened_tasks,
+        task_ctx.buffers.d_screen_counts);
 
     int h_counts[QC_INTEGRAL_TASKS::MAX_COMBOS] = {};
     deviceMemcpy(h_counts, task_ctx.buffers.d_screen_counts,
                  sizeof(int) * task_ctx.topo.n_combos,
                  deviceMemcpyDeviceToHost);
-
     using LaunchFunc = void (*)(ERI_KERNEL_PARAMS);
     auto launch_eri = [&](const int combo_index, LaunchFunc func)
     {
@@ -220,4 +226,5 @@ void QC_Build_Fock_Direct_GPU(
             }
         }
     }
+    // (debug timing removed)
 }

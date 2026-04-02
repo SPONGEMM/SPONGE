@@ -1,5 +1,46 @@
 ﻿#pragma once
 
+// 批量 Tr(A_i · B_j): 拷到 host 后用 CPU BLAS 计算（避免 GPU 同步开销）
+// h_out[i*mb+j] = Σ_k a_row[i][k] * b_row[j][k]
+static void QC_Batched_Trace(BLAS_HANDLE /*blas_handle*/, int n, int ma,
+                             const double* const* a_ptrs, int mb,
+                             const double* const* b_ptrs,
+                             double* d_gather_a, double* /*d_gather_b*/,
+                             double* /*d_dot_out*/,
+                             std::vector<double>& h_out)
+{
+    h_out.assign(ma * mb, 0.0);
+    if (ma == 0 || mb == 0) return;
+
+    // 拷贝历史向量到 host（各 m 次 D2H，总数据量小）
+    const size_t row_bytes = sizeof(double) * n;
+    // 复用 d_gather_a 作为 host 缓冲
+    std::vector<double> h_a(ma * (size_t)n), h_b(mb * (size_t)n);
+    for (int i = 0; i < ma; i++)
+        deviceMemcpy(h_a.data() + (size_t)i * n, a_ptrs[i], row_bytes,
+                     deviceMemcpyDeviceToHost);
+    for (int j = 0; j < mb; j++)
+        deviceMemcpy(h_b.data() + (size_t)j * n, b_ptrs[j], row_bytes,
+                     deviceMemcpyDeviceToHost);
+
+    // CPU 上 dgemm: D = B^T @ A → h_out[i*mb+j] = dot(a_i, b_j)
+#if defined(USE_MKL) || defined(USE_OPENBLAS)
+    const double one = 1.0, zero = 0.0;
+    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, ma, mb, n, one,
+                h_a.data(), n, h_b.data(), n, zero, h_out.data(), mb);
+#else
+    for (int i = 0; i < ma; i++)
+        for (int j = 0; j < mb; j++)
+        {
+            double s = 0.0;
+            const double* ai = h_a.data() + (size_t)i * n;
+            const double* bj = h_b.data() + (size_t)j * n;
+            for (int k = 0; k < n; k++) s += ai[k] * bj[k];
+            h_out[i * mb + j] = s;
+        }
+#endif
+}
+
 // ========================== DIIS 误差构造 ==========================
 static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
                                        const double* d_F, const float* d_P,
@@ -115,27 +156,28 @@ static void QC_Solve_Simplex_QP(int m, const std::vector<double>& H,
 // ========================= EDIIS 外推 =========================
 // E^EDIIS(c) = Σ c_i E_i - 0.5 Σ_ij c_i c_j Tr((F_i-F_j)(D_i-D_j))
 // ================================================================
-static bool QC_EDIIS_Extrapolate(int nao2, int diis_space, int hist_count,
-                                 int hist_head, double** d_f_hist,
-                                 double** d_d_hist, double* energy_hist,
-                                 double* d_accum, std::vector<double>& c_out)
+static bool QC_EDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
+                                 int diis_space, int hist_count, int hist_head,
+                                 double** d_f_hist, double** d_d_hist,
+                                 double* energy_hist,
+                                 double* d_gather_a, double* d_gather_b,
+                                 double* d_dot_out,
+                                 std::vector<double>& c_out)
 {
     const int m = std::min(hist_count, diis_space);
     if (m < 2) return false;
     auto idx = [&](int i) { return (hist_head + i) % diis_space; };
 
-    // 构造 Tr(F_i * D_j) 矩阵
-    std::vector<double> FD(m * m);
+    // Tr(F_i * D_j) via dgemm
+    std::vector<const double*> fa(m), da(m);
     for (int i = 0; i < m; i++)
     {
-        for (int j = 0; j < m; j++)
-        {
-            deviceMemset(d_accum, 0, sizeof(double));
-            QC_Double_Dot(nao2, d_f_hist[idx(i)], d_d_hist[idx(j)], d_accum);
-            deviceMemcpy(&FD[i * m + j], d_accum, sizeof(double),
-                         deviceMemcpyDeviceToHost);
-        }
+        fa[i] = d_f_hist[idx(i)];
+        da[i] = d_d_hist[idx(i)];
     }
+    std::vector<double> FD;
+    QC_Batched_Trace(blas_handle, nao2, m, fa.data(), m, da.data(), d_gather_a,
+                     d_gather_b, d_dot_out, FD);
 
     // H_ij = Tr((F_i-F_j)(D_i-D_j)) = FD[i,i] + FD[j,j] - FD[i,j] - FD[j,i]
     // 目标: min Σ c_i E_i - 0.5 Σ_ij c_i c_j H_ij = min g^T c + 0.5 c^T (-H) c
@@ -159,30 +201,31 @@ static bool QC_EDIIS_Extrapolate(int nao2, int diis_space, int hist_count,
 // E^ADIIS(c) = E_n + 2 Σ c_i Tr((D_i-D_n) F_n)
 //            + Σ_ij c_i c_j Tr((D_i-D_n)(F_j-F_n))
 // ================================================================
-static bool QC_ADIIS_Extrapolate(int nao2, int diis_space, int hist_count,
-                                 int hist_head, double** d_f_hist,
-                                 double** d_d_hist, double* energy_hist,
-                                 double* d_accum, std::vector<double>& c_out)
+static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
+                                 int diis_space, int hist_count, int hist_head,
+                                 double** d_f_hist, double** d_d_hist,
+                                 double* energy_hist,
+                                 double* d_gather_a, double* d_gather_b,
+                                 double* d_dot_out,
+                                 std::vector<double>& c_out)
 {
     const int m = std::min(hist_count, diis_space);
     if (m < 2) return false;
     auto idx = [&](int i) { return (hist_head + i) % diis_space; };
 
-    const int n = m - 1;  // 最新的历史点
+    const int n = m - 1;
     int idx_n = idx(n);
 
-    // Tr(D_i * F_j) 矩阵
-    std::vector<double> DF(m * m);
+    // Tr(D_i * F_j) via dgemm
+    std::vector<const double*> da(m), fa(m);
     for (int i = 0; i < m; i++)
     {
-        for (int j = 0; j < m; j++)
-        {
-            deviceMemset(d_accum, 0, sizeof(double));
-            QC_Double_Dot(nao2, d_d_hist[idx(i)], d_f_hist[idx(j)], d_accum);
-            deviceMemcpy(&DF[i * m + j], d_accum, sizeof(double),
-                         deviceMemcpyDeviceToHost);
-        }
+        da[i] = d_d_hist[idx(i)];
+        fa[i] = d_f_hist[idx(i)];
     }
+    std::vector<double> DF;
+    QC_Batched_Trace(blas_handle, nao2, m, da.data(), m, fa.data(), d_gather_a,
+                     d_gather_b, d_dot_out, DF);
 
     // g_i = 2 * Tr((D_i - D_n) * F_n) = 2 * (DF[i,n] - DF[n,n])
     // H_ij = Tr((D_i - D_n)(F_j - F_n))
@@ -204,10 +247,12 @@ static bool QC_ADIIS_Extrapolate(int nao2, int diis_space, int hist_count,
 }
 
 // ========================= CDIIS 外推 =========================
-static bool QC_CDIIS_Extrapolate(int nao, int diis_space, int hist_count,
-                                 int hist_head, double** d_f_hist,
-                                 double** d_e_hist, double reg, double* d_f_out,
-                                 double* d_accum)
+static bool QC_CDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
+                                 int diis_space, int hist_count, int hist_head,
+                                 double** d_f_hist, double** d_e_hist,
+                                 double reg, double* d_f_out,
+                                 double* d_gather_a, double* d_gather_b,
+                                 double* d_dot_out)
 {
     if (hist_count < 2 || diis_space <= 0) return false;
     const int m = std::min(hist_count, diis_space);
@@ -226,15 +271,17 @@ static bool QC_CDIIS_Extrapolate(int nao, int diis_space, int hist_count,
         h_B[m * n + i] = -1.0;
     }
 
+    // Tr(e_i · e_j) = (E @ E^T)_ij via dgemm
+    std::vector<const double*> ea(m);
+    for (int i = 0; i < m; i++) ea[i] = d_e_hist[hist_idx(i)];
+    std::vector<double> EET;
+    QC_Batched_Trace(blas_handle, nao2, m, ea.data(), m, ea.data(), d_gather_a,
+                     d_gather_b, d_dot_out, EET);
     for (int i = 0; i < m; i++)
     {
         for (int j = 0; j <= i; j++)
         {
-            deviceMemset(d_accum, 0, sizeof(double));
-            QC_Double_Dot(nao2, d_e_hist[hist_idx(i)], d_e_hist[hist_idx(j)],
-                          d_accum);
-            double v;
-            deviceMemcpy(&v, d_accum, sizeof(double), deviceMemcpyDeviceToHost);
+            double v = EET[i * m + j];
             if (i == j) v += reg;
             h_B[i * n + j] = v;
             h_B[j * n + i] = v;
@@ -324,13 +371,16 @@ do_extrapolate:
 // MESA: 同时算 EDIIS 和 ADIIS，选密度变化更小的
 // 切换: 误差范数大时用 MESA，小时用 CDIIS
 // ===================================================================
-static bool QC_MESA_Or_CDIIS_Extrapolate(int nao, int diis_space,
-                                         int hist_count, int hist_head,
-                                         double** d_f_hist, double** d_e_hist,
-                                         double** d_d_hist, double* energy_hist,
-                                         double reg, double enorm,
+static bool QC_MESA_Or_CDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
+                                         int diis_space, int hist_count,
+                                         int hist_head, double** d_f_hist,
+                                         double** d_e_hist, double** d_d_hist,
+                                         double* energy_hist, double reg,
+                                         double enorm,
                                          double mesa_to_cdiis_threshold,
-                                         double* d_f_out, double* d_accum)
+                                         double* d_f_out,
+                                         double* d_gather_a, double* d_gather_b,
+                                         double* d_dot_out)
 {
     const int m = std::min(hist_count, diis_space);
     if (m < 2) return false;
@@ -339,19 +389,21 @@ static bool QC_MESA_Or_CDIIS_Extrapolate(int nao, int diis_space,
 
     if (enorm <= mesa_to_cdiis_threshold)
     {
-        // 近收敛: 用 CDIIS
-        return QC_CDIIS_Extrapolate(nao, diis_space, hist_count, hist_head,
-                                    d_f_hist, d_e_hist, reg, d_f_out, d_accum);
+        return QC_CDIIS_Extrapolate(blas_handle, nao, diis_space, hist_count,
+                                    hist_head, d_f_hist, d_e_hist, reg,
+                                    d_f_out, d_gather_a, d_gather_b,
+                                    d_dot_out);
     }
 
-    // 远离收敛: MESA (EDIIS vs ADIIS)
     std::vector<double> c_ediis, c_adiis;
-    bool ok_e =
-        QC_EDIIS_Extrapolate(nao2, diis_space, hist_count, hist_head, d_f_hist,
-                             d_d_hist, energy_hist, d_accum, c_ediis);
-    bool ok_a =
-        QC_ADIIS_Extrapolate(nao2, diis_space, hist_count, hist_head, d_f_hist,
-                             d_d_hist, energy_hist, d_accum, c_adiis);
+    bool ok_e = QC_EDIIS_Extrapolate(blas_handle, nao2, diis_space, hist_count,
+                                     hist_head, d_f_hist, d_d_hist,
+                                     energy_hist, d_gather_a, d_gather_b,
+                                     d_dot_out, c_ediis);
+    bool ok_a = QC_ADIIS_Extrapolate(blas_handle, nao2, diis_space, hist_count,
+                                     hist_head, d_f_hist, d_d_hist,
+                                     energy_hist, d_gather_a, d_gather_b,
+                                     d_dot_out, c_adiis);
     if (!ok_e && !ok_a) return false;
 
     // 选密度变化更小的: ||P_new - P_current||_F
@@ -423,11 +475,15 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     if (scf_ws.diis.diis_hist_count >= 2)
     {
         bool ok = QC_MESA_Or_CDIIS_Extrapolate(
-            mol.nao, scf_ws.runtime.diis_space, scf_ws.diis.diis_hist_count,
-            scf_ws.diis.diis_hist_head, scf_ws.diis.d_diis_f_hist.data(),
-            scf_ws.diis.d_diis_e_hist.data(), scf_ws.diis.d_diis_d_hist.data(),
+            blas_handle, mol.nao, scf_ws.runtime.diis_space,
+            scf_ws.diis.diis_hist_count, scf_ws.diis.diis_hist_head,
+            scf_ws.diis.d_diis_f_hist.data(),
+            scf_ws.diis.d_diis_e_hist.data(),
+            scf_ws.diis.d_diis_d_hist.data(),
             scf_ws.diis.energy_hist.data(), scf_ws.runtime.diis_reg, enorm,
-            scf_ws.diis.mesa_to_cdiis_threshold, dF, scf_ws.diis.d_diis_accum);
+            scf_ws.diis.mesa_to_cdiis_threshold, dF,
+            scf_ws.diis.d_gather_a, scf_ws.diis.d_gather_b,
+            scf_ws.diis.d_dot_out);
         if (ok) QC_Double_To_Float(nao2, dF, scf_ws.alpha.d_F);
     }
 
@@ -449,11 +505,12 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
     if (scf_ws.diis.diis_hist_count_b >= 2)
     {
         const bool ok = QC_CDIIS_Extrapolate(
-            mol.nao, scf_ws.runtime.diis_space,
+            blas_handle, mol.nao, scf_ws.runtime.diis_space,
             scf_ws.diis.diis_hist_count_b, scf_ws.diis.diis_hist_head_b,
             scf_ws.diis.d_diis_f_hist_b.data(),
             scf_ws.diis.d_diis_e_hist_b.data(), scf_ws.runtime.diis_reg, dFb,
-            scf_ws.diis.d_diis_accum);
+            scf_ws.diis.d_gather_a, scf_ws.diis.d_gather_b,
+            scf_ws.diis.d_dot_out);
         if (ok)
         {
             QC_Double_To_Float(nao2, dFb, scf_ws.beta.d_F);
