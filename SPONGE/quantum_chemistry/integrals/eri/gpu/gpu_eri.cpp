@@ -28,6 +28,21 @@ void QC_Launch_Screen(
         output_tasks, output_counts);
 }
 
+// Reduce N Fock copies into F: F[i] += sum of copies[c][i]
+static __global__ void QC_Reduce_Fock_Copies_Kernel(const int nao2,
+                                                     const int n_copies,
+                                                     const float* __restrict__ copies,
+                                                     float* __restrict__ F)
+{
+    SIMPLE_DEVICE_FOR(i, nao2)
+    {
+        float sum = 0.0f;
+        for (int c = 0; c < n_copies; c++)
+            sum += copies[(size_t)c * nao2 + i];
+        F[i] += sum;
+    }
+}
+
 void QC_Build_Fock_Direct_GPU(
     const QC_INTEGRAL_TASKS& task_ctx, const int* atm, const int* bas,
     const float* env, const int* ao_offsets_cart, const int* ao_offsets_sph,
@@ -39,10 +54,11 @@ void QC_Build_Fock_Direct_GPU(
     const int nao_sph, const int is_spherical, const float* cart2sph_mat,
     float* F_a, float* F_b, float* global_hr_pool, const float prim_screen_tol)
 {
+    const int nao2 = nao * nao;
     deviceMemset(task_ctx.buffers.d_screen_counts, 0,
                  sizeof(int) * task_ctx.topo.n_combos);
 
-    // 持久化 combo_prefix 缓冲，避免每次 malloc/free
+    // 持久化 combo_prefix 缓冲
     static int* s_d_combo_prefix = NULL;
     static int s_combo_prefix_size = 0;
     const int needed = task_ctx.topo.n_combos + 1;
@@ -64,6 +80,26 @@ void QC_Build_Fock_Direct_GPU(
         exx_scale_b, task_ctx.buffers.d_screened_tasks,
         task_ctx.buffers.d_screen_counts);
 
+    // 持久化 multi-copy Fock 缓冲，减少 atomicAdd 竞争
+    const int N_FOCK_COPIES = 64;
+    static float* s_d_F_copies = NULL;
+    static float* s_d_F_b_copies = NULL;
+    static int s_fock_copies_nao2 = 0;
+    const int copies_needed = N_FOCK_COPIES * nao2;
+    if (!s_d_F_copies || s_fock_copies_nao2 < nao2)
+    {
+        if (s_d_F_copies) deviceFree(s_d_F_copies);
+        if (s_d_F_b_copies) deviceFree(s_d_F_b_copies);
+        Device_Malloc_Safely((void**)&s_d_F_copies,
+                             sizeof(float) * copies_needed);
+        Device_Malloc_Safely((void**)&s_d_F_b_copies,
+                             sizeof(float) * copies_needed);
+        s_fock_copies_nao2 = nao2;
+    }
+    deviceMemset(s_d_F_copies, 0, sizeof(float) * copies_needed);
+    float* d_F_b_mc = (F_b != NULL) ? s_d_F_b_copies : (float*)NULL;
+    if (d_F_b_mc) deviceMemset(d_F_b_mc, 0, sizeof(float) * copies_needed);
+
     int h_counts[QC_INTEGRAL_TASKS::MAX_COMBOS] = {};
     deviceMemcpy(h_counts, task_ctx.buffers.d_screen_counts,
                  sizeof(int) * task_ctx.topo.n_combos,
@@ -80,9 +116,9 @@ void QC_Build_Fock_Direct_GPU(
              shell_pair_bounds, pair_density_coul, pair_density_exx_a,
              pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,
              exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical, cart2sph_mat,
-             F_a, F_b, global_hr_pool, task_ctx.params.eri_hr_base,
+             s_d_F_copies, d_F_b_mc, global_hr_pool, task_ctx.params.eri_hr_base,
              task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
-             prim_screen_tol);
+             prim_screen_tol, N_FOCK_COPIES);
     };
 
     for (int combo_index = 0; combo_index < task_ctx.topo.n_combos;
@@ -226,5 +262,13 @@ void QC_Build_Fock_Direct_GPU(
             }
         }
     }
-    // (debug timing removed)
+    // Reduce multi-copy Fock buffers back to F_a / F_b
+    const int threads = 256;
+    Launch_Device_Kernel(QC_Reduce_Fock_Copies_Kernel,
+                         (nao2 + threads - 1) / threads, threads, 0, 0, nao2,
+                         N_FOCK_COPIES, s_d_F_copies, F_a);
+    if (F_b != NULL)
+        Launch_Device_Kernel(QC_Reduce_Fock_Copies_Kernel,
+                             (nao2 + threads - 1) / threads, threads, 0, 0,
+                             nao2, N_FOCK_COPIES, d_F_b_mc, F_b);
 }

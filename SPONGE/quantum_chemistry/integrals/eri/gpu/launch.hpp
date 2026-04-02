@@ -12,7 +12,7 @@
         const float *P_exx_b, float exx_scale_a, float exx_scale_b, int nao,  \
         int nao_sph, int is_spherical, const float *cart2sph_mat, float *F_a, \
         float *F_b, float *global_hr_pool, int hr_base, int hr_size,          \
-        int shell_buf_size, float prim_screen_tol
+        int shell_buf_size, float prim_screen_tol, int n_fock_copies
 
 void QC_Launch_ssss(ERI_KERNEL_PARAMS);
 void QC_Launch_psss(ERI_KERNEL_PARAMS);
@@ -74,5 +74,5 @@ void QC_Launch_Screen(
             pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,  \
             exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical,            \
             cart2sph_mat, F_a, F_b, global_hr_pool, hr_base, hr_size,        \
-            shell_buf_size, prim_screen_tol);                                \
+            shell_buf_size, prim_screen_tol, n_fock_copies);                 \
     }
