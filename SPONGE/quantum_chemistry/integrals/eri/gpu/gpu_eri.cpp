@@ -104,11 +104,30 @@ void QC_Build_Fock_Direct_GPU(
     deviceMemcpy(h_counts, task_ctx.buffers.d_screen_counts,
                  sizeof(int) * task_ctx.topo.n_combos,
                  deviceMemcpyDeviceToHost);
+
+#ifdef GPU_ARCH_NAME
+    // Per-L_sum streams for concurrent kernel execution.
+    // Heavy kernels (L8-L12) have few blocks and would leave SMs idle
+    // when launched sequentially; streams allow them to overlap.
+    static deviceStream_t s_streams[17] = {};  // 0=SP, 2..16=Rys L_sum
+    static bool s_streams_init = false;
+    if (!s_streams_init)
+    {
+        for (int i = 0; i < 17; i++)
+            deviceStreamCreate(&s_streams[i]);
+        s_streams_init = true;
+    }
+#endif
+
     using LaunchFunc = void (*)(ERI_KERNEL_PARAMS);
-    auto launch_eri = [&](const int combo_index, LaunchFunc func)
+    auto launch_eri = [&](const int combo_index, LaunchFunc func,
+                          int stream_idx)
     {
         const int n = h_counts[combo_index];
         if (n == 0) return;
+#ifdef GPU_ARCH_NAME
+        g_eri_stream = s_streams[stream_idx];
+#endif
         func(n,
              task_ctx.buffers.d_screened_tasks +
                  task_ctx.topo.h_combos[combo_index].output_offset,
@@ -130,106 +149,43 @@ void QC_Build_Fock_Direct_GPU(
             combo.l0 * 1000 + combo.l1 * 100 + combo.l2 * 10 + combo.l3;
         switch (lkey)
         {
-            case 0:
-                launch_eri(combo_index, QC_Launch_ssss);
-                break;
-            case 1000:
-                launch_eri(combo_index, QC_Launch_psss);
-                break;
-            case 100:
-                launch_eri(combo_index, QC_Launch_spss);
-                break;
-            case 10:
-                launch_eri(combo_index, QC_Launch_ssps);
-                break;
-            case 1:
-                launch_eri(combo_index, QC_Launch_sssp);
-                break;
-            case 1100:
-                launch_eri(combo_index, QC_Launch_ppss);
-                break;
-            case 1010:
-                launch_eri(combo_index, QC_Launch_psps);
-                break;
-            case 1001:
-                launch_eri(combo_index, QC_Launch_pssp);
-                break;
-            case 110:
-                launch_eri(combo_index, QC_Launch_spps);
-                break;
-            case 101:
-                launch_eri(combo_index, QC_Launch_spsp);
-                break;
-            case 11:
-                launch_eri(combo_index, QC_Launch_sspp);
-                break;
-            case 111:
-                launch_eri(combo_index, QC_Launch_sppp);
-                break;
-            case 1011:
-                launch_eri(combo_index, QC_Launch_pspp);
-                break;
-            case 1101:
-                launch_eri(combo_index, QC_Launch_ppsp);
-                break;
-            case 1110:
-                launch_eri(combo_index, QC_Launch_ppps);
-                break;
-            case 1111:
-                launch_eri(combo_index, QC_Launch_pppp);
-                break;
+            case 0:    launch_eri(combo_index, QC_Launch_ssss, 0); break;
+            case 1000: launch_eri(combo_index, QC_Launch_psss, 0); break;
+            case 100:  launch_eri(combo_index, QC_Launch_spss, 0); break;
+            case 10:   launch_eri(combo_index, QC_Launch_ssps, 0); break;
+            case 1:    launch_eri(combo_index, QC_Launch_sssp, 0); break;
+            case 1100: launch_eri(combo_index, QC_Launch_ppss, 0); break;
+            case 1010: launch_eri(combo_index, QC_Launch_psps, 0); break;
+            case 1001: launch_eri(combo_index, QC_Launch_pssp, 0); break;
+            case 110:  launch_eri(combo_index, QC_Launch_spps, 0); break;
+            case 101:  launch_eri(combo_index, QC_Launch_spsp, 0); break;
+            case 11:   launch_eri(combo_index, QC_Launch_sspp, 0); break;
+            case 111:  launch_eri(combo_index, QC_Launch_sppp, 0); break;
+            case 1011: launch_eri(combo_index, QC_Launch_pspp, 0); break;
+            case 1101: launch_eri(combo_index, QC_Launch_ppsp, 0); break;
+            case 1110: launch_eri(combo_index, QC_Launch_ppps, 0); break;
+            case 1111: launch_eri(combo_index, QC_Launch_pppp, 0); break;
             default:
             {
                 const int l_sum = combo.l0 + combo.l1 + combo.l2 + combo.l3;
                 {
-                    // 统一用 Rys (VRR+HRR)，比 MD 的 E 系数收缩 register 压力更小
                     switch (l_sum)
                     {
-                        case 2:
-                            launch_eri(combo_index, QC_Launch_Rys_L2);
-                            break;
-                        case 3:
-                            launch_eri(combo_index, QC_Launch_Rys_L3);
-                            break;
-                        case 4:
-                            launch_eri(combo_index, QC_Launch_Rys_L4);
-                            break;
-                        case 5:
-                            launch_eri(combo_index, QC_Launch_Rys_L5);
-                            break;
-                        case 6:
-                            launch_eri(combo_index, QC_Launch_Rys_L6);
-                            break;
-                        case 7:
-                            launch_eri(combo_index, QC_Launch_Rys_L7);
-                            break;
-                        case 8:
-                            launch_eri(combo_index, QC_Launch_Rys_L8);
-                            break;
-                        case 9:
-                            launch_eri(combo_index, QC_Launch_Rys_L9);
-                            break;
-                        case 10:
-                            launch_eri(combo_index, QC_Launch_Rys_L10);
-                            break;
-                        case 11:
-                            launch_eri(combo_index, QC_Launch_Rys_L11);
-                            break;
-                        case 12:
-                            launch_eri(combo_index, QC_Launch_Rys_L12);
-                            break;
-                        case 13:
-                            launch_eri(combo_index, QC_Launch_Rys_L13);
-                            break;
-                        case 14:
-                            launch_eri(combo_index, QC_Launch_Rys_L14);
-                            break;
-                        case 15:
-                            launch_eri(combo_index, QC_Launch_Rys_L15);
-                            break;
-                        case 16:
-                            launch_eri(combo_index, QC_Launch_Rys_L16);
-                            break;
+                        case 2:  launch_eri(combo_index, QC_Launch_Rys_L2, 2); break;
+                        case 3:  launch_eri(combo_index, QC_Launch_Rys_L3, 3); break;
+                        case 4:  launch_eri(combo_index, QC_Launch_Rys_L4, 4); break;
+                        case 5:  launch_eri(combo_index, QC_Launch_Rys_L5, 5); break;
+                        case 6:  launch_eri(combo_index, QC_Launch_Rys_L6, 6); break;
+                        case 7:  launch_eri(combo_index, QC_Launch_Rys_L7, 7); break;
+                        case 8:  launch_eri(combo_index, QC_Launch_Rys_L8, 8); break;
+                        case 9:  launch_eri(combo_index, QC_Launch_Rys_L9, 9); break;
+                        case 10: launch_eri(combo_index, QC_Launch_Rys_L10, 10); break;
+                        case 11: launch_eri(combo_index, QC_Launch_Rys_L11, 11); break;
+                        case 12: launch_eri(combo_index, QC_Launch_Rys_L12, 12); break;
+                        case 13: launch_eri(combo_index, QC_Launch_Rys_L13, 13); break;
+                        case 14: launch_eri(combo_index, QC_Launch_Rys_L14, 14); break;
+                        case 15: launch_eri(combo_index, QC_Launch_Rys_L15, 15); break;
+                        case 16: launch_eri(combo_index, QC_Launch_Rys_L16, 16); break;
                     }
                 }
                 break;
@@ -237,9 +193,10 @@ void QC_Build_Fock_Direct_GPU(
         }
     }
 #ifdef GPU_ARCH_NAME
-    // Sync required: Rys double-buffer optimization reduces local memory,
-    // increasing occupancy. Without sync, subsequent operations may race.
-    cudaDeviceSynchronize();
+    // Synchronize all ERI streams before reduce
+    for (int i = 0; i < 17; i++)
+        deviceStreamSynchronize(s_streams[i]);
+    g_eri_stream = 0;  // reset to default
 #endif
     // Reduce multi-copy Fock buffers back to F_a / F_b
     const int threads = 256;

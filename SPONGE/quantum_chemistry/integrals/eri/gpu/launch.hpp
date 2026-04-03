@@ -63,12 +63,21 @@ void QC_Launch_Screen(
     const float* pair_density_exx_b, float shell_screen_tol, float exx_scale_a,
     float exx_scale_b, QC_ERI_TASK* output_tasks, int* output_counts);
 
+// Stream used by ERI kernel launches (default=0, set externally for overlap)
+#ifdef GPU_ARCH_NAME
+inline deviceStream_t g_eri_stream = 0;
+#define ERI_STREAM g_eri_stream
+#else
+#define ERI_STREAM 0
+#endif
+
 #define DEFINE_ERI_LAUNCH(launch_name, kernel_name)                          \
     void launch_name(ERI_KERNEL_PARAMS)                                      \
     {                                                                        \
         const int threads = 256;                                             \
         Launch_Device_Kernel(                                                \
-            kernel_name, (n_tasks + threads - 1) / threads, threads, 0, 0,   \
+            kernel_name, (n_tasks + threads - 1) / threads, threads, 0,      \
+            ERI_STREAM,                                                      \
             n_tasks, tasks, atm, bas, env, ao_offsets_cart, ao_offsets_sph,  \
             norms, shell_pair_bounds, pair_density_coul, pair_density_exx_a, \
             pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,  \
