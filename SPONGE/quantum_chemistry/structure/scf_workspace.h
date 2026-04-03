@@ -27,6 +27,7 @@ struct QC_SCF_Spin_Channel
     std::vector<float> h_C;
     float* d_C = NULL;
     double* d_F_double = NULL;
+    double* d_F_for_grad = NULL;  // 梯度用: 缓存 Build_Fock 后、DIIS 前的 Fock
 };
 
 // 重叠正交化、本征分解与双精度临时缓冲

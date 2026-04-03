@@ -28,15 +28,27 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     const int nao = mol.nao;
     const int nao2 = mol.nao2;
 
-    // 用收敛密度重建 Fock 并对角化，获取准确的轨道能量用于 W 矩阵。
-    // DIIS 外推的 Fock 矩阵特征值不够精确，且必须关闭 level shift。
+    // 获取准确轨道能量用于 W 矩阵: 使用 SCF 缓存的 DIIS 前 Fock，
+    // 避免昂贵的 Fock 重建。缓存在 Solve_SCF 每轮 Apply_DIIS 前保存。
     {
         const double saved_ls = scf_ws.runtime.level_shift;
         scf_ws.runtime.level_shift = 0.0;
-        // The rebuild is only used to refresh orbital energies for W. Using the
-        // earliest stable direct-SCF screening level avoids spending gradient
-        // time on quartets well below float noise.
-        Build_Fock(1);
+        if (scf_ws.alpha.d_F_for_grad)
+        {
+            // 将缓存的 pre-DIIS Fock 恢复到 d_F_double，供对角化使用
+            deviceMemcpy(scf_ws.alpha.d_F_double, scf_ws.alpha.d_F_for_grad,
+                         sizeof(double) * nao2, deviceMemcpyDeviceToDevice);
+            if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_for_grad)
+                deviceMemcpy(scf_ws.beta.d_F_double,
+                             scf_ws.beta.d_F_for_grad,
+                             sizeof(double) * nao2,
+                             deviceMemcpyDeviceToDevice);
+        }
+        else
+        {
+            // 回退: 无缓存时重建 Fock
+            Build_Fock(1);
+        }
         Diagonalize_And_Build_Density();
         scf_ws.runtime.level_shift = saved_ls;
     }
@@ -106,32 +118,32 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             const float* d_W_use = grad_ws.d_W_density;
             const float* d_norms_use = scf_ws.ortho.d_norms;
             int nao_1e = mol.nao;
+            const int n_tasks = task_ctx.topo.n_1e_tasks;
 
-            const int chunk_size = ONE_E_BATCH_SIZE;
-            for (int i = 0; i < task_ctx.topo.n_1e_tasks; i += chunk_size)
-            {
-                int current_chunk =
-                    std::min(chunk_size, task_ctx.topo.n_1e_tasks - i);
-                QC_ONE_E_TASK* task_ptr = task_ctx.buffers.d_1e_tasks + i;
-                Launch_Device_Kernel(
-                    OneE_Grad_Kernel, (current_chunk + 63) / 64, 64, 0, 0,
-                    current_chunk, task_ptr, mol.d_centers, mol.d_l_list,
-                    mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
-                    mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm, mol.d_env,
-                    mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use, d_W_use,
-                    d_norms_use, grad_ws.d_grad);
-            }
+            // S/T 梯度: 按 shell pair 并行 (轻量级，无 R-tensor)
+            Launch_Device_Kernel(
+                OneE_ST_Grad_Kernel, (n_tasks + 63) / 64, 64, 0, 0,
+                n_tasks, task_ctx.buffers.d_1e_tasks, mol.d_centers,
+                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+                mol.d_shell_sizes, mol.d_ao_offsets, nao_1e,
+                grad_ws.d_shell_atom, d_P_use, d_W_use, d_norms_use,
+                grad_ws.d_grad);
+
+            // V 梯度: 按 (shell_pair × atom) 并行 (natm× 更多线程)
+            const int v_total = n_tasks * mol.natm;
+            Launch_Device_Kernel(
+                OneE_V_Grad_Kernel, (v_total + 63) / 64, 64, 0, 0,
+                n_tasks, task_ctx.buffers.d_1e_tasks, mol.d_centers,
+                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+                mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm, mol.d_env,
+                mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use,
+                d_norms_use, grad_ws.d_grad);
         }
     }
 
     // 4. 双电子积分导数: Tr[Γ·dERI/dR]
     // grad_eri 内部在 Cartesian shell buffer 上计算导数积分，
     // is_spherical 时内部做 cart2sph，因此始终传入 SCF AO 基的密度和 norms。
-#ifndef USE_GPU
-    // Gradient ERI is much more expensive than SCF Fock construction on CPU.
-    // Using the direct-SCF screening defaults (1e-10) keeps many quartets whose
-    // force contribution is far below float noise. Relax the tolerance here to
-    // cut low-value work without affecting the SCF path.
     const float grad_shell_screen_tol =
         fmaxf(task_ctx.params.eri_shell_screen_tol, 1.0e-7f);
     const float grad_prim_screen_tol =
@@ -142,6 +154,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     }
     else
     {
+#ifndef USE_GPU
         QC_Build_ERI_Gradient_CPU(
             task_ctx, mol.nbas, mol.d_atm, mol.d_bas, mol.d_env,
             mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
@@ -163,8 +176,151 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             task_ctx.params.eri_shell_buf_size,
             grad_prim_screen_tol,
             scf_ws.direct.fock_thread_count);
-    }
+#else
+        // GPU ERI gradient: reuse screening infrastructure, launch gradient kernel
+        {
+            // 0. Refresh pair density for screening (Fock build may have
+            //    left stale incremental values)
+            {
+                const int threads_pd = 256;
+                const bool need_exx_pd = (dft.exx_fraction != 0.0f);
+                Launch_Device_Kernel(
+                    QC_Build_Shell_Pair_Density_Kernel,
+                    (task_ctx.topo.n_shell_pairs + threads_pd - 1) / threads_pd,
+                    threads_pd, 0, 0,
+                    task_ctx.topo.n_shell_pairs,
+                    task_ctx.buffers.d_shell_pairs,
+                    mol.d_ao_offsets, mol.d_ao_offsets_sph, mol.d_l_list,
+                    mol.is_spherical, nao,
+                    scf_ws.direct.d_P_coul,
+                    scf_ws.direct.d_pair_density_coul,
+                    need_exx_pd ? scf_ws.alpha.d_P : (const float*)nullptr,
+                    scf_ws.direct.d_pair_density_exx,
+                    (need_exx_pd && scf_ws.runtime.unrestricted)
+                        ? scf_ws.beta.d_P : (const float*)nullptr,
+                    scf_ws.direct.d_pair_density_exx_b);
+            }
+
+            // 1. Run screening (same as Fock build)
+            deviceMemset(task_ctx.buffers.d_screen_counts, 0,
+                         sizeof(int) * task_ctx.topo.n_combos);
+
+            static int* s_d_combo_prefix_grad = NULL;
+            static int s_combo_prefix_grad_size = 0;
+            const int cp_needed = task_ctx.topo.n_combos + 1;
+            if (!s_d_combo_prefix_grad ||
+                s_combo_prefix_grad_size < cp_needed)
+            {
+                if (s_d_combo_prefix_grad)
+                    deviceFree(s_d_combo_prefix_grad);
+                Device_Malloc_Safely((void**)&s_d_combo_prefix_grad,
+                                     sizeof(int) * cp_needed);
+                s_combo_prefix_grad_size = cp_needed;
+            }
+            deviceMemcpy(s_d_combo_prefix_grad,
+                         (void*)task_ctx.topo.combo_prefix,
+                         sizeof(int) * cp_needed, deviceMemcpyHostToDevice);
+
+            const float exx_a = scf_ws.runtime.unrestricted
+                                    ? dft.exx_fraction
+                                    : (0.5f * dft.exx_fraction);
+            const float exx_b = scf_ws.runtime.unrestricted
+                                    ? dft.exx_fraction
+                                    : 0.0f;
+
+            QC_Launch_Screen(
+                task_ctx.topo.total_quartets, task_ctx.buffers.d_combos,
+                s_d_combo_prefix_grad, task_ctx.topo.n_combos,
+                task_ctx.buffers.d_sorted_pair_ids,
+                task_ctx.buffers.d_shell_pairs,
+                task_ctx.buffers.d_shell_pair_bounds,
+                scf_ws.direct.d_pair_density_coul,
+                scf_ws.direct.d_pair_density_exx,
+                scf_ws.runtime.unrestricted
+                    ? scf_ws.direct.d_pair_density_exx_b
+                    : (const float*)nullptr,
+                grad_shell_screen_tol, exx_a, exx_b,
+                task_ctx.buffers.d_screened_tasks,
+                task_ctx.buffers.d_screen_counts);
+
+            int h_counts[QC_INTEGRAL_TASKS::MAX_COMBOS] = {};
+            deviceMemcpy(h_counts, task_ctx.buffers.d_screen_counts,
+                         sizeof(int) * task_ctx.topo.n_combos,
+                         deviceMemcpyDeviceToHost);
+
+            // Count total screened tasks
+            int total_screened = 0;
+            for (int ci = 0; ci < task_ctx.topo.n_combos; ci++)
+                total_screened += h_counts[ci];
+
+            if (total_screened > 0)
+            {
+                // 2. Allocate multi-copy gradient buffer
+                const int N_GRAD_COPIES = 64;
+                static double* s_d_grad_copies = NULL;
+                static int s_grad_copies_size = 0;
+                const int grad_size = natm * 3;
+                const size_t copies_needed =
+                    (size_t)N_GRAD_COPIES * (size_t)grad_size;
+                if (!s_d_grad_copies ||
+                    s_grad_copies_size < grad_size)
+                {
+                    if (s_d_grad_copies) deviceFree(s_d_grad_copies);
+                    Device_Malloc_Safely(
+                        (void**)&s_d_grad_copies,
+                        sizeof(double) * copies_needed);
+                    s_grad_copies_size = grad_size;
+                }
+                deviceMemset(s_d_grad_copies, 0,
+                             sizeof(double) * copies_needed);
+
+                // 3. Launch gradient kernel per combo
+                const int threads = 64;
+                for (int ci = 0; ci < task_ctx.topo.n_combos; ci++)
+                {
+                    const int n = h_counts[ci];
+                    if (n == 0) continue;
+                    const QC_ERI_TASK* d_tasks =
+                        task_ctx.buffers.d_screened_tasks +
+                        task_ctx.topo.h_combos[ci].output_offset;
+
+                    Launch_Device_Kernel(
+                        QC_ERI_Grad_Kernel,
+                        (n + threads - 1) / threads, threads, 0, 0,
+                        n, d_tasks,
+                        mol.d_atm, mol.d_bas, mol.d_env,
+                        mol.d_ao_offsets, mol.d_ao_offsets_sph,
+                        scf_ws.ortho.d_norms,
+                        task_ctx.buffers.d_shell_pair_bounds,
+                        scf_ws.direct.d_pair_density_coul,
+                        scf_ws.direct.d_pair_density_exx,
+                        scf_ws.runtime.unrestricted
+                            ? scf_ws.direct.d_pair_density_exx_b
+                            : (const float*)nullptr,
+                        grad_shell_screen_tol,
+                        scf_ws.direct.d_P_coul,
+                        scf_ws.alpha.d_P,
+                        scf_ws.runtime.unrestricted
+                            ? scf_ws.beta.d_P
+                            : (const float*)nullptr,
+                        exx_a, exx_b, nao, mol.nao_sph,
+                        mol.is_spherical, cart2sph.d_cart2sph_mat,
+                        grad_ws.d_shell_atom,
+                        s_d_grad_copies, N_GRAD_COPIES, natm,
+                        grad_prim_screen_tol);
+                }
+
+                // 4. Reduce gradient copies
+                Launch_Device_Kernel(
+                    QC_Reduce_Grad_Copies_Kernel,
+                    (grad_size + 255) / 256, 256, 0, 0,
+                    grad_size, N_GRAD_COPIES,
+                    s_d_grad_copies, grad_ws.d_grad);
+
+            }
+        }
 #endif
+    }
 
     // 5. DFT XC 网格梯度
     if (dft.enable_dft) Build_DFT_XC_Gradient();

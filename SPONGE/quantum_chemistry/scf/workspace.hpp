@@ -153,10 +153,17 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
     scf_ws.direct.d_F_thread = NULL;
     scf_ws.direct.d_F_b_thread = NULL;
     alloc_zero_double(&scf_ws.alpha.d_F_double, nao2);
+    alloc_zero_double(&scf_ws.alpha.d_F_for_grad, nao2);
     if (unrestricted)
+    {
         alloc_zero_double(&scf_ws.beta.d_F_double, nao2);
+        alloc_zero_double(&scf_ws.beta.d_F_for_grad, nao2);
+    }
     else
+    {
         scf_ws.beta.d_F_double = NULL;
+        scf_ws.beta.d_F_for_grad = NULL;
+    }
 #else
     scf_ws.direct.fock_thread_count = std::max(1, omp_get_max_threads());
     alloc_zero_double(&scf_ws.direct.d_F_thread,
@@ -183,10 +190,17 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         throw std::runtime_error("malloc direct CPU angular scratch failed");
     }
     alloc_zero_double(&scf_ws.alpha.d_F_double, nao2);
+    alloc_zero_double(&scf_ws.alpha.d_F_for_grad, nao2);
     if (unrestricted)
+    {
         alloc_zero_double(&scf_ws.beta.d_F_double, nao2);
+        alloc_zero_double(&scf_ws.beta.d_F_for_grad, nao2);
+    }
     else
+    {
         scf_ws.beta.d_F_double = NULL;
+        scf_ws.beta.d_F_for_grad = NULL;
+    }
 #endif
 
     // Double workspace for diag/DIIS

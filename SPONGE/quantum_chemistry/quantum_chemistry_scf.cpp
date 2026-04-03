@@ -68,6 +68,18 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         Accumulate_SCF_Energy(iter);
         auto it2 = std::chrono::high_resolution_clock::now();
 
+        // 缓存 DIIS 前的 Fock 供梯度使用（避免梯度中重建 Fock）
+        if (need_gradient && scf_ws.alpha.d_F_for_grad)
+        {
+            deviceMemcpy(scf_ws.alpha.d_F_for_grad, scf_ws.alpha.d_F_double,
+                         sizeof(double) * mol.nao2, deviceMemcpyDeviceToDevice);
+            if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_for_grad)
+                deviceMemcpy(scf_ws.beta.d_F_for_grad,
+                             scf_ws.beta.d_F_double,
+                             sizeof(double) * mol.nao2,
+                             deviceMemcpyDeviceToDevice);
+        }
+
         if (dft.enable_dft && iter < dft_warmup)
         {
             scf_ws.runtime.level_shift = dft_warmup_ls;
