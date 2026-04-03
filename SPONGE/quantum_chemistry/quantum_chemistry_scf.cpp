@@ -20,9 +20,13 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     if (dft.enable_dft) Update_DFT_Grid();
 
     Reset_SCF_State();
+
+    // 解析计算 norms（不依赖 1e 积分的 S 矩阵）
+    Compute_Analytical_Norms();
     Compute_OneE_Integrals();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
+    Build_Shell_Pair_Bounds();
     if (scf_ws.ri.enabled) RI_Precompute();
     Build_Overlap_X();
 

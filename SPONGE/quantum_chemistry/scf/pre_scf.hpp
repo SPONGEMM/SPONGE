@@ -167,15 +167,130 @@ void QUANTUM_CHEMISTRY::Compute_Nuclear_Repulsion(const VECTOR box_length)
 // =========================== 积分预处理 ===========================
 // 归一化单电子积分并构建 Hcore；双电子积分在 Build_Fock 中 direct 计算
 // ================================================================
-static __global__ void QC_Build_Norms_From_S_Kernel(const int nao,
-                                                    const float* S,
-                                                    float* norms)
+
+// 解析计算 AO 归一化因子 — 不依赖 1e 积分结果
+// 对于同壳同中心的对角重叠，S_μμ 有解析公式：
+//   S_μμ = F(lx,ly,lz) × Σ_{p,q} c_p c_q (π/γ)^{3/2} / (2γ)^L
+// 其中 F = (2lx-1)!!(2ly-1)!!(2lz-1)!!，γ = α_p + α_q
+//
+// 球谐基下：S_μμ^sph = Σ_a c2s[a,μ]² × S_aa^cart
+static __global__ void QC_Compute_Analytical_Norms_Kernel(
+    const int nao_eff, const int nbas, const int* l_list, const float* exps,
+    const float* coeffs, const int* shell_offsets, const int* shell_sizes,
+    const int* ao_offsets_cart, const int* ao_offsets_sph,
+    const int is_spherical, const float* cart2sph_mat, const int nao_sph,
+    float* norms)
 {
-    SIMPLE_DEVICE_FOR(i, nao)
+    // (2n-1)!! for n = 0..4
+    const float DFACT[5] = {1.0f, 1.0f, 3.0f, 15.0f, 105.0f};
+
+    SIMPLE_DEVICE_FOR(mu, nao_eff)
     {
-        float sii = S[i * nao + i];
-        norms[i] = 1.0f / sqrtf(fmaxf(sii, 1e-20f));
+        // 找到 μ 所属的壳层
+        int sh = 0;
+        for (int s = 0; s < nbas; s++)
+        {
+            int off = is_spherical ? ao_offsets_sph[s] : ao_offsets_cart[s];
+            int dim = is_spherical ? (2 * l_list[s] + 1)
+                                   : ((l_list[s] + 1) * (l_list[s] + 2) / 2);
+            if (mu >= off && mu < off + dim)
+            {
+                sh = s;
+                break;
+            }
+        }
+
+        const int l = l_list[sh];
+        const int np = shell_sizes[sh];
+        const int p_off = shell_offsets[sh];
+        const int n_cart = (l + 1) * (l + 2) / 2;
+        const int oc = ao_offsets_cart[sh];
+
+        // 计算每个笛卡尔分量的 S_prim 权重（只依赖指数和系数）
+        // S_aa^cart = F(lx,ly,lz) × Σ_{p,q} c_p c_q × (π/γ)^{3/2} / (2γ)^L
+        // 对于同一壳层的所有笛卡尔分量，Σ 部分相同
+        float S_shell = 0.0f;
+        for (int ip = 0; ip < np; ip++)
+        {
+            float ai = exps[p_off + ip];
+            float ci = coeffs[p_off + ip];
+            for (int jp = 0; jp < np; jp++)
+            {
+                float aj = exps[p_off + jp];
+                float cj = coeffs[p_off + jp];
+                float g = ai + aj;
+                float inv_2g = 0.5f / g;
+                // (π/γ)^{3/2} / (2γ)^L
+                float val = ci * cj * powf((float)CONSTANT_Pi / g, 1.5f);
+                for (int k = 0; k < l; k++) val *= inv_2g;
+                S_shell += val;
+            }
+        }
+
+        float S_diag;
+        if (!is_spherical)
+        {
+            // 笛卡尔基：直接用 F(lx,ly,lz) × S_shell
+            int idx = mu - oc;
+            int comp_off = QC_Comp_Offset(l);
+            int lx = QC_COMP_LX_DEVICE[comp_off + idx];
+            int ly = QC_COMP_LY_DEVICE[comp_off + idx];
+            int lz = QC_COMP_LZ_DEVICE[comp_off + idx];
+            S_diag = DFACT[lx] * DFACT[ly] * DFACT[lz] * S_shell;
+        }
+        else
+        {
+            // 球谐基：S_μμ = Σ_a c2s[a,μ]² × F(lx_a,ly_a,lz_a) × S_shell
+            int os = ao_offsets_sph[sh];
+            int s_idx = mu - os;
+            float sum = 0.0f;
+            int comp_off = QC_Comp_Offset(l);
+            for (int a = 0; a < n_cart; a++)
+            {
+                float c2s = cart2sph_mat[(oc + a) * nao_sph + (os + s_idx)];
+                if (c2s == 0.0f) continue;
+                int lx = QC_COMP_LX_DEVICE[comp_off + a];
+                int ly = QC_COMP_LY_DEVICE[comp_off + a];
+                int lz = QC_COMP_LZ_DEVICE[comp_off + a];
+                sum += c2s * c2s * DFACT[lx] * DFACT[ly] * DFACT[lz];
+            }
+            S_diag = sum * S_shell;
+        }
+        norms[mu] = 1.0f / sqrtf(fmaxf(S_diag, 1e-20f));
     }
+}
+
+void QUANTUM_CHEMISTRY::Compute_Analytical_Norms()
+{
+    const int nao = mol.nao;
+    const int threads = 256;
+    Launch_Device_Kernel(
+        QC_Compute_Analytical_Norms_Kernel, (nao + threads - 1) / threads,
+        threads, 0, 0, nao, mol.nbas, mol.d_l_list, mol.d_exps, mol.d_coeffs,
+        mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets,
+        mol.d_ao_offsets_sph, mol.is_spherical, cart2sph.d_cart2sph_mat,
+        mol.nao_sph, scf_ws.ortho.d_norms);
+}
+
+void QUANTUM_CHEMISTRY::Build_Shell_Pair_Bounds()
+{
+    if (task_ctx.topo.n_shell_pairs <= 0) return;
+    // 使用较小 block size (64) 而非 256，减少壳对负载不均衡
+    const int threads = 64;
+    const int n = task_ctx.topo.n_shell_pairs;
+    Launch_Device_Kernel(
+        QC_Build_Shell_Pair_Bounds_Kernel, (n + threads - 1) / threads, threads,
+        0, 0, n, task_ctx.buffers.d_shell_pairs, mol.d_atm, mol.d_bas,
+        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
+        scf_ws.ortho.d_norms, mol.is_spherical, cart2sph.d_cart2sph_mat,
+        mol.nao_sph, task_ctx.buffers.d_shell_pair_bounds,
+        scf_ws.direct.d_hr_pool, task_ctx.params.eri_hr_base,
+        task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
+        task_ctx.params.eri_prim_screen_tol);
+    task_ctx.topo.h_shell_pair_bounds.resize((size_t)n);
+    deviceMemcpy(task_ctx.topo.h_shell_pair_bounds.data(),
+                 task_ctx.buffers.d_shell_pair_bounds, sizeof(float) * n,
+                 deviceMemcpyDeviceToHost);
 }
 
 static __global__ void QC_Scale_OneE_And_Build_Hcore_Kernel(const int nao,
@@ -203,39 +318,12 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
     const int nao2 = mol.nao2;
     const int threads = 256;
 
-    // 单电子积分归一化合并至 Hcore
-    Launch_Device_Kernel(QC_Build_Norms_From_S_Kernel,
-                         (nao + threads - 1) / threads, threads, 0, 0, nao,
-                         scf_ws.core.d_S, scf_ws.ortho.d_norms);
+    // norms 已在 Compute_Analytical_Norms 中计算完毕
+    // 只需归一化 S/T/V 并构建 Hcore
     Launch_Device_Kernel(QC_Scale_OneE_And_Build_Hcore_Kernel,
                          (nao2 + threads - 1) / threads, threads, 0, 0, nao,
                          scf_ws.ortho.d_norms, scf_ws.core.d_S, scf_ws.core.d_T,
                          scf_ws.core.d_V, scf_ws.core.d_H_core);
-
-    if (task_ctx.topo.n_shell_pairs <= 0) return;
-
-    int chunk_size = task_ctx.topo.n_shell_pairs;  // one-shot launch
-    for (int i = 0; i < task_ctx.topo.n_shell_pairs; i += chunk_size)
-    {
-        const int current_chunk =
-            std::min(chunk_size, task_ctx.topo.n_shell_pairs - i);
-        Launch_Device_Kernel(
-            QC_Build_Shell_Pair_Bounds_Kernel,
-            (current_chunk + threads - 1) / threads, threads, 0, 0,
-            current_chunk, task_ctx.buffers.d_shell_pairs + i, mol.d_atm,
-            mol.d_bas, mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-            scf_ws.ortho.d_norms, mol.is_spherical, cart2sph.d_cart2sph_mat,
-            mol.nao_sph, task_ctx.buffers.d_shell_pair_bounds + i,
-            scf_ws.direct.d_hr_pool, task_ctx.params.eri_hr_base,
-            task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
-            task_ctx.params.eri_prim_screen_tol);
-    }
-    task_ctx.topo.h_shell_pair_bounds.resize(
-        (size_t)task_ctx.topo.n_shell_pairs);
-    deviceMemcpy(task_ctx.topo.h_shell_pair_bounds.data(),
-                 task_ctx.buffers.d_shell_pair_bounds,
-                 sizeof(float) * task_ctx.topo.n_shell_pairs,
-                 deviceMemcpyDeviceToHost);
 }
 
 // ========================= 重叠正交化矩阵 =========================

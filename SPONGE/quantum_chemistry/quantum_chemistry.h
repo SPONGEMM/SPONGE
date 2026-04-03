@@ -101,6 +101,8 @@ struct QUANTUM_CHEMISTRY
     // 积分
     void Compute_OneE_Integrals();
     void Compute_Nuclear_Repulsion(const VECTOR box_length);
+    void Compute_Analytical_Norms();
+    void Build_Shell_Pair_Bounds();
     void Prepare_Integrals();
 
     // DFT VXC 构建
