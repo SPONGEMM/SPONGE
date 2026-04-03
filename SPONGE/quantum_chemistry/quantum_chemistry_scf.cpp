@@ -20,7 +20,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     if (dft.enable_dft) Update_DFT_Grid();
 
     Reset_SCF_State();
-    auto scf_t1 = std::chrono::high_resolution_clock::now();
     Compute_OneE_Integrals();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
@@ -32,6 +31,8 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         Build_Initial_Guess();
         need_initial_guess = false;
     }
+
+    auto scf_t1 = std::chrono::high_resolution_clock::now();
 
     // SCF 收敛策略: HF 和 DFT 使用不同的启动策略
     //

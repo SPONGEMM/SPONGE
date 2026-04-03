@@ -236,6 +236,11 @@ void QC_Build_Fock_Direct_GPU(
             }
         }
     }
+#ifdef GPU_ARCH_NAME
+    // Sync required: Rys double-buffer optimization reduces local memory,
+    // increasing occupancy. Without sync, subsequent operations may race.
+    cudaDeviceSynchronize();
+#endif
     // Reduce multi-copy Fock buffers back to F_a / F_b
     const int threads = 256;
     Launch_Device_Kernel(QC_Reduce_Fock_Copies_Kernel,

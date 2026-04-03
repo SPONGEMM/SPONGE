@@ -956,9 +956,11 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         Device_Malloc_Safely((void**)&cart2sph.d_cart2sph_1e_tmp,
                              sizeof(float) * (int)nao_c * (int)nao_s);
     }
-    int hr_pool_tasks = ERI_BATCH_SIZE;
-#ifndef USE_GPU
-    hr_pool_tasks = std::max(1, omp_get_max_threads());
+#ifdef USE_GPU
+    // GPU: size pool for all shell pairs (one-shot launch)
+    int hr_pool_tasks = std::max(ERI_BATCH_SIZE, task_ctx.topo.n_shell_pairs);
+#else
+    int hr_pool_tasks = std::max(1, omp_get_max_threads());
 #endif
     Device_Malloc_Safely((void**)&scf_ws.direct.d_hr_pool,
                          (int)hr_pool_tasks *

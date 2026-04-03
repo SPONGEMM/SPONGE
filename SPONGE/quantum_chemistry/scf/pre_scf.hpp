@@ -214,10 +214,7 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
 
     if (task_ctx.topo.n_shell_pairs <= 0) return;
 
-    int chunk_size = ERI_BATCH_SIZE;
-#ifndef USE_GPU
-    chunk_size = std::max(1, task_ctx.topo.n_shell_pairs);
-#endif
+    int chunk_size = task_ctx.topo.n_shell_pairs;  // one-shot launch
     for (int i = 0; i < task_ctx.topo.n_shell_pairs; i += chunk_size)
     {
         const int current_chunk =
