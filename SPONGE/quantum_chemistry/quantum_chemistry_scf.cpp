@@ -1,4 +1,5 @@
 ﻿#include "integrals/one_e.hpp"
+#include "integrals/eri/common/eri_rys.hpp"
 #include "quantum_chemistry.h"
 #include "scf/accumulate_energy.hpp"
 #include "scf/apply_diis.hpp"
@@ -116,16 +117,18 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         auto it5 = std::chrono::high_resolution_clock::now();
         auto ms = [](auto a, auto b)
         { return std::chrono::duration<double, std::milli>(b - a).count(); };
-        t_fock += ms(it0, it1);
+        double dt_fock = ms(it0, it1);
+        t_fock += dt_fock;
         t_energy += ms(it1, it2);
         t_diis += ms(it2, it3);
         t_diag += ms(it3, it4);
         t_conv += ms(it4, it5);
+        printf("      iter %d: Fock=%.1f ms\n", iter, dt_fock);
         n_iter = iter + 1;
         if (done) break;
     }
-    printf("    [SCF] %d iters: Fock=%.1f Ene=%.1f DIIS=%.1f Diag=%.1f Conv=%.1f (ms)\n",
-           n_iter, t_fock, t_energy, t_diis, t_diag, t_conv);
+    printf("    [SCF] %d iters: Fock=%.1f (avg %.1f) Ene=%.1f DIIS=%.1f Diag=%.1f Conv=%.1f (ms)\n",
+           n_iter, t_fock, t_fock / n_iter, t_energy, t_diis, t_diag, t_conv);
 
     auto scf_t2 = std::chrono::high_resolution_clock::now();
     auto ms = [](auto a, auto b)

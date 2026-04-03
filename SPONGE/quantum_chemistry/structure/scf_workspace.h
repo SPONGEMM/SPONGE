@@ -120,6 +120,13 @@ struct QC_SCF_Direct_Workspace
 
     float* d_Ptot = NULL;
     float* d_P_coul = NULL;
+
+    // Incremental Fock: previous densities and accumulated ERI Fock
+    float* d_P_coul_prev = NULL;
+    float* d_P_exx_prev = NULL;
+    float* d_P_exx_b_prev = NULL;
+    double* d_F_eri_accum = NULL;
+    double* d_F_eri_b_accum = NULL;
 };
 
 // SCF 配置、收敛状态与能量累计缓冲

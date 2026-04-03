@@ -129,6 +129,22 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.direct.d_pair_density_exx_b = NULL;
     }
 
+    // Incremental Fock buffers
+    alloc_zero_float(&scf_ws.direct.d_P_coul_prev, nao2);
+    alloc_zero_double(&scf_ws.direct.d_F_eri_accum, nao2);
+    if (unrestricted)
+    {
+        alloc_zero_float(&scf_ws.direct.d_P_exx_prev, nao2);
+        alloc_zero_float(&scf_ws.direct.d_P_exx_b_prev, nao2);
+        alloc_zero_double(&scf_ws.direct.d_F_eri_b_accum, nao2);
+    }
+    else
+    {
+        scf_ws.direct.d_P_exx_prev = NULL;
+        scf_ws.direct.d_P_exx_b_prev = NULL;
+        scf_ws.direct.d_F_eri_b_accum = NULL;
+    }
+
 #ifdef USE_GPU
     scf_ws.direct.fock_thread_count = 1;
     scf_ws.direct.d_F_thread = NULL;

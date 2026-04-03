@@ -35,6 +35,35 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     if (scf_ws.beta.d_F_double && scf_ws.runtime.unrestricted)
         for (int i = 0; i < total; i++)
             scf_ws.beta.d_F_double[i] = (double)scf_ws.beta.d_F[i];
+
+    // Incremental Fock: use ΔP = P - P_prev for iter >= 2
+    // Early iterations have large ΔP (worse screening), so use full P
+    const bool use_incremental = (iter >= 2);
+    if (use_incremental)
+    {
+        if (scf_ws.runtime.unrestricted)
+        {
+            for (int i = 0; i < total; i++)
+                scf_ws.direct.d_P_coul[i] -= scf_ws.direct.d_P_coul_prev[i];
+            for (int i = 0; i < total; i++)
+                scf_ws.alpha.d_P[i] -= scf_ws.direct.d_P_exx_prev[i];
+            for (int i = 0; i < total; i++)
+                scf_ws.beta.d_P[i] -= scf_ws.direct.d_P_exx_b_prev[i];
+        }
+        else
+        {
+            for (int i = 0; i < total; i++)
+                scf_ws.direct.d_P_coul[i] -= scf_ws.direct.d_P_coul_prev[i];
+        }
+    }
+    else
+    {
+        // Full mode: zero F_eri_accum so reduce replaces (not accumulates)
+        deviceMemset(scf_ws.direct.d_F_eri_accum, 0, sizeof(double) * total);
+        if (scf_ws.runtime.unrestricted)
+            deviceMemset(scf_ws.direct.d_F_eri_b_accum, 0,
+                         sizeof(double) * total);
+    }
 #endif
 
 #ifdef USE_GPU
@@ -116,17 +145,55 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 #endif
 
 #ifndef USE_GPU
+    // Restore P from ΔP (only needed when incremental was used)
+    if (use_incremental)
+    {
+        if (scf_ws.runtime.unrestricted)
+        {
+            for (int i = 0; i < total; i++)
+                scf_ws.direct.d_P_coul[i] += scf_ws.direct.d_P_coul_prev[i];
+            for (int i = 0; i < total; i++)
+                scf_ws.alpha.d_P[i] += scf_ws.direct.d_P_exx_prev[i];
+            for (int i = 0; i < total; i++)
+                scf_ws.beta.d_P[i] += scf_ws.direct.d_P_exx_b_prev[i];
+        }
+        else
+        {
+            for (int i = 0; i < total; i++)
+                scf_ws.direct.d_P_coul[i] += scf_ws.direct.d_P_coul_prev[i];
+        }
+    }
+
+    // Incremental reduce: F_eri_accum += Σ thread_fock; F = H_core(+Vxc) +
+    // F_eri_accum
+    // For full mode (iter < 2): F_eri_accum was zeroed, so this gives
+    //   F_eri_accum = ERI(P), F = H_core + ERI(P)
+    // For incremental mode (iter >= 2): accumulates ΔF_eri
     Launch_Device_Kernel(
-        QC_Reduce_Thread_Fock_Kernel, (total + threads - 1) / threads, threads,
-        0, 0, total, scf_ws.direct.fock_thread_count, scf_ws.direct.d_F_thread,
-        scf_ws.alpha.d_F, scf_ws.alpha.d_F_double);
+        QC_Reduce_Thread_Fock_Incremental_Kernel,
+        (total + threads - 1) / threads, threads, 0, 0, total,
+        scf_ws.direct.fock_thread_count, scf_ws.direct.d_F_thread,
+        scf_ws.alpha.d_F, scf_ws.alpha.d_F_double,
+        scf_ws.direct.d_F_eri_accum);
     if (scf_ws.runtime.unrestricted)
     {
-        Launch_Device_Kernel(QC_Reduce_Thread_Fock_Kernel,
-                             (total + threads - 1) / threads, threads, 0, 0,
-                             total, scf_ws.direct.fock_thread_count,
-                             scf_ws.direct.d_F_b_thread, scf_ws.beta.d_F,
-                             scf_ws.beta.d_F_double);
+        Launch_Device_Kernel(
+            QC_Reduce_Thread_Fock_Incremental_Kernel,
+            (total + threads - 1) / threads, threads, 0, 0, total,
+            scf_ws.direct.fock_thread_count, scf_ws.direct.d_F_b_thread,
+            scf_ws.beta.d_F, scf_ws.beta.d_F_double,
+            scf_ws.direct.d_F_eri_b_accum);
+    }
+
+    // Save current P for next iteration's ΔP computation
+    memcpy(scf_ws.direct.d_P_coul_prev, scf_ws.direct.d_P_coul,
+           sizeof(float) * total);
+    if (scf_ws.runtime.unrestricted)
+    {
+        memcpy(scf_ws.direct.d_P_exx_prev, scf_ws.alpha.d_P,
+               sizeof(float) * total);
+        memcpy(scf_ws.direct.d_P_exx_b_prev, scf_ws.beta.d_P,
+               sizeof(float) * total);
     }
 #endif
 }

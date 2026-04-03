@@ -3,6 +3,7 @@
 #include "gradient/grad_workspace.h"
 #include "gradient/gradient.hpp"
 #include "integrals/eri/common/direct_fock_kernels.hpp"
+#include "integrals/eri/common/eri_rys.hpp"
 #include "integrals/eri/eri_backend.hpp"
 #include "integrals/ri/ri_3center.hpp"
 #include "gradient/grad_eri.hpp"
@@ -32,7 +33,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     {
         const double saved_ls = scf_ws.runtime.level_shift;
         scf_ws.runtime.level_shift = 0.0;
-        Build_Fock(scf_ws.runtime.max_scf_iter);
+        // The rebuild is only used to refresh orbital energies for W. Using the
+        // earliest stable direct-SCF screening level avoids spending gradient
+        // time on quartets well below float noise.
+        Build_Fock(1);
         Diagonalize_And_Build_Density();
         scf_ws.runtime.level_shift = saved_ls;
     }
@@ -124,6 +128,14 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     // grad_eri 内部在 Cartesian shell buffer 上计算导数积分，
     // is_spherical 时内部做 cart2sph，因此始终传入 SCF AO 基的密度和 norms。
 #ifndef USE_GPU
+    // Gradient ERI is much more expensive than SCF Fock construction on CPU.
+    // Using the direct-SCF screening defaults (1e-10) keeps many quartets whose
+    // force contribution is far below float noise. Relax the tolerance here to
+    // cut low-value work without affecting the SCF path.
+    const float grad_shell_screen_tol =
+        fmaxf(task_ctx.params.eri_shell_screen_tol, 1.0e-7f);
+    const float grad_prim_screen_tol =
+        fmaxf(task_ctx.params.direct_eri_prim_screen_tol, 1.0e-7f);
     if (scf_ws.ri.enabled)
     {
         Build_RI_Gradient();
@@ -138,7 +150,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             scf_ws.direct.d_pair_density_exx,
             scf_ws.runtime.unrestricted ? scf_ws.direct.d_pair_density_exx_b
                                         : (const float*)nullptr,
-            task_ctx.params.eri_shell_screen_tol, scf_ws.direct.d_P_coul,
+            grad_shell_screen_tol, scf_ws.direct.d_P_coul,
             scf_ws.alpha.d_P,
             scf_ws.runtime.unrestricted ? scf_ws.beta.d_P
                                         : (const float*)nullptr,
@@ -149,7 +161,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom, grad_ws.d_grad,
             task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
             task_ctx.params.eri_shell_buf_size,
-            task_ctx.params.direct_eri_prim_screen_tol,
+            grad_prim_screen_tol,
             scf_ws.direct.fock_thread_count);
     }
 #endif

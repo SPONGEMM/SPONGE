@@ -25,6 +25,8 @@ BENCH_CASES = [
     ("ch4_def2svp", "HF/def2-svp", 10, 3, False),
     ("benzene_sto3g", "HF/sto-3g", 5, 3, False),
     ("benzene_631g", "HF/6-31g", 3, 3, False),
+    ("benzene_def2svp", "HF/def2-svp", 2, 2, False),
+    ("benzene_def2tzvp", "HF/def2-tzvp", 1, 2, False),
     # RI (density fitting) cases - exercise BLAS and 3c cache optimizations
     ("h2o_def2svp", "HF/def2-svp", 10, 3, True),
     ("ch4_def2svp", "HF/def2-svp", 10, 3, True),

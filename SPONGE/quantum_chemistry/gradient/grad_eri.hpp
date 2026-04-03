@@ -1,342 +1,172 @@
 #pragma once
 
 #include <cstdlib>
+#include <cstring>
 #include <vector>
 
-// 依赖: 此文件需要在 scf/build_fock.hpp 之后 include
-// (build_fock.hpp 带入 direct_fock.hpp 和完整 ERI 基础设施)
+// 依赖: 此文件需要在 scf/build_fock.hpp 之后 include，
+// 且需要 eri_rys.hpp 提供 rys_roots_weights。
 
-// ====================== 双电子积分梯度 ======================
+// ====================== 双电子积分梯度 (Rys quadrature) ======================
 // dE_2e/dR_A = Σ_{pqrs} Γ_eff(pqrs) × d(pq|rs)/dR_A
 //
 // Γ_eff = 4·P_pq·P_rs − exx·(P_pr·P_qs + P_ps·P_qr)
-// (此闭合公式适用于所有对称情况，包括退化 shell quartet)
 //
-// d(pq|rs)/dA_x 使用 E 系数翻译递推:
-//   dE^{ab}_t/dA_x = 2αi·E^{(a+1)b}_t − a_x·E^{(a-1)b}_t
-// 需要: E_bra at (l0+1, l1+1), E_ket at (l2+1, l3+1), HR at L_sum+1
+// d(pq|rs)/dA_x = 2αi·((p+1)q|rs) − p_x·((p−1)q|rs)
+// 使用 Rys quadrature + VRR + 因式分解 HRR 计算积分及其导数。
+// 优化: 预计算 Cartesian 有效密度 (gamma_cart)，在组装循环中直接收缩，
+// 消除 d_buf 中间数组和 Cart2Sph 变换。
 // ==============================================================
 
 #ifndef USE_GPU
 
-// 扩展的 Bra Prim Cache: E 系数算到 (l0+1, l1+1) 以支持 d/dA 和 d/dB
-struct QC_Bra_Prim_Cache_Grad_CPU
+// ---- Rys VRR for gradient (supports extended angular momentum l+1) ----
+static inline void QC_Grad_VRR_2D(float* __restrict__ G, int ij_max,
+                                    int kl_max, int g_stride, float Cx_bra,
+                                    float Cx_ket, float B00, float B10,
+                                    float B01)
 {
-    float ai, aj;          // 原始指数 (用于 dE/dA, dE/dB)
-    float P[3];
-    float AB[3];
-    float inv_p;
-    float n_ab;
-    float E_bra[3][5][5][9]; // E at (l0+1, l1+1)
-};
-
-static inline void QC_Build_Bra_Prim_Cache_Grad_CPU(
-    const QC_Shell_Pair_Meta_CPU& bra, const float* env,
-    const float prim_screen_tol,
-    std::vector<QC_Bra_Prim_Cache_Grad_CPU>& prims)
-{
-    prims.clear();
-    prims.reserve((size_t)bra.np[0] * (size_t)bra.np[1]);
-    for (int ip = 0; ip < bra.np[0]; ip++)
+    G[0] = 1.0f;
+    for (int i = 0; i < ij_max; i++)
     {
-        for (int jp = 0; jp < bra.np[1]; jp++)
-        {
-            const float ai = env[bra.p_exp[0] + ip];
-            const float aj = env[bra.p_exp[1] + jp];
-            const float p = ai + aj;
-            const float inv_p = 1.0f / p;
-            const float kab = expf(-(ai * aj * inv_p) * bra.pair_dist2);
-            const float n_ab =
-                env[bra.p_cof[0] + ip] * env[bra.p_cof[1] + jp] * kab;
-            if (fabsf(n_ab) < prim_screen_tol) continue;
-
-            QC_Bra_Prim_Cache_Grad_CPU prim = {};
-            prim.ai = ai;
-            prim.aj = aj;
-            prim.AB[0] = bra.R[0][0] - bra.R[1][0];
-            prim.AB[1] = bra.R[0][1] - bra.R[1][1];
-            prim.AB[2] = bra.R[0][2] - bra.R[1][2];
-            prim.P[0] = (ai * bra.R[0][0] + aj * bra.R[1][0]) * inv_p;
-            prim.P[1] = (ai * bra.R[0][1] + aj * bra.R[1][1]) * inv_p;
-            prim.P[2] = (ai * bra.R[0][2] + aj * bra.R[1][2]) * inv_p;
-            prim.inv_p = inv_p;
-            prim.n_ab = n_ab;
-            // E at (l0+1, l1+1) — 支持 dE/dA (需要 l0+1) 和 dE/dB (需要 l1+1)
-            const int la_up = std::min(bra.l[0] + 1, 4);
-            const int lb_up = std::min(bra.l[1] + 1, 4);
-            for (int d = 0; d < 3; d++)
-            {
-                compute_md_coeffs(prim.E_bra[d], la_up, lb_up,
-                                  prim.P[d] - bra.R[0][d],
-                                  prim.P[d] - bra.R[1][d], 0.5f * inv_p);
-            }
-            prims.push_back(prim);
-        }
+        float val = Cx_bra * G[i * g_stride];
+        if (i > 0) val += (float)i * B10 * G[(i - 1) * g_stride];
+        G[(i + 1) * g_stride] = val;
     }
+    for (int j = 0; j < kl_max; j++)
+        for (int i = 0; i <= ij_max; i++)
+        {
+            float val = Cx_ket * G[i * g_stride + j];
+            if (j > 0) val += (float)j * B01 * G[i * g_stride + (j - 1)];
+            if (i > 0) val += (float)i * B00 * G[(i - 1) * g_stride + j];
+            G[i * g_stride + (j + 1)] = val;
+        }
 }
 
-// 计算一个 AO quartet 的 9 个导数分量 (d/dA_xyz, d/dB_xyz, d/dC_xyz)
-// 直接对 E 系数求和，不做 angular term 预计算
-static inline void QC_Compute_AO_Quartet_Deriv(
-    const QC_Bra_Prim_Cache_Grad_CPU& bra_prim,
-    const float E_ket[3][5][5][9], const float ak,
-    const int ix, const int jx, const int iy, const int jy,
-    const int iz, const int jz,
-    const int kx, const int lx, const int ky, const int ly,
-    const int kz, const int lz,
-    const float* HR, const int hr_base, const float n_abcd,
-    float d_A[3], float d_B[3], float d_C[3])
+// ---- Optimized batched factored HRR ----
+static inline void QC_Grad_Factored_HRR_Batch(
+    const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
+    const int* __restrict__ l, float AB_d, float CD_d,
+    float* __restrict__ I_full, int d0, int d1, int d2)
 {
-    const float ai = bra_prim.ai;
-    const float aj = bra_prim.aj;
-    const auto& E = bra_prim.E_bra;
+    const int l0_up = l[0] + 1, l1_up = l[1] + 1;
+    const int l2_up = l[2] + 1, l3_max = l[3];
+    const int ij_ext = ij_am + 1;
+    const int kl_ext = kl_am + 1;
 
-    d_A[0] = d_A[1] = d_A[2] = 0.0f;
-    d_B[0] = d_B[1] = d_B[2] = 0.0f;
-    d_C[0] = d_C[1] = d_C[2] = 0.0f;
+    const int h_a1_stride = kl_ext + 1;
+    const int h_a0_stride = (l1_up + 1) * h_a1_stride;
+    float h_all[12 * 12 * 12];
 
-    const int hr_stride_z = hr_base;
-    const int hr_stride_y = hr_base * hr_base;
-    const int hr_stride_x = hr_base * hr_base * hr_base;
-
-    // Contract E_bra * E_ket * (-1)^{ket} * R for a given set of angular momenta.
-    // The standard MD derivative formula d(ab|cd)/dA_x = 2·ai·(a+1,b|cd) - a·(a-1,b|cd)
-    // is COMPLETE: E^{(a+1,b)}_t at higher Hermite index t naturally picks up
-    // the R-tensor chain rule through PQ, so NO explicit HR shift is needed.
-    auto contract_quartet = [&](const int aix, const int ajx, const int aiy,
-                                const int ajy, const int aiz, const int ajz,
-                                const int akx, const int alx, const int aky,
-                                const int aly, const int akz, const int alz)
+    for (int j = 0; j <= kl_ext; j++)
     {
-        if (aix < 0 || ajx < 0 || aiy < 0 || ajy < 0 || aiz < 0 || ajz < 0 ||
-            akx < 0 || alx < 0 || aky < 0 || aly < 0 || akz < 0 || alz < 0)
-            return 0.0f;
-        if (aix >= 5 || ajx >= 5 || aiy >= 5 || ajy >= 5 || aiz >= 5 ||
-            ajz >= 5 || akx >= 5 || alx >= 5 || aky >= 5 || aly >= 5 ||
-            akz >= 5 || alz >= 5)
-            return 0.0f;
+        float work[2][12];
+        for (int i = 0; i <= ij_ext; i++)
+            work[0][i] = G[i * g_stride + j];
 
-        const float* ex_bra = E[0][aix][ajx];
-        const float* ey_bra = E[1][aiy][ajy];
-        const float* ez_bra = E[2][aiz][ajz];
-        const float* ex_ket = E_ket[0][akx][alx];
-        const float* ey_ket = E_ket[1][aky][aly];
-        const float* ez_ket = E_ket[2][akz][alz];
+        for (int a0 = 0; a0 <= l0_up; a0++)
+            h_all[a0 * h_a0_stride + 0 * h_a1_stride + j] = work[0][a0];
 
-        const int bra_max_x = aix + ajx;
-        const int bra_max_y = aiy + ajy;
-        const int bra_max_z = aiz + ajz;
-        const int ket_max_x = akx + alx;
-        const int ket_max_y = aky + aly;
-        const int ket_max_z = akz + alz;
-
-        double val = 0.0;
-        for (int mx = 0; mx <= bra_max_x; mx++)
+        int cur = 0;
+        for (int b = 0; b < l1_up; b++)
         {
-            for (int my = 0; my <= bra_max_y; my++)
+            int nxt = 1 - cur;
+            int n_curr = ij_ext - b - 1;
+            for (int a = 0; a <= n_curr; a++)
+                work[nxt][a] = work[cur][a + 1] + AB_d * work[cur][a];
+            int a0_max = std::min(l0_up, n_curr);
+            for (int a0 = 0; a0 <= a0_max; a0++)
+                h_all[a0 * h_a0_stride + (b + 1) * h_a1_stride + j] =
+                    work[nxt][a0];
+            cur = nxt;
+        }
+    }
+
+    for (int a0 = 0; a0 <= l0_up; a0++)
+        for (int a1 = 0; a1 <= l1_up; a1++)
+        {
+            if (a0 + a1 > ij_ext) continue;
+            const float* h_bra = &h_all[a0 * h_a0_stride + a1 * h_a1_stride];
+
+            for (int a2 = 0; a2 <= l2_up; a2++)
+                I_full[a0 * d0 + a1 * d1 + a2 * d2 + 0] = h_bra[a2];
+
+            if (l3_max > 0)
             {
-                for (int mz = 0; mz <= bra_max_z; mz++)
+                float work[2][12];
+                for (int i = 0; i <= kl_ext; i++) work[0][i] = h_bra[i];
+
+                int cur = 0;
+                for (int d = 0; d < l3_max; d++)
                 {
-                    const float e_bra =
-                        ex_bra[mx] * ey_bra[my] * ez_bra[mz];
-                    if (fabsf(e_bra) < 1e-30f) continue;
-                    for (int nx = 0; nx <= ket_max_x; nx++)
-                    {
-                        for (int ny = 0; ny <= ket_max_y; ny++)
-                        {
-                            for (int nz = 0; nz <= ket_max_z; nz++)
-                            {
-                                const float e_ket =
-                                    ex_ket[nx] * ey_ket[ny] * ez_ket[nz];
-                                if (fabsf(e_ket) < 1e-30f) continue;
-                                const float phase =
-                                    ((nx + ny + nz) & 1) ? -1.0f : 1.0f;
-                                const int hr_idx =
-                                    (mx + nx) * hr_stride_x +
-                                    (my + ny) * hr_stride_y +
-                                    (mz + nz) * hr_stride_z;
-                                val += (double)e_bra * (double)e_ket *
-                                       (double)(HR[hr_idx] * phase);
-                            }
-                        }
-                    }
+                    int nxt = 1 - cur;
+                    int n_curr = kl_ext - d - 1;
+                    for (int a = 0; a <= n_curr; a++)
+                        work[nxt][a] = work[cur][a + 1] + CD_d * work[cur][a];
+                    int a2_max = std::min(l2_up, n_curr);
+                    for (int a2 = 0; a2 <= a2_max; a2++)
+                        I_full[a0 * d0 + a1 * d1 + a2 * d2 + (d + 1)] =
+                            work[nxt][a2];
+                    cur = nxt;
                 }
             }
         }
-        return (float)val;
-    };
+}
 
-    // d(ab|cd)/dA_x = 2·ai·(a_x+1,b|cd) - a_x·(a_x-1,b|cd)
-    d_A[0] = 2.0f * ai * contract_quartet(ix + 1, jx, iy, jy, iz, jz, kx, lx,
-                                           ky, ly, kz, lz);
-    if (ix > 0)
-        d_A[0] -= (float)ix * contract_quartet(ix - 1, jx, iy, jy, iz, jz, kx,
-                                               lx, ky, ly, kz, lz);
-    d_A[1] = 2.0f * ai * contract_quartet(ix, jx, iy + 1, jy, iz, jz, kx, lx,
-                                           ky, ly, kz, lz);
-    if (iy > 0)
-        d_A[1] -= (float)iy * contract_quartet(ix, jx, iy - 1, jy, iz, jz, kx,
-                                               lx, ky, ly, kz, lz);
-    d_A[2] = 2.0f * ai * contract_quartet(ix, jx, iy, jy, iz + 1, jz, kx, lx,
-                                           ky, ly, kz, lz);
-    if (iz > 0)
-        d_A[2] -= (float)iz * contract_quartet(ix, jx, iy, jy, iz - 1, jz, kx,
-                                               lx, ky, ly, kz, lz);
-
-    // d(ab|cd)/dB_x = 2·aj·(a,b_x+1|cd) - b_x·(a,b_x-1|cd)
-    d_B[0] = 2.0f * aj * contract_quartet(ix, jx + 1, iy, jy, iz, jz, kx, lx,
-                                           ky, ly, kz, lz);
-    if (jx > 0)
-        d_B[0] -= (float)jx * contract_quartet(ix, jx - 1, iy, jy, iz, jz, kx,
-                                               lx, ky, ly, kz, lz);
-    d_B[1] = 2.0f * aj * contract_quartet(ix, jx, iy, jy + 1, iz, jz, kx, lx,
-                                           ky, ly, kz, lz);
-    if (jy > 0)
-        d_B[1] -= (float)jy * contract_quartet(ix, jx, iy, jy - 1, iz, jz, kx,
-                                               lx, ky, ly, kz, lz);
-    d_B[2] = 2.0f * aj * contract_quartet(ix, jx, iy, jy, iz, jz + 1, kx, lx,
-                                           ky, ly, kz, lz);
-    if (jz > 0)
-        d_B[2] -= (float)jz * contract_quartet(ix, jx, iy, jy, iz, jz - 1, kx,
-                                               lx, ky, ly, kz, lz);
-
-    // d(ab|cd)/dC_x = 2·ak·(ab|c_x+1,d) - c_x·(ab|c_x-1,d)
-    d_C[0] = 2.0f * ak * contract_quartet(ix, jx, iy, jy, iz, jz, kx + 1, lx,
-                                           ky, ly, kz, lz);
-    if (kx > 0)
-        d_C[0] -= (float)kx * contract_quartet(ix, jx, iy, jy, iz, jz, kx - 1,
-                                               lx, ky, ly, kz, lz);
-    d_C[1] = 2.0f * ak * contract_quartet(ix, jx, iy, jy, iz, jz, kx, lx,
-                                           ky + 1, ly, kz, lz);
-    if (ky > 0)
-        d_C[1] -= (float)ky * contract_quartet(ix, jx, iy, jy, iz, jz, kx, lx,
-                                               ky - 1, ly, kz, lz);
-    d_C[2] = 2.0f * ak * contract_quartet(ix, jx, iy, jy, iz, jz, kx, lx,
-                                           ky, ly, kz + 1, lz);
-    if (kz > 0)
-        d_C[2] -= (float)kz * contract_quartet(ix, jx, iy, jy, iz, jz, kx, lx,
-                                               ky, ly, kz - 1, lz);
-
-    // 乘以归一化前因子
-    for (int d = 0; d < 3; d++)
+// ---- Sph2Cart step: expands spherical → Cartesian along one index ----
+// dst[lead, cart, tail] = sum_sph C[cart * ns + sph] * src[lead, sph, tail]
+static inline void QC_Sph2Cart_Step_CPU(const float* C, int nc, int ns,
+                                         int leading, int tail,
+                                         const float* src, float* dst)
+{
+    for (int lead = 0; lead < leading; lead++)
     {
-        d_A[d] *= n_abcd;
-        d_B[d] *= n_abcd;
-        d_C[d] *= n_abcd;
+        const float* src_blk = src + lead * ns * tail;
+        float* dst_blk = dst + lead * nc * tail;
+        memset(dst_blk, 0, (size_t)nc * tail * sizeof(float));
+        for (int p = 0; p < ns; p++)
+        {
+            const float* src_row = src_blk + p * tail;
+            for (int a = 0; a < nc; a++)
+            {
+                const float c = C[a * ns + p];
+                if (c == 0.0f) continue;
+                float* dst_row = dst_blk + a * tail;
+                for (int idx = 0; idx < tail; idx++)
+                    dst_row[idx] += c * src_row[idx];
+            }
+        }
     }
 }
 
-// =================== Optimized ERI gradient via R-tensor factorization =============
-// Instead of 18 full 6-nested contract_quartet calls per AO quartet,
-// precompute half-contracted intermediates:
-//   R_ket[m] = sum_n E_ket(n) * (-1)^|n| * HR(m+n)  — reused across all (ci,cj)
-//   R_bra[n] = sum_m E_bra(m) * HR(m+n)              — reused across all (ck,cl)
-// Then each derivative is just a 3-nested contraction (~8x faster for p-p quartets).
-
-// Precompute R_ket: half-contract HR with ket E-coefficients
-static inline void QC_Precompute_R_ket(
-    const float E_ket[3][5][5][9],
-    int kx, int lx, int ky, int ly, int kz, int lz,
-    const float* HR, int hr_base,
-    int mx_max, int my_max, int mz_max,
-    float* __restrict R, int r_yz, int r_z)
+// ---- 4-index Sph→Cart transform for effective density ----
+// Input: gamma_sph in buf0 [ns0 × ns1 × ns2 × ns3]
+// Output: gamma_cart in buf0 [nc0 × nc1 × nc2 × nc3]
+static inline void QC_Sph2Cart_Density_CPU(
+    const float* U, int nao_s, const int* off_cart, const int* off_sph,
+    const int* dims_cart, const int* dims_sph, float* buf0, float* buf1)
 {
-    const int ket_mx = kx + lx, ket_my = ky + ly, ket_mz = kz + lz;
-    const int sx = hr_base * hr_base * hr_base;
-    const int sy = hr_base * hr_base;
-    const float* ekx = E_ket[0][kx][lx];
-    const float* eky = E_ket[1][ky][ly];
-    const float* ekz = E_ket[2][kz][lz];
+    float C[4][MAX_CART_SHELL * MAX_CART_SHELL];
+    for (int s = 0; s < 4; s++)
+        for (int i = 0; i < dims_cart[s]; i++)
+            for (int j = 0; j < dims_sph[s]; j++)
+                C[s][i * dims_sph[s] + j] =
+                    U[(off_cart[s] + i) * nao_s + (off_sph[s] + j)];
 
-    for (int mx = 0; mx <= mx_max; mx++)
-        for (int my = 0; my <= my_max; my++)
-            for (int mz = 0; mz <= mz_max; mz++)
-            {
-                double s = 0.0;
-                for (int nx = 0; nx <= ket_mx; nx++)
-                    for (int ny = 0; ny <= ket_my; ny++)
-                    {
-                        float exy = ekx[nx] * eky[ny];
-                        if (fabsf(exy) < 1e-30f) continue;
-                        for (int nz = 0; nz <= ket_mz; nz++)
-                        {
-                            float e3 = exy * ekz[nz];
-                            if (fabsf(e3) < 1e-30f) continue;
-                            float ph = ((nx + ny + nz) & 1) ? -1.0f : 1.0f;
-                            s += (double)(e3 * ph *
-                                          HR[(mx + nx) * sx + (my + ny) * sy +
-                                             (mz + nz) * hr_base]);
-                        }
-                    }
-                R[mx * r_yz + my * r_z + mz] = (float)s;
-            }
-}
-
-// Precompute R_bra: half-contract HR with bra E-coefficients (no ket phase)
-static inline void QC_Precompute_R_bra(
-    const float E_bra[3][5][5][9],
-    int ix, int jx, int iy, int jy, int iz, int jz,
-    const float* HR, int hr_base,
-    int nx_max, int ny_max, int nz_max,
-    float* __restrict R, int r_yz, int r_z)
-{
-    const int bra_mx = ix + jx, bra_my = iy + jy, bra_mz = iz + jz;
-    const int sx = hr_base * hr_base * hr_base;
-    const int sy = hr_base * hr_base;
-    const float* ebx = E_bra[0][ix][jx];
-    const float* eby = E_bra[1][iy][jy];
-    const float* ebz = E_bra[2][iz][jz];
-
-    for (int nx = 0; nx <= nx_max; nx++)
-        for (int ny = 0; ny <= ny_max; ny++)
-            for (int nz = 0; nz <= nz_max; nz++)
-            {
-                double s = 0.0;
-                for (int mx = 0; mx <= bra_mx; mx++)
-                    for (int my = 0; my <= bra_my; my++)
-                    {
-                        float exy = ebx[mx] * eby[my];
-                        if (fabsf(exy) < 1e-30f) continue;
-                        for (int mz = 0; mz <= bra_mz; mz++)
-                            s += (double)(exy * ebz[mz] *
-                                          HR[(mx + nx) * sx + (my + ny) * sy +
-                                             (mz + nz) * hr_base]);
-                    }
-                R[nx * r_yz + ny * r_z + nz] = (float)s;
-            }
-}
-
-// Contract bra E-coeff with R_ket (no phase — already in R_ket)
-static inline float QC_Contract_NoPhase(
-    const float* ex, int mx, const float* ey, int my,
-    const float* ez, int mz,
-    const float* R, int r_yz, int r_z)
-{
-    double v = 0.0;
-    for (int x = 0; x <= mx; x++)
-        for (int y = 0; y <= my; y++)
-            for (int z = 0; z <= mz; z++)
-                v += (double)(ex[x] * ey[y] * ez[z]) *
-                     (double)R[x * r_yz + y * r_z + z];
-    return (float)v;
-}
-
-// Contract ket E-coeff with R_bra (includes (-1)^|n| phase)
-static inline float QC_Contract_WithPhase(
-    const float* ex, int mx, const float* ey, int my,
-    const float* ez, int mz,
-    const float* R, int r_yz, int r_z)
-{
-    double v = 0.0;
-    for (int x = 0; x <= mx; x++)
-        for (int y = 0; y <= my; y++)
-            for (int z = 0; z <= mz; z++)
-            {
-                float ph = ((x + y + z) & 1) ? -1.0f : 1.0f;
-                v += (double)(ex[x] * ey[y] * ez[z] * ph) *
-                     (double)R[x * r_yz + y * r_z + z];
-            }
-    return (float)v;
+    // Transform each index from sph → cart sequentially
+    // buf0: [ns0, ns1, ns2, ns3] → buf1: [nc0, ns1, ns2, ns3]
+    QC_Sph2Cart_Step_CPU(C[0], dims_cart[0], dims_sph[0], 1,
+                          dims_sph[1] * dims_sph[2] * dims_sph[3], buf0, buf1);
+    // buf1 → buf0: [nc0, nc1, ns2, ns3]
+    QC_Sph2Cart_Step_CPU(C[1], dims_cart[1], dims_sph[1], dims_cart[0],
+                          dims_sph[2] * dims_sph[3], buf1, buf0);
+    // buf0 → buf1: [nc0, nc1, nc2, ns3]
+    QC_Sph2Cart_Step_CPU(C[2], dims_cart[2], dims_sph[2],
+                          dims_cart[0] * dims_cart[1], dims_sph[3], buf0, buf1);
+    // buf1 → buf0: [nc0, nc1, nc2, nc3]
+    QC_Sph2Cart_Step_CPU(C[3], dims_cart[3], dims_sph[3],
+                          dims_cart[0] * dims_cart[1] * dims_cart[2], 1,
+                          buf1, buf0);
 }
 
 static inline void QC_Build_ERI_Gradient_CPU(
@@ -407,21 +237,25 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const float max_activity =
         anchor_activity[(size_t)sorted_activity_ids.front()];
 
+    // Max I array size per axis for supported angular momentum (up to g=4)
+    // I_size = (l0+2)(l1+2)(l2+2)(l3+1), max = 6*6*6*5 = 1080
+    static constexpr int MAX_I_SIZE = 1100;
+    // Max Rys roots: nrys = (L_sum+3)/2, for g-shells L_sum_max=16 → nrys=9
+    static constexpr int MAX_NRYS = 12;
+
 #pragma omp parallel num_threads(thread_count)
     {
         std::vector<double> grad_local((size_t)natm_max * 3, 0.0);
-        const int grad_hr_base = hr_base + 1;
-        const int grad_hr_size =
-            grad_hr_base * grad_hr_base * grad_hr_base * grad_hr_base;
-        float* HR = (float*)malloc(sizeof(float) * (size_t)grad_hr_size);
         std::vector<int> partner_marks((size_t)n_pairs, -1);
         std::vector<int> candidate_partners;
         candidate_partners.reserve(256);
-        std::vector<QC_Bra_Prim_Cache_Grad_CPU> bra_prims;
-        std::vector<float> d_buf_A_cart, d_buf_B_cart, d_buf_C_cart;
-        std::vector<float> d_buf_A_sph, d_buf_B_sph, d_buf_C_sph;
-        std::vector<float> sph_buf0, sph_buf1;
-        std::vector<float> R_ket_buf, R_bra_buf;
+        // Buffers for density Sph2Cart transform
+        std::vector<float> gamma_buf0(MAX_SHELL_ERI);
+        std::vector<float> gamma_buf1(MAX_SHELL_ERI);
+        // Thread-local I array storage for factored contraction (high L)
+        std::vector<float> all_Ix_buf(MAX_NRYS * MAX_I_SIZE);
+        std::vector<float> all_Iy_buf(MAX_NRYS * MAX_I_SIZE);
+        std::vector<float> all_Iz_buf(MAX_NRYS * MAX_I_SIZE);
 
 #pragma omp for schedule(dynamic)
         for (int pair_ij = 0; pair_ij < n_pairs; pair_ij++)
@@ -467,8 +301,40 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 candidate_partners.push_back(pair_kl);
             }
 
-            QC_Build_Bra_Prim_Cache_Grad_CPU(bra, env, prim_screen_tol,
-                                              bra_prims);
+            // Pre-screen and cache bra primitives
+            struct BraPrim
+            {
+                float ai, aj, p, inv_p, n_ab;
+                float P[3], PA[3];
+            };
+            std::vector<BraPrim> bra_prims;
+            bra_prims.reserve((size_t)bra.np[0] * (size_t)bra.np[1]);
+            for (int ip = 0; ip < bra.np[0]; ip++)
+                for (int jp = 0; jp < bra.np[1]; jp++)
+                {
+                    const float ai = env[bra.p_exp[0] + ip];
+                    const float aj = env[bra.p_exp[1] + jp];
+                    const float p = ai + aj;
+                    const float inv_p = 1.0f / p;
+                    const float kab =
+                        expf(-(ai * aj * inv_p) * bra.pair_dist2);
+                    const float n_ab =
+                        env[bra.p_cof[0] + ip] * env[bra.p_cof[1] + jp] * kab;
+                    if (fabsf(n_ab) < prim_screen_tol) continue;
+                    BraPrim bp;
+                    bp.ai = ai;
+                    bp.aj = aj;
+                    bp.p = p;
+                    bp.inv_p = inv_p;
+                    bp.n_ab = n_ab;
+                    for (int d = 0; d < 3; d++)
+                    {
+                        bp.P[d] =
+                            (ai * bra.R[0][d] + aj * bra.R[1][d]) * inv_p;
+                        bp.PA[d] = bp.P[d] - bra.R[0][d];
+                    }
+                    bra_prims.push_back(bp);
+                }
             if (bra_prims.empty()) continue;
 
             const QC_ONE_E_TASK& ij = task_ctx.topo.h_shell_pairs[pair_ij];
@@ -491,407 +357,43 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const int atom_D = shell_atom[kl.y];
 
                 const int l[4] = {bra.l[0], bra.l[1], ket.l[0], ket.l[1]};
-                const int L_sum = l[0] + l[1] + l[2] + l[3];
+                const int ij_am = l[0] + l[1];
+                const int kl_am = l[2] + l[3];
+                const int L_sum = ij_am + kl_am;
 
                 const bool jk_same_bra = (ij.x == ij.y);
                 const bool jk_same_ket = (kl.x == kl.y);
                 const bool jk_same_braket =
                     (ij.x == kl.x && ij.y == kl.y);
 
-                const int ni_cart = bra.dims_cart[0], nj_cart = bra.dims_cart[1];
-                const int nk_cart = ket.dims_cart[0], nl_cart = ket.dims_cart[1];
+                const int ni_cart = bra.dims_cart[0],
+                          nj_cart = bra.dims_cart[1];
+                const int nk_cart = ket.dims_cart[0],
+                          nl_cart = ket.dims_cart[1];
                 const int shell_size_cart =
                     ni_cart * nj_cart * nk_cart * nl_cart;
 
                 const int ni = bra.dims_eff[0], nj = bra.dims_eff[1];
                 const int nk = ket.dims_eff[0], nl = ket.dims_eff[1];
-                const int shell_size_eff = ni * nj * nk * nl;
 
-                d_buf_A_cart.assign((size_t)shell_size_cart * 3, 0.0f);
-                d_buf_B_cart.assign((size_t)shell_size_cart * 3, 0.0f);
-                d_buf_C_cart.assign((size_t)shell_size_cart * 3, 0.0f);
-
-                float E_ket[3][5][5][9];
-                const int lc_up = std::min(ket.l[0] + 1, 4);
-                const int ld_up = std::min(ket.l[1] + 1, 4);
-
-                for (const auto& bra_prim : bra_prims)
-                {
-                    const float p = 1.0f / bra_prim.inv_p;
-                    for (int kp = 0; kp < ket.np[0]; kp++)
-                    {
-                        for (int lp = 0; lp < ket.np[1]; lp++)
-                        {
-                            const float ak = env[ket.p_exp[0] + kp];
-                            const float al = env[ket.p_exp[1] + lp];
-                            const float q = ak + al;
-                            const float inv_q = 1.0f / q;
-                            const float kcd =
-                                expf(-(ak * al * inv_q) * ket.pair_dist2);
-                            const float pref =
-                                2.0f * PI_25 / (p * q * sqrtf(p + q));
-                            const float n_abcd =
-                                bra_prim.n_ab * env[ket.p_cof[0] + kp] *
-                                env[ket.p_cof[1] + lp] * kcd * pref;
-                            if (fabsf(n_abcd) < prim_screen_tol) continue;
-
-                            float Q[3] = {
-                                (ak * ket.R[0][0] + al * ket.R[1][0]) * inv_q,
-                                (ak * ket.R[0][1] + al * ket.R[1][1]) * inv_q,
-                                (ak * ket.R[0][2] + al * ket.R[1][2]) * inv_q};
-                            const float CD[3] = {
-                                ket.R[0][0] - ket.R[1][0],
-                                ket.R[0][1] - ket.R[1][1],
-                                ket.R[0][2] - ket.R[1][2]};
-                            const float alpha = p * q / (p + q);
-                            float PQ[3] = {bra_prim.P[0] - Q[0],
-                                           bra_prim.P[1] - Q[1],
-                                           bra_prim.P[2] - Q[2]};
-                            float t_arg = alpha * (PQ[0] * PQ[0] +
-                                                   PQ[1] * PQ[1] +
-                                                   PQ[2] * PQ[2]);
-
-                            // HR at L_sum+1 (一阶更高)
-                            // 必须清零: 导数循环可能读到 L_sum+1 以外的索引
-                            // (E系数为0所以乘积为0, 但未初始化的HR可能含NaN)
-                            memset(HR, 0, sizeof(float) * (size_t)grad_hr_size);
-                            compute_hr_tensor(HR, alpha, PQ, L_sum + 1,
-                                              grad_hr_base, t_arg);
-
-                            // E_ket at (l2+1, l3+1)
-                            for (int d = 0; d < 3; d++)
-                                compute_md_coeffs(E_ket[d], lc_up, ld_up,
-                                                  Q[d] - ket.R[0][d],
-                                                  Q[d] - ket.R[1][d],
-                                                  0.5f * inv_q);
-
-                            // R-tensor factorization: precompute half-contracted
-                            // intermediates to reduce 18×O(N^6) to O(N^6)+18×O(N^3)
-                            const int bra_ext = l[0] + l[1] + 1;
-                            const int ket_ext = l[2] + l[3] + 1;
-                            const int rk_dim = bra_ext + 1;
-                            const int rk_yz = rk_dim * rk_dim;
-                            const int rk_elem = rk_dim * rk_dim * rk_dim;
-                            const int rb_dim = ket_ext + 1;
-                            const int rb_yz = rb_dim * rb_dim;
-                            const int rb_elem = rb_dim * rb_dim * rb_dim;
-                            const int nkl = nk_cart * nl_cart;
-
-                            R_ket_buf.resize((size_t)nkl * rk_elem);
-                            R_bra_buf.resize((size_t)rb_elem);
-
-                            // Step 1: precompute R_ket for all (ck,cl)
-                            for (int ck = 0; ck < nk_cart; ck++)
-                                for (int cl = 0; cl < nl_cart; cl++)
-                                    QC_Precompute_R_ket(
-                                        E_ket,
-                                        ket.comp_x[0][ck], ket.comp_x[1][cl],
-                                        ket.comp_y[0][ck], ket.comp_y[1][cl],
-                                        ket.comp_z[0][ck], ket.comp_z[1][cl],
-                                        HR, grad_hr_base,
-                                        bra_ext, bra_ext, bra_ext,
-                                        &R_ket_buf[(ck * nl_cart + cl) * rk_elem],
-                                        rk_yz, rk_dim);
-
-                            const float ai = bra_prim.ai;
-                            const float aj = bra_prim.aj;
-                            const auto& E = bra_prim.E_bra;
-
-                            // Step 2: compute derivatives with precomputed R
-                            for (int ci = 0; ci < ni_cart; ci++)
-                            {
-                                const int ix = bra.comp_x[0][ci];
-                                const int iy = bra.comp_y[0][ci];
-                                const int iz = bra.comp_z[0][ci];
-                                for (int cj = 0; cj < nj_cart; cj++)
-                                {
-                                    const int jx = bra.comp_x[1][cj];
-                                    const int jy = bra.comp_y[1][cj];
-                                    const int jz = bra.comp_z[1][cj];
-
-                                    // Precompute R_bra for this (ci,cj)
-                                    QC_Precompute_R_bra(
-                                        E, ix, jx, iy, jy, iz, jz,
-                                        HR, grad_hr_base,
-                                        ket_ext, ket_ext, ket_ext,
-                                        R_bra_buf.data(), rb_yz, rb_dim);
-
-                                    // Base bra E-coefficients for this (ci,cj)
-                                    const float* ex_b = E[0][ix][jx];
-                                    const float* ey_b = E[1][iy][jy];
-                                    const float* ez_b = E[2][iz][jz];
-                                    const int mx_b = ix + jx;
-                                    const int my_b = iy + jy;
-                                    const int mz_b = iz + jz;
-
-                                    // 1D dot product helpers
-                                    auto dot1d = [](const float* e, int n,
-                                                    const float* r) {
-                                        double v = 0.0;
-                                        for (int t = 0; t <= n; t++)
-                                            v += (double)e[t] * (double)r[t];
-                                        return (float)v;
-                                    };
-                                    auto dot1d_ph = [](const float* e, int n,
-                                                       const float* r) {
-                                        double v = 0.0;
-                                        for (int t = 0; t <= n; t++)
-                                        {
-                                            float ph = (t & 1) ? -1.0f : 1.0f;
-                                            v += (double)(e[t] * ph) * (double)r[t];
-                                        }
-                                        return (float)v;
-                                    };
-
-                                    for (int ck = 0; ck < nk_cart; ck++)
-                                    {
-                                        const int kx2 = ket.comp_x[0][ck];
-                                        const int ky2 = ket.comp_y[0][ck];
-                                        const int kz2 = ket.comp_z[0][ck];
-                                        for (int cl = 0; cl < nl_cart; cl++)
-                                        {
-                                            const int lx2 = ket.comp_x[1][cl];
-                                            const int ly2 = ket.comp_y[1][cl];
-                                            const int lz2 = ket.comp_z[1][cl];
-
-                                            const float* rk = &R_ket_buf[
-                                                (ck * nl_cart + cl) * rk_elem];
-                                            const float* rb = R_bra_buf.data();
-                                            float dA[3] = {}, dB[3] = {}, dC[3] = {};
-
-                                            // Partial contractions of R_ket:
-                                            // reduce 3D→1D by fixing the derivative
-                                            // dimension and summing the other two
-                                            float pc_yz[10], pc_xz[10], pc_xy[10];
-                                            for (int mx = 0; mx <= bra_ext; mx++)
-                                            {
-                                                double s = 0.0;
-                                                for (int my = 0; my <= my_b; my++)
-                                                    for (int mz = 0; mz <= mz_b; mz++)
-                                                        s += (double)(ey_b[my] * ez_b[mz]) *
-                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
-                                                pc_yz[mx] = (float)s;
-                                            }
-                                            for (int my = 0; my <= bra_ext; my++)
-                                            {
-                                                double s = 0.0;
-                                                for (int mx = 0; mx <= mx_b; mx++)
-                                                    for (int mz = 0; mz <= mz_b; mz++)
-                                                        s += (double)(ex_b[mx] * ez_b[mz]) *
-                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
-                                                pc_xz[my] = (float)s;
-                                            }
-                                            for (int mz = 0; mz <= bra_ext; mz++)
-                                            {
-                                                double s = 0.0;
-                                                for (int mx = 0; mx <= mx_b; mx++)
-                                                    for (int my = 0; my <= my_b; my++)
-                                                        s += (double)(ex_b[mx] * ey_b[my]) *
-                                                             (double)rk[mx*rk_yz + my*rk_dim + mz];
-                                                pc_xy[mz] = (float)s;
-                                            }
-
-                                            // dA: 1D dot with shifted bra E-coeff
-                                            if (ix + 1 < 5)
-                                                dA[0] = 2.0f*ai * dot1d(E[0][ix+1][jx], ix+1+jx, pc_yz);
-                                            if (ix > 0)
-                                                dA[0] -= (float)ix * dot1d(E[0][ix-1][jx], ix-1+jx, pc_yz);
-                                            if (iy + 1 < 5)
-                                                dA[1] = 2.0f*ai * dot1d(E[1][iy+1][jy], iy+1+jy, pc_xz);
-                                            if (iy > 0)
-                                                dA[1] -= (float)iy * dot1d(E[1][iy-1][jy], iy-1+jy, pc_xz);
-                                            if (iz + 1 < 5)
-                                                dA[2] = 2.0f*ai * dot1d(E[2][iz+1][jz], iz+1+jz, pc_xy);
-                                            if (iz > 0)
-                                                dA[2] -= (float)iz * dot1d(E[2][iz-1][jz], iz-1+jz, pc_xy);
-
-                                            // dB: 1D dot with shifted bra E-coeff
-                                            if (jx + 1 < 5)
-                                                dB[0] = 2.0f*aj * dot1d(E[0][ix][jx+1], ix+jx+1, pc_yz);
-                                            if (jx > 0)
-                                                dB[0] -= (float)jx * dot1d(E[0][ix][jx-1], ix+jx-1, pc_yz);
-                                            if (jy + 1 < 5)
-                                                dB[1] = 2.0f*aj * dot1d(E[1][iy][jy+1], iy+jy+1, pc_xz);
-                                            if (jy > 0)
-                                                dB[1] -= (float)jy * dot1d(E[1][iy][jy-1], iy+jy-1, pc_xz);
-                                            if (jz + 1 < 5)
-                                                dB[2] = 2.0f*aj * dot1d(E[2][iz][jz+1], iz+jz+1, pc_xy);
-                                            if (jz > 0)
-                                                dB[2] -= (float)jz * dot1d(E[2][iz][jz-1], iz+jz-1, pc_xy);
-
-                                            // Partial contractions of R_bra for dC
-                                            const float* ekx_b = E_ket[0][kx2][lx2];
-                                            const float* eky_b = E_ket[1][ky2][ly2];
-                                            const float* ekz_b = E_ket[2][kz2][lz2];
-                                            const int nkx_b = kx2+lx2, nky_b = ky2+ly2, nkz_b = kz2+lz2;
-
-                                            float qc_yz[10], qc_xz[10], qc_xy[10];
-                                            for (int nx = 0; nx <= ket_ext; nx++)
-                                            {
-                                                double s = 0.0;
-                                                for (int ny = 0; ny <= nky_b; ny++)
-                                                    for (int nz = 0; nz <= nkz_b; nz++)
-                                                    {
-                                                        float ph = ((ny+nz) & 1) ? -1.0f : 1.0f;
-                                                        s += (double)(eky_b[ny]*ekz_b[nz]*ph) *
-                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
-                                                    }
-                                                qc_yz[nx] = (float)s;
-                                            }
-                                            for (int ny = 0; ny <= ket_ext; ny++)
-                                            {
-                                                double s = 0.0;
-                                                for (int nx = 0; nx <= nkx_b; nx++)
-                                                    for (int nz = 0; nz <= nkz_b; nz++)
-                                                    {
-                                                        float ph = ((nx+nz) & 1) ? -1.0f : 1.0f;
-                                                        s += (double)(ekx_b[nx]*ekz_b[nz]*ph) *
-                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
-                                                    }
-                                                qc_xz[ny] = (float)s;
-                                            }
-                                            for (int nz = 0; nz <= ket_ext; nz++)
-                                            {
-                                                double s = 0.0;
-                                                for (int nx = 0; nx <= nkx_b; nx++)
-                                                    for (int ny = 0; ny <= nky_b; ny++)
-                                                    {
-                                                        float ph = ((nx+ny) & 1) ? -1.0f : 1.0f;
-                                                        s += (double)(ekx_b[nx]*eky_b[ny]*ph) *
-                                                             (double)rb[nx*rb_yz + ny*rb_dim + nz];
-                                                    }
-                                                qc_xy[nz] = (float)s;
-                                            }
-
-                                            // dC: 1D dot with shifted ket E-coeff
-                                            if (kx2 + 1 < 5)
-                                                dC[0] = 2.0f*ak * dot1d_ph(E_ket[0][kx2+1][lx2], kx2+1+lx2, qc_yz);
-                                            if (kx2 > 0)
-                                                dC[0] -= (float)kx2 * dot1d_ph(E_ket[0][kx2-1][lx2], kx2-1+lx2, qc_yz);
-                                            if (ky2 + 1 < 5)
-                                                dC[1] = 2.0f*ak * dot1d_ph(E_ket[1][ky2+1][ly2], ky2+1+ly2, qc_xz);
-                                            if (ky2 > 0)
-                                                dC[1] -= (float)ky2 * dot1d_ph(E_ket[1][ky2-1][ly2], ky2-1+ly2, qc_xz);
-                                            if (kz2 + 1 < 5)
-                                                dC[2] = 2.0f*ak * dot1d_ph(E_ket[2][kz2+1][lz2], kz2+1+lz2, qc_xy);
-                                            if (kz2 > 0)
-                                                dC[2] -= (float)kz2 * dot1d_ph(E_ket[2][kz2-1][lz2], kz2-1+lz2, qc_xy);
-
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                dA[d] *= n_abcd;
-                                                dB[d] *= n_abcd;
-                                                dC[d] *= n_abcd;
-                                            }
-
-                                            const int idx =
-                                                ((ci * nj_cart + cj) * nk_cart +
-                                                 ck) *
-                                                    nl_cart +
-                                                cl;
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                d_buf_A_cart[idx * 3 + d] +=
-                                                    dA[d];
-                                                d_buf_B_cart[idx * 3 + d] +=
-                                                    dB[d];
-                                                d_buf_C_cart[idx * 3 + d] +=
-                                                    dC[d];
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                float* d_buf_A_use = d_buf_A_cart.data();
-                float* d_buf_B_use = d_buf_B_cart.data();
-                float* d_buf_C_use = d_buf_C_cart.data();
-
-                if (is_spherical)
-                {
-                    d_buf_A_sph.assign((size_t)shell_size_eff * 3, 0.0f);
-                    d_buf_B_sph.assign((size_t)shell_size_eff * 3, 0.0f);
-                    d_buf_C_sph.assign((size_t)shell_size_eff * 3, 0.0f);
-
-                    const int dims_cart[4] = {bra.dims_cart[0], bra.dims_cart[1],
-                                              ket.dims_cart[0], ket.dims_cart[1]};
-                    const int dims_sph[4] = {bra.dims_sph[0], bra.dims_sph[1],
-                                             ket.dims_sph[0], ket.dims_sph[1]};
-                    const int off_cart[4] = {bra.off_cart[0], bra.off_cart[1],
-                                             ket.off_cart[0], ket.off_cart[1]};
-                    const int off_sph[4] = {bra.off_eff[0], bra.off_eff[1],
-                                            ket.off_eff[0], ket.off_eff[1]};
-
-                    sph_buf0.assign((size_t)shell_size_cart, 0.0f);
-                    sph_buf1.assign((size_t)shell_size_cart, 0.0f);
-                    auto transform_deriv = [&](const std::vector<float>& src3,
-                                               std::vector<float>& dst3)
-                    {
-                        for (int d = 0; d < 3; d++)
-                        {
-                            for (int idx = 0; idx < shell_size_cart; idx++)
-                                sph_buf0[(size_t)idx] = src3[(size_t)idx * 3 + d];
-                            std::fill(sph_buf1.begin(), sph_buf1.end(), 0.0f);
-                            QC_Cart2Sph_Shell_ERI_CPU(
-                                cart2sph_mat, nao_sph, off_cart, off_sph,
-                                dims_cart, dims_sph, sph_buf0.data(), sph_buf1.data());
-                            for (int idx = 0; idx < shell_size_eff; idx++)
-                                dst3[(size_t)idx * 3 + d] = sph_buf0[(size_t)idx];
-                        }
-                    };
-
-                    transform_deriv(d_buf_A_cart, d_buf_A_sph);
-                    transform_deriv(d_buf_B_cart, d_buf_B_sph);
-                    transform_deriv(d_buf_C_cart, d_buf_C_sph);
-
-                    d_buf_A_use = d_buf_A_sph.data();
-                    d_buf_B_use = d_buf_B_sph.data();
-                    d_buf_C_use = d_buf_C_sph.data();
-                }
-
-                for (int ci = 0; ci < ni; ci++)
-                {
-                    const float norm_i = norms[bra.off_eff[0] + ci];
-                    for (int cj = 0; cj < nj; cj++)
-                    {
-                        const float nij = norm_i * norms[bra.off_eff[1] + cj];
-                        for (int ck = 0; ck < nk; ck++)
-                        {
-                            const float nijk =
-                                nij * norms[ket.off_eff[0] + ck];
-                            for (int cl = 0; cl < nl; cl++)
-                            {
-                                const float nijkl =
-                                    nijk * norms[ket.off_eff[1] + cl];
-                                const int idx =
-                                    ((ci * nj + cj) * nk + ck) * nl + cl;
-                                for (int d = 0; d < 3; d++)
-                                {
-                                    d_buf_A_use[idx * 3 + d] *= nijkl;
-                                    d_buf_B_use[idx * 3 + d] *= nijkl;
-                                    d_buf_C_use[idx * 3 + d] *= nijkl;
-                                }
-                            }
-                        }
-                    }
-                }
+                // ====== Pre-compute effective density in Cartesian basis ======
+                // Step 1: compute gamma_sph with symmetry and norms
+                const int sph_size = ni * nj * nk * nl;
+                memset(gamma_buf0.data(), 0, (size_t)sph_size * sizeof(float));
 
                 for (int ci = 0; ci < ni; ci++)
                 {
                     const int p = bra.off_eff[0] + ci;
-                    const int pn = p * nao;
                     for (int cj = 0; cj < nj; cj++)
                     {
                         const int q_idx = bra.off_eff[1] + cj;
-                        const int qn = q_idx * nao;
                         if (jk_same_bra && q_idx > p) continue;
+                        const double nij =
+                            (double)norms[p] * (double)norms[q_idx];
                         for (int ck = 0; ck < nk; ck++)
                         {
                             const int r = ket.off_eff[0] + ck;
-                            const int rn = r * nao;
+                            const double nijr = nij * (double)norms[r];
                             for (int cl = 0; cl < nl; cl++)
                             {
                                 const int s = ket.off_eff[1] + cl;
@@ -903,129 +405,453 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                     if (rs > pq) continue;
                                 }
 
-                                const int idx =
-                                    ((ci * nj + cj) * nk + ck) * nl + cl;
-                                const float* dA = &d_buf_A_use[idx * 3];
-                                const float* dB = &d_buf_B_use[idx * 3];
-                                const float* dC = &d_buf_C_use[idx * 3];
+                                double sym = nijr * (double)norms[s];
+                                if (jk_same_bra && p == q_idx) sym *= 0.5;
+                                if (jk_same_ket && r == s) sym *= 0.5;
+                                if (jk_same_braket && p == r && q_idx == s)
+                                    sym *= 0.5;
 
-                                const int ao_idx[4] = {p, q_idx, r, s};
-                                const int atom_idx[4] = {atom_A, atom_B,
-                                                         atom_C, atom_D};
-                                const double d_slot[4][3] = {
-                                    {(double)dA[0], (double)dA[1],
-                                     (double)dA[2]},
-                                    {(double)dB[0], (double)dB[1],
-                                     (double)dB[2]},
-                                    {(double)dC[0], (double)dC[1],
-                                     (double)dC[2]},
-                                    {-(double)dA[0] - (double)dB[0] -
-                                         (double)dC[0],
-                                     -(double)dA[1] - (double)dB[1] -
-                                         (double)dC[1],
-                                     -(double)dA[2] - (double)dB[2] -
-                                         (double)dC[2]}};
-
-                                double gamma_j = 0.0;
-                                double gamma_k = 0.0;
-
-                                auto accumulate_8perm = [&](
-                                    const int perm_slot[8][4],
-                                    auto weight_fn,
-                                    double& gamma_acc)
-                                {
-                                    for (int n = 0; n < 8; n++)
-                                    {
-                                        const int i0 = ao_idx[perm_slot[n][0]];
-                                        const int i1 = ao_idx[perm_slot[n][1]];
-                                        const int i2 = ao_idx[perm_slot[n][2]];
-                                        const int i3 = ao_idx[perm_slot[n][3]];
-                                        bool dup = false;
-                                        for (int pv = 0; pv < n; pv++)
-                                        {
-                                            if (i0 == ao_idx[perm_slot[pv][0]] &&
-                                                i1 == ao_idx[perm_slot[pv][1]] &&
-                                                i2 == ao_idx[perm_slot[pv][2]] &&
-                                                i3 == ao_idx[perm_slot[pv][3]])
-                                            {
-                                                dup = true;
-                                                break;
-                                            }
-                                        }
-                                        if (dup) continue;
-
-                                        const double weight =
-                                            weight_fn(i0, i1, i2, i3);
-                                        gamma_acc += weight;
-                                        for (int slot = 0; slot < 4; slot++)
-                                        {
-                                            const int src = perm_slot[n][slot];
-                                            const int atom = atom_idx[src];
-                                            for (int d = 0; d < 3; d++)
-                                            {
-                                                const double contrib =
-                                                    weight * d_slot[src][d];
-                                                grad_local[atom * 3 + d] +=
-                                                    contrib;
-                                            }
-                                        }
-                                    }
-                                };
-
-                                // Coulomb (J) permutations: (pq|rs) symmetry
-                                const int jt_slot[8][4] = {
-                                    {0, 1, 2, 3}, {1, 0, 2, 3},
-                                    {0, 1, 3, 2}, {1, 0, 3, 2},
-                                    {2, 3, 0, 1}, {3, 2, 0, 1},
-                                    {2, 3, 1, 0}, {3, 2, 1, 0}};
-                                accumulate_8perm(
-                                    jt_slot,
-                                    [&](int i0, int i1, int i2, int i3)
-                                    {
-                                        return 0.5 *
-                                               (double)P_coul[i0 * nao + i1] *
-                                               (double)P_coul[i2 * nao + i3];
-                                    },
-                                    gamma_j);
-
-                                // Exchange (K) permutations: (pr|qs) symmetry
-                                const int kt_slot[8][4] = {
-                                    {0, 2, 1, 3}, {0, 3, 1, 2},
-                                    {1, 2, 0, 3}, {1, 3, 0, 2},
-                                    {2, 0, 3, 1}, {2, 1, 3, 0},
-                                    {3, 0, 2, 1}, {3, 1, 2, 0}};
-
+                                double gamma =
+                                    sym * 4.0 *
+                                    (double)P_coul[p * nao + q_idx] *
+                                    (double)P_coul[r * nao + s];
                                 if (exx_scale_a != 0.0f)
-                                {
-                                    accumulate_8perm(
-                                        kt_slot,
-                                        [&](int i0, int i1, int i2, int i3)
-                                        {
-                                            return -0.5 *
-                                                   (double)exx_scale_a *
-                                                   (double)P_exx_a[i0 * nao + i1] *
-                                                   (double)P_exx_a[i2 * nao + i3];
-                                        },
-                                        gamma_k);
-                                }
+                                    gamma -=
+                                        sym * 2.0 * (double)exx_scale_a *
+                                        ((double)P_exx_a[p * nao + r] *
+                                             (double)
+                                                 P_exx_a[q_idx * nao + s] +
+                                         (double)P_exx_a[p * nao + s] *
+                                             (double)
+                                                 P_exx_a[q_idx * nao + r]);
+                                if (exx_scale_b != 0.0f &&
+                                    P_exx_b != nullptr)
+                                    gamma -=
+                                        sym * 2.0 * (double)exx_scale_b *
+                                        ((double)P_exx_b[p * nao + r] *
+                                             (double)
+                                                 P_exx_b[q_idx * nao + s] +
+                                         (double)P_exx_b[p * nao + s] *
+                                             (double)
+                                                 P_exx_b[q_idx * nao + r]);
 
-                                if (exx_scale_b != 0.0f && P_exx_b != nullptr)
-                                {
-                                    accumulate_8perm(
-                                        kt_slot,
-                                        [&](int i0, int i1, int i2, int i3)
-                                        {
-                                            return -0.5 *
-                                                   (double)exx_scale_b *
-                                                   (double)P_exx_b[i0 * nao + i1] *
-                                                   (double)P_exx_b[i2 * nao + i3];
-                                        },
-                                        gamma_k);
-                                }
-
+                                const int sph_idx =
+                                    ((ci * nj + cj) * nk + ck) * nl + cl;
+                                gamma_buf0[(size_t)sph_idx] = (float)gamma;
                             }
                         }
                     }
+                }
+
+                // Step 2: transform gamma from spherical to Cartesian basis
+                float* gamma_cart;
+                if (is_spherical)
+                {
+                    const int dims_cart_arr[4] = {ni_cart, nj_cart,
+                                                   nk_cart, nl_cart};
+                    const int dims_sph_arr[4] = {bra.dims_sph[0],
+                                                  bra.dims_sph[1],
+                                                  ket.dims_sph[0],
+                                                  ket.dims_sph[1]};
+                    const int off_cart_arr[4] = {bra.off_cart[0],
+                                                  bra.off_cart[1],
+                                                  ket.off_cart[0],
+                                                  ket.off_cart[1]};
+                    const int off_sph_arr[4] = {bra.off_eff[0],
+                                                 bra.off_eff[1],
+                                                 ket.off_eff[0],
+                                                 ket.off_eff[1]};
+                    QC_Sph2Cart_Density_CPU(cart2sph_mat, nao_sph,
+                                            off_cart_arr, off_sph_arr,
+                                            dims_cart_arr, dims_sph_arr,
+                                            gamma_buf0.data(),
+                                            gamma_buf1.data());
+                    gamma_cart = gamma_buf0.data();
+                }
+                else
+                {
+                    gamma_cart = gamma_buf0.data();
+                }
+
+                // Check if gamma has any significant elements
+                float max_gamma = 0.0f;
+                for (int i = 0; i < shell_size_cart; i++)
+                    max_gamma = fmaxf(max_gamma, fabsf(gamma_cart[i]));
+                if (max_gamma < 1e-15f) continue;
+
+                const float AB[3] = {bra.R[0][0] - bra.R[1][0],
+                                     bra.R[0][1] - bra.R[1][1],
+                                     bra.R[0][2] - bra.R[1][2]};
+                const float CD[3] = {ket.R[0][0] - ket.R[1][0],
+                                     ket.R[0][1] - ket.R[1][1],
+                                     ket.R[0][2] - ket.R[1][2]};
+
+                const int nrys = (L_sum + 3) / 2;
+                const int g_stride = kl_am + 2;
+                const int ix_d2 = (l[3] + 1);
+                const int ix_d1 = (l[2] + 2) * ix_d2;
+                const int ix_d0 = (l[1] + 2) * ix_d1;
+                const int I_size = (l[0] + 2) * ix_d0;
+
+                // Gradient accumulators for this quartet (double precision)
+                double g_A[3] = {0.0, 0.0, 0.0};
+                double g_B[3] = {0.0, 0.0, 0.0};
+                double g_C[3] = {0.0, 0.0, 0.0};
+
+                // Threshold: use factored contraction for high angular momentum
+                const bool use_factored = (L_sum >= 6);
+
+                // ==== Primitive loop (Rys quadrature) ====
+                for (const auto& bp : bra_prims)
+                {
+                    const float two_ai = 2.0f * bp.ai;
+                    const float two_aj = 2.0f * bp.aj;
+
+                    for (int kp = 0; kp < ket.np[0]; kp++)
+                    {
+                        const float ak = env[ket.p_exp[0] + kp];
+                        const float two_ak = 2.0f * ak;
+                        for (int lp = 0; lp < ket.np[1]; lp++)
+                        {
+                            const float al = env[ket.p_exp[1] + lp];
+                            const float q_val = ak + al;
+                            const float inv_q = 1.0f / q_val;
+                            const float kcd =
+                                expf(-(ak * al * inv_q) * ket.pair_dist2);
+                            const float pref =
+                                2.0f * PI_25 /
+                                (bp.p * q_val * sqrtf(bp.p + q_val));
+                            const float n_abcd =
+                                bp.n_ab * env[ket.p_cof[0] + kp] *
+                                env[ket.p_cof[1] + lp] * kcd * pref;
+                            if (fabsf(n_abcd) < prim_screen_tol) continue;
+
+                            float Q[3], QCv[3], PQ[3];
+                            for (int d = 0; d < 3; d++)
+                            {
+                                Q[d] = (ak * ket.R[0][d] + al * ket.R[1][d]) *
+                                       inv_q;
+                                QCv[d] = Q[d] - ket.R[0][d];
+                                PQ[d] = bp.P[d] - Q[d];
+                            }
+                            const float rho =
+                                bp.p * q_val / (bp.p + q_val);
+                            const float T =
+                                rho * (PQ[0] * PQ[0] + PQ[1] * PQ[1] +
+                                       PQ[2] * PQ[2]);
+
+                            double rys_r[MAX_NRYS], rys_w[MAX_NRYS];
+                            rys_roots_weights(nrys, (double)T, rys_r, rys_w);
+
+                            if (use_factored)
+                            {
+                            // === HIGH-L PATH: Factored contraction ===
+                            // Store all roots' I arrays, then contract gamma
+                            // with two axes at once for each derivative axis.
+                            double all_wn[MAX_NRYS];
+                            float* aIx = all_Ix_buf.data();
+                            float* aIy = all_Iy_buf.data();
+                            float* aIz = all_Iz_buf.data();
+                            for (int ir = 0; ir < nrys; ir++)
+                            {
+                                const float u = (float)rys_r[ir];
+                                const float w = (float)rys_w[ir];
+                                all_wn[ir] = (double)n_abcd * (double)w;
+                                const float factor = u / (bp.p + q_val);
+                                const float B00 = 0.5f * factor;
+                                const float B10 =
+                                    0.5f / bp.p * (1.0f - q_val * factor);
+                                const float B01 =
+                                    0.5f / q_val * (1.0f - bp.p * factor);
+
+                                float Gx[120], Gy[120], Gz[120];
+                                const float Cx_bra[3] = {
+                                    bp.PA[0] - factor * q_val * PQ[0],
+                                    bp.PA[1] - factor * q_val * PQ[1],
+                                    bp.PA[2] - factor * q_val * PQ[2]};
+                                const float Cx_ket[3] = {
+                                    QCv[0] + factor * bp.p * PQ[0],
+                                    QCv[1] + factor * bp.p * PQ[1],
+                                    QCv[2] + factor * bp.p * PQ[2]};
+
+                                QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[0], Cx_ket[0],
+                                    B00, B10, B01);
+                                QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[1], Cx_ket[1],
+                                    B00, B10, B01);
+                                QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[2], Cx_ket[2],
+                                    B00, B10, B01);
+
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gx, ij_am, kl_am, g_stride, l,
+                                    AB[0], CD[0], &aIx[ir * I_size],
+                                    ix_d0, ix_d1, ix_d2);
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gy, ij_am, kl_am, g_stride, l,
+                                    AB[1], CD[1], &aIy[ir * I_size],
+                                    ix_d0, ix_d1, ix_d2);
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gz, ij_am, kl_am, g_stride, l,
+                                    AB[2], CD[2], &aIz[ir * I_size],
+                                    ix_d0, ix_d1, ix_d2);
+                            }
+
+                            const float* all_I[3] = {aIx, aIy, aIz};
+                            for (int d_ax = 0; d_ax < 3; d_ax++)
+                            {
+                                const int a1 = (d_ax + 1) % 3;
+                                const int a2 = (d_ax + 2) % 3;
+                                const float* Id = all_I[d_ax];
+                                const float* Ic1 = all_I[a1];
+                                const float* Ic2 = all_I[a2];
+
+                                for (int i0d = 0; i0d <= l[0]; i0d++)
+                                for (int i1d = 0; i1d <= l[1]; i1d++)
+                                for (int i2d = 0; i2d <= l[2]; i2d++)
+                                for (int i3d = 0; i3d <= l[3]; i3d++)
+                                {
+                                    const int bd = i0d * ix_d0 + i1d * ix_d1 +
+                                                   i2d * ix_d2 + i3d;
+                                    double sum[MAX_NRYS] = {};
+
+                                    for (int i0c = 0; i0c <= l[0] - i0d; i0c++)
+                                    {
+                                        const int i0t = l[0] - i0d - i0c;
+                                        int i0x, i0y;
+                                        if (d_ax == 0) { i0x = i0d; i0y = i0c; }
+                                        else if (d_ax == 1) { i0x = i0t; i0y = i0d; }
+                                        else { i0x = i0c; i0y = i0t; }
+                                        const int r0 = l[0] - i0x;
+                                        const int c0 = r0 * (r0 + 1) / 2 + (r0 - i0y);
+
+                                    for (int i1c = 0; i1c <= l[1] - i1d; i1c++)
+                                    {
+                                        const int i1t = l[1] - i1d - i1c;
+                                        int i1x, i1y;
+                                        if (d_ax == 0) { i1x = i1d; i1y = i1c; }
+                                        else if (d_ax == 1) { i1x = i1t; i1y = i1d; }
+                                        else { i1x = i1c; i1y = i1t; }
+                                        const int r1 = l[1] - i1x;
+                                        const int c1 = r1 * (r1 + 1) / 2 + (r1 - i1y);
+
+                                    for (int i2c = 0; i2c <= l[2] - i2d; i2c++)
+                                    {
+                                        const int i2t = l[2] - i2d - i2c;
+                                        int i2x, i2y;
+                                        if (d_ax == 0) { i2x = i2d; i2y = i2c; }
+                                        else if (d_ax == 1) { i2x = i2t; i2y = i2d; }
+                                        else { i2x = i2c; i2y = i2t; }
+                                        const int r2 = l[2] - i2x;
+                                        const int c2 = r2 * (r2 + 1) / 2 + (r2 - i2y);
+
+                                        const int bc1_base =
+                                            i0c * ix_d0 + i1c * ix_d1 +
+                                            i2c * ix_d2;
+                                        const int bc2_base =
+                                            i0t * ix_d0 + i1t * ix_d1 +
+                                            i2t * ix_d2;
+                                        const int idx_base =
+                                            ((c0 * nj_cart + c1) * nk_cart +
+                                             c2) * nl_cart;
+
+                                    for (int i3c = 0; i3c <= l[3] - i3d; i3c++)
+                                    {
+                                        const int i3t = l[3] - i3d - i3c;
+                                        int i3x, i3y;
+                                        if (d_ax == 0) { i3x = i3d; i3y = i3c; }
+                                        else if (d_ax == 1) { i3x = i3t; i3y = i3d; }
+                                        else { i3x = i3c; i3y = i3t; }
+                                        const int r3 = l[3] - i3x;
+                                        const int c3 = r3 * (r3 + 1) / 2 + (r3 - i3y);
+
+                                        const float g = gamma_cart[idx_base + c3];
+                                        if (g == 0.0f) continue;
+
+                                        const int bc1 = bc1_base + i3c;
+                                        const int bc2 = bc2_base + i3t;
+
+                                        for (int ir = 0; ir < nrys; ir++)
+                                            sum[ir] += (double)g * all_wn[ir] *
+                                                (double)Ic1[ir * I_size + bc1] *
+                                                (double)Ic2[ir * I_size + bc2];
+                                    }}}}
+
+                                    for (int ir = 0; ir < nrys; ir++)
+                                    {
+                                        if (sum[ir] == 0.0) continue;
+                                        double dA =
+                                            (double)two_ai *
+                                            (double)Id[ir * I_size + bd + ix_d0];
+                                        if (i0d > 0)
+                                            dA -= (double)i0d *
+                                                  (double)Id[ir * I_size + bd - ix_d0];
+                                        g_A[d_ax] += sum[ir] * dA;
+
+                                        double dB =
+                                            (double)two_aj *
+                                            (double)Id[ir * I_size + bd + ix_d1];
+                                        if (i1d > 0)
+                                            dB -= (double)i1d *
+                                                  (double)Id[ir * I_size + bd - ix_d1];
+                                        g_B[d_ax] += sum[ir] * dB;
+
+                                        double dC =
+                                            (double)two_ak *
+                                            (double)Id[ir * I_size + bd + ix_d2];
+                                        if (i2d > 0)
+                                            dC -= (double)i2d *
+                                                  (double)Id[ir * I_size + bd - ix_d2];
+                                        g_C[d_ax] += sum[ir] * dC;
+                                    }
+                                }
+                            }
+                            } // end factored path
+                            else
+                            {
+                            // === LOW-L PATH: Direct per-root assembly ===
+                            for (int ir = 0; ir < nrys; ir++)
+                            {
+                                const float u = (float)rys_r[ir];
+                                const float w = (float)rys_w[ir];
+                                const float factor = u / (bp.p + q_val);
+                                const float B00 = 0.5f * factor;
+                                const float B10 =
+                                    0.5f / bp.p * (1.0f - q_val * factor);
+                                const float B01 =
+                                    0.5f / q_val * (1.0f - bp.p * factor);
+
+                                float Gx[120], Gy[120], Gz[120];
+                                const float Cx_bra[3] = {
+                                    bp.PA[0] - factor * q_val * PQ[0],
+                                    bp.PA[1] - factor * q_val * PQ[1],
+                                    bp.PA[2] - factor * q_val * PQ[2]};
+                                const float Cx_ket[3] = {
+                                    QCv[0] + factor * bp.p * PQ[0],
+                                    QCv[1] + factor * bp.p * PQ[1],
+                                    QCv[2] + factor * bp.p * PQ[2]};
+
+                                QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[0], Cx_ket[0],
+                                    B00, B10, B01);
+                                QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[1], Cx_ket[1],
+                                    B00, B10, B01);
+                                QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
+                                    g_stride, Cx_bra[2], Cx_ket[2],
+                                    B00, B10, B01);
+
+                                float Ix[500], Iy[500], Iz[500];
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gx, ij_am, kl_am, g_stride, l,
+                                    AB[0], CD[0], Ix, ix_d0, ix_d1, ix_d2);
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gy, ij_am, kl_am, g_stride, l,
+                                    AB[1], CD[1], Iy, ix_d0, ix_d1, ix_d2);
+                                QC_Grad_Factored_HRR_Batch(
+                                    Gz, ij_am, kl_am, g_stride, l,
+                                    AB[2], CD[2], Iz, ix_d0, ix_d1, ix_d2);
+
+                                const float wn = n_abcd * w;
+                                int idx = 0;
+                                for (int c0 = 0; c0 < ni_cart; c0++)
+                                {
+                                    const int i0x = bra.comp_x[0][c0];
+                                    const int i0y = bra.comp_y[0][c0];
+                                    const int i0z = bra.comp_z[0][c0];
+                                    for (int c1 = 0; c1 < nj_cart; c1++)
+                                    {
+                                        const int i1x = bra.comp_x[1][c1];
+                                        const int i1y = bra.comp_y[1][c1];
+                                        const int i1z = bra.comp_z[1][c1];
+                                        for (int c2 = 0; c2 < nk_cart; c2++)
+                                        {
+                                            const int i2x = ket.comp_x[0][c2];
+                                            const int i2y = ket.comp_y[0][c2];
+                                            const int i2z = ket.comp_z[0][c2];
+                                            const int bx_base =
+                                                i0x * ix_d0 + i1x * ix_d1 +
+                                                i2x * ix_d2;
+                                            const int by_base =
+                                                i0y * ix_d0 + i1y * ix_d1 +
+                                                i2y * ix_d2;
+                                            const int bz_base =
+                                                i0z * ix_d0 + i1z * ix_d1 +
+                                                i2z * ix_d2;
+
+                                            for (int c3 = 0; c3 < nl_cart;
+                                                 c3++, idx++)
+                                            {
+                                                const float g = gamma_cart[idx];
+                                                if (g == 0.0f) continue;
+
+                                                const int i3x = ket.comp_x[1][c3];
+                                                const int i3y = ket.comp_y[1][c3];
+                                                const int i3z = ket.comp_z[1][c3];
+                                                const int bx = bx_base + i3x;
+                                                const int by = by_base + i3y;
+                                                const int bz = bz_base + i3z;
+
+                                                const double gwn =
+                                                    (double)g * (double)wn;
+
+                                                const double yz =
+                                                    (double)Iy[by] * (double)Iz[bz];
+                                                float cAx = two_ai * Ix[bx + ix_d0];
+                                                if (i0x > 0) cAx -= (float)i0x * Ix[bx - ix_d0];
+                                                float cBx = two_aj * Ix[bx + ix_d1];
+                                                if (i1x > 0) cBx -= (float)i1x * Ix[bx - ix_d1];
+                                                float cCx = two_ak * Ix[bx + ix_d2];
+                                                if (i2x > 0) cCx -= (float)i2x * Ix[bx - ix_d2];
+                                                const double fxyz = gwn * yz;
+                                                g_A[0] += fxyz * (double)cAx;
+                                                g_B[0] += fxyz * (double)cBx;
+                                                g_C[0] += fxyz * (double)cCx;
+
+                                                const double xz =
+                                                    (double)Ix[bx] * (double)Iz[bz];
+                                                float cAy = two_ai * Iy[by + ix_d0];
+                                                if (i0y > 0) cAy -= (float)i0y * Iy[by - ix_d0];
+                                                float cBy = two_aj * Iy[by + ix_d1];
+                                                if (i1y > 0) cBy -= (float)i1y * Iy[by - ix_d1];
+                                                float cCy = two_ak * Iy[by + ix_d2];
+                                                if (i2y > 0) cCy -= (float)i2y * Iy[by - ix_d2];
+                                                const double fxyz_y = gwn * xz;
+                                                g_A[1] += fxyz_y * (double)cAy;
+                                                g_B[1] += fxyz_y * (double)cBy;
+                                                g_C[1] += fxyz_y * (double)cCy;
+
+                                                const double xy =
+                                                    (double)Ix[bx] * (double)Iy[by];
+                                                float cAz = two_ai * Iz[bz + ix_d0];
+                                                if (i0z > 0) cAz -= (float)i0z * Iz[bz - ix_d0];
+                                                float cBz = two_aj * Iz[bz + ix_d1];
+                                                if (i1z > 0) cBz -= (float)i1z * Iz[bz - ix_d1];
+                                                float cCz = two_ak * Iz[bz + ix_d2];
+                                                if (i2z > 0) cCz -= (float)i2z * Iz[bz - ix_d2];
+                                                const double fxyz_z = gwn * xy;
+                                                g_A[2] += fxyz_z * (double)cAz;
+                                                g_B[2] += fxyz_z * (double)cBz;
+                                                g_C[2] += fxyz_z * (double)cCz;
+                                            }
+                                        }
+                                    }
+                                }
+                            } // end Rys roots (direct path)
+                            } // end direct path
+                        }
+                    }
+                } // end primitives
+
+                // Write to grad_local with translational invariance
+                for (int d = 0; d < 3; d++)
+                {
+                    grad_local[(size_t)atom_A * 3 + d] += g_A[d];
+                    grad_local[(size_t)atom_B * 3 + d] += g_B[d];
+                    grad_local[(size_t)atom_C * 3 + d] += g_C[d];
+                    grad_local[(size_t)atom_D * 3 + d] -=
+                        (g_A[d] + g_B[d] + g_C[d]);
                 }
             }
         }
@@ -1035,9 +861,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
             for (size_t i = 0; i < grad_local.size(); i++)
                 grad[i] += grad_local[i];
         }
-        free(HR);
     }
-
 }
 
 #endif // USE_GPU
