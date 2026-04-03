@@ -131,17 +131,20 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
 
     // Incremental Fock buffers
     alloc_zero_float(&scf_ws.direct.d_P_coul_prev, nao2);
+    alloc_zero_float(&scf_ws.direct.d_F_eri_accum_f, nao2);
     alloc_zero_double(&scf_ws.direct.d_F_eri_accum, nao2);
     if (unrestricted)
     {
         alloc_zero_float(&scf_ws.direct.d_P_exx_prev, nao2);
         alloc_zero_float(&scf_ws.direct.d_P_exx_b_prev, nao2);
+        alloc_zero_float(&scf_ws.direct.d_F_eri_b_accum_f, nao2);
         alloc_zero_double(&scf_ws.direct.d_F_eri_b_accum, nao2);
     }
     else
     {
         scf_ws.direct.d_P_exx_prev = NULL;
         scf_ws.direct.d_P_exx_b_prev = NULL;
+        scf_ws.direct.d_F_eri_b_accum_f = NULL;
         scf_ws.direct.d_F_eri_b_accum = NULL;
     }
 

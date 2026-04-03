@@ -125,8 +125,10 @@ struct QC_SCF_Direct_Workspace
     float* d_P_coul_prev = NULL;
     float* d_P_exx_prev = NULL;
     float* d_P_exx_b_prev = NULL;
-    double* d_F_eri_accum = NULL;
+    double* d_F_eri_accum = NULL;     // CPU: double-precision accumulator
     double* d_F_eri_b_accum = NULL;
+    float* d_F_eri_accum_f = NULL;    // GPU: float accumulator
+    float* d_F_eri_b_accum_f = NULL;
 };
 
 // SCF 配置、收敛状态与能量累计缓冲

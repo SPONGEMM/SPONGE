@@ -1,44 +1,34 @@
 ﻿#pragma once
 
-// 批量 Tr(A_i · B_j): 拷到 host 后用 CPU BLAS 计算（避免 GPU 同步开销）
+// 批量 Tr(A_i · B_j): 在 device 上用 BLAS 计算，避免大量 D2H 拷贝
 // h_out[i*mb+j] = Σ_k a_row[i][k] * b_row[j][k]
-static void QC_Batched_Trace(BLAS_HANDLE /*blas_handle*/, int n, int ma,
+static void QC_Batched_Trace(BLAS_HANDLE blas_handle, int n, int ma,
                              const double* const* a_ptrs, int mb,
                              const double* const* b_ptrs,
-                             double* d_gather_a, double* /*d_gather_b*/,
-                             double* /*d_dot_out*/,
+                             double* d_gather_a, double* d_gather_b,
+                             double* d_dot_out,
                              std::vector<double>& h_out)
 {
     h_out.assign(ma * mb, 0.0);
     if (ma == 0 || mb == 0) return;
 
-    // 拷贝历史向量到 host（各 m 次 D2H，总数据量小）
     const size_t row_bytes = sizeof(double) * n;
-    // 复用 d_gather_a 作为 host 缓冲
-    std::vector<double> h_a(ma * (size_t)n), h_b(mb * (size_t)n);
-    for (int i = 0; i < ma; i++)
-        deviceMemcpy(h_a.data() + (size_t)i * n, a_ptrs[i], row_bytes,
-                     deviceMemcpyDeviceToHost);
-    for (int j = 0; j < mb; j++)
-        deviceMemcpy(h_b.data() + (size_t)j * n, b_ptrs[j], row_bytes,
-                     deviceMemcpyDeviceToHost);
 
-    // CPU 上 dgemm: D = B^T @ A → h_out[i*mb+j] = dot(a_i, b_j)
-#if defined(USE_MKL) || defined(USE_OPENBLAS)
-    const double one = 1.0, zero = 0.0;
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasTrans, ma, mb, n, one,
-                h_a.data(), n, h_b.data(), n, zero, h_out.data(), mb);
-#else
+    // D2D gather: 把分散的历史向量收集到连续 device 缓冲
     for (int i = 0; i < ma; i++)
-        for (int j = 0; j < mb; j++)
-        {
-            double s = 0.0;
-            const double* ai = h_a.data() + (size_t)i * n;
-            const double* bj = h_b.data() + (size_t)j * n;
-            for (int k = 0; k < n; k++) s += ai[k] * bj[k];
-            h_out[i * mb + j] = s;
-        }
-#endif
+        deviceMemcpy(d_gather_a + (size_t)i * n, a_ptrs[i], row_bytes,
+                     deviceMemcpyDeviceToDevice);
+    for (int j = 0; j < mb; j++)
+        deviceMemcpy(d_gather_b + (size_t)j * n, b_ptrs[j], row_bytes,
+                     deviceMemcpyDeviceToDevice);
+
+    // Device BLAS: C[ma × mb] = A[ma × n] * B^T[n × mb]
+    QC_Dgemm_NT(blas_handle, ma, mb, n, d_gather_a, n, d_gather_b, n,
+                d_dot_out, mb);
+
+    // 只拷回小结果矩阵 (ma × mb ≤ 36 doubles)
+    deviceMemcpy(h_out.data(), d_dot_out, sizeof(double) * ma * mb,
+                 deviceMemcpyDeviceToHost);
 }
 
 // ========================== DIIS 误差构造 ==========================

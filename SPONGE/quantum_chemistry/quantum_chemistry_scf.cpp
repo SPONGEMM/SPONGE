@@ -59,14 +59,8 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     {
         auto it0 = std::chrono::high_resolution_clock::now();
         Build_Fock(iter);
-#ifdef USE_GPU
-        hostDeviceSynchronize();
-#endif
         auto it1 = std::chrono::high_resolution_clock::now();
         Accumulate_SCF_Energy(iter);
-#ifdef USE_GPU
-        hostDeviceSynchronize();
-#endif
         auto it2 = std::chrono::high_resolution_clock::now();
 
         if (dft.enable_dft && iter < dft_warmup)
@@ -100,20 +94,12 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 scf_ws.runtime.level_shift = 0.25;
             }
         }
-#ifdef USE_GPU
-        hostDeviceSynchronize();
-#endif
         auto it3 = std::chrono::high_resolution_clock::now();
 
         Diagonalize_And_Build_Density();
-#ifdef USE_GPU
-        hostDeviceSynchronize();
-#endif
         auto it4 = std::chrono::high_resolution_clock::now();
         bool done = Check_Convergence(iter, md_step);
-#ifdef USE_GPU
-        hostDeviceSynchronize();
-#endif
+        // Check_Convergence 内部的 D2H 拷贝已提供隐式同步
         auto it5 = std::chrono::high_resolution_clock::now();
         auto ms = [](auto a, auto b)
         { return std::chrono::duration<double, std::milli>(b - a).count(); };

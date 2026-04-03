@@ -85,21 +85,15 @@ void QUANTUM_CHEMISTRY::Reset_SCF_State()
     deviceMemset(scf_ws.runtime.d_converged, 0, sizeof(int));
 
     // Reset incremental Fock state
-    if (scf_ws.direct.d_P_coul_prev)
-        deviceMemset(scf_ws.direct.d_P_coul_prev, 0,
-                     sizeof(float) * mol.nao2);
-    if (scf_ws.direct.d_F_eri_accum)
-        deviceMemset(scf_ws.direct.d_F_eri_accum, 0,
-                     sizeof(double) * mol.nao2);
-    if (scf_ws.direct.d_P_exx_prev)
-        deviceMemset(scf_ws.direct.d_P_exx_prev, 0,
-                     sizeof(float) * mol.nao2);
-    if (scf_ws.direct.d_P_exx_b_prev)
-        deviceMemset(scf_ws.direct.d_P_exx_b_prev, 0,
-                     sizeof(float) * mol.nao2);
-    if (scf_ws.direct.d_F_eri_b_accum)
-        deviceMemset(scf_ws.direct.d_F_eri_b_accum, 0,
-                     sizeof(double) * mol.nao2);
+    const size_t fb = sizeof(float) * mol.nao2;
+    const size_t db = sizeof(double) * mol.nao2;
+    if (scf_ws.direct.d_P_coul_prev) deviceMemset(scf_ws.direct.d_P_coul_prev, 0, fb);
+    if (scf_ws.direct.d_F_eri_accum) deviceMemset(scf_ws.direct.d_F_eri_accum, 0, db);
+    if (scf_ws.direct.d_F_eri_accum_f) deviceMemset(scf_ws.direct.d_F_eri_accum_f, 0, fb);
+    if (scf_ws.direct.d_P_exx_prev) deviceMemset(scf_ws.direct.d_P_exx_prev, 0, fb);
+    if (scf_ws.direct.d_P_exx_b_prev) deviceMemset(scf_ws.direct.d_P_exx_b_prev, 0, fb);
+    if (scf_ws.direct.d_F_eri_b_accum) deviceMemset(scf_ws.direct.d_F_eri_b_accum, 0, db);
+    if (scf_ws.direct.d_F_eri_b_accum_f) deviceMemset(scf_ws.direct.d_F_eri_b_accum_f, 0, fb);
 }
 
 // =========================== 单电子积分 ===========================
