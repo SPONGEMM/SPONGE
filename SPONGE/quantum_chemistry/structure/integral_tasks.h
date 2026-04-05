@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_INTEGRAL_TASKS_H
-#define QC_STRUCTURE_INTEGRAL_TASKS_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -93,5 +92,3 @@ struct QC_INTEGRAL_TASKS
     QC_Integral_Device_Buffers buffers;
     QC_Integral_Kernel_Params params;
 };
-
-#endif

@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_MOLECULE_H
-#define QC_STRUCTURE_MOLECULE_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -108,5 +107,3 @@ struct QC_MOLECULE
     std::vector<float> h_env;
     float* d_env = NULL;
 };
-
-#endif

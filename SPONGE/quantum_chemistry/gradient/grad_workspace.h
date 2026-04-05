@@ -1,5 +1,4 @@
-#ifndef QC_GRADIENT_WORKSPACE_H
-#define QC_GRADIENT_WORKSPACE_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -12,4 +11,3 @@ struct QC_GRAD_WORKSPACE
     float* d_W_density_beta = NULL;  // UHF beta 通道
 };
 
-#endif

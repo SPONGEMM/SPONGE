@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_MATRIX_H
-#define QC_STRUCTURE_MATRIX_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -111,5 +110,3 @@ void QC_Build_X_Canonical(int nao, int nao_eff, const double* eigvec_col,
 
 void QC_Rect_Double_To_Padded_Float(int nao, int ne, const double* src,
                                     float* dst);
-
-#endif

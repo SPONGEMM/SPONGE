@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_DFT_H
-#define QC_STRUCTURE_DFT_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -80,5 +79,3 @@ struct QC_DFT
     float* d_Wb_full = NULL;    // [grid_batch_size * nao]
     float* d_Wb_sigma = NULL;   // [grid_batch_size * nao]
 };
-
-#endif

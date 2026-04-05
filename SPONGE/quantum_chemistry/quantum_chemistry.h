@@ -1,8 +1,8 @@
-﻿#ifndef QUANTUM_CHEMISTRY_H
-#define QUANTUM_CHEMISTRY_H
+﻿#pragma once
 
 #include "../common.h"
 #include "../control.h"
+#include "gradient/grad_workspace.h"
 #include "structure/cart2sph.h"
 #include "structure/dft.h"
 #include "structure/integral_tasks.h"
@@ -10,7 +10,6 @@
 #include "structure/method.h"
 #include "structure/molecule.h"
 #include "structure/scf_workspace.h"
-#include "gradient/grad_workspace.h"
 
 #define ONE_E_BATCH_SIZE 4096
 #define PI_25 17.4934183276248628469f
@@ -61,7 +60,7 @@ struct QUANTUM_CHEMISTRY
     // 笛卡尔基组转球形基组
     QC_CARTESIAN_TO_SPHERICAL cart2sph;
 
-    int need_gradient = 1; // 是否计算梯度/力 (qc_need_gradient)
+    int need_gradient = 1;  // 是否计算梯度/力 (qc_need_gradient)
 
     // 外部入口
     void Initial(CONTROLLER* controller, const int atom_numbers,
@@ -69,8 +68,7 @@ struct QUANTUM_CHEMISTRY
     void Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                    bool need_energy = true, int md_step = -1);
     void Compute_Gradient(VECTOR* frc, const VECTOR* crd,
-                          const VECTOR box_length,
-                          int need_virial = 0,
+                          const VECTOR box_length, int need_virial = 0,
                           LTMatrix3* atom_virial = NULL);
 
     // 外部查询与输出
@@ -130,4 +128,3 @@ struct QUANTUM_CHEMISTRY
     void Compute_Spin_Square();
 };
 
-#endif

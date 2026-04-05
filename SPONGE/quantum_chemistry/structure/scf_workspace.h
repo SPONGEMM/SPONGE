@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_SCF_WORKSPACE_H
-#define QC_STRUCTURE_SCF_WORKSPACE_H
+﻿#pragma once
 
 #include "../../common.h"
 #include "ri_workspace.h"
@@ -37,7 +36,7 @@ struct QC_SCF_Ortho_Workspace
     double* d_X = NULL;
     std::vector<float> h_W;
     float* d_W = NULL;
-    float* d_W_alpha = NULL; // UHF: 保存 alpha 特征值（beta 会覆盖 d_W）
+    float* d_W_alpha = NULL;  // UHF: 保存 alpha 特征值（beta 会覆盖 d_W）
     std::vector<float> h_Work;
     float* d_Work = NULL;
     float* d_solver_work = NULL;
@@ -126,9 +125,9 @@ struct QC_SCF_Direct_Workspace
     float* d_P_coul_prev = NULL;
     float* d_P_exx_prev = NULL;
     float* d_P_exx_b_prev = NULL;
-    double* d_F_eri_accum = NULL;     // CPU: double-precision accumulator
+    double* d_F_eri_accum = NULL;  // CPU: double-precision accumulator
     double* d_F_eri_b_accum = NULL;
-    float* d_F_eri_accum_f = NULL;    // GPU: float accumulator
+    float* d_F_eri_accum_f = NULL;  // GPU: float accumulator
     float* d_F_eri_b_accum_f = NULL;
 };
 
@@ -172,5 +171,3 @@ struct QC_SCF_WORKSPACE
     QC_SCF_Runtime_State runtime;
     QC_RI_WORKSPACE ri;
 };
-
-#endif

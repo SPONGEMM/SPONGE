@@ -1,3 +1,4 @@
+﻿// clang-format off
 #include "quantum_chemistry.h"
 #include "gradient/grad_one_e.hpp"
 #include "gradient/grad_workspace.h"
@@ -8,6 +9,7 @@
 #include "integrals/ri/ri_3center.hpp"
 #include "gradient/grad_eri.hpp"
 #include "gradient/grad_ri.hpp"
+// clang-format on
 
 std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
                                               int nao_cart, int nao_sph);
@@ -19,9 +21,9 @@ static __global__ void QC_Float_Accumulate_Kernel(int n, float* dst,
 }
 
 void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
-                                          const VECTOR box_length,
-                                          int need_virial,
-                                          LTMatrix3* atom_virial)
+                                         const VECTOR box_length,
+                                         int need_virial,
+                                         LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
     const int natm = mol.natm;
@@ -39,10 +41,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             deviceMemcpy(scf_ws.alpha.d_F_double, scf_ws.alpha.d_F_for_grad,
                          sizeof(double) * nao2, deviceMemcpyDeviceToDevice);
             if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_for_grad)
-                deviceMemcpy(scf_ws.beta.d_F_double,
-                             scf_ws.beta.d_F_for_grad,
-                             sizeof(double) * nao2,
-                             deviceMemcpyDeviceToDevice);
+                deviceMemcpy(scf_ws.beta.d_F_double, scf_ws.beta.d_F_for_grad,
+                             sizeof(double) * nao2, deviceMemcpyDeviceToDevice);
         }
         else
         {
@@ -62,20 +62,17 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                                          : scf_ws.ortho.d_W;
         float* d_D_tmp = scf_ws.alpha.d_F;
         QC_Build_Energy_Weighted_Density(
-            blas_handle, nao, scf_ws.runtime.n_alpha,
-            scf_ws.runtime.occ_factor, scf_ws.alpha.d_C, alpha_epsilon,
-            grad_ws.d_W_density, d_D_tmp);
+            blas_handle, nao, scf_ws.runtime.n_alpha, scf_ws.runtime.occ_factor,
+            scf_ws.alpha.d_C, alpha_epsilon, grad_ws.d_W_density, d_D_tmp);
 
         if (scf_ws.runtime.unrestricted && grad_ws.d_W_density_beta)
         {
             float* d_D_tmp_b = scf_ws.beta.d_F;
             QC_Build_Energy_Weighted_Density(
-                blas_handle, nao, scf_ws.runtime.n_beta, 1.0f,
-                scf_ws.beta.d_C, scf_ws.ortho.d_W,
-                grad_ws.d_W_density_beta, d_D_tmp_b);
-            Launch_Device_Kernel(QC_Float_Accumulate_Kernel,
-                                 (nao2 + 255) / 256, 256, 0, 0, nao2,
-                                 grad_ws.d_W_density,
+                blas_handle, nao, scf_ws.runtime.n_beta, 1.0f, scf_ws.beta.d_C,
+                scf_ws.ortho.d_W, grad_ws.d_W_density_beta, d_D_tmp_b);
+            Launch_Device_Kernel(QC_Float_Accumulate_Kernel, (nao2 + 255) / 256,
+                                 256, 0, 0, nao2, grad_ws.d_W_density,
                                  grad_ws.d_W_density_beta);
         }
     }
@@ -108,8 +105,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 mol.h_exps, mol.h_coeffs, mol.h_shell_offsets,
                 mol.h_shell_sizes, mol.h_ao_offsets, mol.h_ao_offsets_sph,
                 mol.h_atm, mol.h_env, h_shell_atom, scf_ws.direct.d_P_coul,
-                grad_ws.d_W_density, scf_ws.ortho.d_norms,
-                h_cart2sph.data(), mol.natm, mol.nao_sph, grad_ws.d_grad);
+                grad_ws.d_W_density, scf_ws.ortho.d_norms, h_cart2sph.data(),
+                mol.natm, mol.nao_sph, grad_ws.d_grad);
         }
         else
 #endif
@@ -121,23 +118,23 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             const int n_tasks = task_ctx.topo.n_1e_tasks;
 
             // S/T 梯度: 按 shell pair 并行 (轻量级，无 R-tensor)
-            Launch_Device_Kernel(
-                OneE_ST_Grad_Kernel, (n_tasks + 63) / 64, 64, 0, 0,
-                n_tasks, task_ctx.buffers.d_1e_tasks, mol.d_centers,
-                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
-                mol.d_shell_sizes, mol.d_ao_offsets, nao_1e,
-                grad_ws.d_shell_atom, d_P_use, d_W_use, d_norms_use,
-                grad_ws.d_grad);
+            Launch_Device_Kernel(OneE_ST_Grad_Kernel, (n_tasks + 63) / 64, 64,
+                                 0, 0, n_tasks, task_ctx.buffers.d_1e_tasks,
+                                 mol.d_centers, mol.d_l_list, mol.d_exps,
+                                 mol.d_coeffs, mol.d_shell_offsets,
+                                 mol.d_shell_sizes, mol.d_ao_offsets, nao_1e,
+                                 grad_ws.d_shell_atom, d_P_use, d_W_use,
+                                 d_norms_use, grad_ws.d_grad);
 
             // V 梯度: 按 (shell_pair × atom) 并行 (natm× 更多线程)
             const int v_total = n_tasks * mol.natm;
             Launch_Device_Kernel(
-                OneE_V_Grad_Kernel, (v_total + 63) / 64, 64, 0, 0,
-                n_tasks, task_ctx.buffers.d_1e_tasks, mol.d_centers,
-                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+                OneE_V_Grad_Kernel, (v_total + 63) / 64, 64, 0, 0, n_tasks,
+                task_ctx.buffers.d_1e_tasks, mol.d_centers, mol.d_l_list,
+                mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
                 mol.d_shell_sizes, mol.d_ao_offsets, mol.d_atm, mol.d_env,
-                mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use,
-                d_norms_use, grad_ws.d_grad);
+                mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use, d_norms_use,
+                grad_ws.d_grad);
         }
     }
 
@@ -156,28 +153,12 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     {
 #ifndef USE_GPU
         QC_Build_ERI_Gradient_CPU(
-            task_ctx, mol.nbas, mol.d_atm, mol.d_bas, mol.d_env,
-            mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
-            task_ctx.buffers.d_shell_pair_bounds,
-            scf_ws.direct.d_pair_density_coul,
-            scf_ws.direct.d_pair_density_exx,
-            scf_ws.runtime.unrestricted ? scf_ws.direct.d_pair_density_exx_b
-                                        : (const float*)nullptr,
-            grad_shell_screen_tol, scf_ws.direct.d_P_coul,
-            scf_ws.alpha.d_P,
-            scf_ws.runtime.unrestricted ? scf_ws.beta.d_P
-                                        : (const float*)nullptr,
-            scf_ws.runtime.unrestricted ? dft.exx_fraction
-                                        : (0.5f * dft.exx_fraction),
-            scf_ws.runtime.unrestricted ? dft.exx_fraction : 0.0f,
-            nao, mol.nao_sph, mol.is_spherical,
-            cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom, grad_ws.d_grad,
-            task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
-            task_ctx.params.eri_shell_buf_size,
-            grad_prim_screen_tol,
-            scf_ws.direct.fock_thread_count);
+            task_ctx, mol, cart2sph, scf_ws, dft.exx_fraction,
+            grad_shell_screen_tol, grad_prim_screen_tol,
+            grad_ws.d_shell_atom, grad_ws.d_grad);
 #else
-        // GPU ERI gradient: reuse screening infrastructure, launch gradient kernel
+        // GPU ERI gradient: reuse screening infrastructure, launch gradient
+        // kernel
         {
             // 0. Refresh pair density for screening (Fock build may have
             //    left stale incremental values)
@@ -187,17 +168,15 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 Launch_Device_Kernel(
                     QC_Build_Shell_Pair_Density_Kernel,
                     (task_ctx.topo.n_shell_pairs + threads_pd - 1) / threads_pd,
-                    threads_pd, 0, 0,
-                    task_ctx.topo.n_shell_pairs,
-                    task_ctx.buffers.d_shell_pairs,
-                    mol.d_ao_offsets, mol.d_ao_offsets_sph, mol.d_l_list,
-                    mol.is_spherical, nao,
-                    scf_ws.direct.d_P_coul,
-                    scf_ws.direct.d_pair_density_coul,
+                    threads_pd, 0, 0, task_ctx.topo.n_shell_pairs,
+                    task_ctx.buffers.d_shell_pairs, mol.d_ao_offsets,
+                    mol.d_ao_offsets_sph, mol.d_l_list, mol.is_spherical, nao,
+                    scf_ws.direct.d_P_coul, scf_ws.direct.d_pair_density_coul,
                     need_exx_pd ? scf_ws.alpha.d_P : (const float*)nullptr,
                     scf_ws.direct.d_pair_density_exx,
                     (need_exx_pd && scf_ws.runtime.unrestricted)
-                        ? scf_ws.beta.d_P : (const float*)nullptr,
+                        ? scf_ws.beta.d_P
+                        : (const float*)nullptr,
                     scf_ws.direct.d_pair_density_exx_b);
             }
 
@@ -208,11 +187,9 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             static int* s_d_combo_prefix_grad = NULL;
             static int s_combo_prefix_grad_size = 0;
             const int cp_needed = task_ctx.topo.n_combos + 1;
-            if (!s_d_combo_prefix_grad ||
-                s_combo_prefix_grad_size < cp_needed)
+            if (!s_d_combo_prefix_grad || s_combo_prefix_grad_size < cp_needed)
             {
-                if (s_d_combo_prefix_grad)
-                    deviceFree(s_d_combo_prefix_grad);
+                if (s_d_combo_prefix_grad) deviceFree(s_d_combo_prefix_grad);
                 Device_Malloc_Safely((void**)&s_d_combo_prefix_grad,
                                      sizeof(int) * cp_needed);
                 s_combo_prefix_grad_size = cp_needed;
@@ -224,9 +201,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             const float exx_a = scf_ws.runtime.unrestricted
                                     ? dft.exx_fraction
                                     : (0.5f * dft.exx_fraction);
-            const float exx_b = scf_ws.runtime.unrestricted
-                                    ? dft.exx_fraction
-                                    : 0.0f;
+            const float exx_b =
+                scf_ws.runtime.unrestricted ? dft.exx_fraction : 0.0f;
 
             QC_Launch_Screen(
                 task_ctx.topo.total_quartets, task_ctx.buffers.d_combos,
@@ -236,9 +212,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 task_ctx.buffers.d_shell_pair_bounds,
                 scf_ws.direct.d_pair_density_coul,
                 scf_ws.direct.d_pair_density_exx,
-                scf_ws.runtime.unrestricted
-                    ? scf_ws.direct.d_pair_density_exx_b
-                    : (const float*)nullptr,
+                scf_ws.runtime.unrestricted ? scf_ws.direct.d_pair_density_exx_b
+                                            : (const float*)nullptr,
                 grad_shell_screen_tol, exx_a, exx_b,
                 task_ctx.buffers.d_screened_tasks,
                 task_ctx.buffers.d_screen_counts);
@@ -262,13 +237,11 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 const int grad_size = natm * 3;
                 const size_t copies_needed =
                     (size_t)N_GRAD_COPIES * (size_t)grad_size;
-                if (!s_d_grad_copies ||
-                    s_grad_copies_size < grad_size)
+                if (!s_d_grad_copies || s_grad_copies_size < grad_size)
                 {
                     if (s_d_grad_copies) deviceFree(s_d_grad_copies);
-                    Device_Malloc_Safely(
-                        (void**)&s_d_grad_copies,
-                        sizeof(double) * copies_needed);
+                    Device_Malloc_Safely((void**)&s_d_grad_copies,
+                                         sizeof(double) * copies_needed);
                     s_grad_copies_size = grad_size;
                 }
                 deviceMemset(s_d_grad_copies, 0,
@@ -285,11 +258,9 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                         task_ctx.topo.h_combos[ci].output_offset;
 
                     Launch_Device_Kernel(
-                        QC_ERI_Grad_Kernel,
-                        (n + threads - 1) / threads, threads, 0, 0,
-                        n, d_tasks,
-                        mol.d_atm, mol.d_bas, mol.d_env,
-                        mol.d_ao_offsets, mol.d_ao_offsets_sph,
+                        QC_ERI_Grad_Kernel, (n + threads - 1) / threads,
+                        threads, 0, 0, n, d_tasks, mol.d_atm, mol.d_bas,
+                        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
                         scf_ws.ortho.d_norms,
                         task_ctx.buffers.d_shell_pair_bounds,
                         scf_ws.direct.d_pair_density_coul,
@@ -297,26 +268,21 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                         scf_ws.runtime.unrestricted
                             ? scf_ws.direct.d_pair_density_exx_b
                             : (const float*)nullptr,
-                        grad_shell_screen_tol,
-                        scf_ws.direct.d_P_coul,
+                        grad_shell_screen_tol, scf_ws.direct.d_P_coul,
                         scf_ws.alpha.d_P,
-                        scf_ws.runtime.unrestricted
-                            ? scf_ws.beta.d_P
-                            : (const float*)nullptr,
-                        exx_a, exx_b, nao, mol.nao_sph,
-                        mol.is_spherical, cart2sph.d_cart2sph_mat,
-                        grad_ws.d_shell_atom,
+                        scf_ws.runtime.unrestricted ? scf_ws.beta.d_P
+                                                    : (const float*)nullptr,
+                        exx_a, exx_b, nao, mol.nao_sph, mol.is_spherical,
+                        cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom,
                         s_d_grad_copies, N_GRAD_COPIES, natm,
                         grad_prim_screen_tol);
                 }
 
                 // 4. Reduce gradient copies
-                Launch_Device_Kernel(
-                    QC_Reduce_Grad_Copies_Kernel,
-                    (grad_size + 255) / 256, 256, 0, 0,
-                    grad_size, N_GRAD_COPIES,
-                    s_d_grad_copies, grad_ws.d_grad);
-
+                Launch_Device_Kernel(QC_Reduce_Grad_Copies_Kernel,
+                                     (grad_size + 255) / 256, 256, 0, 0,
+                                     grad_size, N_GRAD_COPIES, s_d_grad_copies,
+                                     grad_ws.d_grad);
             }
         }
 #endif
@@ -336,8 +302,9 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
 }
 
 // RI (Density Fitting) 解析梯度
-// 支持 stored 模式（直接下载预存的 eri3c）和 direct 模式（逐 shell pair 重新计算 3c 积分）。
-// 两种模式最终都构建相同的 D3_eff / D2_eff 有效密度，调用相同的梯度内核。
+// 支持 stored 模式（直接下载预存的 eri3c）和 direct 模式（逐 shell pair
+// 重新计算 3c 积分）。 两种模式最终都构建相同的 D3_eff / D2_eff
+// 有效密度，调用相同的梯度内核。
 void QUANTUM_CHEMISTRY::Build_RI_Gradient()
 {
 #ifndef USE_GPU
@@ -355,13 +322,12 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
     deviceMemcpy(h_metric_inv_sqrt.data(), ri.d_metric_inv_sqrt,
                  sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
 
-    const float* d_P_coul = scf_ws.runtime.unrestricted
-                                ? scf_ws.direct.d_Ptot
-                                : scf_ws.alpha.d_P;
+    const float* d_P_coul =
+        scf_ws.runtime.unrestricted ? scf_ws.direct.d_Ptot : scf_ws.alpha.d_P;
     deviceMemcpy(h_P.data(), d_P_coul, sizeof(float) * nao2,
                  deviceMemcpyDeviceToHost);
-    deviceMemcpy(h_orb_norms.data(), scf_ws.ortho.d_norms,
-                 sizeof(float) * nao, deviceMemcpyDeviceToHost);
+    deviceMemcpy(h_orb_norms.data(), scf_ws.ortho.d_norms, sizeof(float) * nao,
+                 deviceMemcpyDeviceToHost);
 
     const bool need_exx = (dft.exx_fraction != 0.0f);
     const int nocc = scf_ws.runtime.n_alpha;
@@ -385,24 +351,9 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
     auto launch_grad_kernels = [&](const std::vector<double>& D2_eff,
                                    const std::vector<double>& D3_eff)
     {
-        QC_Launch_RI_Grad_Kernels(
-            ri.naux_bas, mol.nbas, mol.is_spherical,
-            ri.naux_cart, naux, mol.nao_cart, nao,
-            max_aux_cart, max_orb_cart,
-            ri.d_aux_centers, ri.d_aux_l_list,
-            ri.d_aux_exps, ri.d_aux_coeffs,
-            ri.d_aux_shell_offsets, ri.d_aux_shell_sizes,
-            ri.d_aux_ao_offsets, ri.d_aux_ao_offsets_sph,
-            ri.d_aux_norms,
-            mol.d_centers, mol.d_l_list,
-            mol.d_exps, mol.d_coeffs,
-            mol.d_shell_offsets, mol.d_shell_sizes,
-            mol.d_ao_offsets, mol.d_ao_offsets_sph,
-            scf_ws.ortho.d_norms,
-            ri.h_U_aux.data(),
-            mol.is_spherical ? ri.h_U_orb.data() : nullptr,
-            grad_ws.d_shell_atom_aux, grad_ws.d_shell_atom,
-            D2_eff, D3_eff, grad_ws.d_grad);
+        QC_Launch_RI_Grad_Kernels(mol, ri, scf_ws.ortho.d_norms, grad_ws,
+                                   max_aux_cart, max_orb_cart, D2_eff,
+                                   D3_eff);
     };
 
     if (ri.direct)
@@ -461,13 +412,13 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             const long long buf_n = (long long)ri.naux_cart * dmc * dnc;
             deviceMemset(d_3c_buf, 0, sizeof(double) * buf_n);
             Launch_Device_Kernel(
-                QC_RI_3Center_Kernel,
-                (ri.naux_bas + threads - 1) / threads, threads, 0, 0,
-                ri.naux_bas, d_tasks, ri.d_aux_centers, ri.d_aux_l_list,
-                ri.d_aux_exps, ri.d_aux_coeffs, ri.d_aux_shell_offsets,
-                ri.d_aux_shell_sizes, ri.d_aux_ao_offsets, mol.d_centers,
-                mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
-                mol.d_shell_sizes, mol.d_ao_offsets, ri.naux_cart, dmc, dnc,
+                QC_RI_3Center_Kernel, (ri.naux_bas + threads - 1) / threads,
+                threads, 0, 0, ri.naux_bas, d_tasks, ri.d_aux_centers,
+                ri.d_aux_l_list, ri.d_aux_exps, ri.d_aux_coeffs,
+                ri.d_aux_shell_offsets, ri.d_aux_shell_sizes,
+                ri.d_aux_ao_offsets, mol.d_centers, mol.d_l_list, mol.d_exps,
+                mol.d_coeffs, mol.d_shell_offsets, mol.d_shell_sizes,
+                mol.d_ao_offsets, ri.naux_cart, dmc, dnc,
                 mol.h_ao_offsets[mu_sh], mol.h_ao_offsets[nu_sh], false,
                 d_3c_buf);
             std::vector<double> h_bc(buf_n);
@@ -548,9 +499,8 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             const int l_mu = mol.h_l_list[mu_sh];
             const int dmc = (l_mu + 1) * (l_mu + 2) / 2;
             const int dms = mol.is_spherical ? (2 * l_mu + 1) : dmc;
-            const int off_mu_s = mol.is_spherical
-                                     ? mol.h_ao_offsets_sph[mu_sh]
-                                     : mol.h_ao_offsets[mu_sh];
+            const int off_mu_s = mol.is_spherical ? mol.h_ao_offsets_sph[mu_sh]
+                                                  : mol.h_ao_offsets[mu_sh];
             for (int nu_sh = 0; nu_sh <= mu_sh; nu_sh++)
             {
                 const int l_nu = mol.h_l_list[nu_sh];
@@ -561,8 +511,8 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                                          : mol.h_ao_offsets[nu_sh];
 
                 std::vector<double> blk;
-                compute_block_sph(mu_sh, nu_sh, dmc, dnc, dms, dns,
-                                  off_mu_s, off_nu_s, blk);
+                compute_block_sph(mu_sh, nu_sh, dmc, dnc, dms, dns, off_mu_s,
+                                  off_nu_s, blk);
 
                 // d_vec[P] += block·D
                 for (int P = 0; P < naux; P++)
@@ -597,8 +547,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                         for (int i = 0; i < dms; i++)
                             for (int j = 0; j < dns; j++)
                             {
-                                double b =
-                                    B_blk[P * dms * dns + i * dns + j];
+                                double b = B_blk[P * dms * dns + i * dns + j];
                                 if (b == 0.0) continue;
                                 int mu_idx = off_mu_s + i;
                                 int nu_idx = off_nu_s + j;
@@ -616,8 +565,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                             }
 
                     // 缓存 blk 用于 Pass 2
-                    const int pair_idx =
-                        mu_sh * (mu_sh + 1) / 2 + nu_sh;
+                    const int pair_idx = mu_sh * (mu_sh + 1) / 2 + nu_sh;
                     blk_cache[pair_idx] = std::move(blk);
                 }
             }
@@ -649,15 +597,16 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
 
             h_Z_K.assign((size_t)naux * naux, 0.0);
 
-            const int max_sh_sph = mol.is_spherical
-                                       ? (2 * max_l_cart + 1) : max_cart;
+            const int max_sh_sph =
+                mol.is_spherical ? (2 * max_l_cart + 1) : max_cart;
             std::vector<double> T((size_t)naux * max_sh_sph * nocc);
             std::vector<double> Tt((size_t)naux * max_sh_sph * nocc);
 
             for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
             {
                 const int l_mu = mol.h_l_list[mu_sh];
-                const int dms = mol.is_spherical ? (2 * l_mu + 1)
+                const int dms = mol.is_spherical
+                                    ? (2 * l_mu + 1)
                                     : ((l_mu + 1) * (l_mu + 2) / 2);
                 const int off_mu_s = mol.is_spherical
                                          ? mol.h_ao_offsets_sph[mu_sh]
@@ -665,15 +614,15 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                 for (int nu_sh = 0; nu_sh <= mu_sh; nu_sh++)
                 {
                     const int l_nu = mol.h_l_list[nu_sh];
-                    const int dns = mol.is_spherical ? (2 * l_nu + 1)
+                    const int dns = mol.is_spherical
+                                        ? (2 * l_nu + 1)
                                         : ((l_nu + 1) * (l_nu + 2) / 2);
                     const int off_nu_s = mol.is_spherical
                                              ? mol.h_ao_offsets_sph[nu_sh]
                                              : mol.h_ao_offsets[nu_sh];
 
                     // 从缓存取出 blk (避免重复计算 3c 积分)
-                    const int pair_idx =
-                        mu_sh * (mu_sh + 1) / 2 + nu_sh;
+                    const int pair_idx = mu_sh * (mu_sh + 1) / 2 + nu_sh;
                     const std::vector<double>& blk = blk_cache[pair_idx];
 
                     // T[Q, i, oc] = Σ_j blk[Q,i,j] * C[off_nu+j, oc]
@@ -683,8 +632,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                         for (int i = 0; i < dms; i++)
                             for (int j = 0; j < dns; j++)
                             {
-                                double v =
-                                    blk[Q * dms * dns + i * dns + j];
+                                double v = blk[Q * dms * dns + i * dns + j];
                                 if (v == 0.0) continue;
                                 for (int oc = 0; oc < nocc; oc++)
                                     T[(long long)Q * dms * nocc + i * nocc +
@@ -716,16 +664,15 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                             for (int i = 0; i < dms; i++)
                                 for (int j = 0; j < dns; j++)
                                 {
-                                    double v =
-                                        blk[Q * dms * dns + i * dns + j];
+                                    double v = blk[Q * dms * dns + i * dns + j];
                                     if (v == 0.0) continue;
                                     for (int oc = 0; oc < nocc; oc++)
                                         Tt[(long long)Q * dns * nocc +
                                            j * nocc + oc] +=
                                             v *
-                                            (double)h_C_occ[(off_mu_s + i) *
-                                                                nao +
-                                                            oc];
+                                            (double)
+                                                h_C_occ[(off_mu_s + i) * nao +
+                                                        oc];
                                 }
                         for (int Pp = 0; Pp < naux; Pp++)
                             for (int Q = 0; Q < naux; Q++)
@@ -742,10 +689,11 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                     }
                 }
             }
-            blk_cache.clear(); // 释放缓存
+            blk_cache.clear();  // 释放缓存
         }
 
-        // B_occ: double -> float (deferred until after Pass 2 which uses h_B_occ_d)
+        // B_occ: double -> float (deferred until after Pass 2 which uses
+        // h_B_occ_d)
         std::vector<float> h_B_occ;
         if (need_exx && nocc > 0)
         {
@@ -762,15 +710,14 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
         QC_Build_D3_eff(nao, naux, h_g.data(), h_P.data(),
                         h_metric_inv_sqrt.data(),
                         need_exx && nocc > 0 ? h_B_occ.data() : nullptr,
-                        need_exx && nocc > 0 ? h_C_occ.data() : nullptr,
-                        nocc, dft.exx_fraction, D3_eff);
+                        need_exx && nocc > 0 ? h_C_occ.data() : nullptr, nocc,
+                        dft.exx_fraction, D3_eff);
         std::vector<double> D2_eff;
-        QC_Build_D2_eff_FromZK(
-            naux, h_g.data(),
-            need_exx && nocc > 0 ? h_B_occ.data() : nullptr,
-            nocc, dft.exx_fraction,
-            need_exx && nocc > 0 ? h_Z_K.data() : nullptr,
-            ri.h_eigval.data(), ri.h_eigvec.data(), D2_eff);
+        QC_Build_D2_eff_FromZK(naux, h_g.data(),
+                               need_exx && nocc > 0 ? h_B_occ.data() : nullptr,
+                               nocc, dft.exx_fraction,
+                               need_exx && nocc > 0 ? h_Z_K.data() : nullptr,
+                               ri.h_eigval.data(), ri.h_eigvec.data(), D2_eff);
 
         launch_grad_kernels(D2_eff, D3_eff);
     }
@@ -812,15 +759,14 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
         QC_Build_D3_eff(nao, naux, h_g_vec.data(), h_P.data(),
                         h_metric_inv_sqrt.data(),
                         need_exx && nocc > 0 ? h_B_occ.data() : nullptr,
-                        need_exx && nocc > 0 ? h_C_occ.data() : nullptr,
-                        nocc, dft.exx_fraction, D3_eff);
+                        need_exx && nocc > 0 ? h_C_occ.data() : nullptr, nocc,
+                        dft.exx_fraction, D3_eff);
         std::vector<double> D2_eff;
         QC_Build_D2_eff_Stored(
             nao, naux, h_g_vec.data(), h_eri3c.data(), h_P.data(),
             need_exx && nocc > 0 ? h_B_occ.data() : nullptr,
-            need_exx && nocc > 0 ? h_C_occ.data() : nullptr,
-            nocc, dft.exx_fraction,
-            ri.h_eigval.data(), ri.h_eigvec.data(), D2_eff);
+            need_exx && nocc > 0 ? h_C_occ.data() : nullptr, nocc,
+            dft.exx_fraction, ri.h_eigval.data(), ri.h_eigvec.data(), D2_eff);
 
         launch_grad_kernels(D2_eff, D3_eff);
     }

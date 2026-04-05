@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_RI_WORKSPACE_H
-#define QC_STRUCTURE_RI_WORKSPACE_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -95,5 +94,3 @@ struct QC_RI_WORKSPACE
     std::vector<float> h_aux_env;
     float* d_aux_env = NULL;
 };
-
-#endif

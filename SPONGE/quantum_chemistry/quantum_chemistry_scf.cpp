@@ -1,4 +1,5 @@
-﻿#include "integrals/one_e.hpp"
+﻿// clang-format off
+#include "integrals/one_e.hpp"
 #include "integrals/eri/common/eri_rys.hpp"
 #include "quantum_chemistry.h"
 #include "scf/accumulate_energy.hpp"
@@ -9,6 +10,7 @@
 #include "scf/pre_scf.hpp"
 #include "scf/workspace.hpp"
 #include "structure/matrix.h"
+// clang-format on
 
 void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                                   bool need_energy, int md_step)
@@ -49,10 +51,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     //     等待历史点稳定
     //   Phase 3 (stable ~): CDIIS，shift 关闭
     //     超线性收敛
-    // SCF 收敛策略: HF 和 DFT 使用不同的启动策略
-    // HF: DIIS 从 iter 2 开始，固定 level shift 0.25
-    // DFT: 前 N 轮禁用 DIIS + 大 shift，然后 MESA + shift 衰减，最后 CDIIS + 无
-    // shift
     const int dft_warmup = dft.enable_dft ? 3 : 0;
     const double dft_warmup_ls = 1.5;
     double dft_ls = dft_warmup_ls;
@@ -74,8 +72,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
             deviceMemcpy(scf_ws.alpha.d_F_for_grad, scf_ws.alpha.d_F_double,
                          sizeof(double) * mol.nao2, deviceMemcpyDeviceToDevice);
             if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_for_grad)
-                deviceMemcpy(scf_ws.beta.d_F_for_grad,
-                             scf_ws.beta.d_F_double,
+                deviceMemcpy(scf_ws.beta.d_F_for_grad, scf_ws.beta.d_F_double,
                              sizeof(double) * mol.nao2,
                              deviceMemcpyDeviceToDevice);
         }
@@ -130,8 +127,10 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         n_iter = iter + 1;
         if (done) break;
     }
-    printf("    [SCF] %d iters: Fock=%.1f (avg %.1f) Ene=%.1f DIIS=%.1f Diag=%.1f Conv=%.1f (ms)\n",
-           n_iter, t_fock, t_fock / n_iter, t_energy, t_diis, t_diag, t_conv);
+    printf(
+        "    [SCF] %d iters: Fock=%.1f (avg %.1f) Ene=%.1f DIIS=%.1f Diag=%.1f "
+        "Conv=%.1f (ms)\n",
+        n_iter, t_fock, t_fock / n_iter, t_energy, t_diis, t_diag, t_conv);
 
     auto scf_t2 = std::chrono::high_resolution_clock::now();
     auto ms = [](auto a, auto b)

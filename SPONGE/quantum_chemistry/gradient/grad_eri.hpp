@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <cstdlib>
 #include <cstring>
@@ -21,10 +21,9 @@
 #ifndef USE_GPU
 
 // ---- Rys VRR for gradient (supports extended angular momentum l+1) ----
-static inline void QC_Grad_VRR_2D(float* __restrict__ G, int ij_max,
-                                    int kl_max, int g_stride, float Cx_bra,
-                                    float Cx_ket, float B00, float B10,
-                                    float B01)
+static inline void QC_Grad_VRR_2D(float* __restrict__ G, int ij_max, int kl_max,
+                                  int g_stride, float Cx_bra, float Cx_ket,
+                                  float B00, float B10, float B01)
 {
     G[0] = 1.0f;
     for (int i = 0; i < ij_max; i++)
@@ -61,8 +60,7 @@ static inline void QC_Grad_Factored_HRR_Batch(
     for (int j = 0; j <= kl_ext; j++)
     {
         float work[2][12];
-        for (int i = 0; i <= ij_ext; i++)
-            work[0][i] = G[i * g_stride + j];
+        for (int i = 0; i <= ij_ext; i++) work[0][i] = G[i * g_stride + j];
 
         for (int a0 = 0; a0 <= l0_up; a0++)
             h_all[a0 * h_a0_stride + 0 * h_a1_stride + j] = work[0][a0];
@@ -116,8 +114,8 @@ static inline void QC_Grad_Factored_HRR_Batch(
 // ---- Sph2Cart step: expands spherical → Cartesian along one index ----
 // dst[lead, cart, tail] = sum_sph C[cart * ns + sph] * src[lead, sph, tail]
 static inline void QC_Sph2Cart_Step_CPU(const float* C, int nc, int ns,
-                                         int leading, int tail,
-                                         const float* src, float* dst)
+                                        int leading, int tail, const float* src,
+                                        float* dst)
 {
     for (int lead = 0; lead < leading; lead++)
     {
@@ -156,32 +154,55 @@ static inline void QC_Sph2Cart_Density_CPU(
     // Transform each index from sph → cart sequentially
     // buf0: [ns0, ns1, ns2, ns3] → buf1: [nc0, ns1, ns2, ns3]
     QC_Sph2Cart_Step_CPU(C[0], dims_cart[0], dims_sph[0], 1,
-                          dims_sph[1] * dims_sph[2] * dims_sph[3], buf0, buf1);
+                         dims_sph[1] * dims_sph[2] * dims_sph[3], buf0, buf1);
     // buf1 → buf0: [nc0, nc1, ns2, ns3]
     QC_Sph2Cart_Step_CPU(C[1], dims_cart[1], dims_sph[1], dims_cart[0],
-                          dims_sph[2] * dims_sph[3], buf1, buf0);
+                         dims_sph[2] * dims_sph[3], buf1, buf0);
     // buf0 → buf1: [nc0, nc1, nc2, ns3]
     QC_Sph2Cart_Step_CPU(C[2], dims_cart[2], dims_sph[2],
-                          dims_cart[0] * dims_cart[1], dims_sph[3], buf0, buf1);
+                         dims_cart[0] * dims_cart[1], dims_sph[3], buf0, buf1);
     // buf1 → buf0: [nc0, nc1, nc2, nc3]
     QC_Sph2Cart_Step_CPU(C[3], dims_cart[3], dims_sph[3],
-                          dims_cart[0] * dims_cart[1] * dims_cart[2], 1,
-                          buf1, buf0);
+                         dims_cart[0] * dims_cart[1] * dims_cart[2], 1, buf1,
+                         buf0);
 }
 
 static inline void QC_Build_ERI_Gradient_CPU(
-    const QC_INTEGRAL_TASKS& task_ctx, const int nbas, const int* atm,
-    const int* bas, const float* env, const int* ao_offsets_cart,
-    const int* ao_offsets_sph, const float* norms,
-    const float* shell_pair_bounds, const float* pair_density_coul,
-    const float* pair_density_exx_a, const float* pair_density_exx_b,
-    const float shell_screen_tol, const float* P_coul,
-    const float* P_exx_a, const float* P_exx_b,
-    const float exx_scale_a, const float exx_scale_b, const int nao,
-    const int nao_sph, const int is_spherical, const float* cart2sph_mat,
-    const int* shell_atom, double* grad, int hr_base, int hr_size,
-    int shell_buf_size, float prim_screen_tol, const int thread_count)
+    const QC_INTEGRAL_TASKS& task_ctx, const QC_MOLECULE& mol,
+    const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
+    const QC_SCF_WORKSPACE& scf_ws, float exx_fraction,
+    float shell_screen_tol, float prim_screen_tol,
+    const int* shell_atom, double* grad)
 {
+    // 局部别名: 保持函数体不变
+    const bool unrestricted = scf_ws.runtime.unrestricted;
+    const int nbas = mol.nbas;
+    const int* atm = mol.d_atm;
+    const int* bas = mol.d_bas;
+    const float* env = mol.d_env;
+    const int* ao_offsets_cart = mol.d_ao_offsets;
+    const int* ao_offsets_sph = mol.d_ao_offsets_sph;
+    const float* norms = scf_ws.ortho.d_norms;
+    const float* shell_pair_bounds = task_ctx.buffers.d_shell_pair_bounds;
+    const float* pair_density_coul = scf_ws.direct.d_pair_density_coul;
+    const float* pair_density_exx_a = scf_ws.direct.d_pair_density_exx;
+    const float* pair_density_exx_b =
+        unrestricted ? scf_ws.direct.d_pair_density_exx_b : (const float*)nullptr;
+    const float* P_coul = scf_ws.direct.d_P_coul;
+    const float* P_exx_a = scf_ws.alpha.d_P;
+    const float* P_exx_b =
+        unrestricted ? scf_ws.beta.d_P : (const float*)nullptr;
+    const float exx_scale_a =
+        unrestricted ? exx_fraction : (0.5f * exx_fraction);
+    const float exx_scale_b = unrestricted ? exx_fraction : 0.0f;
+    const int nao = mol.nao;
+    const int nao_sph = mol.nao_sph;
+    const int is_spherical = mol.is_spherical;
+    const float* cart2sph_mat = cart2sph.d_cart2sph_mat;
+    const int hr_base = task_ctx.params.eri_hr_base;
+    const int hr_size = task_ctx.params.eri_hr_size;
+    const int shell_buf_size = task_ctx.params.eri_shell_buf_size;
+    const int thread_count = scf_ws.direct.fock_thread_count;
     int natm_max = 0;
     for (int i = 0; i < nbas; i++)
         natm_max = std::max(natm_max, shell_atom[i] + 1);
@@ -316,8 +337,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     const float aj = env[bra.p_exp[1] + jp];
                     const float p = ai + aj;
                     const float inv_p = 1.0f / p;
-                    const float kab =
-                        expf(-(ai * aj * inv_p) * bra.pair_dist2);
+                    const float kab = expf(-(ai * aj * inv_p) * bra.pair_dist2);
                     const float n_ab =
                         env[bra.p_cof[0] + ip] * env[bra.p_cof[1] + jp] * kab;
                     if (fabsf(n_ab) < prim_screen_tol) continue;
@@ -329,8 +349,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     bp.n_ab = n_ab;
                     for (int d = 0; d < 3; d++)
                     {
-                        bp.P[d] =
-                            (ai * bra.R[0][d] + aj * bra.R[1][d]) * inv_p;
+                        bp.P[d] = (ai * bra.R[0][d] + aj * bra.R[1][d]) * inv_p;
                         bp.PA[d] = bp.P[d] - bra.R[0][d];
                     }
                     bra_prims.push_back(bp);
@@ -349,10 +368,8 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     exx_scale_a, exx_scale_b);
                 if (exact_screen < shell_screen_tol) continue;
 
-                const QC_ONE_E_TASK& kl =
-                    task_ctx.topo.h_shell_pairs[pair_kl];
-                const QC_Shell_Pair_Meta_CPU& ket =
-                    pair_meta[(size_t)pair_kl];
+                const QC_ONE_E_TASK& kl = task_ctx.topo.h_shell_pairs[pair_kl];
+                const QC_Shell_Pair_Meta_CPU& ket = pair_meta[(size_t)pair_kl];
                 const int atom_C = shell_atom[kl.x];
                 const int atom_D = shell_atom[kl.y];
 
@@ -363,8 +380,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
                 const bool jk_same_bra = (ij.x == ij.y);
                 const bool jk_same_ket = (kl.x == kl.y);
-                const bool jk_same_braket =
-                    (ij.x == kl.x && ij.y == kl.y);
+                const bool jk_same_braket = (ij.x == kl.x && ij.y == kl.y);
 
                 const int ni_cart = bra.dims_cart[0],
                           nj_cart = bra.dims_cart[1];
@@ -376,8 +392,8 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const int ni = bra.dims_eff[0], nj = bra.dims_eff[1];
                 const int nk = ket.dims_eff[0], nl = ket.dims_eff[1];
 
-                // ====== Pre-compute effective density in Cartesian basis ======
-                // Step 1: compute gamma_sph with symmetry and norms
+                // ====== Pre-compute effective density in Cartesian basis
+                // ====== Step 1: compute gamma_sph with symmetry and norms
                 const int sph_size = ni * nj * nk * nl;
                 memset(gamma_buf0.data(), 0, (size_t)sph_size * sizeof(float));
 
@@ -411,29 +427,23 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                 if (jk_same_braket && p == r && q_idx == s)
                                     sym *= 0.5;
 
-                                double gamma =
-                                    sym * 4.0 *
-                                    (double)P_coul[p * nao + q_idx] *
-                                    (double)P_coul[r * nao + s];
+                                double gamma = sym * 4.0 *
+                                               (double)P_coul[p * nao + q_idx] *
+                                               (double)P_coul[r * nao + s];
                                 if (exx_scale_a != 0.0f)
                                     gamma -=
                                         sym * 2.0 * (double)exx_scale_a *
                                         ((double)P_exx_a[p * nao + r] *
-                                             (double)
-                                                 P_exx_a[q_idx * nao + s] +
+                                             (double)P_exx_a[q_idx * nao + s] +
                                          (double)P_exx_a[p * nao + s] *
-                                             (double)
-                                                 P_exx_a[q_idx * nao + r]);
-                                if (exx_scale_b != 0.0f &&
-                                    P_exx_b != nullptr)
+                                             (double)P_exx_a[q_idx * nao + r]);
+                                if (exx_scale_b != 0.0f && P_exx_b != nullptr)
                                     gamma -=
                                         sym * 2.0 * (double)exx_scale_b *
                                         ((double)P_exx_b[p * nao + r] *
-                                             (double)
-                                                 P_exx_b[q_idx * nao + s] +
+                                             (double)P_exx_b[q_idx * nao + s] +
                                          (double)P_exx_b[p * nao + s] *
-                                             (double)
-                                                 P_exx_b[q_idx * nao + r]);
+                                             (double)P_exx_b[q_idx * nao + r]);
 
                                 const int sph_idx =
                                     ((ci * nj + cj) * nk + ck) * nl + cl;
@@ -447,24 +457,19 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 float* gamma_cart;
                 if (is_spherical)
                 {
-                    const int dims_cart_arr[4] = {ni_cart, nj_cart,
-                                                   nk_cart, nl_cart};
-                    const int dims_sph_arr[4] = {bra.dims_sph[0],
-                                                  bra.dims_sph[1],
-                                                  ket.dims_sph[0],
-                                                  ket.dims_sph[1]};
-                    const int off_cart_arr[4] = {bra.off_cart[0],
-                                                  bra.off_cart[1],
-                                                  ket.off_cart[0],
-                                                  ket.off_cart[1]};
-                    const int off_sph_arr[4] = {bra.off_eff[0],
-                                                 bra.off_eff[1],
-                                                 ket.off_eff[0],
-                                                 ket.off_eff[1]};
-                    QC_Sph2Cart_Density_CPU(cart2sph_mat, nao_sph,
-                                            off_cart_arr, off_sph_arr,
-                                            dims_cart_arr, dims_sph_arr,
-                                            gamma_buf0.data(),
+                    const int dims_cart_arr[4] = {ni_cart, nj_cart, nk_cart,
+                                                  nl_cart};
+                    const int dims_sph_arr[4] = {
+                        bra.dims_sph[0], bra.dims_sph[1], ket.dims_sph[0],
+                        ket.dims_sph[1]};
+                    const int off_cart_arr[4] = {
+                        bra.off_cart[0], bra.off_cart[1], ket.off_cart[0],
+                        ket.off_cart[1]};
+                    const int off_sph_arr[4] = {bra.off_eff[0], bra.off_eff[1],
+                                                ket.off_eff[0], ket.off_eff[1]};
+                    QC_Sph2Cart_Density_CPU(cart2sph_mat, nao_sph, off_cart_arr,
+                                            off_sph_arr, dims_cart_arr,
+                                            dims_sph_arr, gamma_buf0.data(),
                                             gamma_buf1.data());
                     gamma_cart = gamma_buf0.data();
                 }
@@ -534,315 +539,534 @@ static inline void QC_Build_ERI_Gradient_CPU(
                                 QCv[d] = Q[d] - ket.R[0][d];
                                 PQ[d] = bp.P[d] - Q[d];
                             }
-                            const float rho =
-                                bp.p * q_val / (bp.p + q_val);
+                            const float rho = bp.p * q_val / (bp.p + q_val);
                             const float T =
-                                rho * (PQ[0] * PQ[0] + PQ[1] * PQ[1] +
-                                       PQ[2] * PQ[2]);
+                                rho *
+                                (PQ[0] * PQ[0] + PQ[1] * PQ[1] + PQ[2] * PQ[2]);
 
                             double rys_r[MAX_NRYS], rys_w[MAX_NRYS];
                             rys_roots_weights(nrys, (double)T, rys_r, rys_w);
 
                             if (use_factored)
                             {
-                            // === HIGH-L PATH: Factored contraction ===
-                            // Store all roots' I arrays, then contract gamma
-                            // with two axes at once for each derivative axis.
-                            double all_wn[MAX_NRYS];
-                            float* aIx = all_Ix_buf.data();
-                            float* aIy = all_Iy_buf.data();
-                            float* aIz = all_Iz_buf.data();
-                            for (int ir = 0; ir < nrys; ir++)
-                            {
-                                const float u = (float)rys_r[ir];
-                                const float w = (float)rys_w[ir];
-                                all_wn[ir] = (double)n_abcd * (double)w;
-                                const float factor = u / (bp.p + q_val);
-                                const float B00 = 0.5f * factor;
-                                const float B10 =
-                                    0.5f / bp.p * (1.0f - q_val * factor);
-                                const float B01 =
-                                    0.5f / q_val * (1.0f - bp.p * factor);
-
-                                float Gx[120], Gy[120], Gz[120];
-                                const float Cx_bra[3] = {
-                                    bp.PA[0] - factor * q_val * PQ[0],
-                                    bp.PA[1] - factor * q_val * PQ[1],
-                                    bp.PA[2] - factor * q_val * PQ[2]};
-                                const float Cx_ket[3] = {
-                                    QCv[0] + factor * bp.p * PQ[0],
-                                    QCv[1] + factor * bp.p * PQ[1],
-                                    QCv[2] + factor * bp.p * PQ[2]};
-
-                                QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[0], Cx_ket[0],
-                                    B00, B10, B01);
-                                QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[1], Cx_ket[1],
-                                    B00, B10, B01);
-                                QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[2], Cx_ket[2],
-                                    B00, B10, B01);
-
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gx, ij_am, kl_am, g_stride, l,
-                                    AB[0], CD[0], &aIx[ir * I_size],
-                                    ix_d0, ix_d1, ix_d2);
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gy, ij_am, kl_am, g_stride, l,
-                                    AB[1], CD[1], &aIy[ir * I_size],
-                                    ix_d0, ix_d1, ix_d2);
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gz, ij_am, kl_am, g_stride, l,
-                                    AB[2], CD[2], &aIz[ir * I_size],
-                                    ix_d0, ix_d1, ix_d2);
-                            }
-
-                            const float* all_I[3] = {aIx, aIy, aIz};
-                            for (int d_ax = 0; d_ax < 3; d_ax++)
-                            {
-                                const int a1 = (d_ax + 1) % 3;
-                                const int a2 = (d_ax + 2) % 3;
-                                const float* Id = all_I[d_ax];
-                                const float* Ic1 = all_I[a1];
-                                const float* Ic2 = all_I[a2];
-
-                                for (int i0d = 0; i0d <= l[0]; i0d++)
-                                for (int i1d = 0; i1d <= l[1]; i1d++)
-                                for (int i2d = 0; i2d <= l[2]; i2d++)
-                                for (int i3d = 0; i3d <= l[3]; i3d++)
+                                // === HIGH-L PATH: Factored contraction ===
+                                // Store all roots' I arrays, then contract
+                                // gamma with two axes at once for each
+                                // derivative axis.
+                                double all_wn[MAX_NRYS];
+                                float* aIx = all_Ix_buf.data();
+                                float* aIy = all_Iy_buf.data();
+                                float* aIz = all_Iz_buf.data();
+                                for (int ir = 0; ir < nrys; ir++)
                                 {
-                                    const int bd = i0d * ix_d0 + i1d * ix_d1 +
-                                                   i2d * ix_d2 + i3d;
-                                    double sum[MAX_NRYS] = {};
+                                    const float u = (float)rys_r[ir];
+                                    const float w = (float)rys_w[ir];
+                                    all_wn[ir] = (double)n_abcd * (double)w;
+                                    const float factor = u / (bp.p + q_val);
+                                    const float B00 = 0.5f * factor;
+                                    const float B10 =
+                                        0.5f / bp.p * (1.0f - q_val * factor);
+                                    const float B01 =
+                                        0.5f / q_val * (1.0f - bp.p * factor);
 
-                                    for (int i0c = 0; i0c <= l[0] - i0d; i0c++)
-                                    {
-                                        const int i0t = l[0] - i0d - i0c;
-                                        int i0x, i0y;
-                                        if (d_ax == 0) { i0x = i0d; i0y = i0c; }
-                                        else if (d_ax == 1) { i0x = i0t; i0y = i0d; }
-                                        else { i0x = i0c; i0y = i0t; }
-                                        const int r0 = l[0] - i0x;
-                                        const int c0 = r0 * (r0 + 1) / 2 + (r0 - i0y);
+                                    float Gx[120], Gy[120], Gz[120];
+                                    const float Cx_bra[3] = {
+                                        bp.PA[0] - factor * q_val * PQ[0],
+                                        bp.PA[1] - factor * q_val * PQ[1],
+                                        bp.PA[2] - factor * q_val * PQ[2]};
+                                    const float Cx_ket[3] = {
+                                        QCv[0] + factor * bp.p * PQ[0],
+                                        QCv[1] + factor * bp.p * PQ[1],
+                                        QCv[2] + factor * bp.p * PQ[2]};
 
-                                    for (int i1c = 0; i1c <= l[1] - i1d; i1c++)
-                                    {
-                                        const int i1t = l[1] - i1d - i1c;
-                                        int i1x, i1y;
-                                        if (d_ax == 0) { i1x = i1d; i1y = i1c; }
-                                        else if (d_ax == 1) { i1x = i1t; i1y = i1d; }
-                                        else { i1x = i1c; i1y = i1t; }
-                                        const int r1 = l[1] - i1x;
-                                        const int c1 = r1 * (r1 + 1) / 2 + (r1 - i1y);
+                                    QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[0],
+                                                   Cx_ket[0], B00, B10, B01);
+                                    QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[1],
+                                                   Cx_ket[1], B00, B10, B01);
+                                    QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[2],
+                                                   Cx_ket[2], B00, B10, B01);
 
-                                    for (int i2c = 0; i2c <= l[2] - i2d; i2c++)
-                                    {
-                                        const int i2t = l[2] - i2d - i2c;
-                                        int i2x, i2y;
-                                        if (d_ax == 0) { i2x = i2d; i2y = i2c; }
-                                        else if (d_ax == 1) { i2x = i2t; i2y = i2d; }
-                                        else { i2x = i2c; i2y = i2t; }
-                                        const int r2 = l[2] - i2x;
-                                        const int c2 = r2 * (r2 + 1) / 2 + (r2 - i2y);
-
-                                        const int bc1_base =
-                                            i0c * ix_d0 + i1c * ix_d1 +
-                                            i2c * ix_d2;
-                                        const int bc2_base =
-                                            i0t * ix_d0 + i1t * ix_d1 +
-                                            i2t * ix_d2;
-                                        const int idx_base =
-                                            ((c0 * nj_cart + c1) * nk_cart +
-                                             c2) * nl_cart;
-
-                                    for (int i3c = 0; i3c <= l[3] - i3d; i3c++)
-                                    {
-                                        const int i3t = l[3] - i3d - i3c;
-                                        int i3x, i3y;
-                                        if (d_ax == 0) { i3x = i3d; i3y = i3c; }
-                                        else if (d_ax == 1) { i3x = i3t; i3y = i3d; }
-                                        else { i3x = i3c; i3y = i3t; }
-                                        const int r3 = l[3] - i3x;
-                                        const int c3 = r3 * (r3 + 1) / 2 + (r3 - i3y);
-
-                                        const float g = gamma_cart[idx_base + c3];
-                                        if (g == 0.0f) continue;
-
-                                        const int bc1 = bc1_base + i3c;
-                                        const int bc2 = bc2_base + i3t;
-
-                                        for (int ir = 0; ir < nrys; ir++)
-                                            sum[ir] += (double)g * all_wn[ir] *
-                                                (double)Ic1[ir * I_size + bc1] *
-                                                (double)Ic2[ir * I_size + bc2];
-                                    }}}}
-
-                                    for (int ir = 0; ir < nrys; ir++)
-                                    {
-                                        if (sum[ir] == 0.0) continue;
-                                        double dA =
-                                            (double)two_ai *
-                                            (double)Id[ir * I_size + bd + ix_d0];
-                                        if (i0d > 0)
-                                            dA -= (double)i0d *
-                                                  (double)Id[ir * I_size + bd - ix_d0];
-                                        g_A[d_ax] += sum[ir] * dA;
-
-                                        double dB =
-                                            (double)two_aj *
-                                            (double)Id[ir * I_size + bd + ix_d1];
-                                        if (i1d > 0)
-                                            dB -= (double)i1d *
-                                                  (double)Id[ir * I_size + bd - ix_d1];
-                                        g_B[d_ax] += sum[ir] * dB;
-
-                                        double dC =
-                                            (double)two_ak *
-                                            (double)Id[ir * I_size + bd + ix_d2];
-                                        if (i2d > 0)
-                                            dC -= (double)i2d *
-                                                  (double)Id[ir * I_size + bd - ix_d2];
-                                        g_C[d_ax] += sum[ir] * dC;
-                                    }
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gx, ij_am, kl_am, g_stride, l, AB[0],
+                                        CD[0], &aIx[ir * I_size], ix_d0, ix_d1,
+                                        ix_d2);
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gy, ij_am, kl_am, g_stride, l, AB[1],
+                                        CD[1], &aIy[ir * I_size], ix_d0, ix_d1,
+                                        ix_d2);
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gz, ij_am, kl_am, g_stride, l, AB[2],
+                                        CD[2], &aIz[ir * I_size], ix_d0, ix_d1,
+                                        ix_d2);
                                 }
-                            }
-                            } // end factored path
+
+                                const float* all_I[3] = {aIx, aIy, aIz};
+                                for (int d_ax = 0; d_ax < 3; d_ax++)
+                                {
+                                    const int a1 = (d_ax + 1) % 3;
+                                    const int a2 = (d_ax + 2) % 3;
+                                    const float* Id = all_I[d_ax];
+                                    const float* Ic1 = all_I[a1];
+                                    const float* Ic2 = all_I[a2];
+
+                                    for (int i0d = 0; i0d <= l[0]; i0d++)
+                                        for (int i1d = 0; i1d <= l[1]; i1d++)
+                                            for (int i2d = 0; i2d <= l[2];
+                                                 i2d++)
+                                                for (int i3d = 0; i3d <= l[3];
+                                                     i3d++)
+                                                {
+                                                    const int bd = i0d * ix_d0 +
+                                                                   i1d * ix_d1 +
+                                                                   i2d * ix_d2 +
+                                                                   i3d;
+                                                    double sum[MAX_NRYS] = {};
+
+                                                    for (int i0c = 0;
+                                                         i0c <= l[0] - i0d;
+                                                         i0c++)
+                                                    {
+                                                        const int i0t =
+                                                            l[0] - i0d - i0c;
+                                                        int i0x, i0y;
+                                                        if (d_ax == 0)
+                                                        {
+                                                            i0x = i0d;
+                                                            i0y = i0c;
+                                                        }
+                                                        else if (d_ax == 1)
+                                                        {
+                                                            i0x = i0t;
+                                                            i0y = i0d;
+                                                        }
+                                                        else
+                                                        {
+                                                            i0x = i0c;
+                                                            i0y = i0t;
+                                                        }
+                                                        const int r0 =
+                                                            l[0] - i0x;
+                                                        const int c0 =
+                                                            r0 * (r0 + 1) / 2 +
+                                                            (r0 - i0y);
+
+                                                        for (int i1c = 0;
+                                                             i1c <= l[1] - i1d;
+                                                             i1c++)
+                                                        {
+                                                            const int i1t =
+                                                                l[1] - i1d -
+                                                                i1c;
+                                                            int i1x, i1y;
+                                                            if (d_ax == 0)
+                                                            {
+                                                                i1x = i1d;
+                                                                i1y = i1c;
+                                                            }
+                                                            else if (d_ax == 1)
+                                                            {
+                                                                i1x = i1t;
+                                                                i1y = i1d;
+                                                            }
+                                                            else
+                                                            {
+                                                                i1x = i1c;
+                                                                i1y = i1t;
+                                                            }
+                                                            const int r1 =
+                                                                l[1] - i1x;
+                                                            const int c1 =
+                                                                r1 * (r1 + 1) /
+                                                                    2 +
+                                                                (r1 - i1y);
+
+                                                            for (int i2c = 0;
+                                                                 i2c <=
+                                                                 l[2] - i2d;
+                                                                 i2c++)
+                                                            {
+                                                                const int i2t =
+                                                                    l[2] - i2d -
+                                                                    i2c;
+                                                                int i2x, i2y;
+                                                                if (d_ax == 0)
+                                                                {
+                                                                    i2x = i2d;
+                                                                    i2y = i2c;
+                                                                }
+                                                                else if (d_ax ==
+                                                                         1)
+                                                                {
+                                                                    i2x = i2t;
+                                                                    i2y = i2d;
+                                                                }
+                                                                else
+                                                                {
+                                                                    i2x = i2c;
+                                                                    i2y = i2t;
+                                                                }
+                                                                const int r2 =
+                                                                    l[2] - i2x;
+                                                                const int c2 =
+                                                                    r2 *
+                                                                        (r2 +
+                                                                         1) /
+                                                                        2 +
+                                                                    (r2 - i2y);
+
+                                                                const int bc1_base =
+                                                                    i0c *
+                                                                        ix_d0 +
+                                                                    i1c *
+                                                                        ix_d1 +
+                                                                    i2c * ix_d2;
+                                                                const int bc2_base =
+                                                                    i0t *
+                                                                        ix_d0 +
+                                                                    i1t *
+                                                                        ix_d1 +
+                                                                    i2t * ix_d2;
+                                                                const int idx_base =
+                                                                    ((c0 *
+                                                                          nj_cart +
+                                                                      c1) *
+                                                                         nk_cart +
+                                                                     c2) *
+                                                                    nl_cart;
+
+                                                                for (int i3c =
+                                                                         0;
+                                                                     i3c <=
+                                                                     l[3] - i3d;
+                                                                     i3c++)
+                                                                {
+                                                                    const int
+                                                                        i3t =
+                                                                            l[3] -
+                                                                            i3d -
+                                                                            i3c;
+                                                                    int i3x,
+                                                                        i3y;
+                                                                    if (d_ax ==
+                                                                        0)
+                                                                    {
+                                                                        i3x =
+                                                                            i3d;
+                                                                        i3y =
+                                                                            i3c;
+                                                                    }
+                                                                    else if (
+                                                                        d_ax ==
+                                                                        1)
+                                                                    {
+                                                                        i3x =
+                                                                            i3t;
+                                                                        i3y =
+                                                                            i3d;
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        i3x =
+                                                                            i3c;
+                                                                        i3y =
+                                                                            i3t;
+                                                                    }
+                                                                    const int r3 =
+                                                                        l[3] -
+                                                                        i3x;
+                                                                    const int c3 =
+                                                                        r3 *
+                                                                            (r3 +
+                                                                             1) /
+                                                                            2 +
+                                                                        (r3 -
+                                                                         i3y);
+
+                                                                    const float g =
+                                                                        gamma_cart
+                                                                            [idx_base +
+                                                                             c3];
+                                                                    if (g ==
+                                                                        0.0f)
+                                                                        continue;
+
+                                                                    const int bc1 =
+                                                                        bc1_base +
+                                                                        i3c;
+                                                                    const int bc2 =
+                                                                        bc2_base +
+                                                                        i3t;
+
+                                                                    for (
+                                                                        int ir =
+                                                                            0;
+                                                                        ir <
+                                                                        nrys;
+                                                                        ir++)
+                                                                        sum[ir] +=
+                                                                            (double)
+                                                                                g *
+                                                                            all_wn
+                                                                                [ir] *
+                                                                            (double)Ic1
+                                                                                [ir *
+                                                                                     I_size +
+                                                                                 bc1] *
+                                                                            (double)Ic2
+                                                                                [ir *
+                                                                                     I_size +
+                                                                                 bc2];
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    for (int ir = 0; ir < nrys;
+                                                         ir++)
+                                                    {
+                                                        if (sum[ir] == 0.0)
+                                                            continue;
+                                                        double dA =
+                                                            (double)two_ai *
+                                                            (double)
+                                                                Id[ir * I_size +
+                                                                   bd + ix_d0];
+                                                        if (i0d > 0)
+                                                            dA -=
+                                                                (double)i0d *
+                                                                (double)Id
+                                                                    [ir *
+                                                                         I_size +
+                                                                     bd -
+                                                                     ix_d0];
+                                                        g_A[d_ax] +=
+                                                            sum[ir] * dA;
+
+                                                        double dB =
+                                                            (double)two_aj *
+                                                            (double)
+                                                                Id[ir * I_size +
+                                                                   bd + ix_d1];
+                                                        if (i1d > 0)
+                                                            dB -=
+                                                                (double)i1d *
+                                                                (double)Id
+                                                                    [ir *
+                                                                         I_size +
+                                                                     bd -
+                                                                     ix_d1];
+                                                        g_B[d_ax] +=
+                                                            sum[ir] * dB;
+
+                                                        double dC =
+                                                            (double)two_ak *
+                                                            (double)
+                                                                Id[ir * I_size +
+                                                                   bd + ix_d2];
+                                                        if (i2d > 0)
+                                                            dC -=
+                                                                (double)i2d *
+                                                                (double)Id
+                                                                    [ir *
+                                                                         I_size +
+                                                                     bd -
+                                                                     ix_d2];
+                                                        g_C[d_ax] +=
+                                                            sum[ir] * dC;
+                                                    }
+                                                }
+                                }
+                            }  // end factored path
                             else
                             {
-                            // === LOW-L PATH: Direct per-root assembly ===
-                            for (int ir = 0; ir < nrys; ir++)
-                            {
-                                const float u = (float)rys_r[ir];
-                                const float w = (float)rys_w[ir];
-                                const float factor = u / (bp.p + q_val);
-                                const float B00 = 0.5f * factor;
-                                const float B10 =
-                                    0.5f / bp.p * (1.0f - q_val * factor);
-                                const float B01 =
-                                    0.5f / q_val * (1.0f - bp.p * factor);
-
-                                float Gx[120], Gy[120], Gz[120];
-                                const float Cx_bra[3] = {
-                                    bp.PA[0] - factor * q_val * PQ[0],
-                                    bp.PA[1] - factor * q_val * PQ[1],
-                                    bp.PA[2] - factor * q_val * PQ[2]};
-                                const float Cx_ket[3] = {
-                                    QCv[0] + factor * bp.p * PQ[0],
-                                    QCv[1] + factor * bp.p * PQ[1],
-                                    QCv[2] + factor * bp.p * PQ[2]};
-
-                                QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[0], Cx_ket[0],
-                                    B00, B10, B01);
-                                QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[1], Cx_ket[1],
-                                    B00, B10, B01);
-                                QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
-                                    g_stride, Cx_bra[2], Cx_ket[2],
-                                    B00, B10, B01);
-
-                                float Ix[500], Iy[500], Iz[500];
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gx, ij_am, kl_am, g_stride, l,
-                                    AB[0], CD[0], Ix, ix_d0, ix_d1, ix_d2);
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gy, ij_am, kl_am, g_stride, l,
-                                    AB[1], CD[1], Iy, ix_d0, ix_d1, ix_d2);
-                                QC_Grad_Factored_HRR_Batch(
-                                    Gz, ij_am, kl_am, g_stride, l,
-                                    AB[2], CD[2], Iz, ix_d0, ix_d1, ix_d2);
-
-                                const float wn = n_abcd * w;
-                                int idx = 0;
-                                for (int c0 = 0; c0 < ni_cart; c0++)
+                                // === LOW-L PATH: Direct per-root assembly ===
+                                for (int ir = 0; ir < nrys; ir++)
                                 {
-                                    const int i0x = bra.comp_x[0][c0];
-                                    const int i0y = bra.comp_y[0][c0];
-                                    const int i0z = bra.comp_z[0][c0];
-                                    for (int c1 = 0; c1 < nj_cart; c1++)
+                                    const float u = (float)rys_r[ir];
+                                    const float w = (float)rys_w[ir];
+                                    const float factor = u / (bp.p + q_val);
+                                    const float B00 = 0.5f * factor;
+                                    const float B10 =
+                                        0.5f / bp.p * (1.0f - q_val * factor);
+                                    const float B01 =
+                                        0.5f / q_val * (1.0f - bp.p * factor);
+
+                                    float Gx[120], Gy[120], Gz[120];
+                                    const float Cx_bra[3] = {
+                                        bp.PA[0] - factor * q_val * PQ[0],
+                                        bp.PA[1] - factor * q_val * PQ[1],
+                                        bp.PA[2] - factor * q_val * PQ[2]};
+                                    const float Cx_ket[3] = {
+                                        QCv[0] + factor * bp.p * PQ[0],
+                                        QCv[1] + factor * bp.p * PQ[1],
+                                        QCv[2] + factor * bp.p * PQ[2]};
+
+                                    QC_Grad_VRR_2D(Gx, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[0],
+                                                   Cx_ket[0], B00, B10, B01);
+                                    QC_Grad_VRR_2D(Gy, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[1],
+                                                   Cx_ket[1], B00, B10, B01);
+                                    QC_Grad_VRR_2D(Gz, ij_am + 1, kl_am + 1,
+                                                   g_stride, Cx_bra[2],
+                                                   Cx_ket[2], B00, B10, B01);
+
+                                    float Ix[500], Iy[500], Iz[500];
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gx, ij_am, kl_am, g_stride, l, AB[0],
+                                        CD[0], Ix, ix_d0, ix_d1, ix_d2);
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gy, ij_am, kl_am, g_stride, l, AB[1],
+                                        CD[1], Iy, ix_d0, ix_d1, ix_d2);
+                                    QC_Grad_Factored_HRR_Batch(
+                                        Gz, ij_am, kl_am, g_stride, l, AB[2],
+                                        CD[2], Iz, ix_d0, ix_d1, ix_d2);
+
+                                    const float wn = n_abcd * w;
+                                    int idx = 0;
+                                    for (int c0 = 0; c0 < ni_cart; c0++)
                                     {
-                                        const int i1x = bra.comp_x[1][c1];
-                                        const int i1y = bra.comp_y[1][c1];
-                                        const int i1z = bra.comp_z[1][c1];
-                                        for (int c2 = 0; c2 < nk_cart; c2++)
+                                        const int i0x = bra.comp_x[0][c0];
+                                        const int i0y = bra.comp_y[0][c0];
+                                        const int i0z = bra.comp_z[0][c0];
+                                        for (int c1 = 0; c1 < nj_cart; c1++)
                                         {
-                                            const int i2x = ket.comp_x[0][c2];
-                                            const int i2y = ket.comp_y[0][c2];
-                                            const int i2z = ket.comp_z[0][c2];
-                                            const int bx_base =
-                                                i0x * ix_d0 + i1x * ix_d1 +
-                                                i2x * ix_d2;
-                                            const int by_base =
-                                                i0y * ix_d0 + i1y * ix_d1 +
-                                                i2y * ix_d2;
-                                            const int bz_base =
-                                                i0z * ix_d0 + i1z * ix_d1 +
-                                                i2z * ix_d2;
-
-                                            for (int c3 = 0; c3 < nl_cart;
-                                                 c3++, idx++)
+                                            const int i1x = bra.comp_x[1][c1];
+                                            const int i1y = bra.comp_y[1][c1];
+                                            const int i1z = bra.comp_z[1][c1];
+                                            for (int c2 = 0; c2 < nk_cart; c2++)
                                             {
-                                                const float g = gamma_cart[idx];
-                                                if (g == 0.0f) continue;
+                                                const int i2x =
+                                                    ket.comp_x[0][c2];
+                                                const int i2y =
+                                                    ket.comp_y[0][c2];
+                                                const int i2z =
+                                                    ket.comp_z[0][c2];
+                                                const int bx_base =
+                                                    i0x * ix_d0 + i1x * ix_d1 +
+                                                    i2x * ix_d2;
+                                                const int by_base =
+                                                    i0y * ix_d0 + i1y * ix_d1 +
+                                                    i2y * ix_d2;
+                                                const int bz_base =
+                                                    i0z * ix_d0 + i1z * ix_d1 +
+                                                    i2z * ix_d2;
 
-                                                const int i3x = ket.comp_x[1][c3];
-                                                const int i3y = ket.comp_y[1][c3];
-                                                const int i3z = ket.comp_z[1][c3];
-                                                const int bx = bx_base + i3x;
-                                                const int by = by_base + i3y;
-                                                const int bz = bz_base + i3z;
+                                                for (int c3 = 0; c3 < nl_cart;
+                                                     c3++, idx++)
+                                                {
+                                                    const float g =
+                                                        gamma_cart[idx];
+                                                    if (g == 0.0f) continue;
 
-                                                const double gwn =
-                                                    (double)g * (double)wn;
+                                                    const int i3x =
+                                                        ket.comp_x[1][c3];
+                                                    const int i3y =
+                                                        ket.comp_y[1][c3];
+                                                    const int i3z =
+                                                        ket.comp_z[1][c3];
+                                                    const int bx =
+                                                        bx_base + i3x;
+                                                    const int by =
+                                                        by_base + i3y;
+                                                    const int bz =
+                                                        bz_base + i3z;
 
-                                                const double yz =
-                                                    (double)Iy[by] * (double)Iz[bz];
-                                                float cAx = two_ai * Ix[bx + ix_d0];
-                                                if (i0x > 0) cAx -= (float)i0x * Ix[bx - ix_d0];
-                                                float cBx = two_aj * Ix[bx + ix_d1];
-                                                if (i1x > 0) cBx -= (float)i1x * Ix[bx - ix_d1];
-                                                float cCx = two_ak * Ix[bx + ix_d2];
-                                                if (i2x > 0) cCx -= (float)i2x * Ix[bx - ix_d2];
-                                                const double fxyz = gwn * yz;
-                                                g_A[0] += fxyz * (double)cAx;
-                                                g_B[0] += fxyz * (double)cBx;
-                                                g_C[0] += fxyz * (double)cCx;
+                                                    const double gwn =
+                                                        (double)g * (double)wn;
 
-                                                const double xz =
-                                                    (double)Ix[bx] * (double)Iz[bz];
-                                                float cAy = two_ai * Iy[by + ix_d0];
-                                                if (i0y > 0) cAy -= (float)i0y * Iy[by - ix_d0];
-                                                float cBy = two_aj * Iy[by + ix_d1];
-                                                if (i1y > 0) cBy -= (float)i1y * Iy[by - ix_d1];
-                                                float cCy = two_ak * Iy[by + ix_d2];
-                                                if (i2y > 0) cCy -= (float)i2y * Iy[by - ix_d2];
-                                                const double fxyz_y = gwn * xz;
-                                                g_A[1] += fxyz_y * (double)cAy;
-                                                g_B[1] += fxyz_y * (double)cBy;
-                                                g_C[1] += fxyz_y * (double)cCy;
+                                                    const double yz =
+                                                        (double)Iy[by] *
+                                                        (double)Iz[bz];
+                                                    float cAx =
+                                                        two_ai * Ix[bx + ix_d0];
+                                                    if (i0x > 0)
+                                                        cAx -= (float)i0x *
+                                                               Ix[bx - ix_d0];
+                                                    float cBx =
+                                                        two_aj * Ix[bx + ix_d1];
+                                                    if (i1x > 0)
+                                                        cBx -= (float)i1x *
+                                                               Ix[bx - ix_d1];
+                                                    float cCx =
+                                                        two_ak * Ix[bx + ix_d2];
+                                                    if (i2x > 0)
+                                                        cCx -= (float)i2x *
+                                                               Ix[bx - ix_d2];
+                                                    const double fxyz =
+                                                        gwn * yz;
+                                                    g_A[0] +=
+                                                        fxyz * (double)cAx;
+                                                    g_B[0] +=
+                                                        fxyz * (double)cBx;
+                                                    g_C[0] +=
+                                                        fxyz * (double)cCx;
 
-                                                const double xy =
-                                                    (double)Ix[bx] * (double)Iy[by];
-                                                float cAz = two_ai * Iz[bz + ix_d0];
-                                                if (i0z > 0) cAz -= (float)i0z * Iz[bz - ix_d0];
-                                                float cBz = two_aj * Iz[bz + ix_d1];
-                                                if (i1z > 0) cBz -= (float)i1z * Iz[bz - ix_d1];
-                                                float cCz = two_ak * Iz[bz + ix_d2];
-                                                if (i2z > 0) cCz -= (float)i2z * Iz[bz - ix_d2];
-                                                const double fxyz_z = gwn * xy;
-                                                g_A[2] += fxyz_z * (double)cAz;
-                                                g_B[2] += fxyz_z * (double)cBz;
-                                                g_C[2] += fxyz_z * (double)cCz;
+                                                    const double xz =
+                                                        (double)Ix[bx] *
+                                                        (double)Iz[bz];
+                                                    float cAy =
+                                                        two_ai * Iy[by + ix_d0];
+                                                    if (i0y > 0)
+                                                        cAy -= (float)i0y *
+                                                               Iy[by - ix_d0];
+                                                    float cBy =
+                                                        two_aj * Iy[by + ix_d1];
+                                                    if (i1y > 0)
+                                                        cBy -= (float)i1y *
+                                                               Iy[by - ix_d1];
+                                                    float cCy =
+                                                        two_ak * Iy[by + ix_d2];
+                                                    if (i2y > 0)
+                                                        cCy -= (float)i2y *
+                                                               Iy[by - ix_d2];
+                                                    const double fxyz_y =
+                                                        gwn * xz;
+                                                    g_A[1] +=
+                                                        fxyz_y * (double)cAy;
+                                                    g_B[1] +=
+                                                        fxyz_y * (double)cBy;
+                                                    g_C[1] +=
+                                                        fxyz_y * (double)cCy;
+
+                                                    const double xy =
+                                                        (double)Ix[bx] *
+                                                        (double)Iy[by];
+                                                    float cAz =
+                                                        two_ai * Iz[bz + ix_d0];
+                                                    if (i0z > 0)
+                                                        cAz -= (float)i0z *
+                                                               Iz[bz - ix_d0];
+                                                    float cBz =
+                                                        two_aj * Iz[bz + ix_d1];
+                                                    if (i1z > 0)
+                                                        cBz -= (float)i1z *
+                                                               Iz[bz - ix_d1];
+                                                    float cCz =
+                                                        two_ak * Iz[bz + ix_d2];
+                                                    if (i2z > 0)
+                                                        cCz -= (float)i2z *
+                                                               Iz[bz - ix_d2];
+                                                    const double fxyz_z =
+                                                        gwn * xy;
+                                                    g_A[2] +=
+                                                        fxyz_z * (double)cAz;
+                                                    g_B[2] +=
+                                                        fxyz_z * (double)cBz;
+                                                    g_C[2] +=
+                                                        fxyz_z * (double)cCz;
+                                                }
                                             }
                                         }
                                     }
-                                }
-                            } // end Rys roots (direct path)
-                            } // end direct path
+                                }  // end Rys roots (direct path)
+                            }  // end direct path
                         }
                     }
-                } // end primitives
+                }  // end primitives
 
                 // Write to grad_local with translational invariance
                 for (int d = 0; d < 3; d++)
@@ -879,9 +1103,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
 // Sph→Cart device helper: one axis transform, in-place capable via temp copy.
 // dst[lead, cart, tail] = Σ_sph C[cart * ns + sph] * src[lead, sph, tail]
 static __device__ void grad_sph2cart_step(
-    const float* __restrict__ cart2sph_mat, int nao_sph,
-    int off_cart, int off_sph, int nc, int ns,
-    int leading, int tail, const float* __restrict__ src, float* __restrict__ dst)
+    const float* __restrict__ cart2sph_mat, int nao_sph, int off_cart,
+    int off_sph, int nc, int ns, int leading, int tail,
+    const float* __restrict__ src, float* __restrict__ dst)
 {
     for (int lead = 0; lead < leading; lead++)
     {
@@ -893,8 +1117,8 @@ static __device__ void grad_sph2cart_step(
             const float* src_row = src_blk + p * tail;
             for (int a = 0; a < nc; a++)
             {
-                const float c = cart2sph_mat[(off_cart + a) * nao_sph +
-                                             (off_sph + p)];
+                const float c =
+                    cart2sph_mat[(off_cart + a) * nao_sph + (off_sph + p)];
                 if (c == 0.0f) continue;
                 float* dst_row = dst_blk + a * tail;
                 for (int idx = 0; idx < tail; idx++)
@@ -907,29 +1131,23 @@ static __device__ void grad_sph2cart_step(
 __global__ void QC_ERI_Grad_Kernel(
     const int n_tasks, const QC_ERI_TASK* __restrict__ tasks,
     const int* __restrict__ atm, const int* __restrict__ bas,
-    const float* __restrict__ env,
-    const int* __restrict__ ao_offsets_cart,
-    const int* __restrict__ ao_offsets_sph,
-    const float* __restrict__ norms,
+    const float* __restrict__ env, const int* __restrict__ ao_offsets_cart,
+    const int* __restrict__ ao_offsets_sph, const float* __restrict__ norms,
     const float* __restrict__ shell_pair_bounds,
     const float* __restrict__ pair_density_coul,
     const float* __restrict__ pair_density_exx_a,
-    const float* __restrict__ pair_density_exx_b,
-    const float shell_screen_tol,
-    const float* __restrict__ P_coul,
-    const float* __restrict__ P_exx_a,
-    const float* __restrict__ P_exx_b,
-    const float exx_scale_a, const float exx_scale_b,
-    const int nao, const int nao_sph, const int is_spherical,
-    const float* __restrict__ cart2sph_mat,
-    const int* __restrict__ shell_atom,
-    double* __restrict__ grad_copies,
-    const int n_grad_copies, const int natm,
-    const float prim_screen_tol)
+    const float* __restrict__ pair_density_exx_b, const float shell_screen_tol,
+    const float* __restrict__ P_coul, const float* __restrict__ P_exx_a,
+    const float* __restrict__ P_exx_b, const float exx_scale_a,
+    const float exx_scale_b, const int nao, const int nao_sph,
+    const int is_spherical, const float* __restrict__ cart2sph_mat,
+    const int* __restrict__ shell_atom, double* __restrict__ grad_copies,
+    const int n_grad_copies, const int natm, const float prim_screen_tol)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
-        double* grad_local = grad_copies +
+        double* grad_local =
+            grad_copies +
             (size_t)(blockIdx.x % n_grad_copies) * (size_t)(natm * 3);
 
         const QC_ERI_TASK tk = tasks[task_id];
@@ -1037,24 +1255,21 @@ __global__ void QC_ERI_Grad_Kernel(
                             if (jk_same_ket && r == s) sym *= 0.5;
                             if (jk_same_braket && p == r && q == s) sym *= 0.5;
 
-                            double gamma =
-                                sym * 4.0 *
-                                (double)P_coul[p * nao + q] *
-                                (double)P_coul[r * nao + s];
+                            double gamma = sym * 4.0 *
+                                           (double)P_coul[p * nao + q] *
+                                           (double)P_coul[r * nao + s];
                             if (exx_scale_a != 0.0f)
-                                gamma -=
-                                    sym * 2.0 * (double)exx_scale_a *
-                                    ((double)P_exx_a[p * nao + r] *
-                                         (double)P_exx_a[q * nao + s] +
-                                     (double)P_exx_a[p * nao + s] *
-                                         (double)P_exx_a[q * nao + r]);
+                                gamma -= sym * 2.0 * (double)exx_scale_a *
+                                         ((double)P_exx_a[p * nao + r] *
+                                              (double)P_exx_a[q * nao + s] +
+                                          (double)P_exx_a[p * nao + s] *
+                                              (double)P_exx_a[q * nao + r]);
                             if (exx_scale_b != 0.0f && P_exx_b != NULL)
-                                gamma -=
-                                    sym * 2.0 * (double)exx_scale_b *
-                                    ((double)P_exx_b[p * nao + r] *
-                                         (double)P_exx_b[q * nao + s] +
-                                     (double)P_exx_b[p * nao + s] *
-                                         (double)P_exx_b[q * nao + r]);
+                                gamma -= sym * 2.0 * (double)exx_scale_b *
+                                         ((double)P_exx_b[p * nao + r] *
+                                              (double)P_exx_b[q * nao + s] +
+                                          (double)P_exx_b[p * nao + s] *
+                                              (double)P_exx_b[q * nao + r]);
 
                             const int sph_idx =
                                 ((ci * nj + cj) * nk + ck) * nl + cl;
@@ -1069,26 +1284,21 @@ __global__ void QC_ERI_Grad_Kernel(
             if (is_spherical)
             {
                 // Step 0→1: buf0[ns0,ns1,ns2,ns3] → buf1[nc0,ns1,ns2,ns3]
-                grad_sph2cart_step(cart2sph_mat, nao_sph,
-                                   off_cart_sh[0], off_eff[0],
-                                   ni_cart, ni, 1,
-                                   nj * nk * nl, gamma_buf0, gamma_buf1);
+                grad_sph2cart_step(cart2sph_mat, nao_sph, off_cart_sh[0],
+                                   off_eff[0], ni_cart, ni, 1, nj * nk * nl,
+                                   gamma_buf0, gamma_buf1);
                 // Step 1→0: buf1 → buf0[nc0,nc1,ns2,ns3]
-                grad_sph2cart_step(cart2sph_mat, nao_sph,
-                                   off_cart_sh[1], off_eff[1],
-                                   nj_cart, nj, ni_cart,
-                                   nk * nl, gamma_buf1, gamma_buf0);
+                grad_sph2cart_step(cart2sph_mat, nao_sph, off_cart_sh[1],
+                                   off_eff[1], nj_cart, nj, ni_cart, nk * nl,
+                                   gamma_buf1, gamma_buf0);
                 // Step 0→1: buf0 → buf1[nc0,nc1,nc2,ns3]
-                grad_sph2cart_step(cart2sph_mat, nao_sph,
-                                   off_cart_sh[2], off_eff[2],
-                                   nk_cart, nk, ni_cart * nj_cart,
+                grad_sph2cart_step(cart2sph_mat, nao_sph, off_cart_sh[2],
+                                   off_eff[2], nk_cart, nk, ni_cart * nj_cart,
                                    nl, gamma_buf0, gamma_buf1);
                 // Step 1→0: buf1 → buf0[nc0,nc1,nc2,nc3]
-                grad_sph2cart_step(cart2sph_mat, nao_sph,
-                                   off_cart_sh[3], off_eff[3],
-                                   nl_cart, nl,
-                                   ni_cart * nj_cart * nk_cart,
-                                   1, gamma_buf1, gamma_buf0);
+                grad_sph2cart_step(
+                    cart2sph_mat, nao_sph, off_cart_sh[3], off_eff[3], nl_cart,
+                    nl, ni_cart * nj_cart * nk_cart, 1, gamma_buf1, gamma_buf0);
                 gamma_cart = gamma_buf0;
             }
             else
@@ -1172,9 +1382,9 @@ __global__ void QC_ERI_Grad_Kernel(
                                 const float pref =
                                     2.0f * PI_25 /
                                     (p_val * q_val * sqrtf(p_val + q_val));
-                                const float n_abcd =
-                                    n_ab * ck * env[p_cof_off[3] + lp] *
-                                    kcd * pref;
+                                const float n_abcd = n_ab * ck *
+                                                     env[p_cof_off[3] + lp] *
+                                                     kcd * pref;
                                 if (fabsf(n_abcd) < prim_screen_tol) continue;
 
                                 const float Qx =
@@ -1186,8 +1396,7 @@ __global__ void QC_ERI_Grad_Kernel(
                                 const float QCv[3] = {Qx - RC[2][0],
                                                       Qy - RC[2][1],
                                                       Qz - RC[2][2]};
-                                const float PQ[3] = {Px - Qx, Py - Qy,
-                                                     Pz - Qz};
+                                const float PQ[3] = {Px - Qx, Py - Qy, Pz - Qz};
                                 const float rho =
                                     p_val * q_val / (p_val + q_val);
                                 const float T =
@@ -1204,15 +1413,12 @@ __global__ void QC_ERI_Grad_Kernel(
                                 {
                                     const float u = (float)rys_r[ir];
                                     const float w = (float)rys_w[ir];
-                                    const float factor =
-                                        u / (p_val + q_val);
+                                    const float factor = u / (p_val + q_val);
                                     const float B00 = 0.5f * factor;
                                     const float B10 =
-                                        0.5f / p_val *
-                                        (1.0f - q_val * factor);
+                                        0.5f / p_val * (1.0f - q_val * factor);
                                     const float B01 =
-                                        0.5f / q_val *
-                                        (1.0f - p_val * factor);
+                                        0.5f / q_val * (1.0f - p_val * factor);
 
                                     const float Cx_bra[3] = {
                                         PA[0] - factor * q_val * PQ[0],
@@ -1226,14 +1432,14 @@ __global__ void QC_ERI_Grad_Kernel(
                                     // Extended VRR: up to (ij_am+1, kl_am+1)
                                     float Gx[72], Gy[72], Gz[72];
                                     rys_vrr_2d(Gx, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[0],
-                                               Cx_ket[0], B00, B10, B01);
+                                               g_stride, Cx_bra[0], Cx_ket[0],
+                                               B00, B10, B01);
                                     rys_vrr_2d(Gy, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[1],
-                                               Cx_ket[1], B00, B10, B01);
+                                               g_stride, Cx_bra[1], Cx_ket[1],
+                                               B00, B10, B01);
                                     rys_vrr_2d(Gz, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[2],
-                                               Cx_ket[2], B00, B10, B01);
+                                               g_stride, Cx_bra[2], Cx_ket[2],
+                                               B00, B10, B01);
 
                                     // Extended HRR: I[a0][a1][a2][a3]
                                     // a0: 0..l0+1, a1: 0..l1+1,
@@ -1244,17 +1450,15 @@ __global__ void QC_ERI_Grad_Kernel(
 
                                     // X-axis HRR
                                     for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1;
-                                             a1++)
+                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
                                         {
                                             if (a0 + a1 > ij_am + 1) continue;
                                             float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1;
-                                                 j++)
+                                            for (int j = 0; j <= kl_am + 1; j++)
                                             {
                                                 float col[10];
-                                                for (int i = 0;
-                                                     i <= ij_am + 1; i++)
+                                                for (int i = 0; i <= ij_am + 1;
+                                                     i++)
                                                     col[i] =
                                                         Gx[i * g_stride + j];
                                                 h_bra[j] = rys_hrr_1d(
@@ -1262,13 +1466,12 @@ __global__ void QC_ERI_Grad_Kernel(
                                             }
                                             for (int a2 = 0; a2 <= l[2] + 1;
                                                  a2++)
-                                                for (int a3 = 0;
-                                                     a3 <= l[3]; a3++)
+                                                for (int a3 = 0; a3 <= l[3];
+                                                     a3++)
                                                 {
                                                     if (a2 + a3 > kl_am + 1)
                                                         continue;
-                                                    Ix[a0 * ix_d0 +
-                                                       a1 * ix_d1 +
+                                                    Ix[a0 * ix_d0 + a1 * ix_d1 +
                                                        a2 * ix_d2 + a3] =
                                                         rys_hrr_1d(h_bra, a2,
                                                                    a3, CD[0]);
@@ -1277,17 +1480,15 @@ __global__ void QC_ERI_Grad_Kernel(
 
                                     // Y-axis HRR
                                     for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1;
-                                             a1++)
+                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
                                         {
                                             if (a0 + a1 > ij_am + 1) continue;
                                             float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1;
-                                                 j++)
+                                            for (int j = 0; j <= kl_am + 1; j++)
                                             {
                                                 float col[10];
-                                                for (int i = 0;
-                                                     i <= ij_am + 1; i++)
+                                                for (int i = 0; i <= ij_am + 1;
+                                                     i++)
                                                     col[i] =
                                                         Gy[i * g_stride + j];
                                                 h_bra[j] = rys_hrr_1d(
@@ -1295,13 +1496,12 @@ __global__ void QC_ERI_Grad_Kernel(
                                             }
                                             for (int a2 = 0; a2 <= l[2] + 1;
                                                  a2++)
-                                                for (int a3 = 0;
-                                                     a3 <= l[3]; a3++)
+                                                for (int a3 = 0; a3 <= l[3];
+                                                     a3++)
                                                 {
                                                     if (a2 + a3 > kl_am + 1)
                                                         continue;
-                                                    Iy[a0 * ix_d0 +
-                                                       a1 * ix_d1 +
+                                                    Iy[a0 * ix_d0 + a1 * ix_d1 +
                                                        a2 * ix_d2 + a3] =
                                                         rys_hrr_1d(h_bra, a2,
                                                                    a3, CD[1]);
@@ -1310,17 +1510,15 @@ __global__ void QC_ERI_Grad_Kernel(
 
                                     // Z-axis HRR
                                     for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1;
-                                             a1++)
+                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
                                         {
                                             if (a0 + a1 > ij_am + 1) continue;
                                             float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1;
-                                                 j++)
+                                            for (int j = 0; j <= kl_am + 1; j++)
                                             {
                                                 float col[10];
-                                                for (int i = 0;
-                                                     i <= ij_am + 1; i++)
+                                                for (int i = 0; i <= ij_am + 1;
+                                                     i++)
                                                     col[i] =
                                                         Gz[i * g_stride + j];
                                                 h_bra[j] = rys_hrr_1d(
@@ -1328,13 +1526,12 @@ __global__ void QC_ERI_Grad_Kernel(
                                             }
                                             for (int a2 = 0; a2 <= l[2] + 1;
                                                  a2++)
-                                                for (int a3 = 0;
-                                                     a3 <= l[3]; a3++)
+                                                for (int a3 = 0; a3 <= l[3];
+                                                     a3++)
                                                 {
                                                     if (a2 + a3 > kl_am + 1)
                                                         continue;
-                                                    Iz[a0 * ix_d0 +
-                                                       a1 * ix_d1 +
+                                                    Iz[a0 * ix_d0 + a1 * ix_d1 +
                                                        a2 * ix_d2 + a3] =
                                                         rys_hrr_1d(h_bra, a2,
                                                                    a3, CD[2]);
@@ -1347,35 +1544,29 @@ __global__ void QC_ERI_Grad_Kernel(
                                     for (int c0 = 0; c0 < ni_cart; c0++)
                                     {
                                         int i0x, i0y, i0z;
-                                        QC_Get_Lxyz_Device(l[0], c0, i0x,
-                                                           i0y, i0z);
+                                        QC_Get_Lxyz_Device(l[0], c0, i0x, i0y,
+                                                           i0z);
                                         for (int c1 = 0; c1 < nj_cart; c1++)
                                         {
                                             int i1x, i1y, i1z;
                                             QC_Get_Lxyz_Device(l[1], c1, i1x,
                                                                i1y, i1z);
-                                            for (int c2 = 0; c2 < nk_cart;
-                                                 c2++)
+                                            for (int c2 = 0; c2 < nk_cart; c2++)
                                             {
                                                 int i2x, i2y, i2z;
-                                                QC_Get_Lxyz_Device(l[2], c2,
-                                                                   i2x, i2y,
-                                                                   i2z);
+                                                QC_Get_Lxyz_Device(
+                                                    l[2], c2, i2x, i2y, i2z);
                                                 const int bx_base =
-                                                    i0x * ix_d0 +
-                                                    i1x * ix_d1 +
+                                                    i0x * ix_d0 + i1x * ix_d1 +
                                                     i2x * ix_d2;
                                                 const int by_base =
-                                                    i0y * ix_d0 +
-                                                    i1y * ix_d1 +
+                                                    i0y * ix_d0 + i1y * ix_d1 +
                                                     i2y * ix_d2;
                                                 const int bz_base =
-                                                    i0z * ix_d0 +
-                                                    i1z * ix_d1 +
+                                                    i0z * ix_d0 + i1z * ix_d1 +
                                                     i2z * ix_d2;
 
-                                                for (int c3 = 0;
-                                                     c3 < nl_cart;
+                                                for (int c3 = 0; c3 < nl_cart;
                                                      c3++, idx++)
                                                 {
                                                     const float g =
@@ -1383,9 +1574,9 @@ __global__ void QC_ERI_Grad_Kernel(
                                                     if (g == 0.0f) continue;
 
                                                     int i3x, i3y, i3z;
-                                                    QC_Get_Lxyz_Device(
-                                                        l[3], c3, i3x, i3y,
-                                                        i3z);
+                                                    QC_Get_Lxyz_Device(l[3], c3,
+                                                                       i3x, i3y,
+                                                                       i3z);
                                                     const int bx =
                                                         bx_base + i3x;
                                                     const int by =
@@ -1394,34 +1585,27 @@ __global__ void QC_ERI_Grad_Kernel(
                                                         bz_base + i3z;
 
                                                     const double gwn =
-                                                        (double)g *
-                                                        (double)wn;
+                                                        (double)g * (double)wn;
 
                                                     // X derivatives
                                                     const double yz =
                                                         (double)Iy[by] *
                                                         (double)Iz[bz];
                                                     float cAx =
-                                                        two_ai *
-                                                        Ix[bx + ix_d0];
+                                                        two_ai * Ix[bx + ix_d0];
                                                     if (i0x > 0)
-                                                        cAx -=
-                                                            (float)i0x *
-                                                            Ix[bx - ix_d0];
+                                                        cAx -= (float)i0x *
+                                                               Ix[bx - ix_d0];
                                                     float cBx =
-                                                        two_aj *
-                                                        Ix[bx + ix_d1];
+                                                        two_aj * Ix[bx + ix_d1];
                                                     if (i1x > 0)
-                                                        cBx -=
-                                                            (float)i1x *
-                                                            Ix[bx - ix_d1];
+                                                        cBx -= (float)i1x *
+                                                               Ix[bx - ix_d1];
                                                     float cCx =
-                                                        two_ak *
-                                                        Ix[bx + ix_d2];
+                                                        two_ak * Ix[bx + ix_d2];
                                                     if (i2x > 0)
-                                                        cCx -=
-                                                            (float)i2x *
-                                                            Ix[bx - ix_d2];
+                                                        cCx -= (float)i2x *
+                                                               Ix[bx - ix_d2];
                                                     const double fxyz =
                                                         gwn * yz;
                                                     g_A[0] +=
@@ -1436,26 +1620,20 @@ __global__ void QC_ERI_Grad_Kernel(
                                                         (double)Ix[bx] *
                                                         (double)Iz[bz];
                                                     float cAy =
-                                                        two_ai *
-                                                        Iy[by + ix_d0];
+                                                        two_ai * Iy[by + ix_d0];
                                                     if (i0y > 0)
-                                                        cAy -=
-                                                            (float)i0y *
-                                                            Iy[by - ix_d0];
+                                                        cAy -= (float)i0y *
+                                                               Iy[by - ix_d0];
                                                     float cBy =
-                                                        two_aj *
-                                                        Iy[by + ix_d1];
+                                                        two_aj * Iy[by + ix_d1];
                                                     if (i1y > 0)
-                                                        cBy -=
-                                                            (float)i1y *
-                                                            Iy[by - ix_d1];
+                                                        cBy -= (float)i1y *
+                                                               Iy[by - ix_d1];
                                                     float cCy =
-                                                        two_ak *
-                                                        Iy[by + ix_d2];
+                                                        two_ak * Iy[by + ix_d2];
                                                     if (i2y > 0)
-                                                        cCy -=
-                                                            (float)i2y *
-                                                            Iy[by - ix_d2];
+                                                        cCy -= (float)i2y *
+                                                               Iy[by - ix_d2];
                                                     const double fxyz_y =
                                                         gwn * xz;
                                                     g_A[1] +=
@@ -1470,26 +1648,20 @@ __global__ void QC_ERI_Grad_Kernel(
                                                         (double)Ix[bx] *
                                                         (double)Iy[by];
                                                     float cAz =
-                                                        two_ai *
-                                                        Iz[bz + ix_d0];
+                                                        two_ai * Iz[bz + ix_d0];
                                                     if (i0z > 0)
-                                                        cAz -=
-                                                            (float)i0z *
-                                                            Iz[bz - ix_d0];
+                                                        cAz -= (float)i0z *
+                                                               Iz[bz - ix_d0];
                                                     float cBz =
-                                                        two_aj *
-                                                        Iz[bz + ix_d1];
+                                                        two_aj * Iz[bz + ix_d1];
                                                     if (i1z > 0)
-                                                        cBz -=
-                                                            (float)i1z *
-                                                            Iz[bz - ix_d1];
+                                                        cBz -= (float)i1z *
+                                                               Iz[bz - ix_d1];
                                                     float cCz =
-                                                        two_ak *
-                                                        Iz[bz + ix_d2];
+                                                        two_ak * Iz[bz + ix_d2];
                                                     if (i2z > 0)
-                                                        cCz -=
-                                                            (float)i2z *
-                                                            Iz[bz - ix_d2];
+                                                        cCz -= (float)i2z *
+                                                               Iz[bz - ix_d2];
                                                     const double fxyz_z =
                                                         gwn * xy;
                                                     g_A[2] +=
@@ -1518,23 +1690,22 @@ __global__ void QC_ERI_Grad_Kernel(
                               -(g_A[d] + g_B[d] + g_C[d]));
                 }
             }
-next_task:;
+        next_task:;
         }  // screening
     }
 }
 
 // Reduce N gradient copies into grad: grad[i] += sum of copies[c][i]
 static __global__ void QC_Reduce_Grad_Copies_Kernel(
-    const int n, const int n_copies,
-    const double* __restrict__ copies, double* __restrict__ grad)
+    const int n, const int n_copies, const double* __restrict__ copies,
+    double* __restrict__ grad)
 {
     SIMPLE_DEVICE_FOR(i, n)
     {
         double sum = 0.0;
-        for (int c = 0; c < n_copies; c++)
-            sum += copies[(size_t)c * n + i];
+        for (int c = 0; c < n_copies; c++) sum += copies[(size_t)c * n + i];
         grad[i] += sum;
     }
 }
 
-#endif // USE_GPU
+#endif  // USE_GPU

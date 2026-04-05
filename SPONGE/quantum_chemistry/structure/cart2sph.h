@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_CART2SPH_H
-#define QC_STRUCTURE_CART2SPH_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -13,5 +12,3 @@ struct QC_CARTESIAN_TO_SPHERICAL
     float* d_cart2sph_mat = NULL;
     float* d_cart2sph_1e_tmp = NULL;
 };
-
-#endif
