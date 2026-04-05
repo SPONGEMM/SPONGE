@@ -50,6 +50,9 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/wall/hard_wall.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/guess/minao.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/guess/sap.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/ecp/ecp_integrals.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/ecp/lanl2dz.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/ecp/def2_ecp.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_init.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_scf.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/quantum_chemistry/quantum_chemistry_dft.cpp

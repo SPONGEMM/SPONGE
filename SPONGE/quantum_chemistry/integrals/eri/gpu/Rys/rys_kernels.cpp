@@ -1,4 +1,4 @@
-// Rys quadrature ERI kernel definitions (d/f/g shells).
+﻿// Rys quadrature ERI kernel definitions (d/f/g shells).
 // Compiled independently. Includes Rys data tables + per-L_sum kernels.
 
 // clang-format off

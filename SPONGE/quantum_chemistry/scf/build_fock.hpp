@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../integrals/eri/common/direct_fock_kernels.hpp"
 #include "../integrals/eri/cpu/task_filter.hpp"
@@ -8,7 +8,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 {
     if (scf_ws.ri.enabled)
     {
-        Build_Fock_RI(iter);
+        Build_Fock_RI();
         return;
     }
 
@@ -47,10 +47,9 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         if (unrestricted)
         {
             Launch_Device_Kernel(QC_Init_Fock_Kernel,
-                                 (total + threads - 1) / threads, threads, 0,
-                                 0, total, scf_ws.core.d_H_core,
-                                 dft.d_Vxc_beta, dft.enable_dft,
-                                 scf_ws.beta.d_F);
+                                 (total + threads - 1) / threads, threads, 0, 0,
+                                 total, scf_ws.core.d_H_core, dft.d_Vxc_beta,
+                                 dft.enable_dft, scf_ws.beta.d_F);
         }
 #endif
 
@@ -59,10 +58,10 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
                       scf_ws.direct.d_P_coul_prev, scf_ws.direct.d_P_coul);
         if (unrestricted)
         {
-            QC_Sub_Matrix(total, scf_ws.alpha.d_P,
-                          scf_ws.direct.d_P_exx_prev, scf_ws.alpha.d_P);
-            QC_Sub_Matrix(total, scf_ws.beta.d_P,
-                          scf_ws.direct.d_P_exx_b_prev, scf_ws.beta.d_P);
+            QC_Sub_Matrix(total, scf_ws.alpha.d_P, scf_ws.direct.d_P_exx_prev,
+                          scf_ws.alpha.d_P);
+            QC_Sub_Matrix(total, scf_ws.beta.d_P, scf_ws.direct.d_P_exx_b_prev,
+                          scf_ws.beta.d_P);
         }
     }
     else
@@ -75,10 +74,9 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         if (unrestricted)
         {
             Launch_Device_Kernel(QC_Init_Fock_Kernel,
-                                 (total + threads - 1) / threads, threads, 0,
-                                 0, total, scf_ws.core.d_H_core,
-                                 dft.d_Vxc_beta, dft.enable_dft,
-                                 scf_ws.beta.d_F);
+                                 (total + threads - 1) / threads, threads, 0, 0,
+                                 total, scf_ws.core.d_H_core, dft.d_Vxc_beta,
+                                 dft.enable_dft, scf_ws.beta.d_F);
         }
 
         // Zero accumulators so reduce/extract starts fresh
@@ -108,8 +106,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     // ---- Pair density screening ----
 #ifdef USE_GPU
     float* d_F_build = scf_ws.alpha.d_F;
-    float* d_F_b_build =
-        unrestricted ? scf_ws.beta.d_F : (float*)nullptr;
+    float* d_F_b_build = unrestricted ? scf_ws.beta.d_F : (float*)nullptr;
 #else
     const int thread_total = scf_ws.direct.fock_thread_count * total;
     deviceMemset(scf_ws.direct.d_F_thread, 0, sizeof(double) * thread_total);
@@ -117,12 +114,12 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         deviceMemset(scf_ws.direct.d_F_b_thread, 0,
                      sizeof(double) * thread_total);
     double* d_F_build = scf_ws.direct.d_F_thread;
-    double* d_F_b_build = unrestricted ? scf_ws.direct.d_F_b_thread
-                                       : (double*)nullptr;
+    double* d_F_b_build =
+        unrestricted ? scf_ws.direct.d_F_b_thread : (double*)nullptr;
 #endif
 
-    const float exx_scale_a = unrestricted ? dft.exx_fraction
-                                           : (0.5f * dft.exx_fraction);
+    const float exx_scale_a =
+        unrestricted ? dft.exx_fraction : (0.5f * dft.exx_fraction);
     const float exx_scale_b = unrestricted ? dft.exx_fraction : 0.0f;
     const bool need_exx = (dft.exx_fraction != 0.0f);
 
@@ -151,17 +148,17 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         unrestricted ? scf_ws.direct.d_pair_density_exx_b
                      : (const float*)nullptr,
         shell_screen_tol, scf_ws.direct.d_P_coul, scf_ws.alpha.d_P,
-        unrestricted ? scf_ws.beta.d_P : (const float*)nullptr,
-        exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph, mol.is_spherical,
+        unrestricted ? scf_ws.beta.d_P : (const float*)nullptr, exx_scale_a,
+        exx_scale_b, mol.nao, mol.nao_sph, mol.is_spherical,
         cart2sph.d_cart2sph_mat, d_F_build, d_F_b_build,
         scf_ws.direct.d_hr_pool, prim_screen_tol);
 
     // Extract ERI accumulator: F_eri_accum = F - (H_core + Vxc)
     // For full mode: saves ERI(P); for incremental: accum += ERI(ΔP)
-    Launch_Device_Kernel(
-        QC_Extract_ERI_Accum_Kernel, (total + threads - 1) / threads, threads,
-        0, 0, total, scf_ws.alpha.d_F, scf_ws.core.d_H_core, dft.d_Vxc,
-        dft.enable_dft, scf_ws.direct.d_F_eri_accum_f);
+    Launch_Device_Kernel(QC_Extract_ERI_Accum_Kernel,
+                         (total + threads - 1) / threads, threads, 0, 0, total,
+                         scf_ws.alpha.d_F, scf_ws.core.d_H_core, dft.d_Vxc,
+                         dft.enable_dft, scf_ws.direct.d_F_eri_accum_f);
     if (unrestricted)
     {
         Launch_Device_Kernel(
@@ -185,8 +182,8 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
         unrestricted ? scf_ws.direct.d_pair_density_exx_b
                      : (const float*)nullptr,
         shell_screen_tol, scf_ws.direct.d_P_coul, scf_ws.alpha.d_P,
-        unrestricted ? scf_ws.beta.d_P : (const float*)nullptr,
-        exx_scale_a, exx_scale_b, mol.nao, mol.nao_sph, mol.is_spherical,
+        unrestricted ? scf_ws.beta.d_P : (const float*)nullptr, exx_scale_a,
+        exx_scale_b, mol.nao, mol.nao_sph, mol.is_spherical,
         cart2sph.d_cart2sph_mat, d_F_build, d_F_b_build,
         scf_ws.direct.d_hr_pool,
         (QC_Angular_Term_CPU*)scf_ws.direct.h_cpu_bra_terms,
@@ -197,20 +194,19 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 
     // Incremental reduce: F_eri_accum += Σ thread_fock; F = H_core(+Vxc) +
     // F_eri_accum
-    Launch_Device_Kernel(
-        QC_Reduce_Thread_Fock_Incremental_Kernel,
-        (total + threads - 1) / threads, threads, 0, 0, total,
-        scf_ws.direct.fock_thread_count, scf_ws.direct.d_F_thread,
-        scf_ws.alpha.d_F, scf_ws.alpha.d_F_double,
-        scf_ws.direct.d_F_eri_accum);
+    Launch_Device_Kernel(QC_Reduce_Thread_Fock_Incremental_Kernel,
+                         (total + threads - 1) / threads, threads, 0, 0, total,
+                         scf_ws.direct.fock_thread_count,
+                         scf_ws.direct.d_F_thread, scf_ws.alpha.d_F,
+                         scf_ws.alpha.d_F_double, scf_ws.direct.d_F_eri_accum);
     if (unrestricted)
     {
-        Launch_Device_Kernel(
-            QC_Reduce_Thread_Fock_Incremental_Kernel,
-            (total + threads - 1) / threads, threads, 0, 0, total,
-            scf_ws.direct.fock_thread_count, scf_ws.direct.d_F_b_thread,
-            scf_ws.beta.d_F, scf_ws.beta.d_F_double,
-            scf_ws.direct.d_F_eri_b_accum);
+        Launch_Device_Kernel(QC_Reduce_Thread_Fock_Incremental_Kernel,
+                             (total + threads - 1) / threads, threads, 0, 0,
+                             total, scf_ws.direct.fock_thread_count,
+                             scf_ws.direct.d_F_b_thread, scf_ws.beta.d_F,
+                             scf_ws.beta.d_F_double,
+                             scf_ws.direct.d_F_eri_b_accum);
     }
 #endif
 
@@ -221,10 +217,10 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
                       scf_ws.direct.d_P_coul_prev, scf_ws.direct.d_P_coul);
         if (unrestricted)
         {
-            QC_Add_Matrix(total, scf_ws.alpha.d_P,
-                          scf_ws.direct.d_P_exx_prev, scf_ws.alpha.d_P);
-            QC_Add_Matrix(total, scf_ws.beta.d_P,
-                          scf_ws.direct.d_P_exx_b_prev, scf_ws.beta.d_P);
+            QC_Add_Matrix(total, scf_ws.alpha.d_P, scf_ws.direct.d_P_exx_prev,
+                          scf_ws.alpha.d_P);
+            QC_Add_Matrix(total, scf_ws.beta.d_P, scf_ws.direct.d_P_exx_b_prev,
+                          scf_ws.beta.d_P);
         }
     }
 

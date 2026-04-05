@@ -1,4 +1,5 @@
 ﻿#include "basis/basis.h"
+#include "ecp/ecp_library.h"
 #include "guess/minao.h"
 #include "guess/sap.h"
 #include "quantum_chemistry.h"
@@ -492,6 +493,15 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         }
     }
 
+    // ECP 选择: auto (默认, 按基组匹配), none, def2-ecp, lanl2dz
+    ecp_name = "auto";
+    if (controller->Command_Exist("qc_ecp"))
+    {
+        ecp_name = controller->Command("qc_ecp");
+        std::transform(ecp_name.begin(), ecp_name.end(), ecp_name.begin(),
+                       ::tolower);
+    }
+
     this->atom_numbers = atom_numbers;
     return true;
 }
@@ -589,8 +599,22 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         }
     }
 
+    // ECP 查找
+    QC_ECP_SET* ecp_set = nullptr;
+    if (ecp_name == "auto")
+        ecp_set = QC_Get_Auto_ECP(basis_set_name.c_str());
+    else if (ecp_name == "def2-ecp")
+        ecp_set = QC_ECP_DEF2_PTR;
+    else if (ecp_name == "lanl2dz")
+        ecp_set = QC_ECP_LANL2DZ_PTR;
+    // ecp_name == "none" → ecp_set stays nullptr
+
+    if (ecp_set) ecp_set->Initialize();
+
     mol.nelectron = -mol.charge;
     mol.h_Z.resize(mol.natm);
+    mol.h_ecp_n_core.resize(mol.natm, 0);
+    mol.h_ecp_l_max.resize(mol.natm, -1);
     for (int i = 0; i < mol.natm; ++i)
     {
         auto it_sym = QC_Z_FROM_SYMBOL.find(atom_symbols[i]);
@@ -603,7 +627,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                 atom_symbols[i].c_str(), i, qc_type_file);
         }
         int Z = it_sym->second;
-        mol.h_Z[i] = Z;
         int md_idx = atom_local[i];
         if (md_idx < 0 || md_idx >= this->atom_numbers)
         {
@@ -612,11 +635,34 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                 "Reason:\n    MD index %d out of bounds [0, %d)\n", md_idx,
                 this->atom_numbers);
         }
+
+        // ECP: 用有效核电荷替代全电荷
+        if (ecp_set)
+        {
+            auto it_ecp = ecp_set->data.find(atom_symbols[i]);
+            if (it_ecp != ecp_set->data.end())
+            {
+                const auto& ecp_data = it_ecp->second;
+                mol.h_ecp_n_core[i] = ecp_data.n_core;
+                mol.h_ecp_l_max[i] = ecp_data.l_max;
+                Z -= ecp_data.n_core;
+                mol.has_ecp = true;
+            }
+        }
+        mol.h_Z[i] = Z;
         mol.nelectron += Z;
     }
 
     Device_Malloc_And_Copy_Safely((void**)&mol.d_Z, (void*)mol.h_Z.data(),
                                   sizeof(int) * (int)mol.natm);
+
+    if (mol.has_ecp)
+    {
+        printf("    [QC Init] ECP Z_eff:");
+        for (int i = 0; i < mol.natm; i++)
+            printf(" %s=%d", atom_symbols[i].c_str(), mol.h_Z[i]);
+        printf(", nelectron=%d\n", mol.nelectron);
+    }
 
     const int spin_e = mol.multiplicity - 1;
     if (spin_e < 0)
@@ -705,7 +751,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
             mol.h_bas.push_back(ptr_coeff);
             mol.h_bas.push_back(0);
 
-            mol.h_ao_loc.push_back(mol.nao_cart);
             int ao_dim = (shell.l + 1) * (shell.l + 2) / 2;
             mol.nao_cart += ao_dim;
             mol.nao_sph += (2 * shell.l + 1);
@@ -729,7 +774,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         Build_Cart2Sph_Matrix();
     mol.nao = mol.is_spherical ? mol.nao_sph : mol.nao_cart;
     mol.nao2 = (int)((int)mol.nao * (int)mol.nao);
-    mol.h_ao_loc.push_back(mol.nao_cart);
     mol.h_ao_offsets.clear();
     mol.h_ao_offsets_sph.clear();
     int acc = 0;
@@ -758,10 +802,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                                   sizeof(int) * mol.h_bas.size());
     Device_Malloc_And_Copy_Safely((void**)&mol.d_env, (void*)mol.h_env.data(),
                                   sizeof(float) * mol.h_env.size());
-    Device_Malloc_And_Copy_Safely((void**)&mol.d_ao_loc,
-                                  (void*)mol.h_ao_loc.data(),
-                                  sizeof(int) * mol.h_ao_loc.size());
-
     Device_Malloc_And_Copy_Safely((void**)&mol.d_centers,
                                   (void*)mol.h_centers.data(),
                                   sizeof(VECTOR) * mol.h_centers.size());
@@ -788,6 +828,85 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     Device_Malloc_And_Copy_Safely((void**)&d_atom_local,
                                   (void*)atom_local.data(),
                                   sizeof(int) * atom_local.size());
+
+    // 原子坐标数组 (初始为零, 由 Update_Coordinates_From_MD 更新)
+    mol.h_atom_coords.resize(mol.natm, VECTOR(0.0f));
+    Device_Malloc_And_Copy_Safely((void**)&mol.d_atom_coords,
+                                  (void*)mol.h_atom_coords.data(),
+                                  sizeof(VECTOR) * mol.natm);
+
+    // ECP 数据扁平化并拷贝到 device
+    if (mol.has_ecp && ecp_set)
+    {
+        mol.ecp_total_channels = 0;
+        mol.ecp_total_terms = 0;
+        mol.h_ecp_atom_channel_range.resize(mol.natm + 1);
+
+        for (int i = 0; i < mol.natm; i++)
+        {
+            mol.h_ecp_atom_channel_range[i] = mol.ecp_total_channels;
+            if (mol.h_ecp_l_max[i] < 0) continue;
+
+            const auto& ecp_data = ecp_set->data.at(atom_symbols[i]);
+            for (const auto& ch : ecp_data.channels)
+            {
+                mol.h_ecp_l.push_back(ch.l);
+                mol.h_ecp_channel_offsets.push_back(mol.ecp_total_terms);
+                mol.h_ecp_channel_sizes.push_back((int)ch.terms.size());
+                for (const auto& t : ch.terms)
+                {
+                    mol.h_ecp_d.push_back(t.d_k);
+                    mol.h_ecp_zeta.push_back(t.zeta_k);
+                    mol.h_ecp_n.push_back(t.n_k);
+                    mol.ecp_total_terms++;
+                }
+                mol.ecp_total_channels++;
+            }
+        }
+        mol.h_ecp_atom_channel_range[mol.natm] = mol.ecp_total_channels;
+
+        // Device 拷贝
+        Device_Malloc_And_Copy_Safely(
+            (void**)&mol.d_ecp_l_max, (void*)mol.h_ecp_l_max.data(),
+            sizeof(int) * mol.natm);
+        Device_Malloc_And_Copy_Safely(
+            (void**)&mol.d_ecp_atom_channel_range,
+            (void*)mol.h_ecp_atom_channel_range.data(),
+            sizeof(int) * (mol.natm + 1));
+        if (mol.ecp_total_channels > 0)
+        {
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_l, (void*)mol.h_ecp_l.data(),
+                sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_channel_offsets,
+                (void*)mol.h_ecp_channel_offsets.data(),
+                sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_channel_sizes,
+                (void*)mol.h_ecp_channel_sizes.data(),
+                sizeof(int) * mol.ecp_total_channels);
+        }
+        if (mol.ecp_total_terms > 0)
+        {
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_d, (void*)mol.h_ecp_d.data(),
+                sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_zeta, (void*)mol.h_ecp_zeta.data(),
+                sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_n, (void*)mol.h_ecp_n.data(),
+                sizeof(int) * mol.ecp_total_terms);
+        }
+
+        printf("    [QC Init] ECP: %s, %d atoms with ECP, %d channels, "
+               "%d terms\n",
+               ecp_set->name, (int)std::count_if(mol.h_ecp_l_max.begin(),
+                                                  mol.h_ecp_l_max.end(),
+                                                  [](int x) { return x >= 0; }),
+               mol.ecp_total_channels, mol.ecp_total_terms);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
@@ -936,6 +1055,11 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
     Device_Malloc_Safely((void**)&scf_ws.core.d_V, sizeof(float) * mol.nao2);
     Device_Malloc_Safely((void**)&scf_ws.core.d_H_core,
                          sizeof(float) * mol.nao2);
+    if (mol.has_ecp)
+    {
+        Device_Malloc_Safely((void**)&scf_ws.core.d_V_ECP,
+                             sizeof(float) * mol.nao2);
+    }
     Device_Malloc_Safely((void**)&scf_ws.core.d_scf_energy, sizeof(double));
     Device_Malloc_Safely((void**)&scf_ws.core.d_nuc_energy_dev, sizeof(double));
     Device_Malloc_Safely((void**)&dft.d_exc_total, sizeof(double));
@@ -1124,6 +1248,24 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
                              sizeof(int) * mol.nbas);
         deviceMemcpy(grad_ws.d_shell_atom, h_shell_atom.data(),
                      sizeof(int) * mol.nbas, deviceMemcpyHostToDevice);
+    }
+    // 预分配笛卡尔密度缓冲 (球谐 1e 梯度 + ECP 梯度共用)
+    if (mol.is_spherical || mol.has_ecp)
+    {
+        const int nc2 = mol.nao_cart * mol.nao_cart;
+        Device_Malloc_Safely((void**)&grad_ws.d_P_cart,
+                             sizeof(float) * nc2);
+    }
+    if (mol.is_spherical)
+    {
+        const int nc2 = mol.nao_cart * mol.nao_cart;
+        Device_Malloc_Safely((void**)&grad_ws.d_W_cart,
+                             sizeof(float) * nc2);
+        Device_Malloc_Safely((void**)&grad_ws.d_norms_ones,
+                             sizeof(float) * mol.nao_cart);
+        std::vector<float> h_ones(mol.nao_cart, 1.0f);
+        deviceMemcpy(grad_ws.d_norms_ones, h_ones.data(),
+                     sizeof(float) * mol.nao_cart, deviceMemcpyHostToDevice);
     }
     // 辅助基壳层到原子映射 (RI 梯度用)
     if (scf_ws.ri.enabled)

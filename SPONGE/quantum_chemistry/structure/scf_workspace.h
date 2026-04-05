@@ -9,6 +9,7 @@ struct QC_SCF_Core_Matrices
     float* d_S = NULL;
     float* d_T = NULL;
     float* d_V = NULL;
+    float* d_V_ECP = NULL;
     float* d_H_core = NULL;
     double* d_scf_energy = NULL;
     double* d_nuc_energy_dev = NULL;

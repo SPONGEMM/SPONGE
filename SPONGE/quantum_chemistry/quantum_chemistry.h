@@ -75,8 +75,10 @@ struct QUANTUM_CHEMISTRY
     void Step_Print(CONTROLLER* controller);
 
    private:
-    // 轨道基组名称（RI 初始化时用于映射辅助基）
+    // 轨道基组��称（RI 初始化时用于映射辅助基）
     std::string orbital_basis_name;
+    // ECP 设置名称 ("auto"=根据基组自动选择, "none"=禁用, 或指定名称)
+    std::string ecp_name = "auto";
 
     // 初始化内部流程
     bool Parsing_Arguments(CONTROLLER* controller, const int atom_numbers,
@@ -98,6 +100,7 @@ struct QUANTUM_CHEMISTRY
 
     // 积分
     void Compute_OneE_Integrals();
+    void Compute_ECP_Matrix();
     void Compute_Nuclear_Repulsion(const VECTOR box_length);
     void Compute_Analytical_Norms();
     void Build_Shell_Pair_Bounds();
@@ -111,7 +114,7 @@ struct QUANTUM_CHEMISTRY
     void Initial_Auxiliary_Basis(CONTROLLER* controller);
     void RI_Memory_Allocate();
     void RI_Precompute();
-    void Build_Fock_RI(int iter);
+    void Build_Fock_RI();
 
     // SCF 循环内部流程
     void Build_Fock(int iter);

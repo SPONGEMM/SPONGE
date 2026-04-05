@@ -1,6 +1,5 @@
 ﻿// clang-format off
 #include "quantum_chemistry.h"
-#include "dft/ao.hpp"
 #include "dft/dft.hpp"
 #include "dft/grid.hpp"
 #include "dft/xc.hpp"

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // 二中心 Coulomb 积分导数 d(P|Q)/dR 的内核
 // 使用 McMurchie-Davidson 方案，与 ri_2center.hpp 对应
@@ -14,18 +14,18 @@
 #define RI_GRAD_E_DIM2 6
 #define RI_GRAD_E_DIM3 11
 #define RI_GRAD_R_BASE 11
-#define RI_GRAD_R_IDX(t, u, v, n) \
-    ((((t) * RI_GRAD_R_BASE + (u)) * RI_GRAD_R_BASE + (v)) * RI_GRAD_R_BASE + (n))
+#define RI_GRAD_R_IDX(t, u, v, n)                                             \
+    ((((t) * RI_GRAD_R_BASE + (u)) * RI_GRAD_R_BASE + (v)) * RI_GRAD_R_BASE + \
+     (n))
 
 // 扩展版 compute_md_coeffs，支持更大数组维度
 static __device__ void compute_md_coeffs_grad(
-    float E[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3],
-    int la_max, int lb_max, float PA, float PB, float one_over_2p)
+    float E[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3], int la_max,
+    int lb_max, float PA, float PB, float one_over_2p)
 {
     for (int i = 0; i < RI_GRAD_E_DIM1; i++)
         for (int j = 0; j < RI_GRAD_E_DIM2; j++)
-            for (int n = 0; n < RI_GRAD_E_DIM3; n++)
-                E[i][j][n] = 0.0f;
+            for (int n = 0; n < RI_GRAD_E_DIM3; n++) E[i][j][n] = 0.0f;
     E[0][0][0] = 1.0f;
     for (int la = 0; la <= la_max; la++)
     {
@@ -96,16 +96,15 @@ static __device__ void compute_boys_double_grad(double* F, float t, int max_m)
 }
 
 // 扩展版 R 张量（动态 base，避免固定 11⁴ 的浪费）
-static __device__ void compute_r_tensor_grad(
-    float* R, double* F, float alpha, float PC[3], int L_tot)
+static __device__ void compute_r_tensor_grad(float* R, double* F, float alpha,
+                                             float PC[3], int L_tot)
 {
     const int base = L_tot + 2;  // 实际需要的最小 base
     const int total_size = base * base * base * base;
     for (int i = 0; i < total_size; i++) R[i] = 0.0f;
 
-    // 使用动态 base 的索引宏
-    #define R_IDX(t, u, v, n) \
-        ((((t) * base + (u)) * base + (v)) * base + (n))
+// 使用动态 base 的索引宏
+#define R_IDX(t, u, v, n) ((((t) * base + (u)) * base + (v)) * base + (n))
 
     double m2a = -2.0 * (double)alpha;
     double fac = 1.0;
@@ -130,46 +129,42 @@ static __device__ void compute_r_tensor_grad(
                     {
                         val = (double)PC[0] * R[R_IDX(t - 1, u, v, n + 1)];
                         if (t > 1)
-                            val += (double)(t - 1) *
-                                   R[R_IDX(t - 2, u, v, n + 1)];
+                            val +=
+                                (double)(t - 1) * R[R_IDX(t - 2, u, v, n + 1)];
                     }
                     else if (u > 0)
                     {
                         val = (double)PC[1] * R[R_IDX(t, u - 1, v, n + 1)];
                         if (u > 1)
-                            val += (double)(u - 1) *
-                                   R[R_IDX(t, u - 2, v, n + 1)];
+                            val +=
+                                (double)(u - 1) * R[R_IDX(t, u - 2, v, n + 1)];
                     }
                     else if (v > 0)
                     {
                         val = (double)PC[2] * R[R_IDX(t, u, v - 1, n + 1)];
                         if (v > 1)
-                            val += (double)(v - 1) *
-                                   R[R_IDX(t, u, v - 2, n + 1)];
+                            val +=
+                                (double)(v - 1) * R[R_IDX(t, u, v - 2, n + 1)];
                     }
                     R[R_IDX(t, u, v, n)] = (float)val;
                 }
             }
         }
     }
-    #undef R_IDX
+#undef R_IDX
 }
 
 // 二中心积分导数内核
 // 对每个辅助 shell P_sh 并行，内部循环 Q_sh <= P_sh
 // workspace: 预分配缓冲 [n_workers × ws_stride] doubles
 static __global__ void QC_RI_2Center_Grad_Kernel(
-    const int naux_bas,
-    const VECTOR* aux_centers, const int* aux_l_list, const float* aux_exps,
-    const float* aux_coeffs, const int* aux_shell_offsets,
-    const int* aux_shell_sizes, const int* aux_ao_offsets_cart,
-    const int* aux_ao_offsets_sph,
-    const float* aux_norms, const float* U_aux,
-    int naux_cart, int naux_sph,
-    const double* D2_eff,
-    const int* shell_atom_aux,
-    double* workspace, int ws_stride, int n_workers,
-    double* grad)
+    const int naux_bas, const VECTOR* aux_centers, const int* aux_l_list,
+    const float* aux_exps, const float* aux_coeffs,
+    const int* aux_shell_offsets, const int* aux_shell_sizes,
+    const int* aux_ao_offsets_cart, const int* aux_ao_offsets_sph,
+    const float* aux_norms, const float* U_aux, int naux_cart, int naux_sph,
+    const double* D2_eff, const int* shell_atom_aux, double* workspace,
+    int ws_stride, int n_workers, double* grad)
 {
     SIMPLE_DEVICE_FOR(P_sh, naux_bas)
     {
@@ -193,8 +188,7 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
             const float Ax = A.x, Ay = A.y, Az = A.z;
             const float Bx = B.x, By = B.y, Bz = B.z;
             const float dist_sq = (Ax - Bx) * (Ax - Bx) +
-                                  (Ay - By) * (Ay - By) +
-                                  (Az - Bz) * (Az - Bz);
+                                  (Ay - By) * (Ay - By) + (Az - Bz) * (Az - Bz);
 
             const int atom_P = shell_atom_aux[P_sh];
             const int atom_Q = shell_atom_aux[Q_sh];
@@ -234,12 +228,12 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                                       [RI_GRAD_E_DIM3];
                             float E_Pz[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
                                       [RI_GRAD_E_DIM3];
-                            compute_md_coeffs_grad(E_Px, lxP + 1, 0, 0.0f,
-                                                   0.0f, 0.5f / eP);
-                            compute_md_coeffs_grad(E_Py, lyP + 1, 0, 0.0f,
-                                                   0.0f, 0.5f / eP);
-                            compute_md_coeffs_grad(E_Pz, lzP + 1, 0, 0.0f,
-                                                   0.0f, 0.5f / eP);
+                            compute_md_coeffs_grad(E_Px, lxP + 1, 0, 0.0f, 0.0f,
+                                                   0.5f / eP);
+                            compute_md_coeffs_grad(E_Py, lyP + 1, 0, 0.0f, 0.0f,
+                                                   0.5f / eP);
+                            compute_md_coeffs_grad(E_Pz, lzP + 1, 0, 0.0f, 0.0f,
+                                                   0.5f / eP);
 
                             float E_Qx[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
                                       [RI_GRAD_E_DIM3];
@@ -273,8 +267,8 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                                 ((double)eP * (double)eQ *
                                  sqrt((double)(eP + eQ)));
 
-                            auto contract_2c =
-                                [&](int axP, int ayP, int azP) -> double
+                            auto contract_2c = [&](int axP, int ayP,
+                                                   int azP) -> double
                             {
                                 if (axP < 0 || ayP < 0 || azP < 0) return 0.0;
                                 double v_sum = 0.0;
@@ -299,17 +293,14 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                                                 for (int uu = 0; uu <= lyQ;
                                                      uu++)
                                                 {
-                                                    double eQy =
-                                                        (double)
-                                                            E_Qy[lyQ][0][uu];
+                                                    double eQy = (double)
+                                                        E_Qy[lyQ][0][uu];
                                                     if (eQy == 0.0) continue;
                                                     for (int vv = 0; vv <= lzQ;
                                                          vv++)
                                                     {
-                                                        double eQz =
-                                                            (double)E_Qz[lzQ]
-                                                                        [0]
-                                                                        [vv];
+                                                        double eQz = (double)
+                                                            E_Qz[lzQ][0][vv];
                                                         if (eQz == 0.0)
                                                             continue;
                                                         double sign =
@@ -321,7 +312,12 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                                                             eQx * eQy * eQz *
                                                             sign *
                                                             (double)R_vals
-                                                                [(((t + tt) * R_base + (u + uu)) * R_base + (v + vv)) * R_base];
+                                                                [(((t + tt) *
+                                                                       R_base +
+                                                                   (u + uu)) *
+                                                                      R_base +
+                                                                  (v + vv)) *
+                                                                 R_base];
                                                     }
                                                 }
                                             }
@@ -379,9 +375,8 @@ static __global__ void QC_RI_2Center_Grad_Kernel(
                         if (u_p == 0.0) continue;
                         for (int qc = 0; qc < nQ_cart; qc++)
                         {
-                            double u_q = (double)U_aux[(offQ_cart + qc) *
-                                                           naux_sph +
-                                                       Q_sph];
+                            double u_q = (double)
+                                U_aux[(offQ_cart + qc) * naux_sph + Q_sph];
                             if (u_q == 0.0) continue;
                             double w = u_p * u_q;
                             const int cidx = (pc * nQ_cart + qc) * 3;

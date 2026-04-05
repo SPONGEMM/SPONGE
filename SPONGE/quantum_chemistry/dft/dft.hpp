@@ -5,13 +5,12 @@
 // xc_deriv.hpp 提供解析导数 (在 xc.hpp 之后 include)
 // 前向声明:
 static inline __host__ __device__ void QC_VXC_Analytical_RKS(
-    QC_METHOD method, double rho, double sigma,
-    double& exc, double& vrho, double& vsigma);
+    QC_METHOD method, double rho, double sigma, double& exc, double& vrho,
+    double& vsigma);
 static inline __host__ __device__ void QC_VXC_Analytical_UKS(
-    QC_METHOD method, double ra, double rb,
-    double saa, double sab, double sbb,
-    double& exc, double& vra, double& vrb,
-    double& vsaa, double& vsab, double& vsbb);
+    QC_METHOD method, double ra, double rb, double saa, double sab, double sbb,
+    double& exc, double& vra, double& vrb, double& vsaa, double& vsab,
+    double& vsbb);
 
 static inline __host__ __device__ void QC_Local_Vrho_Vsigma_FD(
     QC_METHOD method, double rho, double sigma, double& e, double& vrho,

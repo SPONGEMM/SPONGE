@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // 三中心积分导数 d(P|μν)/dR 的内核
 // 对每个 shell 三元组 (P_sh, mu_sh, nu_sh) 并行
@@ -9,22 +9,18 @@
 
 // 三中心积分导数内核
 static __global__ void QC_RI_3Center_Grad_Kernel(
-    const int naux_bas, const int norb_bas,
-    const VECTOR* aux_centers, const int* aux_l_list, const float* aux_exps,
-    const float* aux_coeffs, const int* aux_shell_offsets,
-    const int* aux_shell_sizes, const int* aux_ao_offsets_cart,
-    const int* aux_ao_offsets_sph,
+    const int naux_bas, const int norb_bas, const VECTOR* aux_centers,
+    const int* aux_l_list, const float* aux_exps, const float* aux_coeffs,
+    const int* aux_shell_offsets, const int* aux_shell_sizes,
+    const int* aux_ao_offsets_cart, const int* aux_ao_offsets_sph,
     const VECTOR* orb_centers, const int* orb_l_list, const float* orb_exps,
     const float* orb_coeffs, const int* orb_shell_offsets,
     const int* orb_shell_sizes, const int* orb_ao_offsets_cart,
-    const int* orb_ao_offsets_sph, int is_spherical,
-    const float* aux_norms, const float* orb_norms,
-    const float* U_aux, const float* U_orb,
+    const int* orb_ao_offsets_sph, int is_spherical, const float* aux_norms,
+    const float* orb_norms, const float* U_aux, const float* U_orb,
     int naux_cart, int naux_sph, int nao_cart, int nao_sph,
-    const double* D3_eff,
-    const int* shell_atom_aux, const int* shell_atom_orb,
-    double* workspace, int ws_stride, int n_workers,
-    double* grad)
+    const double* D3_eff, const int* shell_atom_aux, const int* shell_atom_orb,
+    double* workspace, int ws_stride, int n_workers, double* grad)
 {
     const int nao = nao_sph;
 
@@ -58,9 +54,8 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                 const int lnu = orb_l_list[nu_sh];
                 const int nnu_cart = (lnu + 1) * (lnu + 2) / 2;
                 const int offnu_cart = orb_ao_offsets_cart[nu_sh];
-                const int offnu_sph = is_spherical
-                                          ? orb_ao_offsets_sph[nu_sh]
-                                          : orb_ao_offsets_cart[nu_sh];
+                const int offnu_sph = is_spherical ? orb_ao_offsets_sph[nu_sh]
+                                                   : orb_ao_offsets_cart[nu_sh];
                 const int nnu_sph = is_spherical ? (2 * lnu + 1) : nnu_cart;
                 const VECTOR C = orb_centers[nu_sh];
                 const int atom_nu = shell_atom_orb[nu_sh];
@@ -77,35 +72,29 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                 // ---- primitive 循环 (外层) ----
                 for (int pP = 0; pP < aux_shell_sizes[P_sh]; pP++)
                 {
-                    const float eP =
-                        aux_exps[aux_shell_offsets[P_sh] + pP];
-                    const float cP =
-                        aux_coeffs[aux_shell_offsets[P_sh] + pP];
+                    const float eP = aux_exps[aux_shell_offsets[P_sh] + pP];
+                    const float cP = aux_coeffs[aux_shell_offsets[P_sh] + pP];
 
                     // Bra E 系数: 算到 lP+1 以支持 d/dA_P
-                    float E_Px[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
-                              [RI_GRAD_E_DIM3];
-                    float E_Py[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
-                              [RI_GRAD_E_DIM3];
-                    float E_Pz[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
-                              [RI_GRAD_E_DIM3];
-                    compute_md_coeffs_grad(E_Px, lP + 1, 0, 0.0f,
-                                           0.0f, 0.5f / eP);
-                    compute_md_coeffs_grad(E_Py, lP + 1, 0, 0.0f,
-                                           0.0f, 0.5f / eP);
-                    compute_md_coeffs_grad(E_Pz, lP + 1, 0, 0.0f,
-                                           0.0f, 0.5f / eP);
+                    float E_Px[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3];
+                    float E_Py[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3];
+                    float E_Pz[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2][RI_GRAD_E_DIM3];
+                    compute_md_coeffs_grad(E_Px, lP + 1, 0, 0.0f, 0.0f,
+                                           0.5f / eP);
+                    compute_md_coeffs_grad(E_Py, lP + 1, 0, 0.0f, 0.0f,
+                                           0.5f / eP);
+                    compute_md_coeffs_grad(E_Pz, lP + 1, 0, 0.0f, 0.0f,
+                                           0.5f / eP);
 
-                    for (int p_mu = 0;
-                         p_mu < orb_shell_sizes[mu_sh]; p_mu++)
+                    for (int p_mu = 0; p_mu < orb_shell_sizes[mu_sh]; p_mu++)
                     {
                         const float e_mu =
                             orb_exps[orb_shell_offsets[mu_sh] + p_mu];
                         const float c_mu =
                             orb_coeffs[orb_shell_offsets[mu_sh] + p_mu];
 
-                        for (int p_nu = 0;
-                             p_nu < orb_shell_sizes[nu_sh]; p_nu++)
+                        for (int p_nu = 0; p_nu < orb_shell_sizes[nu_sh];
+                             p_nu++)
                         {
                             const float e_nu =
                                 orb_exps[orb_shell_offsets[nu_sh] + p_nu];
@@ -113,22 +102,18 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                 orb_coeffs[orb_shell_offsets[nu_sh] + p_nu];
 
                             const float g_ket = e_mu + e_nu;
-                            const float BC2 =
-                                (B.x - C.x) * (B.x - C.x) +
-                                (B.y - C.y) * (B.y - C.y) +
-                                (B.z - C.z) * (B.z - C.z);
+                            const float BC2 = (B.x - C.x) * (B.x - C.x) +
+                                              (B.y - C.y) * (B.y - C.y) +
+                                              (B.z - C.z) * (B.z - C.z);
                             const float K_ket =
                                 expf(-e_mu * e_nu / g_ket * BC2);
 
                             if (fabsf(cP * c_mu * c_nu * K_ket) < 1e-15f)
                                 continue;
 
-                            const float Qx =
-                                (e_mu * B.x + e_nu * C.x) / g_ket;
-                            const float Qy =
-                                (e_mu * B.y + e_nu * C.y) / g_ket;
-                            const float Qz =
-                                (e_mu * B.z + e_nu * C.z) / g_ket;
+                            const float Qx = (e_mu * B.x + e_nu * C.x) / g_ket;
+                            const float Qy = (e_mu * B.y + e_nu * C.y) / g_ket;
+                            const float Qz = (e_mu * B.z + e_nu * C.z) / g_ket;
 
                             // Ket E 系数: 算到 (lmu+1, lnu+1) 以支持 d/dA_mu
                             float E_Kx[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
@@ -137,47 +122,45 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                       [RI_GRAD_E_DIM3];
                             float E_Kz[RI_GRAD_E_DIM1][RI_GRAD_E_DIM2]
                                       [RI_GRAD_E_DIM3];
-                            compute_md_coeffs_grad(
-                                E_Kx, lmu + 1, lnu + 1,
-                                Qx - B.x, Qx - C.x, 0.5f / g_ket);
-                            compute_md_coeffs_grad(
-                                E_Ky, lmu + 1, lnu + 1,
-                                Qy - B.y, Qy - C.y, 0.5f / g_ket);
-                            compute_md_coeffs_grad(
-                                E_Kz, lmu + 1, lnu + 1,
-                                Qz - B.z, Qz - C.z, 0.5f / g_ket);
+                            compute_md_coeffs_grad(E_Kx, lmu + 1, lnu + 1,
+                                                   Qx - B.x, Qx - C.x,
+                                                   0.5f / g_ket);
+                            compute_md_coeffs_grad(E_Ky, lmu + 1, lnu + 1,
+                                                   Qy - B.y, Qy - C.y,
+                                                   0.5f / g_ket);
+                            compute_md_coeffs_grad(E_Kz, lmu + 1, lnu + 1,
+                                                   Qz - B.z, Qz - C.z,
+                                                   0.5f / g_ket);
 
                             // Boys + R 张量: L_tot+1 阶
-                            const float alpha_pq =
-                                eP * g_ket / (eP + g_ket);
-                            const float AQ2 =
-                                (A.x - Qx) * (A.x - Qx) +
-                                (A.y - Qy) * (A.y - Qy) +
-                                (A.z - Qz) * (A.z - Qz);
+                            const float alpha_pq = eP * g_ket / (eP + g_ket);
+                            const float AQ2 = (A.x - Qx) * (A.x - Qx) +
+                                              (A.y - Qy) * (A.y - Qy) +
+                                              (A.z - Qz) * (A.z - Qz);
                             const float T_val = alpha_pq * AQ2;
                             const int L_tot = lP + lmu + lnu;
 
-                            const int R_base = L_tot + 3;  // L_tot+1 的 R 需要 base = L_tot+3
+                            const int R_base =
+                                L_tot + 3;  // L_tot+1 的 R 需要 base = L_tot+3
                             double F_vals[RI_GRAD_R_BASE];
                             compute_boys_double_grad(F_vals, T_val, L_tot + 1);
                             float AQ[3] = {A.x - Qx, A.y - Qy, A.z - Qz};
                             float R_vals[RI_GRAD_R_BASE * RI_GRAD_R_BASE *
                                          RI_GRAD_R_BASE * RI_GRAD_R_BASE];
-                            compute_r_tensor_grad(R_vals, F_vals, alpha_pq,
-                                                  AQ, L_tot + 1);
+                            compute_r_tensor_grad(R_vals, F_vals, alpha_pq, AQ,
+                                                  L_tot + 1);
 
                             const double prefactor =
-                                (double)cP * (double)c_mu *
-                                (double)c_nu * (double)K_ket *
+                                (double)cP * (double)c_mu * (double)c_nu *
+                                (double)K_ket *
                                 (2.0 * M_PI * M_PI * sqrt(M_PI)) /
                                 ((double)eP * (double)g_ket *
                                  sqrt((double)(eP + g_ket)));
 
                             // 收缩函数
                             auto contract_3c =
-                                [&](int axP, int ayP, int azP,
-                                    int ax_mu, int ay_mu, int az_mu,
-                                    int ax_nu, int ay_nu,
+                                [&](int axP, int ayP, int azP, int ax_mu,
+                                    int ay_mu, int az_mu, int ax_nu, int ay_nu,
                                     int az_nu) -> double
                             {
                                 if (axP < 0 || ayP < 0 || azP < 0 ||
@@ -201,41 +184,39 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                             for (int tt = 0;
                                                  tt <= ax_mu + ax_nu; tt++)
                                             {
-                                                double eKx =
-                                                    (double)E_Kx[ax_mu]
-                                                                [ax_nu][tt];
+                                                double eKx = (double)
+                                                    E_Kx[ax_mu][ax_nu][tt];
                                                 if (eKx == 0.0) continue;
                                                 for (int uu = 0;
-                                                     uu <= ay_mu + ay_nu;
-                                                     uu++)
+                                                     uu <= ay_mu + ay_nu; uu++)
                                                 {
-                                                    double eKy =
-                                                        (double)E_Ky[ay_mu]
-                                                                    [ay_nu]
-                                                                    [uu];
+                                                    double eKy = (double)
+                                                        E_Ky[ay_mu][ay_nu][uu];
                                                     if (eKy == 0.0) continue;
                                                     for (int vv = 0;
                                                          vv <= az_mu + az_nu;
                                                          vv++)
                                                     {
-                                                        double eKz =
-                                                            (double)E_Kz
-                                                                [az_mu]
-                                                                [az_nu][vv];
+                                                        double eKz = (double)
+                                                            E_Kz[az_mu][az_nu]
+                                                                [vv];
                                                         if (eKz == 0.0)
                                                             continue;
                                                         double sign =
-                                                            ((tt + uu + vv) &
-                                                             1)
+                                                            ((tt + uu + vv) & 1)
                                                                 ? -1.0
                                                                 : 1.0;
                                                         v_sum +=
-                                                            ePx * ePy *
-                                                            ePz * eKx *
-                                                            eKy * eKz *
+                                                            ePx * ePy * ePz *
+                                                            eKx * eKy * eKz *
                                                             sign *
                                                             (double)R_vals
-                                                                [(((t + tt) * R_base + (u + uu)) * R_base + (v + vv)) * R_base];
+                                                                [(((t + tt) *
+                                                                       R_base +
+                                                                   (u + uu)) *
+                                                                      R_base +
+                                                                  (v + vv)) *
+                                                                 R_base];
                                                     }
                                                 }
                                             }
@@ -262,9 +243,8 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                          idx_nu++)
                                     {
                                         int lx_nu, ly_nu, lz_nu;
-                                        QC_Get_Lxyz_Device(lnu, idx_nu,
-                                                           lx_nu, ly_nu,
-                                                           lz_nu);
+                                        QC_Get_Lxyz_Device(lnu, idx_nu, lx_nu,
+                                                           ly_nu, lz_nu);
 
                                         const int cidx =
                                             (idxP * nmu_cart * nnu_cart +
@@ -274,43 +254,40 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                         {
                                             double dx =
                                                 2.0 * (double)eP *
-                                                contract_3c(
-                                                    lxP + 1, lyP, lzP,
-                                                    lx_mu, ly_mu, lz_mu,
-                                                    lx_nu, ly_nu, lz_nu);
+                                                contract_3c(lxP + 1, lyP, lzP,
+                                                            lx_mu, ly_mu, lz_mu,
+                                                            lx_nu, ly_nu,
+                                                            lz_nu);
                                             if (lxP > 0)
                                                 dx -= (double)lxP *
                                                       contract_3c(
                                                           lxP - 1, lyP, lzP,
-                                                          lx_mu, ly_mu,
-                                                          lz_mu, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                          lx_mu, ly_mu, lz_mu,
+                                                          lx_nu, ly_nu, lz_nu);
                                             double dy =
                                                 2.0 * (double)eP *
-                                                contract_3c(
-                                                    lxP, lyP + 1, lzP,
-                                                    lx_mu, ly_mu, lz_mu,
-                                                    lx_nu, ly_nu, lz_nu);
+                                                contract_3c(lxP, lyP + 1, lzP,
+                                                            lx_mu, ly_mu, lz_mu,
+                                                            lx_nu, ly_nu,
+                                                            lz_nu);
                                             if (lyP > 0)
                                                 dy -= (double)lyP *
                                                       contract_3c(
                                                           lxP, lyP - 1, lzP,
-                                                          lx_mu, ly_mu,
-                                                          lz_mu, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                          lx_mu, ly_mu, lz_mu,
+                                                          lx_nu, ly_nu, lz_nu);
                                             double dz =
                                                 2.0 * (double)eP *
-                                                contract_3c(
-                                                    lxP, lyP, lzP + 1,
-                                                    lx_mu, ly_mu, lz_mu,
-                                                    lx_nu, ly_nu, lz_nu);
+                                                contract_3c(lxP, lyP, lzP + 1,
+                                                            lx_mu, ly_mu, lz_mu,
+                                                            lx_nu, ly_nu,
+                                                            lz_nu);
                                             if (lzP > 0)
                                                 dz -= (double)lzP *
                                                       contract_3c(
                                                           lxP, lyP, lzP - 1,
-                                                          lx_mu, ly_mu,
-                                                          lz_mu, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                          lx_mu, ly_mu, lz_mu,
+                                                          lx_nu, ly_nu, lz_nu);
                                             d_cart_P[cidx * 3 + 0] +=
                                                 prefactor * dx;
                                             d_cart_P[cidx * 3 + 1] +=
@@ -323,43 +300,41 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                         {
                                             double dx =
                                                 2.0 * (double)e_mu *
-                                                contract_3c(
-                                                    lxP, lyP, lzP,
-                                                    lx_mu + 1, ly_mu, lz_mu,
-                                                    lx_nu, ly_nu, lz_nu);
+                                                contract_3c(lxP, lyP, lzP,
+                                                            lx_mu + 1, ly_mu,
+                                                            lz_mu, lx_nu, ly_nu,
+                                                            lz_nu);
                                             if (lx_mu > 0)
                                                 dx -= (double)lx_mu *
-                                                      contract_3c(
-                                                          lxP, lyP, lzP,
-                                                          lx_mu - 1, ly_mu,
-                                                          lz_mu, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                      contract_3c(lxP, lyP, lzP,
+                                                                  lx_mu - 1,
+                                                                  ly_mu, lz_mu,
+                                                                  lx_nu, ly_nu,
+                                                                  lz_nu);
                                             double dy =
                                                 2.0 * (double)e_mu *
-                                                contract_3c(
-                                                    lxP, lyP, lzP, lx_mu,
-                                                    ly_mu + 1, lz_mu, lx_nu,
-                                                    ly_nu, lz_nu);
+                                                contract_3c(lxP, lyP, lzP,
+                                                            lx_mu, ly_mu + 1,
+                                                            lz_mu, lx_nu, ly_nu,
+                                                            lz_nu);
                                             if (ly_mu > 0)
                                                 dy -= (double)ly_mu *
                                                       contract_3c(
-                                                          lxP, lyP, lzP,
-                                                          lx_mu, ly_mu - 1,
-                                                          lz_mu, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                          lxP, lyP, lzP, lx_mu,
+                                                          ly_mu - 1, lz_mu,
+                                                          lx_nu, ly_nu, lz_nu);
                                             double dz =
                                                 2.0 * (double)e_mu *
-                                                contract_3c(
-                                                    lxP, lyP, lzP, lx_mu,
-                                                    ly_mu, lz_mu + 1, lx_nu,
-                                                    ly_nu, lz_nu);
+                                                contract_3c(lxP, lyP, lzP,
+                                                            lx_mu, ly_mu,
+                                                            lz_mu + 1, lx_nu,
+                                                            ly_nu, lz_nu);
                                             if (lz_mu > 0)
                                                 dz -= (double)lz_mu *
                                                       contract_3c(
-                                                          lxP, lyP, lzP,
-                                                          lx_mu, ly_mu,
-                                                          lz_mu - 1, lx_nu,
-                                                          ly_nu, lz_nu);
+                                                          lxP, lyP, lzP, lx_mu,
+                                                          ly_mu, lz_mu - 1,
+                                                          lx_nu, ly_nu, lz_nu);
                                             d_cart_mu[cidx * 3 + 0] +=
                                                 prefactor * dx;
                                             d_cart_mu[cidx * 3 + 1] +=
@@ -395,27 +370,29 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
 
                             for (int pc = 0; pc < nP_cart; pc++)
                             {
-                                double u_p = (double)U_aux[(offP_cart + pc) *
-                                                               naux_sph +
-                                                           P_sph];
+                                double u_p = (double)
+                                    U_aux[(offP_cart + pc) * naux_sph + P_sph];
                                 if (u_p == 0.0) continue;
 
                                 for (int mc = 0; mc < nmu_cart; mc++)
                                 {
-                                    double u_m = is_spherical
-                                        ? (double)U_orb[(offmu_cart + mc) *
-                                                            nao_sph +
-                                                        mu_sph]
-                                        : (mc == ms ? 1.0 : 0.0);
+                                    double u_m =
+                                        is_spherical
+                                            ? (double)U_orb[(offmu_cart + mc) *
+                                                                nao_sph +
+                                                            mu_sph]
+                                            : (mc == ms ? 1.0 : 0.0);
                                     if (u_m == 0.0) continue;
 
                                     for (int nc = 0; nc < nnu_cart; nc++)
                                     {
-                                        double u_n = is_spherical
-                                            ? (double)U_orb[(offnu_cart + nc) *
+                                        double u_n =
+                                            is_spherical
+                                                ? (double)
+                                                      U_orb[(offnu_cart + nc) *
                                                                 nao_sph +
                                                             nu_sph]
-                                            : (nc == ns ? 1.0 : 0.0);
+                                                : (nc == ns ? 1.0 : 0.0);
                                         if (u_n == 0.0) continue;
 
                                         double w = u_p * u_m * u_n;

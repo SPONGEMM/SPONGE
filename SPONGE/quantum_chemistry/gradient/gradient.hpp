@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "grad_nuclear.hpp"
 #include "grad_wdensity.hpp"
@@ -9,8 +9,8 @@
 // ==============================================================
 static __global__ void QC_Writeback_Gradient_Kernel(
     const int natm, const int* atom_local, const double* grad,
-    const VECTOR* crd, VECTOR* frc,
-    const int need_virial, LTMatrix3* atom_virial)
+    const VECTOR* crd, VECTOR* frc, const int need_virial,
+    LTMatrix3* atom_virial)
 {
     SIMPLE_DEVICE_FOR(i, natm)
     {

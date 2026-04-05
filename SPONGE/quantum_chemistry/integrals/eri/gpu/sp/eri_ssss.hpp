@@ -28,8 +28,7 @@ __global__ void QC_Fock_ssss_Kernel(
         const size_t fock_off =
             (size_t)(blockIdx.x % n_fock_copies) * (size_t)nao2;
         float* F_a_accum = F_a + fock_off;
-        float* F_b_accum =
-            (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
+        float* F_b_accum = (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
 #else
         const int tid = omp_get_thread_num();
         const int nao2 = nao * nao;

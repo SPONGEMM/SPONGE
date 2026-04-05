@@ -221,3 +221,6 @@ ref-gen-gromacs = "python benchmarks/comparison/reference/gromacs/generate.py"
 ref-check-gromacs = "python benchmarks/comparison/reference/gromacs/generate.py --check"
 ref-gen-lammps = "python benchmarks/comparison/reference/lammps/generate.py"
 ref-check-lammps = "python benchmarks/comparison/reference/lammps/generate.py --check"
+
+[feature.ref-gen.dependencies]
+pytest = ">=9.0.2,<10"

@@ -9,6 +9,7 @@
 #include "integrals/ri/ri_3center.hpp"
 #include "gradient/grad_eri.hpp"
 #include "gradient/grad_ri.hpp"
+#include "ecp/ecp_integrals.h"
 // clang-format on
 
 std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
@@ -18,6 +19,16 @@ static __global__ void QC_Float_Accumulate_Kernel(int n, float* dst,
                                                   const float* src)
 {
     SIMPLE_DEVICE_FOR(i, n) { dst[i] += src[i]; }
+}
+
+static __global__ void QC_Weight_By_Norms_Kernel(int nao, const float* P,
+                                                  const float* norms, float* out)
+{
+    SIMPLE_DEVICE_FOR(idx, nao * nao)
+    {
+        int i = idx / nao, j = idx % nao;
+        out[idx] = P[idx] * norms[i] * norms[j];
+    }
 }
 
 void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
@@ -111,13 +122,54 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
         else
 #endif
         {
-            const float* d_P_use = scf_ws.direct.d_P_coul;
-            const float* d_W_use = grad_ws.d_W_density;
-            const float* d_norms_use = scf_ws.ortho.d_norms;
-            int nao_1e = mol.nao;
             const int n_tasks = task_ctx.topo.n_1e_tasks;
+            const float* d_P_use;
+            const float* d_W_use;
+            const float* d_norms_use;
+            int nao_1e;
 
-            // S/T 梯度: 按 shell pair 并行 (轻量级，无 R-tensor)
+            if (mol.is_spherical)
+            {
+                // 1e 梯度核使用 Cartesian ao_offsets, 需要匹配的密度矩阵
+                const int nc = mol.nao_cart, ns = mol.nao;
+                std::vector<float> h_norms(ns), h_C(ns * nc);
+                std::vector<float> h_P(ns * ns), h_W(ns * ns);
+                deviceMemcpy(h_norms.data(), scf_ws.ortho.d_norms,
+                             sizeof(float) * ns, deviceMemcpyDeviceToHost);
+                deviceMemcpy(h_C.data(), cart2sph.d_cart2sph_mat,
+                             sizeof(float) * ns * nc,
+                             deviceMemcpyDeviceToHost);
+                deviceMemcpy(h_P.data(), scf_ws.direct.d_P_coul,
+                             sizeof(float) * ns * ns,
+                             deviceMemcpyDeviceToHost);
+                deviceMemcpy(h_W.data(), grad_ws.d_W_density,
+                             sizeof(float) * ns * ns,
+                             deviceMemcpyDeviceToHost);
+
+                std::vector<float> h_Pc, h_Wc;
+                QC_Sph2Cart_Density_Host(ns, nc, h_norms, h_C, h_P, h_Pc);
+                QC_Sph2Cart_Density_Host(ns, nc, h_norms, h_C, h_W, h_Wc);
+
+                deviceMemcpy(grad_ws.d_P_cart, h_Pc.data(),
+                             sizeof(float) * nc * nc,
+                             deviceMemcpyHostToDevice);
+                deviceMemcpy(grad_ws.d_W_cart, h_Wc.data(),
+                             sizeof(float) * nc * nc,
+                             deviceMemcpyHostToDevice);
+
+                d_P_use = grad_ws.d_P_cart;
+                d_W_use = grad_ws.d_W_cart;
+                d_norms_use = grad_ws.d_norms_ones;
+                nao_1e = nc;
+            }
+            else
+            {
+                d_P_use = scf_ws.direct.d_P_coul;
+                d_W_use = grad_ws.d_W_density;
+                d_norms_use = scf_ws.ortho.d_norms;
+                nao_1e = mol.nao;
+            }
+
             Launch_Device_Kernel(OneE_ST_Grad_Kernel, (n_tasks + 63) / 64, 64,
                                  0, 0, n_tasks, task_ctx.buffers.d_1e_tasks,
                                  mol.d_centers, mol.d_l_list, mol.d_exps,
@@ -126,7 +178,6 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                                  grad_ws.d_shell_atom, d_P_use, d_W_use,
                                  d_norms_use, grad_ws.d_grad);
 
-            // V 梯度: 按 (shell_pair × atom) 并行 (natm× 更多线程)
             const int v_total = n_tasks * mol.natm;
             Launch_Device_Kernel(
                 OneE_V_Grad_Kernel, (v_total + 63) / 64, 64, 0, 0, n_tasks,
@@ -136,6 +187,23 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 mol.natm, nao_1e, grad_ws.d_shell_atom, d_P_use, d_norms_use,
                 grad_ws.d_grad);
         }
+    }
+
+    // 3b. ECP 梯度: 复用 1e 梯度已计算的 Cartesian 密度
+    if (mol.has_ecp)
+    {
+        if (!mol.is_spherical)
+        {
+            // 非球谐基: 需要计算 P_cart = P .* (norms * norms')
+            const int nc2 = mol.nao_cart * mol.nao_cart;
+            Launch_Device_Kernel(QC_Weight_By_Norms_Kernel,
+                                 (nc2 + 255) / 256, 256, 0, 0,
+                                 mol.nao_cart, scf_ws.direct.d_P_coul,
+                                 scf_ws.ortho.d_norms, grad_ws.d_P_cart);
+        }
+        // 球谐基: grad_ws.d_P_cart 已在 1e 梯度中填充
+        QC_Compute_ECP_Gradient(mol, task_ctx, grad_ws.d_shell_atom,
+                                grad_ws.d_P_cart, grad_ws.d_grad);
     }
 
     // 4. 双电子积分导数: Tr[Γ·dERI/dR]

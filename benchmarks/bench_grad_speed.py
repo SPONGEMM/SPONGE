@@ -4,6 +4,7 @@ Usage:
     pixi run -e dev-cpu python benchmarks/bench_grad_speed.py
     pixi run -e dev-cuda12 python benchmarks/bench_grad_speed.py
 """
+
 import os
 import re
 import shutil
@@ -50,12 +51,14 @@ def setup_case(case_name, model_chem, n_steps, density_fit=False):
         shutil.copy(f, tmpdir)
 
     # Rewrite coordinate.txt to single-line box format (header = natom only)
-    coord_lines = open(os.path.join(tmpdir, "coordinate.txt")).read().strip().splitlines()
+    coord_lines = (
+        open(os.path.join(tmpdir, "coordinate.txt")).read().strip().splitlines()
+    )
     natom = int(coord_lines[0].split()[0])
-    atoms = coord_lines[1:1 + natom]
+    atoms = coord_lines[1 : 1 + natom]
     # Join remaining box lines into one
     box_parts = []
-    for line in coord_lines[1 + natom:]:
+    for line in coord_lines[1 + natom :]:
         box_parts.extend(line.split())
     with open(os.path.join(tmpdir, "coordinate.txt"), "w") as f:
         f.write(f"{natom}\n")
@@ -106,8 +109,10 @@ def run_bench(tmpdir):
 
 def main():
     print(f"SPONGE binary: {shutil.which(SPONGE_BIN) or SPONGE_BIN}")
-    print(f"{'Case':<25} {'Steps':>5} {'Wall(ms)':>10} {'Force(ms)':>10} "
-          f"{'Per-step(ms)':>12}")
+    print(
+        f"{'Case':<25} {'Steps':>5} {'Wall(ms)':>10} {'Force(ms)':>10} "
+        f"{'Per-step(ms)':>12}"
+    )
     print("-" * 70)
 
     for case_name, model_chem, n_steps, n_repeats, density_fit in BENCH_CASES:
@@ -135,8 +140,10 @@ def main():
         wall_ms = best_wall * 1000
         force_ms = best_force * 1000 if best_force != float("inf") else 0
         per_step = force_ms / n_steps if force_ms > 0 else wall_ms / n_steps
-        print(f"{label:<25} {n_steps:>5} {wall_ms:>10.1f} {force_ms:>10.1f} "
-              f"{per_step:>12.2f}")
+        print(
+            f"{label:<25} {n_steps:>5} {wall_ms:>10.1f} {force_ms:>10.1f} "
+            f"{per_step:>12.2f}"
+        )
 
 
 if __name__ == "__main__":

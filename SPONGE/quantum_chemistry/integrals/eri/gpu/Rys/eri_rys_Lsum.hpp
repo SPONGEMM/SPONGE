@@ -35,8 +35,7 @@ __global__ void KERNEL_NAME(
         const size_t fock_off =
             (size_t)(blockIdx.x % n_fock_copies) * (size_t)nao2;
         float* F_a_accum = F_a + fock_off;
-        float* F_b_accum =
-            (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
+        float* F_b_accum = (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
 #else
         const int tid = omp_get_thread_num();
         const int nao2 = nao * nao;
@@ -366,9 +365,8 @@ __global__ void KERNEL_NAME(
                             // Buffer source row to avoid read-after-write
                             float c2s_tmp[15];  // max dim_cart for g-shell
                             for (int cc = 0; cc < nc; cc++)
-                                c2s_tmp[cc] =
-                                    eri_buf0[o * nc * stride_si +
-                                             cc * stride_si + inn];
+                                c2s_tmp[cc] = eri_buf0[o * nc * stride_si +
+                                                       cc * stride_si + inn];
                             for (int s = 0; s < ns; s++)
                             {
                                 double sum = 0.0;
@@ -378,8 +376,8 @@ __global__ void KERNEL_NAME(
                                             cart2sph_mat[(oc + cc) * nao_sph +
                                                          (os + s)] *
                                         (double)c2s_tmp[cc];
-                                eri_buf0[o * ns * stride_si +
-                                         s * stride_si + inn] = (float)sum;
+                                eri_buf0[o * ns * stride_si + s * stride_si +
+                                         inn] = (float)sum;
                             }
                         }
                     cur_dim[si] = ns;
@@ -451,4 +449,3 @@ __global__ void KERNEL_NAME(
 #undef ERI_MAX_IX
 #undef ERI_MAX_IX_UNDEF_AFTER
 #endif
-

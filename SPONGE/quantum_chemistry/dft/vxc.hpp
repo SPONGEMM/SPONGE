@@ -5,22 +5,6 @@
 #include "grid.hpp"
 #include "xc.hpp"
 
-static void QC_Cart2Sph_AO_Batch_Device(
-    BLAS_HANDLE blas_handle, int n_batch, int nao_c, int nao_s,
-    const float* d_cart2sph_mat, const float* d_ao_vals_c,
-    const float* d_ao_gx_c, const float* d_ao_gy_c, const float* d_ao_gz_c,
-    float* d_ao_vals_s, float* d_ao_gx_s, float* d_ao_gy_s, float* d_ao_gz_s)
-{
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_vals_c,
-                          d_cart2sph_mat, d_ao_vals_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gx_c,
-                          d_cart2sph_mat, d_ao_gx_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gy_c,
-                          d_cart2sph_mat, d_ao_gy_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gz_c,
-                          d_cart2sph_mat, d_ao_gz_s);
-}
-
 // 对 AO 值施加归一化因子
 static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid, const int nao,
                                                 const float* norms,

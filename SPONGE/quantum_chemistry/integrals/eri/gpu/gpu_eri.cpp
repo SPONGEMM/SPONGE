@@ -29,16 +29,14 @@ void QC_Launch_Screen(
 }
 
 // Reduce N Fock copies into F: F[i] += sum of copies[c][i]
-static __global__ void QC_Reduce_Fock_Copies_Kernel(const int nao2,
-                                                     const int n_copies,
-                                                     const float* __restrict__ copies,
-                                                     float* __restrict__ F)
+static __global__ void QC_Reduce_Fock_Copies_Kernel(
+    const int nao2, const int n_copies, const float* __restrict__ copies,
+    float* __restrict__ F)
 {
     SIMPLE_DEVICE_FOR(i, nao2)
     {
         float sum = 0.0f;
-        for (int c = 0; c < n_copies; c++)
-            sum += copies[(size_t)c * nao2 + i];
+        for (int c = 0; c < n_copies; c++) sum += copies[(size_t)c * nao2 + i];
         F[i] += sum;
     }
 }
@@ -113,15 +111,14 @@ void QC_Build_Fock_Direct_GPU(
     static bool s_streams_init = false;
     if (!s_streams_init)
     {
-        for (int i = 0; i < 17; i++)
-            deviceStreamCreate(&s_streams[i]);
+        for (int i = 0; i < 17; i++) deviceStreamCreate(&s_streams[i]);
         s_streams_init = true;
     }
 #endif
 
     using LaunchFunc = void (*)(ERI_KERNEL_PARAMS);
-    auto launch_eri = [&](const int combo_index, LaunchFunc func,
-                          int stream_idx)
+    auto launch_eri =
+        [&](const int combo_index, LaunchFunc func, int stream_idx)
     {
         const int n = h_counts[combo_index];
         if (n == 0) return;
@@ -135,9 +132,10 @@ void QC_Build_Fock_Direct_GPU(
              shell_pair_bounds, pair_density_coul, pair_density_exx_a,
              pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,
              exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical, cart2sph_mat,
-             s_d_F_copies, d_F_b_mc, global_hr_pool, task_ctx.params.eri_hr_base,
-             task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
-             prim_screen_tol, N_FOCK_COPIES);
+             s_d_F_copies, d_F_b_mc, global_hr_pool,
+             task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
+             task_ctx.params.eri_shell_buf_size, prim_screen_tol,
+             N_FOCK_COPIES);
     };
 
     for (int combo_index = 0; combo_index < task_ctx.topo.n_combos;
@@ -149,43 +147,105 @@ void QC_Build_Fock_Direct_GPU(
             combo.l0 * 1000 + combo.l1 * 100 + combo.l2 * 10 + combo.l3;
         switch (lkey)
         {
-            case 0:    launch_eri(combo_index, QC_Launch_ssss, 0); break;
-            case 1000: launch_eri(combo_index, QC_Launch_psss, 0); break;
-            case 100:  launch_eri(combo_index, QC_Launch_spss, 0); break;
-            case 10:   launch_eri(combo_index, QC_Launch_ssps, 0); break;
-            case 1:    launch_eri(combo_index, QC_Launch_sssp, 0); break;
-            case 1100: launch_eri(combo_index, QC_Launch_ppss, 0); break;
-            case 1010: launch_eri(combo_index, QC_Launch_psps, 0); break;
-            case 1001: launch_eri(combo_index, QC_Launch_pssp, 0); break;
-            case 110:  launch_eri(combo_index, QC_Launch_spps, 0); break;
-            case 101:  launch_eri(combo_index, QC_Launch_spsp, 0); break;
-            case 11:   launch_eri(combo_index, QC_Launch_sspp, 0); break;
-            case 111:  launch_eri(combo_index, QC_Launch_sppp, 0); break;
-            case 1011: launch_eri(combo_index, QC_Launch_pspp, 0); break;
-            case 1101: launch_eri(combo_index, QC_Launch_ppsp, 0); break;
-            case 1110: launch_eri(combo_index, QC_Launch_ppps, 0); break;
-            case 1111: launch_eri(combo_index, QC_Launch_pppp, 0); break;
+            case 0:
+                launch_eri(combo_index, QC_Launch_ssss, 0);
+                break;
+            case 1000:
+                launch_eri(combo_index, QC_Launch_psss, 0);
+                break;
+            case 100:
+                launch_eri(combo_index, QC_Launch_spss, 0);
+                break;
+            case 10:
+                launch_eri(combo_index, QC_Launch_ssps, 0);
+                break;
+            case 1:
+                launch_eri(combo_index, QC_Launch_sssp, 0);
+                break;
+            case 1100:
+                launch_eri(combo_index, QC_Launch_ppss, 0);
+                break;
+            case 1010:
+                launch_eri(combo_index, QC_Launch_psps, 0);
+                break;
+            case 1001:
+                launch_eri(combo_index, QC_Launch_pssp, 0);
+                break;
+            case 110:
+                launch_eri(combo_index, QC_Launch_spps, 0);
+                break;
+            case 101:
+                launch_eri(combo_index, QC_Launch_spsp, 0);
+                break;
+            case 11:
+                launch_eri(combo_index, QC_Launch_sspp, 0);
+                break;
+            case 111:
+                launch_eri(combo_index, QC_Launch_sppp, 0);
+                break;
+            case 1011:
+                launch_eri(combo_index, QC_Launch_pspp, 0);
+                break;
+            case 1101:
+                launch_eri(combo_index, QC_Launch_ppsp, 0);
+                break;
+            case 1110:
+                launch_eri(combo_index, QC_Launch_ppps, 0);
+                break;
+            case 1111:
+                launch_eri(combo_index, QC_Launch_pppp, 0);
+                break;
             default:
             {
                 const int l_sum = combo.l0 + combo.l1 + combo.l2 + combo.l3;
                 {
                     switch (l_sum)
                     {
-                        case 2:  launch_eri(combo_index, QC_Launch_Rys_L2, 2); break;
-                        case 3:  launch_eri(combo_index, QC_Launch_Rys_L3, 3); break;
-                        case 4:  launch_eri(combo_index, QC_Launch_Rys_L4, 4); break;
-                        case 5:  launch_eri(combo_index, QC_Launch_Rys_L5, 5); break;
-                        case 6:  launch_eri(combo_index, QC_Launch_Rys_L6, 6); break;
-                        case 7:  launch_eri(combo_index, QC_Launch_Rys_L7, 7); break;
-                        case 8:  launch_eri(combo_index, QC_Launch_Rys_L8, 8); break;
-                        case 9:  launch_eri(combo_index, QC_Launch_Rys_L9, 9); break;
-                        case 10: launch_eri(combo_index, QC_Launch_Rys_L10, 10); break;
-                        case 11: launch_eri(combo_index, QC_Launch_Rys_L11, 11); break;
-                        case 12: launch_eri(combo_index, QC_Launch_Rys_L12, 12); break;
-                        case 13: launch_eri(combo_index, QC_Launch_Rys_L13, 13); break;
-                        case 14: launch_eri(combo_index, QC_Launch_Rys_L14, 14); break;
-                        case 15: launch_eri(combo_index, QC_Launch_Rys_L15, 15); break;
-                        case 16: launch_eri(combo_index, QC_Launch_Rys_L16, 16); break;
+                        case 2:
+                            launch_eri(combo_index, QC_Launch_Rys_L2, 2);
+                            break;
+                        case 3:
+                            launch_eri(combo_index, QC_Launch_Rys_L3, 3);
+                            break;
+                        case 4:
+                            launch_eri(combo_index, QC_Launch_Rys_L4, 4);
+                            break;
+                        case 5:
+                            launch_eri(combo_index, QC_Launch_Rys_L5, 5);
+                            break;
+                        case 6:
+                            launch_eri(combo_index, QC_Launch_Rys_L6, 6);
+                            break;
+                        case 7:
+                            launch_eri(combo_index, QC_Launch_Rys_L7, 7);
+                            break;
+                        case 8:
+                            launch_eri(combo_index, QC_Launch_Rys_L8, 8);
+                            break;
+                        case 9:
+                            launch_eri(combo_index, QC_Launch_Rys_L9, 9);
+                            break;
+                        case 10:
+                            launch_eri(combo_index, QC_Launch_Rys_L10, 10);
+                            break;
+                        case 11:
+                            launch_eri(combo_index, QC_Launch_Rys_L11, 11);
+                            break;
+                        case 12:
+                            launch_eri(combo_index, QC_Launch_Rys_L12, 12);
+                            break;
+                        case 13:
+                            launch_eri(combo_index, QC_Launch_Rys_L13, 13);
+                            break;
+                        case 14:
+                            launch_eri(combo_index, QC_Launch_Rys_L14, 14);
+                            break;
+                        case 15:
+                            launch_eri(combo_index, QC_Launch_Rys_L15, 15);
+                            break;
+                        case 16:
+                            launch_eri(combo_index, QC_Launch_Rys_L16, 16);
+                            break;
                     }
                 }
                 break;
@@ -194,8 +254,7 @@ void QC_Build_Fock_Direct_GPU(
     }
 #ifdef GPU_ARCH_NAME
     // Synchronize all ERI streams before reduce
-    for (int i = 0; i < 17; i++)
-        deviceStreamSynchronize(s_streams[i]);
+    for (int i = 0; i < 17; i++) deviceStreamSynchronize(s_streams[i]);
     g_eri_stream = 0;  // reset to default
 #endif
     // Reduce multi-copy Fock buffers back to F_a / F_b

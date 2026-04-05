@@ -5,6 +5,7 @@ then compares with central finite difference of energy.
 
 Tests multiple molecules and basis sets to exercise different code paths.
 """
+
 import os
 import shutil
 import tempfile
@@ -70,7 +71,7 @@ def _sponge_fd_gradient(sponge_dir, natm, coords, h=0.002):
     # Read header and box lines from original coordinate.txt
     all_lines = (sponge_dir / "coordinate.txt").read_text().strip().splitlines()
     header_line = all_lines[0]  # e.g. "3 0.000000"
-    box_lines = all_lines[1 + natm:]  # everything after header + atoms
+    box_lines = all_lines[1 + natm :]  # everything after header + atoms
 
     grad = np.zeros((natm, 3))
     for ia in range(natm):
@@ -107,7 +108,9 @@ def _sponge_fd_gradient(sponge_dir, natm, coords, h=0.002):
     GRAD_CASES,
     ids=[f"{c}_{mc.replace('/', '_')}" for c, mc in GRAD_CASES],
 )
-def test_gradient_fd_multi(case_name, model_chemistry, statics_path, outputs_path):
+def test_gradient_fd_multi(
+    case_name, model_chemistry, statics_path, outputs_path
+):
     """FD gradient test on multiple molecules."""
     sponge_dir = statics_path / case_name / "sponge"
     if not sponge_dir.exists():
@@ -121,13 +124,26 @@ def test_gradient_fd_multi(case_name, model_chemistry, statics_path, outputs_pat
 
     # Check that FD gradient is self-consistent (finite)
     max_grad = float(np.max(np.abs(fd_grad)))
-    assert np.all(np.isfinite(fd_grad)), "FD gradient contains non-finite values"
+    assert np.all(np.isfinite(fd_grad)), (
+        "FD gradient contains non-finite values"
+    )
 
-    headers = ["Case", "Model", "Atoms", "Max |grad| (Ha/Bohr)",
-               "FD Time (s)", "Per DoF (s)"]
-    rows = [[
-        case_name, model_chemistry, str(natm),
-        f"{max_grad:.6f}", f"{fd_time:.1f}",
-        f"{fd_time / (natm * 6):.2f}",
-    ]]
+    headers = [
+        "Case",
+        "Model",
+        "Atoms",
+        "Max |grad| (Ha/Bohr)",
+        "FD Time (s)",
+        "Per DoF (s)",
+    ]
+    rows = [
+        [
+            case_name,
+            model_chemistry,
+            str(natm),
+            f"{max_grad:.6f}",
+            f"{fd_time:.1f}",
+            f"{fd_time / (natm * 6):.2f}",
+        ]
+    ]
     Outputer.print_table(headers, rows, title="Gradient FD Benchmark")

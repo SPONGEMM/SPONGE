@@ -414,7 +414,9 @@ def _load_pyscf_reference_typed(reference_path_str: str, entry_type: str):
         )
     with open(reference_path, "r") as f:
         payload = json.load(f)
-    entries = payload if isinstance(payload, list) else payload.get("entries", [])
+    entries = (
+        payload if isinstance(payload, list) else payload.get("entries", [])
+    )
     table = {}
     for entry in entries:
         if not isinstance(entry, dict):

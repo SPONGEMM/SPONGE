@@ -250,12 +250,9 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_zero_float(&scf_ws.diis.d_diis_w4, nao2);
         alloc_zero_double(&scf_ws.diis.d_diis_accum, 1);
         // 批量 Tr 缓冲: gather 两组历史 + 输出
-        alloc_zero_double(&scf_ws.diis.d_gather_a,
-                          (size_t)diis_space * nao2);
-        alloc_zero_double(&scf_ws.diis.d_gather_b,
-                          (size_t)diis_space * nao2);
-        alloc_zero_double(&scf_ws.diis.d_dot_out,
-                          diis_space * diis_space);
+        alloc_zero_double(&scf_ws.diis.d_gather_a, (size_t)diis_space * nao2);
+        alloc_zero_double(&scf_ws.diis.d_gather_b, (size_t)diis_space * nao2);
+        alloc_zero_double(&scf_ws.diis.d_dot_out, diis_space * diis_space);
         scf_ws.diis.d_diis_f_hist.assign((int)diis_space, nullptr);
         scf_ws.diis.d_diis_e_hist.assign((int)diis_space, nullptr);
         scf_ws.diis.d_diis_d_hist.assign((int)diis_space, nullptr);

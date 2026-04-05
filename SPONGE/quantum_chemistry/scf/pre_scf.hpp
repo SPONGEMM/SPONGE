@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "../ecp/ecp_integrals.h"
+
 // ============================ 坐标同步 ===========================
 // 从 MD 坐标更新 QC 的原子环境与壳层中心（含周期边界修正）
 // ================================================================
@@ -19,6 +21,17 @@ static __global__ void QC_Update_Env_From_Crd_Kernel(
         env[ptr_coord + 0] = (prev.x + dr.x) * to_bohr;
         env[ptr_coord + 1] = (prev.y + dr.y) * to_bohr;
         env[ptr_coord + 2] = (prev.z + dr.z) * to_bohr;
+    }
+}
+
+static __global__ void QC_Update_Atom_Coords_From_Env_Kernel(
+    const int natm, const int* atm, const float* env, VECTOR* atom_coords)
+{
+    SIMPLE_DEVICE_FOR(iat, natm)
+    {
+        const int ptr_coord = atm[iat * 6 + 1];
+        atom_coords[iat] = {env[ptr_coord + 0], env[ptr_coord + 1],
+                            env[ptr_coord + 2]};
     }
 }
 
@@ -49,6 +62,10 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
                          (mol.nbas + threads - 1) / threads, threads, 0, 0,
                          mol.nbas, mol.d_bas, mol.d_atm, mol.d_env,
                          mol.d_centers);
+    // 同步原子坐标 (按原子索引, ECP 内核使用)
+    Launch_Device_Kernel(QC_Update_Atom_Coords_From_Env_Kernel,
+                         (mol.natm + threads - 1) / threads, threads, 0, 0,
+                         mol.natm, mol.d_atm, mol.d_env, mol.d_atom_coords);
 
     // RI: 同步辅助基坐标（原子相同，atm 格式相同）
     if (scf_ws.ri.enabled)
@@ -87,13 +104,20 @@ void QUANTUM_CHEMISTRY::Reset_SCF_State()
     // Reset incremental Fock state
     const size_t fb = sizeof(float) * mol.nao2;
     const size_t db = sizeof(double) * mol.nao2;
-    if (scf_ws.direct.d_P_coul_prev) deviceMemset(scf_ws.direct.d_P_coul_prev, 0, fb);
-    if (scf_ws.direct.d_F_eri_accum) deviceMemset(scf_ws.direct.d_F_eri_accum, 0, db);
-    if (scf_ws.direct.d_F_eri_accum_f) deviceMemset(scf_ws.direct.d_F_eri_accum_f, 0, fb);
-    if (scf_ws.direct.d_P_exx_prev) deviceMemset(scf_ws.direct.d_P_exx_prev, 0, fb);
-    if (scf_ws.direct.d_P_exx_b_prev) deviceMemset(scf_ws.direct.d_P_exx_b_prev, 0, fb);
-    if (scf_ws.direct.d_F_eri_b_accum) deviceMemset(scf_ws.direct.d_F_eri_b_accum, 0, db);
-    if (scf_ws.direct.d_F_eri_b_accum_f) deviceMemset(scf_ws.direct.d_F_eri_b_accum_f, 0, fb);
+    if (scf_ws.direct.d_P_coul_prev)
+        deviceMemset(scf_ws.direct.d_P_coul_prev, 0, fb);
+    if (scf_ws.direct.d_F_eri_accum)
+        deviceMemset(scf_ws.direct.d_F_eri_accum, 0, db);
+    if (scf_ws.direct.d_F_eri_accum_f)
+        deviceMemset(scf_ws.direct.d_F_eri_accum_f, 0, fb);
+    if (scf_ws.direct.d_P_exx_prev)
+        deviceMemset(scf_ws.direct.d_P_exx_prev, 0, fb);
+    if (scf_ws.direct.d_P_exx_b_prev)
+        deviceMemset(scf_ws.direct.d_P_exx_b_prev, 0, fb);
+    if (scf_ws.direct.d_F_eri_b_accum)
+        deviceMemset(scf_ws.direct.d_F_eri_b_accum, 0, db);
+    if (scf_ws.direct.d_F_eri_b_accum_f)
+        deviceMemset(scf_ws.direct.d_F_eri_b_accum_f, 0, fb);
 }
 
 // =========================== 单电子积分 ===========================
@@ -122,6 +146,31 @@ void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
             mol.d_env, mol.natm, p_S, p_T, p_V, nao_c);
     }
     Cart2Sph_OneE_Integrals();
+}
+
+// ============================= ECP 矩阵 ============================
+// 计算 V_ECP 并变换到有效基下, 归一化后加入 H_core
+// ================================================================
+void QUANTUM_CHEMISTRY::Compute_ECP_Matrix()
+{
+    if (!mol.has_ecp) return;
+
+    const int nao_c = mol.nao_cart;
+    const int nao = mol.nao;
+
+    // 在 Cartesian 基下计算 V_ECP
+    float* d_V_ECP_cart = scf_ws.core.d_V_ECP;
+    if (mol.is_spherical)
+    {
+        // 复用 cart2sph 临时缓冲 (d_V_cart)
+        d_V_ECP_cart = cart2sph.d_V_cart;
+    }
+    deviceMemset(d_V_ECP_cart, 0, sizeof(float) * nao_c * nao_c);
+    QC_Compute_V_ECP(mol, task_ctx, d_V_ECP_cart);
+
+    // 球谐变换
+    if (mol.is_spherical)
+        Cart2Sph_Single_Matrix(d_V_ECP_cart, scf_ws.core.d_V_ECP);
 }
 
 // ============================ 核排斥能 ===========================
@@ -281,11 +330,11 @@ void QUANTUM_CHEMISTRY::Build_Shell_Pair_Bounds()
     Launch_Device_Kernel(
         QC_Build_Shell_Pair_Bounds_Kernel, (n + threads - 1) / threads, threads,
         0, 0, n, task_ctx.buffers.d_shell_pairs, mol.d_atm, mol.d_bas,
-        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-        scf_ws.ortho.d_norms, mol.is_spherical, cart2sph.d_cart2sph_mat,
-        mol.nao_sph, task_ctx.buffers.d_shell_pair_bounds,
-        scf_ws.direct.d_hr_pool, task_ctx.params.eri_hr_base,
-        task_ctx.params.eri_hr_size, task_ctx.params.eri_shell_buf_size,
+        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
+        mol.is_spherical, cart2sph.d_cart2sph_mat, mol.nao_sph,
+        task_ctx.buffers.d_shell_pair_bounds, scf_ws.direct.d_hr_pool,
+        task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
+        task_ctx.params.eri_shell_buf_size,
         task_ctx.params.eri_prim_screen_tol);
     task_ctx.topo.h_shell_pair_bounds.resize((size_t)n);
     deviceMemcpy(task_ctx.topo.h_shell_pair_bounds.data(),
@@ -293,11 +342,9 @@ void QUANTUM_CHEMISTRY::Build_Shell_Pair_Bounds()
                  deviceMemcpyDeviceToHost);
 }
 
-static __global__ void QC_Scale_OneE_And_Build_Hcore_Kernel(const int nao,
-                                                            const float* norms,
-                                                            float* S, float* T,
-                                                            float* V,
-                                                            float* H_core)
+static __global__ void QC_Scale_OneE_And_Build_Hcore_Kernel(
+    const int nao, const float* norms, float* S, float* T, float* V,
+    float* V_ECP, float* H_core)
 {
     const int total = nao * nao;
     SIMPLE_DEVICE_FOR(idx, total)
@@ -309,6 +356,11 @@ static __global__ void QC_Scale_OneE_And_Build_Hcore_Kernel(const int nao,
         T[idx] *= scale;
         V[idx] *= scale;
         H_core[idx] = T[idx] + V[idx];
+        if (V_ECP)
+        {
+            V_ECP[idx] *= scale;
+            H_core[idx] += V_ECP[idx];
+        }
     }
 }
 
@@ -319,11 +371,13 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
     const int threads = 256;
 
     // norms 已在 Compute_Analytical_Norms 中计算完毕
-    // 只需归一化 S/T/V 并构建 Hcore
+    // 归一化 S/T/V(/V_ECP) 并构建 Hcore = T + V (+ V_ECP)
     Launch_Device_Kernel(QC_Scale_OneE_And_Build_Hcore_Kernel,
                          (nao2 + threads - 1) / threads, threads, 0, 0, nao,
                          scf_ws.ortho.d_norms, scf_ws.core.d_S, scf_ws.core.d_T,
-                         scf_ws.core.d_V, scf_ws.core.d_H_core);
+                         scf_ws.core.d_V, scf_ws.core.d_V_ECP,
+                         scf_ws.core.d_H_core);
+
 }
 
 // ========================= 重叠正交化矩阵 =========================

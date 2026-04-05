@@ -19,21 +19,21 @@ struct QC_RI_Bra_Prim_Cache
     float E_x[5][5][9];  // E^{lP}_x for all lxP
     float E_y[5][5][9];
     float E_z[5][5][9];
-    double coeff;        // cP * prefactor 部分
+    double coeff;  // cP * prefactor 部分
     float eP;
 };
 
 // 三中心 Coulomb 积分内核
 static __global__ void QC_RI_3Center_Kernel(
-    const int n_tasks, const QC_RI_3C_TASK* tasks,
-    const VECTOR* aux_centers, const int* aux_l_list, const float* aux_exps,
-    const float* aux_coeffs, const int* aux_shell_offsets,
-    const int* aux_shell_sizes, const int* aux_ao_offsets,
-    const VECTOR* orb_centers, const int* orb_l_list, const float* orb_exps,
-    const float* orb_coeffs, const int* orb_shell_offsets,
-    const int* orb_shell_sizes, const int* orb_ao_offsets,
-    int naux, int out_mu_dim, int out_nu_dim, int mu_offset_base,
-    int nu_offset_base, bool fill_symmetric, double* out_eri3c)
+    const int n_tasks, const QC_RI_3C_TASK* tasks, const VECTOR* aux_centers,
+    const int* aux_l_list, const float* aux_exps, const float* aux_coeffs,
+    const int* aux_shell_offsets, const int* aux_shell_sizes,
+    const int* aux_ao_offsets, const VECTOR* orb_centers, const int* orb_l_list,
+    const float* orb_exps, const float* orb_coeffs,
+    const int* orb_shell_offsets, const int* orb_shell_sizes,
+    const int* orb_ao_offsets, int naux, int out_mu_dim, int out_nu_dim,
+    int mu_offset_base, int nu_offset_base, bool fill_symmetric,
+    double* out_eri3c)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
@@ -77,10 +77,8 @@ static __global__ void QC_RI_3Center_Kernel(
 
             for (int p_mu = 0; p_mu < orb_shell_sizes[mu_sh]; p_mu++)
             {
-                const float e_mu =
-                    orb_exps[orb_shell_offsets[mu_sh] + p_mu];
-                const float c_mu =
-                    orb_coeffs[orb_shell_offsets[mu_sh] + p_mu];
+                const float e_mu = orb_exps[orb_shell_offsets[mu_sh] + p_mu];
+                const float c_mu = orb_coeffs[orb_shell_offsets[mu_sh] + p_mu];
 
                 for (int p_nu = 0; p_nu < orb_shell_sizes[nu_sh]; p_nu++)
                 {
@@ -120,8 +118,8 @@ static __global__ void QC_RI_3Center_Kernel(
                     const int L_tot = lP + lmu + lnu;
 
                     double F_vals[ONEE_MD_BASE];
-                    float R_vals[ONEE_MD_BASE * ONEE_MD_BASE *
-                                 ONEE_MD_BASE * ONEE_MD_BASE];
+                    float R_vals[ONEE_MD_BASE * ONEE_MD_BASE * ONEE_MD_BASE *
+                                 ONEE_MD_BASE];
                     compute_boys_double(F_vals, T_val, L_tot);
                     float AQ[3] = {A.x - Qx, A.y - Qy, A.z - Qz};
                     compute_r_tensor_1e(R_vals, F_vals, alpha_pq, AQ, L_tot);
@@ -129,8 +127,7 @@ static __global__ void QC_RI_3Center_Kernel(
                     const double prefactor =
                         (double)cP * (double)c_mu * (double)c_nu *
                         (double)K_ket *
-                        (2.0 * CONSTANT_Pi * CONSTANT_Pi *
-                         sqrt(CONSTANT_Pi)) /
+                        (2.0 * CONSTANT_Pi * CONSTANT_Pi * sqrt(CONSTANT_Pi)) /
                         ((double)eP * (double)g_ket *
                          sqrt((double)(eP + g_ket)));
 
@@ -174,38 +171,33 @@ static __global__ void QC_RI_3Center_Kernel(
                                                     E_Kx[lx_mu][lx_nu][tt];
                                                 if (eKx == 0.0) continue;
                                                 for (int uu = 0;
-                                                     uu <= ly_mu + ly_nu;
-                                                     uu++)
+                                                     uu <= ly_mu + ly_nu; uu++)
                                                 {
                                                     double eKy = (double)
-                                                        E_Ky[ly_mu][ly_nu]
-                                                            [uu];
+                                                        E_Ky[ly_mu][ly_nu][uu];
                                                     if (eKy == 0.0) continue;
                                                     for (int vv = 0;
                                                          vv <= lz_mu + lz_nu;
                                                          vv++)
                                                     {
                                                         double eKz = (double)
-                                                            E_Kz[lz_mu]
-                                                                [lz_nu][vv];
+                                                            E_Kz[lz_mu][lz_nu]
+                                                                [vv];
                                                         if (eKz == 0.0)
                                                             continue;
                                                         double sign =
-                                                            ((tt + uu + vv) &
-                                                             1)
+                                                            ((tt + uu + vv) & 1)
                                                                 ? -1.0
                                                                 : 1.0;
                                                         v_sum +=
-                                                            ePx * ePy *
-                                                            ePz * eKx *
-                                                            eKy * eKz *
+                                                            ePx * ePy * ePz *
+                                                            eKx * eKy * eKz *
                                                             sign *
                                                             (double)R_vals
                                                                 [ONEE_MD_IDX(
                                                                     t + tt,
                                                                     u + uu,
-                                                                    v + vv,
-                                                                    0)];
+                                                                    v + vv, 0)];
                                                     }
                                                 }
                                             }
@@ -245,8 +237,7 @@ static __global__ void QC_RI_3Center_Kernel(
                         const int mu_local_sym = mu_idx - nu_offset_base;
                         const long long idx3c_sym =
                             (long long)P_idx * out_mu_dim * out_nu_dim +
-                            (long long)nu_local_sym * out_nu_dim +
-                            mu_local_sym;
+                            (long long)nu_local_sym * out_nu_dim + mu_local_sym;
                         out_eri3c[idx3c_sym] =
                             buf[idxP * nmu * nnu + idx_mu * nnu + idx_nu];
                     }

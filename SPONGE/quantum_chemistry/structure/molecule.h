@@ -91,10 +91,6 @@ struct QC_MOLECULE
     std::vector<int> h_ao_offsets_sph;
     int* d_ao_offsets_sph = NULL;
 
-    // 原子轨道累计偏移表（笛卡尔）
-    std::vector<int> h_ao_loc;
-    int* d_ao_loc = NULL;
-
     // 原子参数数组（积分内核使用）
     std::vector<int> h_atm;
     int* d_atm = NULL;
@@ -106,4 +102,33 @@ struct QC_MOLECULE
     // 环境参数数组（积分内核使用）
     std::vector<float> h_env;
     float* d_env = NULL;
+
+    // 原子坐标 (按原子索引, ECP/梯度内核使用)
+    std::vector<VECTOR> h_atom_coords;  // [natm]
+    VECTOR* d_atom_coords = NULL;
+
+    // ===================== ECP 数据 =====================
+    bool has_ecp = false;
+    // 每个原子的核心电子数和 l_max (-1 = 无 ECP)
+    std::vector<int> h_ecp_n_core;   // [natm]
+    std::vector<int> h_ecp_l_max;    // [natm]
+    int* d_ecp_l_max = NULL;
+    // 扁平化通道数据 (device kernel 使用)
+    int ecp_total_channels = 0;
+    int ecp_total_terms = 0;
+    std::vector<float> h_ecp_d;      // 所有 d_k 拼接
+    std::vector<float> h_ecp_zeta;   // 所有 ζ_k 拼接
+    std::vector<int> h_ecp_n;        // 所有 n_k 拼接
+    std::vector<int> h_ecp_l;        // 每个 channel 的 l 值
+    std::vector<int> h_ecp_channel_offsets;  // 每个 channel 在扁平数组中的偏移
+    std::vector<int> h_ecp_channel_sizes;    // 每个 channel 的 term 数
+    std::vector<int> h_ecp_atom_channel_range;  // [natm+1] 原子 i 的 channel 范围
+    // Device 指针
+    float* d_ecp_d = NULL;
+    float* d_ecp_zeta = NULL;
+    int* d_ecp_n = NULL;
+    int* d_ecp_l = NULL;
+    int* d_ecp_channel_offsets = NULL;
+    int* d_ecp_channel_sizes = NULL;
+    int* d_ecp_atom_channel_range = NULL;
 };

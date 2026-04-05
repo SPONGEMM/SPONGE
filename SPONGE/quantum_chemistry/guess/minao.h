@@ -1,5 +1,4 @@
-﻿#ifndef QC_GUESS_MINAO_H
-#define QC_GUESS_MINAO_H
+﻿#pragma once
 
 #include "../structure/molecule.h"
 #include "../structure/scf_workspace.h"
@@ -10,5 +9,3 @@
 void QC_Build_Minao_Guess(const QC_MOLECULE& mol,
                           const QC_SCF_Runtime_State& runtime, float* d_P,
                           float* d_P_beta);
-
-#endif

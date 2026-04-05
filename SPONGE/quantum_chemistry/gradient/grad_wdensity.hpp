@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // ====================== 能量加权密度矩阵 W ======================
 // W_μν = occ_factor × Σ_{i∈occ} ε_i × C_μi × C_νi
@@ -30,8 +30,8 @@ static __global__ void QC_Scale_MO_By_Eigenvalue_Kernel(const int nao,
 static void QC_Build_Energy_Weighted_Density(BLAS_HANDLE blas_handle, int nao,
                                              int n_occ, float occ_factor,
                                              const float* d_C,
-                                             const float* d_epsilon,
-                                             float* d_W, float* d_D_tmp)
+                                             const float* d_epsilon, float* d_W,
+                                             float* d_D_tmp)
 {
     if (n_occ == 0) return;
     const int threads = 256;

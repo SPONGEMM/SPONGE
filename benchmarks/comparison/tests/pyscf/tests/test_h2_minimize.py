@@ -1,4 +1,5 @@
 """H2 bond length optimization: SPONGE minimization vs PySCF reference."""
+
 import math
 
 import pytest

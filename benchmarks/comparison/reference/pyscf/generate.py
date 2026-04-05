@@ -48,10 +48,8 @@ REFERENCE_CASES = [
 
 # 梯度参考案例: (case_name, method_name, basis_name, restricted, coords_angstrom)
 GRADIENT_CASES = [
-    ("h2", "HF", "sto-3g", True,
-     [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
-    ("h2", "HF", "6-31g", True,
-     [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+    ("h2", "HF", "sto-3g", True, [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+    ("h2", "HF", "6-31g", True, [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
 ]
 
 # H2 平衡键长参考案例: (case_name, basis_name)
@@ -130,10 +128,14 @@ def build_reference_entries(statics_path: Path):
     # 梯度参考数据
     from pyscf import gto, scf, grad as pyscf_grad
 
-    for case_name, method_name, basis_name, restricted, coords in GRADIENT_CASES:
-        atom_str = "; ".join(
-            f"H {c[0]} {c[1]} {c[2]}" for c in coords
-        )
+    for (
+        case_name,
+        method_name,
+        basis_name,
+        restricted,
+        coords,
+    ) in GRADIENT_CASES:
+        atom_str = "; ".join(f"H {c[0]} {c[1]} {c[2]}" for c in coords)
         mol = gto.M(atom=atom_str, basis=basis_name, unit="Angstrom", verbose=0)
         mf = scf.RHF(mol) if restricted else scf.UHF(mol)
         mf.kernel()
@@ -158,7 +160,7 @@ def build_reference_entries(statics_path: Path):
         best_r, best_e = None, 1e10
         for r in _np.arange(0.5, 1.2, 0.001):
             mol = gto.M(
-                atom=f"H 0 0 {-r/2}; H 0 0 {r/2}",
+                atom=f"H 0 0 {-r / 2}; H 0 0 {r / 2}",
                 basis=basis_name,
                 unit="Angstrom",
                 verbose=0,

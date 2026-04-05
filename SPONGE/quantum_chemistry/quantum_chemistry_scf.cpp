@@ -26,6 +26,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     // 解析计算 norms（不依赖 1e 积分的 S 矩阵）
     Compute_Analytical_Norms();
     Compute_OneE_Integrals();
+    Compute_ECP_Matrix();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
     Build_Shell_Pair_Bounds();

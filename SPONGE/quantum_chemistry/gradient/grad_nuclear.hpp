@@ -1,15 +1,12 @@
-#pragma once
+﻿#pragma once
 
 // ====================== 核排斥梯度 ======================
 // dE_nuc/dR_Ax = -Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
 // ==============================================================
 
-static __global__ void QC_Nuclear_Gradient_Kernel(const int natm,
-                                                  const int* z_nuc,
-                                                  const int* atm,
-                                                  const float* env,
-                                                  const VECTOR box_length,
-                                                  double* grad)
+static __global__ void QC_Nuclear_Gradient_Kernel(
+    const int natm, const int* z_nuc, const int* atm, const float* env,
+    const VECTOR box_length, double* grad)
 {
     SIMPLE_DEVICE_FOR(i, natm)
     {
@@ -25,10 +22,9 @@ static __global__ void QC_Nuclear_Gradient_Kernel(const int natm,
             const int ptr_j = atm[j * 6 + 1];
             const double zj = (double)z_nuc[j];
             const VECTOR rj(env[ptr_j + 0], env[ptr_j + 1], env[ptr_j + 2]);
-            const VECTOR dr =
-                Get_Periodic_Displacement(ri, rj, box_length);
-            const double r2 = (double)dr.x * dr.x + (double)dr.y * dr.y +
-                              (double)dr.z * dr.z;
+            const VECTOR dr = Get_Periodic_Displacement(ri, rj, box_length);
+            const double r2 =
+                (double)dr.x * dr.x + (double)dr.y * dr.y + (double)dr.z * dr.z;
             const double r = sqrt(r2);
             const double r3_inv = 1.0 / fmax(r * r2, 1e-30);
 

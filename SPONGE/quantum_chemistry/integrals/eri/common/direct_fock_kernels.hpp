@@ -29,9 +29,11 @@ static __global__ void QC_Init_Fock_Incremental_Kernel(
 }
 
 // Extract ERI accumulator: F_eri_accum = F - H_core - Vxc
-static __global__ void QC_Extract_ERI_Accum_Kernel(
-    const int n, const float* F, const float* H_core, const float* Vxc,
-    const int use_vxc, float* F_eri_accum)
+static __global__ void QC_Extract_ERI_Accum_Kernel(const int n, const float* F,
+                                                   const float* H_core,
+                                                   const float* Vxc,
+                                                   const int use_vxc,
+                                                   float* F_eri_accum)
 {
     SIMPLE_DEVICE_FOR(idx, n)
     {

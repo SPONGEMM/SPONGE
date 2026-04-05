@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "../integrals/one_e.hpp"
 
@@ -28,8 +28,9 @@
 #define GRAD_R_IDX(t, u, v, n) \
     ((((t) * GRAD_R_BASE + (u)) * GRAD_R_BASE + (v)) * GRAD_R_BASE + (n))
 
-static __device__ void compute_r_tensor_1e_grad(float* R, double* F, float alpha,
-                                             float PC[3], int L_tot)
+static __device__ void compute_r_tensor_1e_grad(float* R, double* F,
+                                                float alpha, float PC[3],
+                                                int L_tot)
 {
     const int total = GRAD_R_BASE * GRAD_R_BASE * GRAD_R_BASE * GRAD_R_BASE;
     for (int i = 0; i < total; i++) R[i] = 0.0f;
@@ -85,8 +86,8 @@ static __global__ void OneE_ST_Grad_Kernel(
     const int n_tasks, const QC_ONE_E_TASK* tasks, const VECTOR* centers,
     const int* l_list, const float* exps, const float* coeffs,
     const int* shell_offsets, const int* shell_sizes, const int* ao_offsets,
-    int nao_total, const int* shell_atom,
-    const float* P, const float* W, const float* norms, double* grad)
+    int nao_total, const int* shell_atom, const float* P, const float* W,
+    const float* norms, double* grad)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
@@ -136,12 +137,12 @@ static __global__ void OneE_ST_Grad_Kernel(
                         float Pz = (ei * Az + ej * Bz) / g;
 
                         float res_x[6][6], res_y[6][6], res_z[6][6];
-                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax,
-                                          Px - Bx, g, res_x);
-                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay,
-                                          Py - By, g, res_y);
-                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az,
-                                          Pz - Bz, g, res_z);
+                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
+                                          g, res_x);
+                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
+                                          g, res_y);
+                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az, Pz - Bz,
+                                          g, res_z);
 
                         float sx = res_x[lx_i][lx_j];
                         float sy = res_y[ly_i][ly_j];
@@ -149,46 +150,73 @@ static __global__ void OneE_ST_Grad_Kernel(
 
                         // dS/dA
                         float dsx = 2.0f * ei * res_x[lx_i + 1][lx_j];
-                        if (lx_i > 0) dsx -= (float)lx_i * res_x[lx_i - 1][lx_j];
+                        if (lx_i > 0)
+                            dsx -= (float)lx_i * res_x[lx_i - 1][lx_j];
                         float dsy = 2.0f * ei * res_y[ly_i + 1][ly_j];
-                        if (ly_i > 0) dsy -= (float)ly_i * res_y[ly_i - 1][ly_j];
+                        if (ly_i > 0)
+                            dsy -= (float)ly_i * res_y[ly_i - 1][ly_j];
                         float dsz = 2.0f * ei * res_z[lz_i + 1][lz_j];
-                        if (lz_i > 0) dsz -= (float)lz_i * res_z[lz_i - 1][lz_j];
+                        if (lz_i > 0)
+                            dsz -= (float)lz_i * res_z[lz_i - 1][lz_j];
 
                         atomicAdd(&grad[atom_i * 3 + 0],
-                                  -2.0 * (double)w_val * (double)(cc * dsx * sy * sz));
+                                  -2.0 * (double)w_val *
+                                      (double)(cc * dsx * sy * sz));
                         atomicAdd(&grad[atom_i * 3 + 1],
-                                  -2.0 * (double)w_val * (double)(cc * sx * dsy * sz));
+                                  -2.0 * (double)w_val *
+                                      (double)(cc * sx * dsy * sz));
                         atomicAdd(&grad[atom_i * 3 + 2],
-                                  -2.0 * (double)w_val * (double)(cc * sx * sy * dsz));
+                                  -2.0 * (double)w_val *
+                                      (double)(cc * sx * sy * dsz));
 
                         // dT/dA
                         auto kin1d = [&](float res[6][6], int la, int lb,
-                                        float ai, float bj) -> float
+                                         float ai, float bj) -> float
                         {
                             float t = 2.0f * ai * bj * res[la + 1][lb + 1];
-                            if (lb > 0) t -= ai * (float)lb * res[la + 1][lb - 1];
-                            if (la > 0) t -= bj * (float)la * res[la - 1][lb + 1];
+                            if (lb > 0)
+                                t -= ai * (float)lb * res[la + 1][lb - 1];
+                            if (la > 0)
+                                t -= bj * (float)la * res[la - 1][lb + 1];
                             if (la > 0 && lb > 0)
-                                t += 0.5f * (float)la * (float)lb * res[la - 1][lb - 1];
+                                t += 0.5f * (float)la * (float)lb *
+                                     res[la - 1][lb - 1];
                             return t;
                         };
                         float tx = kin1d(res_x, lx_i, lx_j, ei, ej);
                         float ty = kin1d(res_y, ly_i, ly_j, ei, ej);
                         float tz = kin1d(res_z, lz_i, lz_j, ei, ej);
-                        float dtx = 2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
-                        if (lx_i > 0) dtx -= (float)lx_i * kin1d(res_x, lx_i - 1, lx_j, ei, ej);
-                        float dty = 2.0f * ei * kin1d(res_y, ly_i + 1, ly_j, ei, ej);
-                        if (ly_i > 0) dty -= (float)ly_i * kin1d(res_y, ly_i - 1, ly_j, ei, ej);
-                        float dtz = 2.0f * ei * kin1d(res_z, lz_i + 1, lz_j, ei, ej);
-                        if (lz_i > 0) dtz -= (float)lz_i * kin1d(res_z, lz_i - 1, lz_j, ei, ej);
+                        float dtx =
+                            2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
+                        if (lx_i > 0)
+                            dtx -= (float)lx_i *
+                                   kin1d(res_x, lx_i - 1, lx_j, ei, ej);
+                        float dty =
+                            2.0f * ei * kin1d(res_y, ly_i + 1, ly_j, ei, ej);
+                        if (ly_i > 0)
+                            dty -= (float)ly_i *
+                                   kin1d(res_y, ly_i - 1, ly_j, ei, ej);
+                        float dtz =
+                            2.0f * ei * kin1d(res_z, lz_i + 1, lz_j, ei, ej);
+                        if (lz_i > 0)
+                            dtz -= (float)lz_i *
+                                   kin1d(res_z, lz_i - 1, lz_j, ei, ej);
 
-                        atomicAdd(&grad[atom_i * 3 + 0],
-                                  2.0 * (double)p_val * (double)(cc * (dtx * sy * sz + dsx * ty * sz + dsx * sy * tz)));
-                        atomicAdd(&grad[atom_i * 3 + 1],
-                                  2.0 * (double)p_val * (double)(cc * (tx * dsy * sz + sx * dty * sz + sx * dsy * tz)));
-                        atomicAdd(&grad[atom_i * 3 + 2],
-                                  2.0 * (double)p_val * (double)(cc * (tx * sy * dsz + sx * ty * dsz + sx * sy * dtz)));
+                        atomicAdd(
+                            &grad[atom_i * 3 + 0],
+                            2.0 * (double)p_val *
+                                (double)(cc * (dtx * sy * sz + dsx * ty * sz +
+                                               dsx * sy * tz)));
+                        atomicAdd(
+                            &grad[atom_i * 3 + 1],
+                            2.0 * (double)p_val *
+                                (double)(cc * (tx * dsy * sz + sx * dty * sz +
+                                               sx * dsy * tz)));
+                        atomicAdd(
+                            &grad[atom_i * 3 + 2],
+                            2.0 * (double)p_val *
+                                (double)(cc * (tx * sy * dsz + sx * ty * dsz +
+                                               sx * sy * dtz)));
                     }
                 }
             }
@@ -203,8 +231,7 @@ static __global__ void OneE_V_Grad_Kernel(
     const int* l_list, const float* exps, const float* coeffs,
     const int* shell_offsets, const int* shell_sizes, const int* ao_offsets,
     const int* atm, const float* env, int natm, int nao_total,
-    const int* shell_atom,
-    const float* P, const float* norms, double* grad)
+    const int* shell_atom, const float* P, const float* norms, double* grad)
 {
     const int total_work = n_tasks * natm;
     SIMPLE_DEVICE_FOR(flat_id, total_work)
@@ -272,11 +299,14 @@ static __global__ void OneE_V_Grad_Kernel(
                         compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
                         float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
                         if (lx_i + 1 < 5)
-                            compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax, Px - Bx, one2p);
+                            compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax,
+                                              Px - Bx, one2p);
                         if (ly_i + 1 < 5)
-                            compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay, Py - By, one2p);
+                            compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay,
+                                              Py - By, one2p);
                         if (lz_i + 1 < 5)
-                            compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az, Pz - Bz, one2p);
+                            compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az,
+                                              Pz - Bz, one2p);
 
                         float PC2 = (Px - Cx) * (Px - Cx) +
                                     (Py - Cy) * (Py - Cy) +
@@ -284,10 +314,11 @@ static __global__ void OneE_V_Grad_Kernel(
                         float PC[3] = {Px - Cx, Py - Cy, Pz - Cz};
 
                         double F_vals[GRAD_R_BASE];
-                        float R_vals[GRAD_R_BASE * GRAD_R_BASE *
-                                     GRAD_R_BASE * GRAD_R_BASE];
+                        float R_vals[GRAD_R_BASE * GRAD_R_BASE * GRAD_R_BASE *
+                                     GRAD_R_BASE];
                         compute_boys_double(F_vals, g * PC2, L_tot + 1);
-                        compute_r_tensor_1e_grad(R_vals, F_vals, g, PC, L_tot + 1);
+                        compute_r_tensor_1e_grad(R_vals, F_vals, g, PC,
+                                                 L_tot + 1);
 
                         float prefac = cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
 
@@ -327,28 +358,41 @@ static __global__ void OneE_V_Grad_Kernel(
 
                         for (int t = 0; t <= tmax_x + 1; t++)
                         {
-                            const float ex = (t <= tmax_x) ? Ex0[lx_i][lx_j][t] : 0.0f;
+                            const float ex =
+                                (t <= tmax_x) ? Ex0[lx_i][lx_j][t] : 0.0f;
                             const float dex = dEx[t];
-                            if (fabsf(ex) < 1e-30f && fabsf(dex) < 1e-30f) continue;
+                            if (fabsf(ex) < 1e-30f && fabsf(dex) < 1e-30f)
+                                continue;
                             for (int u = 0; u <= tmax_y + 1; u++)
                             {
-                                const float ey = (u <= tmax_y) ? Ey0[ly_i][ly_j][u] : 0.0f;
+                                const float ey =
+                                    (u <= tmax_y) ? Ey0[ly_i][ly_j][u] : 0.0f;
                                 const float dey = dEy[u];
-                                const bool in_base = (t <= tmax_x && u <= tmax_y);
-                                if (fabsf(ey) < 1e-30f && fabsf(dey) < 1e-30f) continue;
+                                const bool in_base =
+                                    (t <= tmax_x && u <= tmax_y);
+                                if (fabsf(ey) < 1e-30f && fabsf(dey) < 1e-30f)
+                                    continue;
                                 for (int v = 0; v <= tmax_z + 1; v++)
                                 {
-                                    const float ez = (v <= tmax_z) ? Ez0[lz_i][lz_j][v] : 0.0f;
+                                    const float ez = (v <= tmax_z)
+                                                         ? Ez0[lz_i][lz_j][v]
+                                                         : 0.0f;
                                     const float dez = dEz[v];
-                                    const float r0 = R_vals[GRAD_R_IDX(t, u, v, 0)];
+                                    const float r0 =
+                                        R_vals[GRAD_R_IDX(t, u, v, 0)];
                                     if (fabsf(r0) < 1e-30f) continue;
                                     const double dr = (double)r0;
-                                    if (u <= tmax_y && v <= tmax_z && fabsf(dex) > 1e-30f)
-                                        dv_dAx += (double)dex * (double)ey * (double)ez * dr;
-                                    if (t <= tmax_x && v <= tmax_z && fabsf(dey) > 1e-30f)
-                                        dv_dAy += (double)ex * (double)dey * (double)ez * dr;
+                                    if (u <= tmax_y && v <= tmax_z &&
+                                        fabsf(dex) > 1e-30f)
+                                        dv_dAx += (double)dex * (double)ey *
+                                                  (double)ez * dr;
+                                    if (t <= tmax_x && v <= tmax_z &&
+                                        fabsf(dey) > 1e-30f)
+                                        dv_dAy += (double)ex * (double)dey *
+                                                  (double)ez * dr;
                                     if (in_base && fabsf(dez) > 1e-30f)
-                                        dv_dAz += (double)ex * (double)ey * (double)dez * dr;
+                                        dv_dAz += (double)ex * (double)ey *
+                                                  (double)dez * dr;
                                 }
                             }
                         }
@@ -373,9 +417,18 @@ static __global__ void OneE_V_Grad_Kernel(
                                     float ez = Ez0[lz_i][lz_j][v];
                                     if (fabsf(ez) < 1e-30f) continue;
                                     double eee = exy * (double)ez;
-                                    dv_dCx -= eee * (double)R_vals[GRAD_R_IDX(t + 1, u, v, 0)];
-                                    dv_dCy -= eee * (double)R_vals[GRAD_R_IDX(t, u + 1, v, 0)];
-                                    dv_dCz -= eee * (double)R_vals[GRAD_R_IDX(t, u, v + 1, 0)];
+                                    dv_dCx -=
+                                        eee *
+                                        (double)
+                                            R_vals[GRAD_R_IDX(t + 1, u, v, 0)];
+                                    dv_dCy -=
+                                        eee *
+                                        (double)
+                                            R_vals[GRAD_R_IDX(t, u + 1, v, 0)];
+                                    dv_dCz -=
+                                        eee *
+                                        (double)
+                                            R_vals[GRAD_R_IDX(t, u, v + 1, 0)];
                                 }
                             }
                         }
@@ -383,9 +436,12 @@ static __global__ void OneE_V_Grad_Kernel(
                         dv_dCy *= (double)prefac;
                         dv_dCz *= (double)prefac;
 
-                        atomicAdd(&grad[atom_i * 3 + 0], 2.0 * (double)p_val * dv_dAx);
-                        atomicAdd(&grad[atom_i * 3 + 1], 2.0 * (double)p_val * dv_dAy);
-                        atomicAdd(&grad[atom_i * 3 + 2], 2.0 * (double)p_val * dv_dAz);
+                        atomicAdd(&grad[atom_i * 3 + 0],
+                                  2.0 * (double)p_val * dv_dAx);
+                        atomicAdd(&grad[atom_i * 3 + 1],
+                                  2.0 * (double)p_val * dv_dAy);
+                        atomicAdd(&grad[atom_i * 3 + 2],
+                                  2.0 * (double)p_val * dv_dAz);
                         atomicAdd(&grad[iat * 3 + 0], (double)p_val * dv_dCx);
                         atomicAdd(&grad[iat * 3 + 1], (double)p_val * dv_dCy);
                         atomicAdd(&grad[iat * 3 + 2], (double)p_val * dv_dCz);
@@ -457,14 +513,15 @@ static __global__ void OneE_Grad_Kernel(
                         float one2p = 0.5f / g;
 
                         // 重叠: bra 侧需要到 l+2 阶
-                        // (T 的 AO 导数 kin1d(res, la+1, ...) 访问 res[la+2][lb+1])
+                        // (T 的 AO 导数 kin1d(res, la+1, ...) 访问
+                        // res[la+2][lb+1])
                         float res_x[6][6], res_y[6][6], res_z[6][6];
-                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax,
-                                          Px - Bx, g, res_x);
-                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay,
-                                          Py - By, g, res_y);
-                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az,
-                                          Pz - Bz, g, res_z);
+                        get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
+                                          g, res_x);
+                        get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
+                                          g, res_y);
+                        get_overlap1d_arr(lz_i + 2, lz_j + 1, Pz - Az, Pz - Bz,
+                                          g, res_z);
 
                         float sx = res_x[lx_i][lx_j];
                         float sy = res_y[ly_i][ly_j];
@@ -495,11 +552,13 @@ static __global__ void OneE_Grad_Kernel(
 
                         // === dT/dA ===
                         auto kin1d = [&](float res[6][6], int la, int lb,
-                                        float ai, float bj) -> float
+                                         float ai, float bj) -> float
                         {
                             float t = 2.0f * ai * bj * res[la + 1][lb + 1];
-                            if (lb > 0) t -= ai * (float)lb * res[la + 1][lb - 1];
-                            if (la > 0) t -= bj * (float)la * res[la - 1][lb + 1];
+                            if (lb > 0)
+                                t -= ai * (float)lb * res[la + 1][lb - 1];
+                            if (la > 0)
+                                t -= bj * (float)la * res[la - 1][lb + 1];
                             if (la > 0 && lb > 0)
                                 t += 0.5f * (float)la * (float)lb *
                                      res[la - 1][lb - 1];
@@ -513,32 +572,29 @@ static __global__ void OneE_Grad_Kernel(
                         float dtx_dAx =
                             2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
                         if (lx_i > 0)
-                            dtx_dAx -=
-                                (float)lx_i *
-                                kin1d(res_x, lx_i - 1, lx_j, ei, ej);
+                            dtx_dAx -= (float)lx_i *
+                                       kin1d(res_x, lx_i - 1, lx_j, ei, ej);
                         float dty_dAy =
                             2.0f * ei * kin1d(res_y, ly_i + 1, ly_j, ei, ej);
                         if (ly_i > 0)
-                            dty_dAy -=
-                                (float)ly_i *
-                                kin1d(res_y, ly_i - 1, ly_j, ei, ej);
+                            dty_dAy -= (float)ly_i *
+                                       kin1d(res_y, ly_i - 1, ly_j, ei, ej);
                         float dtz_dAz =
                             2.0f * ei * kin1d(res_z, lz_i + 1, lz_j, ei, ej);
                         if (lz_i > 0)
-                            dtz_dAz -=
-                                (float)lz_i *
-                                kin1d(res_z, lz_i - 1, lz_j, ei, ej);
+                            dtz_dAz -= (float)lz_i *
+                                       kin1d(res_z, lz_i - 1, lz_j, ei, ej);
 
                         // T = Tx*Sy*Sz + Sx*Ty*Sz + Sx*Sy*Tz
-                        float dt_dAx = cc * (dtx_dAx * sy * sz +
-                                             dsx_dAx * ty * sz +
-                                             dsx_dAx * sy * tz);
-                        float dt_dAy = cc * (tx * dsy_dAy * sz +
-                                             sx * dty_dAy * sz +
-                                             sx * dsy_dAy * tz);
-                        float dt_dAz = cc * (tx * sy * dsz_dAz +
-                                             sx * ty * dsz_dAz +
-                                             sx * sy * dtz_dAz);
+                        float dt_dAx =
+                            cc * (dtx_dAx * sy * sz + dsx_dAx * ty * sz +
+                                  dsx_dAx * sy * tz);
+                        float dt_dAy =
+                            cc * (tx * dsy_dAy * sz + sx * dty_dAy * sz +
+                                  sx * dsy_dAy * tz);
+                        float dt_dAz =
+                            cc * (tx * sy * dsz_dAz + sx * ty * dsz_dAz +
+                                  sx * sy * dtz_dAz);
 
                         // grad += Tr[P · dT/dR_A] (bra ×2)
                         atomicAdd(&grad[atom_i * 3 + 0],
@@ -550,12 +606,9 @@ static __global__ void OneE_Grad_Kernel(
 
                         // === dV/dR_A ===
                         float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
-                        compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx,
-                                          one2p);
-                        compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By,
-                                          one2p);
-                        compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz,
-                                          one2p);
+                        compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx, one2p);
+                        compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By, one2p);
+                        compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
                         float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
                         if (lx_i + 1 < 5)
                         {
@@ -593,7 +646,8 @@ static __global__ void OneE_Grad_Kernel(
                             compute_r_tensor_1e(R_vals, F_vals, g, PC,
                                                 L_tot + 1);
 
-                            float prefac = cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
+                            float prefac =
+                                cc * (-Z_C) * (2.0f * CONSTANT_Pi / g);
 
                             // AO 中心 A 导数 — 融合三个方向到一次 (t,u,v) 遍历
                             double dv_dAx = 0.0, dv_dAy = 0.0, dv_dAz = 0.0;
@@ -631,39 +685,57 @@ static __global__ void OneE_Grad_Kernel(
                                 dEz[v] = d;
                             }
 
-                            // 单次融合遍历: 基础范围 [0..tmax_x] × [0..tmax_y] × [0..tmax_z]
-                            // dv_dAx 额外需要 t = tmax_x+1; dv_dAy 额外需要 u = tmax_y+1; dv_dAz 额外需要 v = tmax_z+1
+                            // 单次融合遍历: 基础范围 [0..tmax_x] × [0..tmax_y]
+                            // × [0..tmax_z] dv_dAx 额外需要 t = tmax_x+1;
+                            // dv_dAy 额外需要 u = tmax_y+1; dv_dAz 额外需要 v =
+                            // tmax_z+1
                             for (int t = 0; t <= tmax_x + 1; t++)
                             {
-                                const float ex = (t <= tmax_x) ? Ex0[lx_i][lx_j][t] : 0.0f;
+                                const float ex =
+                                    (t <= tmax_x) ? Ex0[lx_i][lx_j][t] : 0.0f;
                                 const float dex = dEx[t];
                                 if (fabsf(ex) < 1e-30f && fabsf(dex) < 1e-30f)
                                     continue;
                                 for (int u = 0; u <= tmax_y + 1; u++)
                                 {
-                                    const float ey = (u <= tmax_y) ? Ey0[ly_i][ly_j][u] : 0.0f;
+                                    const float ey = (u <= tmax_y)
+                                                         ? Ey0[ly_i][ly_j][u]
+                                                         : 0.0f;
                                     const float dey = dEy[u];
                                     // 在基础范围外只有对应导数分量非零
-                                    const bool in_base = (t <= tmax_x && u <= tmax_y);
-                                    if (fabsf(ey) < 1e-30f && fabsf(dey) < 1e-30f)
+                                    const bool in_base =
+                                        (t <= tmax_x && u <= tmax_y);
+                                    if (fabsf(ey) < 1e-30f &&
+                                        fabsf(dey) < 1e-30f)
                                         continue;
                                     for (int v = 0; v <= tmax_z + 1; v++)
                                     {
-                                        const float ez = (v <= tmax_z) ? Ez0[lz_i][lz_j][v] : 0.0f;
+                                        const float ez =
+                                            (v <= tmax_z) ? Ez0[lz_i][lz_j][v]
+                                                          : 0.0f;
                                         const float dez = dEz[v];
-                                        const float r0 = R_vals[ONEE_MD_IDX(t, u, v, 0)];
+                                        const float r0 =
+                                            R_vals[ONEE_MD_IDX(t, u, v, 0)];
                                         if (fabsf(r0) < 1e-30f) continue;
 
                                         const double dr = (double)r0;
-                                        // dV/dAx: dEx * ey * ez (需要 u<=tmax_y, v<=tmax_z)
-                                        if (u <= tmax_y && v <= tmax_z && fabsf(dex) > 1e-30f)
-                                            dv_dAx += (double)dex * (double)ey * (double)ez * dr;
-                                        // dV/dAy: ex * dEy * ez (需要 t<=tmax_x, v<=tmax_z)
-                                        if (t <= tmax_x && v <= tmax_z && fabsf(dey) > 1e-30f)
-                                            dv_dAy += (double)ex * (double)dey * (double)ez * dr;
-                                        // dV/dAz: ex * ey * dEz (需要 t<=tmax_x, u<=tmax_y)
+                                        // dV/dAx: dEx * ey * ez (需要
+                                        // u<=tmax_y, v<=tmax_z)
+                                        if (u <= tmax_y && v <= tmax_z &&
+                                            fabsf(dex) > 1e-30f)
+                                            dv_dAx += (double)dex * (double)ey *
+                                                      (double)ez * dr;
+                                        // dV/dAy: ex * dEy * ez (需要
+                                        // t<=tmax_x, v<=tmax_z)
+                                        if (t <= tmax_x && v <= tmax_z &&
+                                            fabsf(dey) > 1e-30f)
+                                            dv_dAy += (double)ex * (double)dey *
+                                                      (double)ez * dr;
+                                        // dV/dAz: ex * ey * dEz (需要
+                                        // t<=tmax_x, u<=tmax_y)
                                         if (in_base && fabsf(dez) > 1e-30f)
-                                            dv_dAz += (double)ex * (double)ey * (double)dez * dr;
+                                            dv_dAz += (double)ex * (double)ey *
+                                                      (double)dez * dr;
                                     }
                                 }
                             }
@@ -688,15 +760,15 @@ static __global__ void OneE_Grad_Kernel(
                                         float ez = Ez0[lz_i][lz_j][v];
                                         if (fabsf(ez) < 1e-30f) continue;
                                         double eee = exy * (double)ez;
-                                        dv_dCx -= eee * (double)R_vals
-                                                            [ONEE_MD_IDX(
-                                                                t + 1, u, v, 0)];
-                                        dv_dCy -= eee * (double)R_vals
-                                                            [ONEE_MD_IDX(
-                                                                t, u + 1, v, 0)];
-                                        dv_dCz -= eee * (double)R_vals
-                                                            [ONEE_MD_IDX(
-                                                                t, u, v + 1, 0)];
+                                        dv_dCx -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t + 1, u, v, 0)];
+                                        dv_dCy -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t, u + 1, v, 0)];
+                                        dv_dCz -=
+                                            eee * (double)R_vals[ONEE_MD_IDX(
+                                                      t, u, v + 1, 0)];
                                     }
                                 }
                             }
@@ -729,8 +801,8 @@ static __global__ void OneE_Grad_Kernel(
 #ifndef USE_GPU
 static inline void QC_Cart2Sph_Step_OneE_CPU(const float* C, const int nc,
                                              const int ns, const int leading,
-                                             const int tail,
-                                             const float* src, float* dst)
+                                             const int tail, const float* src,
+                                             float* dst)
 {
     for (int lead = 0; lead < leading; lead++)
     {
@@ -797,13 +869,15 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
     const std::vector<QC_ONE_E_TASK>& tasks, const std::vector<VECTOR>& centers,
     const std::vector<int>& l_list, const std::vector<float>& exps,
     const std::vector<float>& coeffs, const std::vector<int>& shell_offsets,
-    const std::vector<int>& shell_sizes, const std::vector<int>& ao_offsets_cart,
+    const std::vector<int>& shell_sizes,
+    const std::vector<int>& ao_offsets_cart,
     const std::vector<int>& ao_offsets_sph, const std::vector<int>& atm,
     const std::vector<float>& env, const std::vector<int>& shell_atom,
     const float* P, const float* W, const float* norms,
     const float* cart2sph_mat, const int natm, const int nao_sph, double* grad)
 {
-    // Reusable buffers hoisted out of the task loop to avoid repeated allocation.
+    // Reusable buffers hoisted out of the task loop to avoid repeated
+    // allocation.
     std::vector<float> dS_cart, dT_cart, dV_A_cart, dV_C_cart;
     std::vector<float> sph_buf0, sph_buf1;
     std::vector<float> dS_sph, dT_sph, dV_A_sph, dV_C_sph_one;
@@ -915,18 +989,18 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                         float dtx_dAx =
                             2.0f * ei * kin1d(res_x, lx_i + 1, lx_j, ei, ej);
                         if (lx_i > 0)
-                            dtx_dAx -=
-                                (float)lx_i * kin1d(res_x, lx_i - 1, lx_j, ei, ej);
+                            dtx_dAx -= (float)lx_i *
+                                       kin1d(res_x, lx_i - 1, lx_j, ei, ej);
                         float dty_dAy =
                             2.0f * ei * kin1d(res_y, ly_i + 1, ly_j, ei, ej);
                         if (ly_i > 0)
-                            dty_dAy -=
-                                (float)ly_i * kin1d(res_y, ly_i - 1, ly_j, ei, ej);
+                            dty_dAy -= (float)ly_i *
+                                       kin1d(res_y, ly_i - 1, ly_j, ei, ej);
                         float dtz_dAz =
                             2.0f * ei * kin1d(res_z, lz_i + 1, lz_j, ei, ej);
                         if (lz_i > 0)
-                            dtz_dAz -=
-                                (float)lz_i * kin1d(res_z, lz_i - 1, lz_j, ei, ej);
+                            dtz_dAz -= (float)lz_i *
+                                       kin1d(res_z, lz_i - 1, lz_j, ei, ej);
 
                         dT_cart[(size_t)idx * 3 + 0] +=
                             cc * (dtx_dAx * sy * sz + dsx_dAx * ty * sz +
@@ -983,8 +1057,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                 if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
                                     dex += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
                                 if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
-                                    dex -= (float)lx_i *
-                                           Ex0[lx_i - 1][lx_j][t];
+                                    dex -= (float)lx_i * Ex0[lx_i - 1][lx_j][t];
 
                                 for (int u = 0; u <= ly_i + ly_j; u++)
                                 {
@@ -998,9 +1071,8 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                         const float r0 =
                                             R_vals[ONEE_MD_IDX(t, u, v, 0)];
                                         if (fabsf(dex) > 1e-30f)
-                                            dv_dAx +=
-                                                (double)dex * (double)ey *
-                                                (double)ez * (double)r0;
+                                            dv_dAx += (double)dex * (double)ey *
+                                                      (double)ez * (double)r0;
                                     }
                                 }
                             }
@@ -1011,7 +1083,8 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                 for (int u = 0; u <= ly_i + ly_j + 1; u++)
                                 {
                                     float dey = 0.0f;
-                                    if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
+                                    if (u <= (ly_i + 1) + ly_j &&
+                                        (ly_i + 1) < 5)
                                         dey +=
                                             2.0f * ei * Ey1[ly_i + 1][ly_j][u];
                                     if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
@@ -1041,10 +1114,9 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                         float dez = 0.0f;
                                         if (v <= (lz_i + 1) + lz_j &&
                                             (lz_i + 1) < 5)
-                                            dez +=
-                                                2.0f * ei * Ez1[lz_i + 1][lz_j][v];
-                                        if (lz_i > 0 &&
-                                            v <= (lz_i - 1) + lz_j)
+                                            dez += 2.0f * ei *
+                                                   Ez1[lz_i + 1][lz_j][v];
+                                        if (lz_i > 0 && v <= (lz_i - 1) + lz_j)
                                             dez -= (float)lz_i *
                                                    Ez0[lz_i - 1][lz_j][v];
                                         const float r0 =
@@ -1075,8 +1147,9 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                     {
                                         const float ez = Ez0[lz_i][lz_j][v];
                                         if (fabsf(ez) < 1e-30f) continue;
-                                        const double eee =
-                                            (double)ex * (double)ey * (double)ez;
+                                        const double eee = (double)ex *
+                                                           (double)ey *
+                                                           (double)ez;
                                         dv_dCx -=
                                             eee * (double)R_vals[ONEE_MD_IDX(
                                                       t + 1, u, v, 0)];
@@ -1089,11 +1162,14 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                     }
                                 }
                             }
-                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) *
+                                          3 +
                                       0] += (float)(dv_dCx * (double)prefac);
-                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) *
+                                          3 +
                                       1] += (float)(dv_dCy * (double)prefac);
-                            dV_C_cart[((size_t)iat * shell_size_cart + idx) * 3 +
+                            dV_C_cart[((size_t)iat * shell_size_cart + idx) *
+                                          3 +
                                       2] += (float)(dv_dCz * (double)prefac);
                         }
                     }
@@ -1102,20 +1178,20 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
         }
 
         sph_buf0.assign((size_t)ni_cart * nj_cart, 0.0f);
-        sph_buf1.assign(
-            (size_t)std::max(ni_sph * nj_cart, ni_cart * nj_sph), 0.0f);
+        sph_buf1.assign((size_t)std::max(ni_sph * nj_cart, ni_cart * nj_sph),
+                        0.0f);
+        QC_Cart2Sph_Shell_OneE_Block3_CPU(cart2sph_mat, nao_sph, off_i_cart,
+                                          off_j_cart, off_i_sph, off_j_sph,
+                                          ni_cart, nj_cart, ni_sph, nj_sph,
+                                          dS_cart, dS_sph, sph_buf0, sph_buf1);
+        QC_Cart2Sph_Shell_OneE_Block3_CPU(cart2sph_mat, nao_sph, off_i_cart,
+                                          off_j_cart, off_i_sph, off_j_sph,
+                                          ni_cart, nj_cart, ni_sph, nj_sph,
+                                          dT_cart, dT_sph, sph_buf0, sph_buf1);
         QC_Cart2Sph_Shell_OneE_Block3_CPU(
             cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
-            ni_cart, nj_cart, ni_sph, nj_sph, dS_cart, dS_sph,
-            sph_buf0, sph_buf1);
-        QC_Cart2Sph_Shell_OneE_Block3_CPU(
-            cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
-            ni_cart, nj_cart, ni_sph, nj_sph, dT_cart, dT_sph,
-            sph_buf0, sph_buf1);
-        QC_Cart2Sph_Shell_OneE_Block3_CPU(
-            cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph, off_j_sph,
-            ni_cart, nj_cart, ni_sph, nj_sph, dV_A_cart, dV_A_sph,
-            sph_buf0, sph_buf1);
+            ni_cart, nj_cart, ni_sph, nj_sph, dV_A_cart, dV_A_sph, sph_buf0,
+            sph_buf1);
 
         for (int ci = 0; ci < ni_sph; ci++)
         {
@@ -1131,15 +1207,14 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                 const float w_val = W[pn + q];
                 for (int d = 0; d < 3; d++)
                 {
-                    const double ds = (double)dS_sph[(size_t)idx * 3 + d] *
-                                      (double)scale;
-                    const double dt = (double)dT_sph[(size_t)idx * 3 + d] *
-                                      (double)scale;
-                    const double dvA = (double)dV_A_sph[(size_t)idx * 3 + d] *
-                                       (double)scale;
-                    grad[atom_i * 3 + d] +=
-                        -2.0 * (double)w_val * ds +
-                        2.0 * (double)p_val * (dt + dvA);
+                    const double ds =
+                        (double)dS_sph[(size_t)idx * 3 + d] * (double)scale;
+                    const double dt =
+                        (double)dT_sph[(size_t)idx * 3 + d] * (double)scale;
+                    const double dvA =
+                        (double)dV_A_sph[(size_t)idx * 3 + d] * (double)scale;
+                    grad[atom_i * 3 + d] += -2.0 * (double)w_val * ds +
+                                            2.0 * (double)p_val * (dt + dvA);
                 }
             }
         }
@@ -1151,8 +1226,8 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
             src3.assign(src_iat, src_iat + (size_t)shell_size_cart * 3);
             QC_Cart2Sph_Shell_OneE_Block3_CPU(
                 cart2sph_mat, nao_sph, off_i_cart, off_j_cart, off_i_sph,
-                off_j_sph, ni_cart, nj_cart, ni_sph, nj_sph, src3,
-                dV_C_sph_one, sph_buf0, sph_buf1);
+                off_j_sph, ni_cart, nj_cart, ni_sph, nj_sph, src3, dV_C_sph_one,
+                sph_buf0, sph_buf1);
             for (int ci = 0; ci < ni_sph; ci++)
             {
                 const int p = off_i_sph + ci;

@@ -71,17 +71,16 @@ inline deviceStream_t g_eri_stream = 0;
 #define ERI_STREAM 0
 #endif
 
-#define DEFINE_ERI_LAUNCH(launch_name, kernel_name)                          \
-    void launch_name(ERI_KERNEL_PARAMS)                                      \
-    {                                                                        \
-        const int threads = 256;                                             \
-        Launch_Device_Kernel(                                                \
-            kernel_name, (n_tasks + threads - 1) / threads, threads, 0,      \
-            ERI_STREAM,                                                      \
-            n_tasks, tasks, atm, bas, env, ao_offsets_cart, ao_offsets_sph,  \
-            norms, shell_pair_bounds, pair_density_coul, pair_density_exx_a, \
-            pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,  \
-            exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical,            \
-            cart2sph_mat, F_a, F_b, global_hr_pool, hr_base, hr_size,        \
-            shell_buf_size, prim_screen_tol, n_fock_copies);                 \
+#define DEFINE_ERI_LAUNCH(launch_name, kernel_name)                           \
+    void launch_name(ERI_KERNEL_PARAMS)                                       \
+    {                                                                         \
+        const int threads = 256;                                              \
+        Launch_Device_Kernel(                                                 \
+            kernel_name, (n_tasks + threads - 1) / threads, threads, 0,       \
+            ERI_STREAM, n_tasks, tasks, atm, bas, env, ao_offsets_cart,       \
+            ao_offsets_sph, norms, shell_pair_bounds, pair_density_coul,      \
+            pair_density_exx_a, pair_density_exx_b, shell_screen_tol, P_coul, \
+            P_exx_a, P_exx_b, exx_scale_a, exx_scale_b, nao, nao_sph,         \
+            is_spherical, cart2sph_mat, F_a, F_b, global_hr_pool, hr_base,    \
+            hr_size, shell_buf_size, prim_screen_tol, n_fock_copies);         \
     }

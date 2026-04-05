@@ -577,7 +577,8 @@ static __device__ const SAP_ATOM_DATA SAP_DATA[] = {
 };
 // clang-format on
 
-static __device__ const int SAP_MAX_Z = (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
+static __device__ const int SAP_MAX_Z =
+    (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
 
 // ====================== V_SAP 积分核函数 ======================
 // 基于 arXiv:2603.16989 的方法：对核吸引积分的 Boys 函数做修正

@@ -4,6 +4,7 @@ NOTE: SPONGE uses float precision for energies, so finite difference accuracy
 is limited to ~0.001 Ha/Bohr for small molecules. This test validates that
 forces have the correct sign and magnitude, not exact numerical agreement.
 """
+
 import math
 import shutil
 import tempfile
@@ -99,7 +100,13 @@ def test_gradient_fd(
     max_err = float(np.max(np.abs(fd_grad - ref_grad)))
     status = "PASS" if max_err < GRAD_FD_TOL_HA_BOHR else "FAIL"
 
-    headers = ["Case", "Method/Basis", "Max |FD - Ref| (Ha/Bohr)", "Tol", "Status"]
+    headers = [
+        "Case",
+        "Method/Basis",
+        "Max |FD - Ref| (Ha/Bohr)",
+        "Tol",
+        "Status",
+    ]
     rows = [
         [
             case_name,

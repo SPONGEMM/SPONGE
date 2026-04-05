@@ -403,15 +403,13 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         double* d_tmp = NULL;
         Device_Malloc_Safely((void**)&d_tmp, sizeof(double) * Ps * Pc);
         // Step A: tmp[Ps,Pc] = U^T @ M_cart
-        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
-                        Ps, Pc, Pc, &one,
-                        d_U_aux, Ps, d_metric_cart, Pc,
-                        &zero, d_tmp, Ps);
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, Ps, Pc,
+                        Pc, &one, d_U_aux, Ps, d_metric_cart, Pc, &zero, d_tmp,
+                        Ps);
         // Step B: M_sph[Ps,Ps] = tmp @ U = tmp @ (U^T)^T
-        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                        Ps, Ps, Pc, &one,
-                        d_tmp, Ps, d_U_aux, Ps,
-                        &zero, ri.d_metric, Ps);
+        deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, Ps, Ps,
+                        Pc, &one, d_tmp, Ps, d_U_aux, Ps, &zero, ri.d_metric,
+                        Ps);
         deviceFree(d_tmp);
         deviceFree(d_metric_cart);
         Launch_Device_Kernel(QC_Scale_RI_Metric_Kernel,
@@ -438,7 +436,8 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             deviceMemcpy(h_metric_full.data(), ri.d_metric,
                          sizeof(double) * Ps * Ps, deviceMemcpyDeviceToHost);
             for (int p = 0; p < Ps; p++)
-                h_metric_diag[p] = sqrt(fabs(h_metric_full[(size_t)p * Ps + p]));
+                h_metric_diag[p] =
+                    sqrt(fabs(h_metric_full[(size_t)p * Ps + p]));
         }
         // 每个辅助 shell 的最大 bound
         std::vector<float> aux_shell_bound(ri.naux_bas, 0.0f);
@@ -450,8 +449,8 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
                                        : ((ri.h_aux_l_list[sh] + 1) *
                                           (ri.h_aux_l_list[sh] + 2) / 2);
             for (int i = 0; i < dim; i++)
-                aux_shell_bound[sh] = std::max(
-                    aux_shell_bound[sh], (float)h_metric_diag[off + i]);
+                aux_shell_bound[sh] = std::max(aux_shell_bound[sh],
+                                               (float)h_metric_diag[off + i]);
         }
         // 轨道基 pair bound: 从 task_ctx 获取（Prepare_Integrals 中已计算）
         // 建立 (mu_sh, nu_sh) → pair_bound 映射
@@ -512,10 +511,8 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             // 仅 P 变换: T_sph[Ps,Mc²] = U_aux^T @ T_cart[Pc,Mc²]
             // 列优先: T_sph^T[Mc²,Ps] = T_cart^T[Mc²,Pc] @ U[Pc,Ps]
             deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            Mc * Mc, Ps, Pc, &one,
-                            d_eri3c_cart, Mc * Mc,
-                            d_U_aux, Ps,
-                            &zero, ri.d_eri3c, Mc * Mc);
+                            Mc * Mc, Ps, Pc, &one, d_eri3c_cart, Mc * Mc,
+                            d_U_aux, Ps, &zero, ri.d_eri3c, Mc * Mc);
         }
         else
         {
@@ -524,10 +521,8 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             const long long n_step1 = (long long)Pc * Mc * Ms;
             double* d_step1 = NULL;
             Device_Malloc_Safely((void**)&d_step1, sizeof(double) * n_step1);
-            deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N,
-                            Ms, Pc * Mc, Mc, &one,
-                            d_U_orb, Ms,
-                            d_eri3c_cart, Mc,
+            deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_N, Ms,
+                            Pc * Mc, Mc, &one, d_U_orb, Ms, d_eri3c_cart, Mc,
                             &zero, d_step1, Ms);
 
             // Step 2 (μ): 对每个 P, T2_P[Ms,Ms] = U_orb^T @ T1_P (行优先乘法)
@@ -537,21 +532,18 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             Device_Malloc_Safely((void**)&d_step2, sizeof(double) * n_step2);
             for (int P = 0; P < Pc; P++)
             {
-                deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                                Ms, Ms, Mc, &one,
-                                d_step1 + (long long)P * Mc * Ms, Ms,
-                                d_U_orb, Ms,
-                                &zero, d_step2 + (long long)P * Ms * Ms, Ms);
+                deviceBlasDgemm(
+                    blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, Ms, Ms, Mc,
+                    &one, d_step1 + (long long)P * Mc * Ms, Ms, d_U_orb, Ms,
+                    &zero, d_step2 + (long long)P * Ms * Ms, Ms);
             }
             deviceFree(d_step1);
 
             // Step 3 (P): T_sph[Ps, Ms²] = U_aux^T @ T2[Pc, Ms²]
             // 列优先: T_sph^T[Ms²,Ps] = T2^T[Ms²,Pc] @ U[Pc,Ps]
             deviceBlasDgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                            Ms * Ms, Ps, Pc, &one,
-                            d_step2, Ms * Ms,
-                            d_U_aux, Ps,
-                            &zero, ri.d_eri3c, Ms * Ms);
+                            Ms * Ms, Ps, Pc, &one, d_step2, Ms * Ms, d_U_aux,
+                            Ps, &zero, ri.d_eri3c, Ms * Ms);
             deviceFree(d_step2);
         }
         deviceFree(d_eri3c_cart);
@@ -607,11 +599,10 @@ static __global__ void QC_Scaled_Add_Kernel(const int n, const float scale,
 // B_occ[P*nao + mu + i*M] → B_flat[mu + (P*nocc + i)*nao]
 // 将 (naux*nao, nocc) 重排为 (nao, naux*nocc)，使 K = B_flat * B_flat^T
 static __global__ void QC_RI_Permute_B_Occ_Kernel(const int total,
-                                                   const int nao,
-                                                   const int naux,
-                                                   const int nocc,
-                                                   const float* __restrict__ src,
-                                                   float* __restrict__ dst)
+                                                  const int nao, const int naux,
+                                                  const int nocc,
+                                                  const float* __restrict__ src,
+                                                  float* __restrict__ dst)
 {
     const int M = naux * nao;
     SIMPLE_DEVICE_FOR(idx, total)
@@ -626,13 +617,13 @@ static __global__ void QC_RI_Permute_B_Occ_Kernel(const int total,
 
 // ===================== Stored-mode Build_Fock_RI ======================
 // 使用预存的 d_eri3c 和 d_B
-static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int iter);
+static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc);
 // ===================== Direct-mode Build_Fock_RI =====================
 // 每轮在线计算 3c 积分
-static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int iter);
+static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc);
 
 // RI-JK Fock 构建（入口）
-void QUANTUM_CHEMISTRY::Build_Fock_RI(int iter)
+void QUANTUM_CHEMISTRY::Build_Fock_RI()
 {
     auto& ri = scf_ws.ri;
     const int nao2 = mol.nao2;
@@ -653,9 +644,9 @@ void QUANTUM_CHEMISTRY::Build_Fock_RI(int iter)
     }
 
     if (ri.direct)
-        Build_Fock_RI_Direct(this, iter);
+        Build_Fock_RI_Direct(this);
     else
-        Build_Fock_RI_Stored(this, iter);
+        Build_Fock_RI_Stored(this);
 
     // ---- F double 精度拷贝 (DIIS 用) ----
     if (scf_ws.alpha.d_F_double)
@@ -668,11 +659,9 @@ void QUANTUM_CHEMISTRY::Build_Fock_RI(int iter)
 // ===================== Stored mode =====================
 // RI-K helper: B_occ → permute → single GEMM → K
 // 将 naux 次小 SGEMM 替换为 1 次 permute kernel + 1 次大 SGEMM
-static void RI_K_Build_Single_GEMM(BLAS_HANDLE blas_handle,
-                                   QC_RI_WORKSPACE& ri,
+static void RI_K_Build_Single_GEMM(BLAS_HANDLE blas_handle, QC_RI_WORKSPACE& ri,
                                    const int naux, const int nao,
-                                   const int nocc,
-                                   const float* d_C, float* d_F,
+                                   const int nocc, const float* d_C, float* d_F,
                                    const float neg_exx, const int threads)
 {
     const int nao2 = nao * nao;
@@ -680,31 +669,29 @@ static void RI_K_Build_Single_GEMM(BLAS_HANDLE blas_handle,
     const float one_f = 1.0f, zero_f = 0.0f;
 
     // B_occ[M, nocc] = B^T[M, nao] * C^T[:nocc, nao]
-    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_T,
-                    M, nocc, nao, &one_f, ri.d_B, nao,
-                    d_C, nao, &zero_f, ri.d_B_occ, M);
+    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_T, DEVICE_BLAS_OP_T, M, nocc,
+                    nao, &one_f, ri.d_B, nao, d_C, nao, &zero_f, ri.d_B_occ, M);
 
     // Permute: B_occ[(naux*nao), nocc] → B_flat[nao, (naux*nocc)]
     // B_occ[P*nao+mu, i] → B_flat[mu, P*nocc+i]
     const int total = nao * naux * nocc;
     Launch_Device_Kernel(QC_RI_Permute_B_Occ_Kernel,
-                         (total + threads - 1) / threads, threads, 0, 0,
-                         total, nao, naux, nocc, ri.d_B_occ, ri.d_B_flat);
+                         (total + threads - 1) / threads, threads, 0, 0, total,
+                         nao, naux, nocc, ri.d_B_occ, ri.d_B_flat);
 
     // K = B_flat × B_flat^T  (single large GEMM)
     // K[nao, nao] = B_flat[nao, naux*nocc] × B_flat^T[naux*nocc, nao]
     const int K_dim = naux * nocc;
-    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T,
-                    nao, nao, K_dim, &one_f, ri.d_B_flat, nao,
-                    ri.d_B_flat, nao, &zero_f, ri.d_K_scratch, nao);
+    deviceBlasSgemm(blas_handle, DEVICE_BLAS_OP_N, DEVICE_BLAS_OP_T, nao, nao,
+                    K_dim, &one_f, ri.d_B_flat, nao, ri.d_B_flat, nao, &zero_f,
+                    ri.d_K_scratch, nao);
 
     // F += neg_exx * K
-    Launch_Device_Kernel(QC_Scaled_Add_Kernel,
-                         (nao2 + threads - 1) / threads, threads, 0, 0,
-                         nao2, neg_exx, ri.d_K_scratch, d_F);
+    Launch_Device_Kernel(QC_Scaled_Add_Kernel, (nao2 + threads - 1) / threads,
+                         threads, 0, 0, nao2, neg_exx, ri.d_K_scratch, d_F);
 }
 
-static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
+static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc)
 {
     auto& ri = qc->scf_ws.ri;
     auto& scf_ws = qc->scf_ws;
@@ -743,8 +730,7 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
         QC_Double_To_Float(nao2, ri.d_J_double, ri.d_J_float);
         QC_Add_Matrix(nao2, scf_ws.alpha.d_F, ri.d_J_float, scf_ws.alpha.d_F);
         if (scf_ws.runtime.unrestricted)
-            QC_Add_Matrix(nao2, scf_ws.beta.d_F, ri.d_J_float,
-                          scf_ws.beta.d_F);
+            QC_Add_Matrix(nao2, scf_ws.beta.d_F, ri.d_J_float, scf_ws.beta.d_F);
     }
 
     // ---- RI-K: permute + single GEMM（替代 naux 次小 SGEMM）----
@@ -755,8 +741,8 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
         const int nocc_a = scf_ws.runtime.n_alpha;
         if (nocc_a > 0)
             RI_K_Build_Single_GEMM(blas_handle, ri, naux, nao, nocc_a,
-                                   scf_ws.alpha.d_C, scf_ws.alpha.d_F,
-                                   neg_exx, threads);
+                                   scf_ws.alpha.d_C, scf_ws.alpha.d_F, neg_exx,
+                                   threads);
 
         if (scf_ws.runtime.unrestricted)
         {
@@ -778,7 +764,7 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc, int /*iter*/)
 //
 // 当前实现：先在 host 上完成全部 shell-pair 循环 + 收缩。
 // 后续可优化为 GPU kernel batch + device-side 收缩。
-static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc, int /*iter*/)
+static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc)
 {
     auto& ri = qc->scf_ws.ri;
     auto& scf_ws = qc->scf_ws;
