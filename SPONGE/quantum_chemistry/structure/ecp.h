@@ -1,5 +1,6 @@
 #pragma once
 
+#include <initializer_list>
 #include <map>
 #include <string>
 #include <vector>
@@ -39,3 +40,13 @@ struct QC_ECP_SET
     const char* name = "";
     QC_ECP_MAP data;
 };
+
+// Helper to build ECP channels from inline data
+inline QC_ECP_CHANNEL make_channel(int l,
+    std::initializer_list<QC_ECP_TERM> terms)
+{
+    QC_ECP_CHANNEL ch;
+    ch.l = l;
+    ch.terms.assign(terms.begin(), terms.end());
+    return ch;
+}

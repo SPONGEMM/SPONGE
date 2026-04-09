@@ -12,16 +12,6 @@
 
 // clang-format off
 
-// Helper to build ECP channels from inline data
-static QC_ECP_CHANNEL make_channel(int l,
-    std::initializer_list<QC_ECP_TERM> terms)
-{
-    QC_ECP_CHANNEL ch;
-    ch.l = l;
-    ch.terms.assign(terms.begin(), terms.end());
-    return ch;
-}
-
 struct QC_ECP_DEF2 : QC_ECP_SET
 {
     QC_ECP_DEF2()

@@ -137,9 +137,26 @@ static __device__ float get_c_lm(int l, int cart_idx, int m_idx)
     return 0.0f;
 }
 
+// f_p 系数 (单方向): 基函数在 ECP 中心展开后 (r-C)^p 的权重
+// d_pow[k] = (C_d - A_d)^k, t_pow[k] = (-2α(C_d-A_d))^k
+static __device__ void compute_fp_1d(
+    int ecp_l, int l_xyz, const float* d_pow, const float* t_pow,
+    const float binom[][5], const float inv_fact[], float* f_out)
+{
+    for (int p = 0; p <= ecp_l; p++)
+    {
+        float s = 0;
+        int kmax = l_xyz < p ? l_xyz : p;
+        for (int k = 0; k <= kmax; k++)
+            s += binom[l_xyz][k] * d_pow[l_xyz - k] * t_pow[p - k] *
+                 inv_fact[p - k];
+        f_out[p] = s;
+    }
+}
+
 static __device__ float ecp_semilocal_n2(
     float ei, float ej, float Ax, float Ay, float Az, float Bx, float By,
-    float Bz, float Cx, float Cy, float Cz, float dist_sq_AB, float zeta,
+    float Bz, float Cx, float Cy, float Cz, float zeta,
     int lx_i, int ly_i, int lz_i, int lx_j, int ly_j, int lz_j, int ecp_l)
 {
     // 基函数中心到 ECP 中心的位移 d = C - A (或 C - B)
@@ -193,47 +210,12 @@ static __device__ float ecp_semilocal_n2(
         tB_z[n] = tB_z[n - 1] * mBz;
     }
 
-    // 计算 f_p for μ (basis i)
-    for (int p = 0; p <= ecp_l; p++)
-    {
-        float sx = 0, sy = 0, sz = 0;
-        int kx = lx_i < p ? lx_i : p;
-        int ky = ly_i < p ? ly_i : p;
-        int kz = lz_i < p ? lz_i : p;
-        for (int k = 0; k <= kx; k++)
-            sx += binom[lx_i][k] * dA_px[lx_i - k] * tA_x[p - k] *
-                  inv_fact[p - k];
-        for (int k = 0; k <= ky; k++)
-            sy += binom[ly_i][k] * dA_py[ly_i - k] * tA_y[p - k] *
-                  inv_fact[p - k];
-        for (int k = 0; k <= kz; k++)
-            sz += binom[lz_i][k] * dA_pz[lz_i - k] * tA_z[p - k] *
-                  inv_fact[p - k];
-        fi_x[p] = sx;
-        fi_y[p] = sy;
-        fi_z[p] = sz;
-    }
-
-    // 计算 f_p for ν (basis j)
-    for (int p = 0; p <= ecp_l; p++)
-    {
-        float sx = 0, sy = 0, sz = 0;
-        int kx = lx_j < p ? lx_j : p;
-        int ky = ly_j < p ? ly_j : p;
-        int kz = lz_j < p ? lz_j : p;
-        for (int k = 0; k <= kx; k++)
-            sx += binom[lx_j][k] * dB_px[lx_j - k] * tB_x[p - k] *
-                  inv_fact[p - k];
-        for (int k = 0; k <= ky; k++)
-            sy += binom[ly_j][k] * dB_py[ly_j - k] * tB_y[p - k] *
-                  inv_fact[p - k];
-        for (int k = 0; k <= kz; k++)
-            sz += binom[lz_j][k] * dB_pz[lz_j - k] * tB_z[p - k] *
-                  inv_fact[p - k];
-        fj_x[p] = sx;
-        fj_y[p] = sy;
-        fj_z[p] = sz;
-    }
+    compute_fp_1d(ecp_l, lx_i, dA_px, tA_x, binom, inv_fact, fi_x);
+    compute_fp_1d(ecp_l, ly_i, dA_py, tA_y, binom, inv_fact, fi_y);
+    compute_fp_1d(ecp_l, lz_i, dA_pz, tA_z, binom, inv_fact, fi_z);
+    compute_fp_1d(ecp_l, lx_j, dB_px, tB_x, binom, inv_fact, fj_x);
+    compute_fp_1d(ecp_l, ly_j, dB_py, tB_y, binom, inv_fact, fj_y);
+    compute_fp_1d(ecp_l, lz_j, dB_pz, tB_z, binom, inv_fact, fj_z);
 
     // B̃_m = Σ_{abc:a+b+c=l} Ω_{abc,lm} × f_a^x × f_b^y × f_c^z
     // 数组大小 7 = 2*3+1, 支持 ecp_l ≤ 3
@@ -269,6 +251,18 @@ static __device__ float ecp_semilocal_n2(
 
     // K_A × K_B × angular_sum × R_l (no extra factor with orthonormal Y_lm)
     return KA * KB * angular_sum * R_l;
+}
+
+// 找到 local channel (l == l_max 或 l < 0)
+static __device__ int find_local_channel(
+    int ch_start, int ch_end, int l_max, const int* ecp_channel_l)
+{
+    for (int ich = ch_start; ich < ch_end; ich++)
+    {
+        int cl = ecp_channel_l[ich];
+        if (cl < 0 || cl == l_max) return ich;
+    }
+    return -1;
 }
 
 // ==================== ECP 主 Kernel ====================
@@ -322,17 +316,8 @@ static __global__ void ECP_Kernel(
                     const int ch_start = ecp_atom_channel_range[iat];
                     const int ch_end = ecp_atom_channel_range[iat + 1];
 
-                    // 找到 local channel (l_max 或 l<0)
-                    int local_ch = -1;
-                    for (int ich = ch_start; ich < ch_end; ich++)
-                    {
-                        int cl = ecp_channel_l[ich];
-                        if (cl < 0 || cl == l_max)
-                        {
-                            local_ch = ich;
-                            break;
-                        }
-                    }
+                    int local_ch = find_local_channel(
+                        ch_start, ch_end, l_max, ecp_channel_l);
 
                     for (int pi = 0; pi < shell_sizes[i_sh]; pi++)
                     {
@@ -388,7 +373,7 @@ static __global__ void ECP_Kernel(
 
                                     float val = ecp_semilocal_n2(
                                         ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                        Cy, Cz, dist_sq, zk, lx_i, ly_i,
+                                        Cy, Cz, zk, lx_i, ly_i,
                                         lz_i, lx_j, ly_j, lz_j, ch_l);
                                     total_ecp += cc * dk * val;
                                 }
@@ -450,7 +435,7 @@ static __device__ float ecp_integral_for_term(
                             lz_j);
     else
         return ecp_semilocal_n2(ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy, Cz,
-                                dist_sq_AB, zeta, lx_i, ly_i, lz_i, lx_j,
+                                zeta, lx_i, ly_i, lz_i, lx_j,
                                 ly_j, lz_j, ch_l);
 }
 
@@ -509,16 +494,8 @@ static __global__ void ECP_Grad_Kernel(
                     const int ch_start = ecp_atom_channel_range[iat];
                     const int ch_end = ecp_atom_channel_range[iat + 1];
 
-                    int local_ch = -1;
-                    for (int ich = ch_start; ich < ch_end; ich++)
-                    {
-                        int cl = ecp_channel_l[ich];
-                        if (cl < 0 || cl == l_max)
-                        {
-                            local_ch = ich;
-                            break;
-                        }
-                    }
+                    int local_ch = find_local_channel(
+                        ch_start, ch_end, l_max, ecp_channel_l);
 
                     // 对每个 primitive pair 累积梯度
                     for (int pi = 0; pi < shell_sizes[i_sh]; pi++)
@@ -534,105 +511,65 @@ static __global__ void ECP_Grad_Kernel(
                             const float cc = ci * cj;
 
                             // 收集所有 ECP 通道的梯度贡献
-                            double dV_dAx = 0, dV_dAy = 0, dV_dAz = 0;
-                            double dV_dBx = 0, dV_dBy = 0, dV_dBz = 0;
+                            // dV_A[3] = d/dA_{x,y,z}, dV_B[3] = d/dB_{x,y,z}
+                            double dV_A[3] = {}, dV_B[3] = {};
+                            int l_i[3] = {lx_i, ly_i, lz_i};
+                            int l_j[3] = {lx_j, ly_j, lz_j};
 
-                            // Lambda: 对单个 ECP 项计算 bra+ket ���数
                             auto accumulate_grad =
                                 [&](float dk, float zk, int ch_l,
                                     bool is_local)
                             {
                                 double cdk = (double)(cc * dk);
 
-                                // d/dA_x = 2α V(lx+1) - lx V(lx-1)
-                                float vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i + 1, ly_i,
-                                    lz_i, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                float vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i - 1, ly_i,
-                                    lz_i, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                dV_dAx += cdk * (2.0 * (double)ei *
-                                                     (double)vp -
-                                                 (double)lx_i * (double)vm);
+                                // d/dA_d = 2α V(l_i[d]+1) - l_i[d] V(l_i[d]-1)
+                                // d/dB_d = 2β V(l_j[d]+1) - l_j[d] V(l_j[d]-1)
+                                for (int d = 0; d < 3; d++)
+                                {
+                                    // bra 导数: modify-call-restore
+                                    int orig_i = l_i[d];
+                                    l_i[d] = orig_i + 1;
+                                    float vp = ecp_integral_for_term(
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
+                                        Cx, Cy, Cz, dist_sq, zk,
+                                        l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2],
+                                        ch_l, is_local);
+                                    l_i[d] = orig_i - 1;
+                                    float vm = ecp_integral_for_term(
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
+                                        Cx, Cy, Cz, dist_sq, zk,
+                                        l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2],
+                                        ch_l, is_local);
+                                    l_i[d] = orig_i;
+                                    dV_A[d] += cdk * (2.0 * (double)ei *
+                                                          (double)vp -
+                                                      (double)orig_i *
+                                                          (double)vm);
 
-                                // d/dA_y
-                                vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i + 1,
-                                    lz_i, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i - 1,
-                                    lz_i, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                dV_dAy += cdk * (2.0 * (double)ei *
-                                                     (double)vp -
-                                                 (double)ly_i * (double)vm);
-
-                                // d/dA_z
-                                vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i + 1, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i - 1, lx_j, ly_j, lz_j, ch_l,
-                                    is_local);
-                                dV_dAz += cdk * (2.0 * (double)ei *
-                                                     (double)vp -
-                                                 (double)lz_i * (double)vm);
-
-                                // d/dB_x = 2β V(lx_j+1) - lx_j V(lx_j-1)
-                                vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j + 1, ly_j, lz_j, ch_l,
-                                    is_local);
-                                vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j - 1, ly_j, lz_j, ch_l,
-                                    is_local);
-                                dV_dBx += cdk * (2.0 * (double)ej *
-                                                     (double)vp -
-                                                 (double)lx_j * (double)vm);
-
-                                // d/dB_y
-                                vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j, ly_j + 1, lz_j, ch_l,
-                                    is_local);
-                                vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j, ly_j - 1, lz_j, ch_l,
-                                    is_local);
-                                dV_dBy += cdk * (2.0 * (double)ej *
-                                                     (double)vp -
-                                                 (double)ly_j * (double)vm);
-
-                                // d/dB_z
-                                vp = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j, ly_j, lz_j + 1, ch_l,
-                                    is_local);
-                                vm = ecp_integral_for_term(
-                                    ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                    Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                    lz_i, lx_j, ly_j, lz_j - 1, ch_l,
-                                    is_local);
-                                dV_dBz += cdk * (2.0 * (double)ej *
-                                                     (double)vp -
-                                                 (double)lz_j * (double)vm);
+                                    // ket 导数
+                                    int orig_j = l_j[d];
+                                    l_j[d] = orig_j + 1;
+                                    vp = ecp_integral_for_term(
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
+                                        Cx, Cy, Cz, dist_sq, zk,
+                                        l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2],
+                                        ch_l, is_local);
+                                    l_j[d] = orig_j - 1;
+                                    vm = ecp_integral_for_term(
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
+                                        Cx, Cy, Cz, dist_sq, zk,
+                                        l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2],
+                                        ch_l, is_local);
+                                    l_j[d] = orig_j;
+                                    dV_B[d] += cdk * (2.0 * (double)ej *
+                                                          (double)vp -
+                                                      (double)orig_j *
+                                                          (double)vm);
+                                }
                             };
 
                             // Local 通道
@@ -669,19 +606,14 @@ static __global__ void ECP_Grad_Kernel(
 
                             // 累加到梯度: bra × 2.0, ECP center × 1.0
                             double dp = (double)p_val;
-                            atomicAdd(&grad[atom_i * 3 + 0],
-                                      2.0 * dp * dV_dAx);
-                            atomicAdd(&grad[atom_i * 3 + 1],
-                                      2.0 * dp * dV_dAy);
-                            atomicAdd(&grad[atom_i * 3 + 2],
-                                      2.0 * dp * dV_dAz);
-                            // d/dC = -(d/dA + d/dB) (平移不变性)
-                            atomicAdd(&grad[iat * 3 + 0],
-                                      -dp * (dV_dAx + dV_dBx));
-                            atomicAdd(&grad[iat * 3 + 1],
-                                      -dp * (dV_dAy + dV_dBy));
-                            atomicAdd(&grad[iat * 3 + 2],
-                                      -dp * (dV_dAz + dV_dBz));
+                            for (int d = 0; d < 3; d++)
+                            {
+                                atomicAdd(&grad[atom_i * 3 + d],
+                                          2.0 * dp * dV_A[d]);
+                                // d/dC = -(d/dA + d/dB) (平移不变性)
+                                atomicAdd(&grad[iat * 3 + d],
+                                          -dp * (dV_A[d] + dV_B[d]));
+                            }
                         }
                     }
                 }
