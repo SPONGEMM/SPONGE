@@ -1081,8 +1081,8 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
                              sizeof(float) * (int)nao_c * (int)nao_s);
     }
 #ifdef USE_GPU
-    // GPU: size pool for all shell pairs (one-shot launch)
-    int hr_pool_tasks = std::max(ERI_BATCH_SIZE, task_ctx.topo.n_shell_pairs);
+    // GPU: scratch 池槽数与 bounds kernel 的 launch 线程总数一致，避免 O(n_pairs) 膨胀
+    int hr_pool_tasks = QC_BOUNDS_POOL_SLOTS;
 #else
     int hr_pool_tasks = std::max(1, omp_get_max_threads());
 #endif
@@ -1266,6 +1266,32 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         std::vector<float> h_ones(mol.nao_cart, 1.0f);
         deviceMemcpy(grad_ws.d_norms_ones, h_ones.data(),
                      sizeof(float) * mol.nao_cart, deviceMemcpyHostToDevice);
+    }
+    {
+        int max_l_cart = 0;
+        for (int sh = 0; sh < mol.nbas; sh++)
+            if (mol.h_l_list[sh] > max_l_cart) max_l_cart = mol.h_l_list[sh];
+        const int max_dim_cart = (max_l_cart + 1) * (max_l_cart + 2) / 2;
+        grad_ws.grad_gamma_buf_size =
+            max_dim_cart * max_dim_cart * max_dim_cart * max_dim_cart;
+        // 限制 gamma pool 占用 (qzvp: 15^4 * 8B/slot = 405 KB; 4096 slots = 1.6 GB)
+        // 高 L 时减少 slots, 启动时配套缩减 blocks (kernel worker stride 自适应)
+        const size_t bytes_per_slot =
+            (size_t)(2 * grad_ws.grad_gamma_buf_size) * sizeof(float);
+        const size_t pool_budget_bytes = (size_t)512 * 1024 * 1024;  // 512 MB
+        int slots = QC_GRAD_GAMMA_POOL_SLOTS;
+        if (bytes_per_slot > 0)
+        {
+            const int budget_slots = (int)(pool_budget_bytes / bytes_per_slot);
+            const int min_slots = QC_GRAD_ERI_THREADS;  // 至少 1 block
+            if (slots > budget_slots) slots = budget_slots;
+            if (slots < min_slots) slots = min_slots;
+        }
+        const size_t gamma_pool_elems =
+            (size_t)slots * (size_t)(2 * grad_ws.grad_gamma_buf_size);
+        Device_Malloc_Safely((void**)&grad_ws.d_grad_gamma_pool,
+                             sizeof(float) * gamma_pool_elems);
+        grad_ws.grad_gamma_pool_slots = slots;
     }
     // 辅助基壳层到原子映射 (RI 梯度用)
     if (scf_ws.ri.enabled)

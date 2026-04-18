@@ -1096,9 +1096,99 @@ static inline void QC_Build_ERI_Gradient_CPU(
 // with extended VRR + HRR to produce derivative integrals and accumulates
 // atomic gradients.
 //
-// Supports up to d-shells (l_max=2) with these buffer sizes.
-// For higher angular momentum, increase the constants below.
+// Scratch sizes are chosen to cover up to g-shells (l_max=4):
+// G: (ij_am+2)*(kl_am+2) <= 10*10 = 100
+// I: (l0+2)*(l1+2)*(l2+2)*(l3+1) <= 6*6*6*5 = 1080
 // ==============================================================
+
+static __device__ void grad_vrr_2d(float* __restrict__ G, int ij_max, int kl_max,
+                                   int g_stride, float Cx_bra, float Cx_ket,
+                                   float B00, float B10, float B01)
+{
+    G[0] = 1.0f;
+    for (int i = 0; i < ij_max; i++)
+    {
+        float val = Cx_bra * G[i * g_stride];
+        if (i > 0) val += (float)i * B10 * G[(i - 1) * g_stride];
+        G[(i + 1) * g_stride] = val;
+    }
+    for (int j = 0; j < kl_max; j++)
+        for (int i = 0; i <= ij_max; i++)
+        {
+            float val = Cx_ket * G[i * g_stride + j];
+            if (j > 0) val += (float)j * B01 * G[i * g_stride + (j - 1)];
+            if (i > 0) val += (float)i * B00 * G[(i - 1) * g_stride + j];
+            G[i * g_stride + (j + 1)] = val;
+        }
+}
+
+static __device__ void grad_factored_hrr_batch(
+    const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
+    const int* __restrict__ l, float AB_d, float CD_d, float* __restrict__ I_full,
+    int d0, int d1, int d2)
+{
+    const int l0_up = l[0] + 1, l1_up = l[1] + 1;
+    const int l2_up = l[2] + 1, l3_max = l[3];
+    const int ij_ext = ij_am + 1;
+    const int kl_ext = kl_am + 1;
+
+    const int h_a1_stride = kl_ext + 1;
+    const int h_a0_stride = (l1_up + 1) * h_a1_stride;
+    float h_all[12 * 12 * 12];
+
+    for (int j = 0; j <= kl_ext; j++)
+    {
+        float work[2][12];
+        for (int i = 0; i <= ij_ext; i++) work[0][i] = G[i * g_stride + j];
+
+        for (int a0 = 0; a0 <= l0_up; a0++)
+            h_all[a0 * h_a0_stride + j] = work[0][a0];
+
+        int cur = 0;
+        for (int b = 0; b < l1_up; b++)
+        {
+            const int nxt = 1 - cur;
+            const int n_curr = ij_ext - b - 1;
+            for (int a = 0; a <= n_curr; a++)
+                work[nxt][a] = work[cur][a + 1] + AB_d * work[cur][a];
+            const int a0_max = l0_up < n_curr ? l0_up : n_curr;
+            for (int a0 = 0; a0 <= a0_max; a0++)
+                h_all[a0 * h_a0_stride + (b + 1) * h_a1_stride + j] =
+                    work[nxt][a0];
+            cur = nxt;
+        }
+    }
+
+    for (int a0 = 0; a0 <= l0_up; a0++)
+        for (int a1 = 0; a1 <= l1_up; a1++)
+        {
+            if (a0 + a1 > ij_ext) continue;
+            const float* h_bra = &h_all[a0 * h_a0_stride + a1 * h_a1_stride];
+
+            for (int a2 = 0; a2 <= l2_up; a2++)
+                I_full[a0 * d0 + a1 * d1 + a2 * d2] = h_bra[a2];
+
+            if (l3_max > 0)
+            {
+                float work[2][12];
+                for (int i = 0; i <= kl_ext; i++) work[0][i] = h_bra[i];
+
+                int cur = 0;
+                for (int d = 0; d < l3_max; d++)
+                {
+                    const int nxt = 1 - cur;
+                    const int n_curr = kl_ext - d - 1;
+                    for (int a = 0; a <= n_curr; a++)
+                        work[nxt][a] = work[cur][a + 1] + CD_d * work[cur][a];
+                    const int a2_max = l2_up < n_curr ? l2_up : n_curr;
+                    for (int a2 = 0; a2 <= a2_max; a2++)
+                        I_full[a0 * d0 + a1 * d1 + a2 * d2 + (d + 1)] =
+                            work[nxt][a2];
+                    cur = nxt;
+                }
+            }
+        }
+}
 
 // Sph→Cart device helper: one axis transform, in-place capable via temp copy.
 // dst[lead, cart, tail] = Σ_sph C[cart * ns + sph] * src[lead, sph, tail]
@@ -1141,10 +1231,13 @@ __global__ void QC_ERI_Grad_Kernel(
     const float* __restrict__ P_exx_b, const float exx_scale_a,
     const float exx_scale_b, const int nao, const int nao_sph,
     const int is_spherical, const float* __restrict__ cart2sph_mat,
+    float* __restrict__ global_gamma_pool, const int gamma_buf_size,
     const int* __restrict__ shell_atom, double* __restrict__ grad_copies,
     const int n_grad_copies, const int natm, const float prim_screen_tol)
 {
-    SIMPLE_DEVICE_FOR(task_id, n_tasks)
+    const int worker_id = blockDim.x * blockIdx.x + threadIdx.x;
+    const int worker_stride = blockDim.x * gridDim.x;
+    for (int task_id = worker_id; task_id < n_tasks; task_id += worker_stride)
     {
         double* grad_local =
             grad_copies +
@@ -1219,11 +1312,12 @@ __global__ void QC_ERI_Grad_Kernel(
             const int ni_cart = dim_cart[0], nj_cart = dim_cart[1];
             const int nk_cart = dim_cart[2], nl_cart = dim_cart[3];
             const int shell_size_cart = ni_cart * nj_cart * nk_cart * nl_cart;
+            float* gamma_buf0 =
+                global_gamma_pool +
+                (size_t)worker_id * (size_t)(2 * gamma_buf_size);
+            float* gamma_buf1 = gamma_buf0 + gamma_buf_size;
 
             // ---- Compute gamma in effective (sph or cart) basis ----
-            // Max: 6^4=1296 for d-shells
-            float gamma_buf0[1296];
-            float gamma_buf1[1296];
             const int sph_size = ni * nj * nk * nl;
             for (int i = 0; i < sph_size; i++) gamma_buf0[i] = 0.0f;
 
@@ -1430,113 +1524,27 @@ __global__ void QC_ERI_Grad_Kernel(
                                         QCv[2] + factor * p_val * PQ[2]};
 
                                     // Extended VRR: up to (ij_am+1, kl_am+1)
-                                    float Gx[72], Gy[72], Gz[72];
-                                    rys_vrr_2d(Gx, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[0], Cx_ket[0],
-                                               B00, B10, B01);
-                                    rys_vrr_2d(Gy, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[1], Cx_ket[1],
-                                               B00, B10, B01);
-                                    rys_vrr_2d(Gz, ij_am + 1, kl_am + 1,
-                                               g_stride, Cx_bra[2], Cx_ket[2],
-                                               B00, B10, B01);
+                                    float Gx[120], Gy[120], Gz[120];
+                                    grad_vrr_2d(Gx, ij_am + 1, kl_am + 1,
+                                                g_stride, Cx_bra[0], Cx_ket[0],
+                                                B00, B10, B01);
+                                    grad_vrr_2d(Gy, ij_am + 1, kl_am + 1,
+                                                g_stride, Cx_bra[1], Cx_ket[1],
+                                                B00, B10, B01);
+                                    grad_vrr_2d(Gz, ij_am + 1, kl_am + 1,
+                                                g_stride, Cx_bra[2], Cx_ket[2],
+                                                B00, B10, B01);
 
-                                    // Extended HRR: I[a0][a1][a2][a3]
-                                    // a0: 0..l0+1, a1: 0..l1+1,
-                                    // a2: 0..l2+1, a3: 0..l3
-                                    // Max size for dd|dd:
-                                    // 4*4*4*3=192 per axis
-                                    float Ix[192], Iy[192], Iz[192];
-
-                                    // X-axis HRR
-                                    for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
-                                        {
-                                            if (a0 + a1 > ij_am + 1) continue;
-                                            float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1; j++)
-                                            {
-                                                float col[10];
-                                                for (int i = 0; i <= ij_am + 1;
-                                                     i++)
-                                                    col[i] =
-                                                        Gx[i * g_stride + j];
-                                                h_bra[j] = rys_hrr_1d(
-                                                    col, a0, a1, AB[0]);
-                                            }
-                                            for (int a2 = 0; a2 <= l[2] + 1;
-                                                 a2++)
-                                                for (int a3 = 0; a3 <= l[3];
-                                                     a3++)
-                                                {
-                                                    if (a2 + a3 > kl_am + 1)
-                                                        continue;
-                                                    Ix[a0 * ix_d0 + a1 * ix_d1 +
-                                                       a2 * ix_d2 + a3] =
-                                                        rys_hrr_1d(h_bra, a2,
-                                                                   a3, CD[0]);
-                                                }
-                                        }
-
-                                    // Y-axis HRR
-                                    for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
-                                        {
-                                            if (a0 + a1 > ij_am + 1) continue;
-                                            float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1; j++)
-                                            {
-                                                float col[10];
-                                                for (int i = 0; i <= ij_am + 1;
-                                                     i++)
-                                                    col[i] =
-                                                        Gy[i * g_stride + j];
-                                                h_bra[j] = rys_hrr_1d(
-                                                    col, a0, a1, AB[1]);
-                                            }
-                                            for (int a2 = 0; a2 <= l[2] + 1;
-                                                 a2++)
-                                                for (int a3 = 0; a3 <= l[3];
-                                                     a3++)
-                                                {
-                                                    if (a2 + a3 > kl_am + 1)
-                                                        continue;
-                                                    Iy[a0 * ix_d0 + a1 * ix_d1 +
-                                                       a2 * ix_d2 + a3] =
-                                                        rys_hrr_1d(h_bra, a2,
-                                                                   a3, CD[1]);
-                                                }
-                                        }
-
-                                    // Z-axis HRR
-                                    for (int a0 = 0; a0 <= l[0] + 1; a0++)
-                                        for (int a1 = 0; a1 <= l[1] + 1; a1++)
-                                        {
-                                            if (a0 + a1 > ij_am + 1) continue;
-                                            float h_bra[10];
-                                            for (int j = 0; j <= kl_am + 1; j++)
-                                            {
-                                                float col[10];
-                                                for (int i = 0; i <= ij_am + 1;
-                                                     i++)
-                                                    col[i] =
-                                                        Gz[i * g_stride + j];
-                                                h_bra[j] = rys_hrr_1d(
-                                                    col, a0, a1, AB[2]);
-                                            }
-                                            for (int a2 = 0; a2 <= l[2] + 1;
-                                                 a2++)
-                                                for (int a3 = 0; a3 <= l[3];
-                                                     a3++)
-                                                {
-                                                    if (a2 + a3 > kl_am + 1)
-                                                        continue;
-                                                    Iz[a0 * ix_d0 + a1 * ix_d1 +
-                                                       a2 * ix_d2 + a3] =
-                                                        rys_hrr_1d(h_bra, a2,
-                                                                   a3, CD[2]);
-                                                }
-                                        }
+                                    float Ix[1100], Iy[1100], Iz[1100];
+                                    grad_factored_hrr_batch(
+                                        Gx, ij_am, kl_am, g_stride, l, AB[0],
+                                        CD[0], Ix, ix_d0, ix_d1, ix_d2);
+                                    grad_factored_hrr_batch(
+                                        Gy, ij_am, kl_am, g_stride, l, AB[1],
+                                        CD[1], Iy, ix_d0, ix_d1, ix_d2);
+                                    grad_factored_hrr_batch(
+                                        Gz, ij_am, kl_am, g_stride, l, AB[2],
+                                        CD[2], Iz, ix_d0, ix_d1, ix_d2);
 
                                     // Contract derivatives with gamma
                                     const float wn = n_abcd * w;

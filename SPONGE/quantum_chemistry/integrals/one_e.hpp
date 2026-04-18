@@ -72,7 +72,7 @@ __forceinline__ static void QC_Get_Lxyz_Host(int l, int idx, int& lx, int& ly,
 }
 
 static __device__ void get_overlap1d_arr(int l1, int l2, float PA, float PB,
-                                         float gamma, float res[6][6])
+                                         float gamma, float res[7][7])
 {
     res[0][0] = sqrtf(CONSTANT_Pi / gamma);
     for (int i = 0; i <= l1; i++)
@@ -100,14 +100,14 @@ static __device__ void get_overlap1d_arr(int l1, int l2, float PA, float PB,
 static __device__ float get_overlap1d_val(int l1, int l2, float PA, float PB,
                                           float gamma)
 {
-    float res[6][6];
+    float res[7][7];
     get_overlap1d_arr(l1, l2, PA, PB, gamma, res);
     return res[l1][l2];
 }
 
 static __device__ float get_kin1d(int l1, int l2, float PA, float PB,
                                   float gamma, float alpha, float beta,
-                                  float res[6][6])
+                                  float res[7][7])
 {
     get_overlap1d_arr(l1 + 1, l2 + 1, PA, PB, gamma, res);
     float t = 2.0f * alpha * beta * res[l1 + 1][l2 + 1];
@@ -218,13 +218,13 @@ static __device__ void compute_boys_stable(float* F, float t, int max_m)
     }
 }
 
-static __device__ void compute_md_coeffs(float E[5][5][9], int la_max,
+static __device__ void compute_md_coeffs(float E[6][6][11], int la_max,
                                          int lb_max, float PA, float PB,
                                          float one_over_2p)
 {
-    for (int i = 0; i < 5; i++)
-        for (int j = 0; j < 5; j++)
-            for (int n = 0; n < 9; n++) E[i][j][n] = 0.0f;
+    for (int i = 0; i < 6; i++)
+        for (int j = 0; j < 6; j++)
+            for (int n = 0; n < 11; n++) E[i][j][n] = 0.0f;
     E[0][0][0] = 1.0f;
     for (int la = 0; la <= la_max; la++)
     {
@@ -337,7 +337,7 @@ static __global__ void OneE_Kernel(
         float Bx = B.x, By = B.y, Bz = B.z;
         float dist_sq = (Ax - Bx) * (Ax - Bx) + (Ay - By) * (Ay - By) +
                         (Az - Bz) * (Az - Bz);
-        float res_x[6][6], res_y[6][6], res_z[6][6];
+        float res_x[7][7], res_y[7][7], res_z[7][7];
 
         for (int idx_i = 0; idx_i < ni; idx_i++)
         {
@@ -360,7 +360,7 @@ static __global__ void OneE_Kernel(
                         float Px = (ei * Ax + ej * Bx) / g;
                         float Py = (ei * Ay + ej * By) / g;
                         float Pz = (ei * Az + ej * Bz) / g;
-                        float E_x[5][5][9], E_y[5][5][9], E_z[5][5][9];
+                        float E_x[6][6][11], E_y[6][6][11], E_z[6][6][11];
                         compute_md_coeffs(E_x, li, lj, Px - Ax, Px - Bx,
                                           0.5f / g);
                         compute_md_coeffs(E_y, li, lj, Py - Ay, Py - By,

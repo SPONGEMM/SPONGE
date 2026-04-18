@@ -100,7 +100,7 @@ static __device__ float ecp_local_n2(
     const float Qy = (g * Py + zeta * Cy) / eta;
     const float Qz = (g * Pz + zeta * Cz) / eta;
 
-    float E_x[5][5][9], E_y[5][5][9], E_z[5][5][9];
+    float E_x[6][6][11], E_y[6][6][11], E_z[6][6][11];
     compute_md_coeffs(E_x, lx_i, lx_j, Qx - Ax, Qx - Bx, 0.5f / eta);
     compute_md_coeffs(E_y, ly_i, ly_j, Qy - Ay, Qy - By, 0.5f / eta);
     compute_md_coeffs(E_z, lz_i, lz_j, Qz - Az, Qz - Bz, 0.5f / eta);

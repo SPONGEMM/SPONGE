@@ -12,6 +12,10 @@
 #include "structure/scf_workspace.h"
 
 #define ONE_E_BATCH_SIZE 4096
+#define QC_GRAD_ERI_THREADS 64
+#define QC_GRAD_GAMMA_POOL_BLOCKS 64
+#define QC_GRAD_GAMMA_POOL_SLOTS \
+    (QC_GRAD_ERI_THREADS * QC_GRAD_GAMMA_POOL_BLOCKS)
 #define PI_25 17.4934183276248628469f
 #define HR_BASE_MAX 17
 #define HR_SIZE_MAX 83521
@@ -19,6 +23,7 @@
 #define ONEE_MD_IDX(t, u, v, n) \
     ((((t) * ONEE_MD_BASE + (u)) * ONEE_MD_BASE + (v)) * ONEE_MD_BASE + (n))
 #define ERI_BATCH_SIZE 128
+#define QC_BOUNDS_POOL_SLOTS 1024
 #define MAX_CART_SHELL 15
 #define MAX_SHELL_ERI \
     (MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL)
@@ -130,4 +135,3 @@ struct QUANTUM_CHEMISTRY
     void Diag_Guess_And_Build_P();
     void Compute_Spin_Square();
 };
-

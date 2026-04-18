@@ -16,9 +16,9 @@ struct QC_RI_3C_TASK
 // 缓存一个 bra primitive 的 E 系数（所有角动量分量）
 struct QC_RI_Bra_Prim_Cache
 {
-    float E_x[5][5][9];  // E^{lP}_x for all lxP
-    float E_y[5][5][9];
-    float E_z[5][5][9];
+    float E_x[6][6][11];  // E^{lP}_x for all lxP
+    float E_y[6][6][11];
+    float E_z[6][6][11];
     double coeff;  // cP * prefactor 部分
     float eP;
 };
@@ -70,7 +70,7 @@ static __global__ void QC_RI_3Center_Kernel(
             const float cP = aux_coeffs[aux_shell_offsets[P_sh] + pP];
 
             // Bra E 系数: 对所有 lxP ∈ [0, lP]，一次算完
-            float E_Px[5][5][9], E_Py[5][5][9], E_Pz[5][5][9];
+            float E_Px[6][6][11], E_Py[6][6][11], E_Pz[6][6][11];
             compute_md_coeffs(E_Px, lP, 0, 0.0f, 0.0f, 0.5f / eP);
             compute_md_coeffs(E_Py, lP, 0, 0.0f, 0.0f, 0.5f / eP);
             compute_md_coeffs(E_Pz, lP, 0, 0.0f, 0.0f, 0.5f / eP);
@@ -101,7 +101,7 @@ static __global__ void QC_RI_3Center_Kernel(
                     const float Qz = (e_mu * B.z + e_nu * C.z) / g_ket;
 
                     // Ket E 系数: 对所有 (lx_mu, lx_nu) 分量一次算完
-                    float E_Kx[5][5][9], E_Ky[5][5][9], E_Kz[5][5][9];
+                    float E_Kx[6][6][11], E_Ky[6][6][11], E_Kz[6][6][11];
                     compute_md_coeffs(E_Kx, lmu, lnu, Qx - B.x, Qx - C.x,
                                       0.5f / g_ket);
                     compute_md_coeffs(E_Ky, lmu, lnu, Qy - B.y, Qy - C.y,

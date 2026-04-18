@@ -96,7 +96,7 @@ struct QC_Bra_Prim_Cache_CPU
     float P[3];
     float inv_p;
     float n_ab;
-    float E_bra[3][5][5][9];
+    float E_bra[3][6][6][11];
 };
 
 struct QC_Cart_Pair_Geom_CPU
@@ -349,7 +349,7 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
     int bra_term_counts[QC_MAX_CART_PAIR_COUNT_CPU];
     int ket_term_counts[QC_MAX_CART_PAIR_COUNT_CPU];
 
-    float E_ket[3][5][5][9];
+    float E_ket[3][6][6][11];
     for (const QC_Bra_Prim_Cache_CPU& prim : bra_prims)
     {
         // Build bra term lists (once per bra prim, reused across ket prims)

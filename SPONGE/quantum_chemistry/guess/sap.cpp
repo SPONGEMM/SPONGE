@@ -666,7 +666,7 @@ static __global__ void SAP_Kernel(const int n_tasks, const QC_ONE_E_TASK* tasks,
                         float Px = (ei * Ax + ej * Bx) / g;
                         float Py = (ei * Ay + ej * By) / g;
                         float Pz = (ei * Az + ej * Bz) / g;
-                        float E_x[5][5][9], E_y[5][5][9], E_z[5][5][9];
+                        float E_x[6][6][11], E_y[6][6][11], E_z[6][6][11];
                         compute_md_coeffs(E_x, li, lj, Px - Ax, Px - Bx,
                                           0.5f / g);
                         compute_md_coeffs(E_y, li, lj, Py - Ay, Py - By,

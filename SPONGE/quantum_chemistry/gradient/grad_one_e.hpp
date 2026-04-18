@@ -22,9 +22,8 @@
 // V 梯度: 按 (shell_pair × atom) 并行化，提升 GPU 利用率
 // ==============================================================
 
-// V 梯度用小基底 R-tensor: 支持到 L_max=4 (d+d)
-// 对 f/g 轨道需增大 GRAD_R_BASE
-#define GRAD_R_BASE 7
+// V 梯度用 R-tensor: 支持到 L_max=9 (g+g+1)
+#define GRAD_R_BASE 10
 #define GRAD_R_IDX(t, u, v, n) \
     ((((t) * GRAD_R_BASE + (u)) * GRAD_R_BASE + (v)) * GRAD_R_BASE + (n))
 
@@ -136,7 +135,7 @@ static __global__ void OneE_ST_Grad_Kernel(
                         float Py = (ei * Ay + ej * By) / g;
                         float Pz = (ei * Az + ej * Bz) / g;
 
-                        float res_x[6][6], res_y[6][6], res_z[6][6];
+                        float res_x[7][7], res_y[7][7], res_z[7][7];
                         get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
                                           g, res_x);
                         get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
@@ -170,7 +169,7 @@ static __global__ void OneE_ST_Grad_Kernel(
                                       (double)(cc * sx * sy * dsz));
 
                         // dT/dA
-                        auto kin1d = [&](float res[6][6], int la, int lb,
+                        auto kin1d = [&](float res[7][7], int la, int lb,
                                          float ai, float bj) -> float
                         {
                             float t = 2.0f * ai * bj * res[la + 1][lb + 1];
@@ -225,7 +224,7 @@ static __global__ void OneE_ST_Grad_Kernel(
 }
 
 // V 梯度核: 按 (shell_pair × atom) 并行化
-// 每线程 R_vals = GRAD_R_BASE^4 = 2401 floats (~9.6KB，原 26KB)
+// 每线程 R_vals = GRAD_R_BASE^4 = 10000 floats (~40KB)
 static __global__ void OneE_V_Grad_Kernel(
     const int n_tasks, const QC_ONE_E_TASK* tasks, const VECTOR* centers,
     const int* l_list, const float* exps, const float* coeffs,
@@ -293,18 +292,18 @@ static __global__ void OneE_V_Grad_Kernel(
                         float one2p = 0.5f / g;
 
                         // E-coefficients
-                        float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
+                        float Ex0[6][6][11], Ey0[6][6][11], Ez0[6][6][11];
                         compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx, one2p);
                         compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By, one2p);
                         compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
-                        float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
-                        if (lx_i + 1 < 5)
+                        float Ex1[6][6][11], Ey1[6][6][11], Ez1[6][6][11];
+                        if (lx_i + 1 < 6)
                             compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax,
                                               Px - Bx, one2p);
-                        if (ly_i + 1 < 5)
+                        if (ly_i + 1 < 6)
                             compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay,
                                               Py - By, one2p);
-                        if (lz_i + 1 < 5)
+                        if (lz_i + 1 < 6)
                             compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az,
                                               Pz - Bz, one2p);
 
@@ -327,11 +326,11 @@ static __global__ void OneE_V_Grad_Kernel(
                         const int tmax_x = lx_i + lx_j;
                         const int tmax_y = ly_i + ly_j;
                         const int tmax_z = lz_i + lz_j;
-                        float dEx[9], dEy[9], dEz[9];
+                        float dEx[11], dEy[11], dEz[11];
                         for (int t = 0; t <= tmax_x + 1; t++)
                         {
                             float d = 0.0f;
-                            if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
+                            if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 6)
                                 d += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
                             if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
                                 d -= (float)lx_i * Ex0[lx_i - 1][lx_j][t];
@@ -340,7 +339,7 @@ static __global__ void OneE_V_Grad_Kernel(
                         for (int u = 0; u <= tmax_y + 1; u++)
                         {
                             float d = 0.0f;
-                            if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
+                            if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 6)
                                 d += 2.0f * ei * Ey1[ly_i + 1][ly_j][u];
                             if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
                                 d -= (float)ly_i * Ey0[ly_i - 1][ly_j][u];
@@ -349,7 +348,7 @@ static __global__ void OneE_V_Grad_Kernel(
                         for (int v = 0; v <= tmax_z + 1; v++)
                         {
                             float d = 0.0f;
-                            if (v <= (lz_i + 1) + lz_j && (lz_i + 1) < 5)
+                            if (v <= (lz_i + 1) + lz_j && (lz_i + 1) < 6)
                                 d += 2.0f * ei * Ez1[lz_i + 1][lz_j][v];
                             if (lz_i > 0 && v <= (lz_i - 1) + lz_j)
                                 d -= (float)lz_i * Ez0[lz_i - 1][lz_j][v];
@@ -515,7 +514,7 @@ static __global__ void OneE_Grad_Kernel(
                         // 重叠: bra 侧需要到 l+2 阶
                         // (T 的 AO 导数 kin1d(res, la+1, ...) 访问
                         // res[la+2][lb+1])
-                        float res_x[6][6], res_y[6][6], res_z[6][6];
+                        float res_x[7][7], res_y[7][7], res_z[7][7];
                         get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
                                           g, res_x);
                         get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
@@ -551,7 +550,7 @@ static __global__ void OneE_Grad_Kernel(
                                   -2.0 * (double)w_val * (double)ds_dAz);
 
                         // === dT/dA ===
-                        auto kin1d = [&](float res[6][6], int la, int lb,
+                        auto kin1d = [&](float res[7][7], int la, int lb,
                                          float ai, float bj) -> float
                         {
                             float t = 2.0f * ai * bj * res[la + 1][lb + 1];
@@ -605,22 +604,22 @@ static __global__ void OneE_Grad_Kernel(
                                   2.0 * (double)p_val * (double)dt_dAz);
 
                         // === dV/dR_A ===
-                        float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
+                        float Ex0[6][6][11], Ey0[6][6][11], Ez0[6][6][11];
                         compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx, one2p);
                         compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By, one2p);
                         compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
-                        float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
-                        if (lx_i + 1 < 5)
+                        float Ex1[6][6][11], Ey1[6][6][11], Ez1[6][6][11];
+                        if (lx_i + 1 < 6)
                         {
                             compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax,
                                               Px - Bx, one2p);
                         }
-                        if (ly_i + 1 < 5)
+                        if (ly_i + 1 < 6)
                         {
                             compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay,
                                               Py - By, one2p);
                         }
-                        if (lz_i + 1 < 5)
+                        if (lz_i + 1 < 6)
                         {
                             compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az,
                                               Pz - Bz, one2p);
@@ -656,11 +655,11 @@ static __global__ void OneE_Grad_Kernel(
                             const int tmax_x = lx_i + lx_j;
                             const int tmax_y = ly_i + ly_j;
                             const int tmax_z = lz_i + lz_j;
-                            float dEx[9], dEy[9], dEz[9];
+                            float dEx[11], dEy[11], dEz[11];
                             for (int t = 0; t <= tmax_x + 1; t++)
                             {
                                 float d = 0.0f;
-                                if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
+                                if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 6)
                                     d += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
                                 if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
                                     d -= (float)lx_i * Ex0[lx_i - 1][lx_j][t];
@@ -669,7 +668,7 @@ static __global__ void OneE_Grad_Kernel(
                             for (int u = 0; u <= tmax_y + 1; u++)
                             {
                                 float d = 0.0f;
-                                if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 5)
+                                if (u <= (ly_i + 1) + ly_j && (ly_i + 1) < 6)
                                     d += 2.0f * ei * Ey1[ly_i + 1][ly_j][u];
                                 if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
                                     d -= (float)ly_i * Ey0[ly_i - 1][ly_j][u];
@@ -678,7 +677,7 @@ static __global__ void OneE_Grad_Kernel(
                             for (int v = 0; v <= tmax_z + 1; v++)
                             {
                                 float d = 0.0f;
-                                if (v <= (lz_i + 1) + lz_j && (lz_i + 1) < 5)
+                                if (v <= (lz_i + 1) + lz_j && (lz_i + 1) < 6)
                                     d += 2.0f * ei * Ez1[lz_i + 1][lz_j][v];
                                 if (lz_i > 0 && v <= (lz_i - 1) + lz_j)
                                     d -= (float)lz_i * Ez0[lz_i - 1][lz_j][v];
@@ -942,7 +941,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                         const float Pz = (ei * Az + ej * Bz) / g;
                         const float one2p = 0.5f / g;
 
-                        float res_x[6][6], res_y[6][6], res_z[6][6];
+                        float res_x[7][7], res_y[7][7], res_z[7][7];
                         get_overlap1d_arr(lx_i + 2, lx_j + 1, Px - Ax, Px - Bx,
                                           g, res_x);
                         get_overlap1d_arr(ly_i + 2, ly_j + 1, Py - Ay, Py - By,
@@ -968,7 +967,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                         dS_cart[(size_t)idx * 3 + 1] += cc * sx * dsy_dAy * sz;
                         dS_cart[(size_t)idx * 3 + 2] += cc * sx * sy * dsz_dAz;
 
-                        auto kin1d = [&](float res[6][6], int la, int lb,
+                        auto kin1d = [&](float res[7][7], int la, int lb,
                                          float ai, float bj) -> float
                         {
                             float t = 2.0f * ai * bj * res[la + 1][lb + 1];
@@ -1012,18 +1011,18 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                             cc * (tx * sy * dsz_dAz + sx * ty * dsz_dAz +
                                   sx * sy * dtz_dAz);
 
-                        float Ex0[5][5][9], Ey0[5][5][9], Ez0[5][5][9];
+                        float Ex0[6][6][11], Ey0[6][6][11], Ez0[6][6][11];
                         compute_md_coeffs(Ex0, li, lj, Px - Ax, Px - Bx, one2p);
                         compute_md_coeffs(Ey0, li, lj, Py - Ay, Py - By, one2p);
                         compute_md_coeffs(Ez0, li, lj, Pz - Az, Pz - Bz, one2p);
-                        float Ex1[5][5][9], Ey1[5][5][9], Ez1[5][5][9];
-                        if (lx_i + 1 < 5)
+                        float Ex1[6][6][11], Ey1[6][6][11], Ez1[6][6][11];
+                        if (lx_i + 1 < 6)
                             compute_md_coeffs(Ex1, lx_i + 1, lx_j, Px - Ax,
                                               Px - Bx, one2p);
-                        if (ly_i + 1 < 5)
+                        if (ly_i + 1 < 6)
                             compute_md_coeffs(Ey1, ly_i + 1, ly_j, Py - Ay,
                                               Py - By, one2p);
-                        if (lz_i + 1 < 5)
+                        if (lz_i + 1 < 6)
                             compute_md_coeffs(Ez1, lz_i + 1, lz_j, Pz - Az,
                                               Pz - Bz, one2p);
 
@@ -1054,7 +1053,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                             for (int t = 0; t <= lx_i + lx_j + 1; t++)
                             {
                                 float dex = 0.0f;
-                                if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 5)
+                                if (t <= (lx_i + 1) + lx_j && (lx_i + 1) < 6)
                                     dex += 2.0f * ei * Ex1[lx_i + 1][lx_j][t];
                                 if (lx_i > 0 && t <= (lx_i - 1) + lx_j)
                                     dex -= (float)lx_i * Ex0[lx_i - 1][lx_j][t];
@@ -1084,7 +1083,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                 {
                                     float dey = 0.0f;
                                     if (u <= (ly_i + 1) + ly_j &&
-                                        (ly_i + 1) < 5)
+                                        (ly_i + 1) < 6)
                                         dey +=
                                             2.0f * ei * Ey1[ly_i + 1][ly_j][u];
                                     if (ly_i > 0 && u <= (ly_i - 1) + ly_j)
@@ -1113,7 +1112,7 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
                                     {
                                         float dez = 0.0f;
                                         if (v <= (lz_i + 1) + lz_j &&
-                                            (lz_i + 1) < 5)
+                                            (lz_i + 1) < 6)
                                             dez += 2.0f * ei *
                                                    Ez1[lz_i + 1][lz_j][v];
                                         if (lz_i > 0 && v <= (lz_i - 1) + lz_j)

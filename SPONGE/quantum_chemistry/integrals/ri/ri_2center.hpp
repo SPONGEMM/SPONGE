@@ -61,12 +61,12 @@ static __global__ void QC_RI_2Center_Kernel(
                         //     R_{t+τ,u+μ,v+ν}(α_PQ, A-B)
                         // where α_PQ = p*q/(p+q)
 
-                        float E_Px[5][5][9], E_Py[5][5][9], E_Pz[5][5][9];
+                        float E_Px[6][6][11], E_Py[6][6][11], E_Pz[6][6][11];
                         compute_md_coeffs(E_Px, lxP, 0, 0.0f, 0.0f, 0.5f / eP);
                         compute_md_coeffs(E_Py, lyP, 0, 0.0f, 0.0f, 0.5f / eP);
                         compute_md_coeffs(E_Pz, lzP, 0, 0.0f, 0.0f, 0.5f / eP);
 
-                        float E_Qx[5][5][9], E_Qy[5][5][9], E_Qz[5][5][9];
+                        float E_Qx[6][6][11], E_Qy[6][6][11], E_Qz[6][6][11];
                         compute_md_coeffs(E_Qx, lxQ, 0, 0.0f, 0.0f, 0.5f / eQ);
                         compute_md_coeffs(E_Qy, lyQ, 0, 0.0f, 0.0f, 0.5f / eQ);
                         compute_md_coeffs(E_Qz, lzQ, 0, 0.0f, 0.0f, 0.5f / eQ);

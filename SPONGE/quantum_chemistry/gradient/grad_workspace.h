@@ -13,5 +13,7 @@ struct QC_GRAD_WORKSPACE
     float* d_P_cart = NULL;          // [nao_cart²]
     float* d_W_cart = NULL;          // [nao_cart²]
     float* d_norms_ones = NULL;      // [nao_cart], all 1.0
+    float* d_grad_gamma_pool = NULL; // [slots * 2 * buf_size], ERI 梯度临时池
+    int grad_gamma_buf_size = 0;     // 单个 gamma buffer 元素数
+    int grad_gamma_pool_slots = 0;   // 当前已分配 slots 数
 };
-

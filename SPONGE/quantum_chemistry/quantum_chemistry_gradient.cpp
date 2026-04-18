@@ -294,7 +294,9 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             // Count total screened tasks
             int total_screened = 0;
             for (int ci = 0; ci < task_ctx.topo.n_combos; ci++)
+            {
                 total_screened += h_counts[ci];
+            }
 
             if (total_screened > 0)
             {
@@ -315,8 +317,11 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 deviceMemset(s_d_grad_copies, 0,
                              sizeof(double) * copies_needed);
 
+                const int gamma_buf_size = grad_ws.grad_gamma_buf_size;
+                if (gamma_buf_size <= 0) return;
+
                 // 3. Launch gradient kernel per combo
-                const int threads = 64;
+                const int threads = QC_GRAD_ERI_THREADS;
                 for (int ci = 0; ci < task_ctx.topo.n_combos; ci++)
                 {
                     const int n = h_counts[ci];
@@ -324,10 +329,16 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                     const QC_ERI_TASK* d_tasks =
                         task_ctx.buffers.d_screened_tasks +
                         task_ctx.topo.h_combos[ci].output_offset;
+                    const int max_blocks_pool =
+                        grad_ws.grad_gamma_pool_slots / threads;
+                    const int blocks =
+                        std::min({QC_GRAD_GAMMA_POOL_BLOCKS,
+                                  (n + threads - 1) / threads,
+                                  max_blocks_pool});
 
                     Launch_Device_Kernel(
-                        QC_ERI_Grad_Kernel, (n + threads - 1) / threads,
-                        threads, 0, 0, n, d_tasks, mol.d_atm, mol.d_bas,
+                        QC_ERI_Grad_Kernel, blocks, threads, 0, 0, n, d_tasks,
+                        mol.d_atm, mol.d_bas,
                         mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
                         scf_ws.ortho.d_norms,
                         task_ctx.buffers.d_shell_pair_bounds,
@@ -341,7 +352,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                         scf_ws.runtime.unrestricted ? scf_ws.beta.d_P
                                                     : (const float*)nullptr,
                         exx_a, exx_b, nao, mol.nao_sph, mol.is_spherical,
-                        cart2sph.d_cart2sph_mat, grad_ws.d_shell_atom,
+                        cart2sph.d_cart2sph_mat, grad_ws.d_grad_gamma_pool,
+                        gamma_buf_size, grad_ws.d_shell_atom,
                         s_d_grad_copies, N_GRAD_COPIES, natm,
                         grad_prim_screen_tol);
                 }

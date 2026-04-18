@@ -324,13 +324,14 @@ void QUANTUM_CHEMISTRY::Compute_Analytical_Norms()
 void QUANTUM_CHEMISTRY::Build_Shell_Pair_Bounds()
 {
     if (task_ctx.topo.n_shell_pairs <= 0) return;
-    // 使用较小 block size (64) 而非 256，减少壳对负载不均衡
+    // 固定 grid 大小，scratch 池按池槽数分配 (见 QC_BOUNDS_POOL_SLOTS)
     const int threads = 64;
+    const int blocks = QC_BOUNDS_POOL_SLOTS / threads;
     const int n = task_ctx.topo.n_shell_pairs;
     Launch_Device_Kernel(
-        QC_Build_Shell_Pair_Bounds_Kernel, (n + threads - 1) / threads, threads,
-        0, 0, n, task_ctx.buffers.d_shell_pairs, mol.d_atm, mol.d_bas,
-        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
+        QC_Build_Shell_Pair_Bounds_Kernel, blocks, threads, 0, 0, n,
+        task_ctx.buffers.d_shell_pairs, mol.d_atm, mol.d_bas, mol.d_env,
+        mol.d_ao_offsets, mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
         mol.is_spherical, cart2sph.d_cart2sph_mat, mol.nao_sph,
         task_ctx.buffers.d_shell_pair_bounds, scf_ws.direct.d_hr_pool,
         task_ctx.params.eri_hr_base, task_ctx.params.eri_hr_size,
