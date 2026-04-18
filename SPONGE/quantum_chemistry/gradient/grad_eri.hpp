@@ -1101,27 +1101,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
 // I: (l0+2)*(l1+2)*(l2+2)*(l3+1) <= 6*6*6*5 = 1080
 // ==============================================================
 
-static __device__ void grad_vrr_2d(float* __restrict__ G, int ij_max, int kl_max,
-                                   int g_stride, float Cx_bra, float Cx_ket,
-                                   float B00, float B10, float B01)
-{
-    G[0] = 1.0f;
-    for (int i = 0; i < ij_max; i++)
-    {
-        float val = Cx_bra * G[i * g_stride];
-        if (i > 0) val += (float)i * B10 * G[(i - 1) * g_stride];
-        G[(i + 1) * g_stride] = val;
-    }
-    for (int j = 0; j < kl_max; j++)
-        for (int i = 0; i <= ij_max; i++)
-        {
-            float val = Cx_ket * G[i * g_stride + j];
-            if (j > 0) val += (float)j * B01 * G[i * g_stride + (j - 1)];
-            if (i > 0) val += (float)i * B00 * G[(i - 1) * g_stride + j];
-            G[i * g_stride + (j + 1)] = val;
-        }
-}
-
 static __device__ void grad_factored_hrr_batch(
     const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
     const int* __restrict__ l, float AB_d, float CD_d, float* __restrict__ I_full,
@@ -1525,13 +1504,13 @@ __global__ void QC_ERI_Grad_Kernel(
 
                                     // Extended VRR: up to (ij_am+1, kl_am+1)
                                     float Gx[120], Gy[120], Gz[120];
-                                    grad_vrr_2d(Gx, ij_am + 1, kl_am + 1,
+                                    rys_vrr_2d(Gx, ij_am + 1, kl_am + 1,
                                                 g_stride, Cx_bra[0], Cx_ket[0],
                                                 B00, B10, B01);
-                                    grad_vrr_2d(Gy, ij_am + 1, kl_am + 1,
+                                    rys_vrr_2d(Gy, ij_am + 1, kl_am + 1,
                                                 g_stride, Cx_bra[1], Cx_ket[1],
                                                 B00, B10, B01);
-                                    grad_vrr_2d(Gz, ij_am + 1, kl_am + 1,
+                                    rys_vrr_2d(Gz, ij_am + 1, kl_am + 1,
                                                 g_stride, Cx_bra[2], Cx_ket[2],
                                                 B00, B10, B01);
 

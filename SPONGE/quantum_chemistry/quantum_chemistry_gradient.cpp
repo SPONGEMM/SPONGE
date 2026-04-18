@@ -318,7 +318,6 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                              sizeof(double) * copies_needed);
 
                 const int gamma_buf_size = grad_ws.grad_gamma_buf_size;
-                if (gamma_buf_size <= 0) return;
 
                 // 3. Launch gradient kernel per combo
                 const int threads = QC_GRAD_ERI_THREADS;

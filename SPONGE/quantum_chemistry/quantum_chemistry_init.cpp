@@ -1280,13 +1280,10 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
             (size_t)(2 * grad_ws.grad_gamma_buf_size) * sizeof(float);
         const size_t pool_budget_bytes = (size_t)512 * 1024 * 1024;  // 512 MB
         int slots = QC_GRAD_GAMMA_POOL_SLOTS;
-        if (bytes_per_slot > 0)
-        {
-            const int budget_slots = (int)(pool_budget_bytes / bytes_per_slot);
-            const int min_slots = QC_GRAD_ERI_THREADS;  // 至少 1 block
-            if (slots > budget_slots) slots = budget_slots;
-            if (slots < min_slots) slots = min_slots;
-        }
+        const int budget_slots = (int)(pool_budget_bytes / bytes_per_slot);
+        const int min_slots = QC_GRAD_ERI_THREADS;  // 至少 1 block
+        if (slots > budget_slots) slots = budget_slots;
+        if (slots < min_slots) slots = min_slots;
         const size_t gamma_pool_elems =
             (size_t)slots * (size_t)(2 * grad_ws.grad_gamma_buf_size);
         Device_Malloc_Safely((void**)&grad_ws.d_grad_gamma_pool,
