@@ -377,7 +377,7 @@ static __device__ __forceinline__ float EEQ_Warp_Reduce_Sum(float value)
 {
     for (int offset = warpSize >> 1; offset > 0; offset >>= 1)
     {
-        value += __shfl_down_sync(0xffffffff, value, offset);
+        value += deviceShflDown(FULL_MASK, value, offset);
     }
     return value;
 }
