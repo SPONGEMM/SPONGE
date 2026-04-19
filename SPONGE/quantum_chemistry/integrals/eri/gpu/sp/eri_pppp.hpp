@@ -180,9 +180,9 @@ __global__ void QC_Fock_pppp_Kernel(
                                             const int cv[4] = {c0, c1, c2, c3};
                                             eri_cart[idx++] +=
                                                 n_abcd *
-                                                eri_contract(l, cv, PA, PB, QCv,
-                                                             QD, inv2p, inv2q,
-                                                             R0);
+                                                eri_contract_noinline(
+                                                    l, cv, PA, PB, QCv, QD,
+                                                    inv2p, inv2q, R0);
                                         }
                         }
                     }

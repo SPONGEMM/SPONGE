@@ -213,7 +213,7 @@ static __device__ __forceinline__ int eri_E_coeff(float* e, int la, int lb,
 // ---- Contract E-coefficients with R^0 tensor ----
 // General version: supports any l values via eri_get_l_axis lookup.
 // For l<=1, eri_get_l_axis inlines to (c==d)?1:0, same perf as before.
-static __device__ __forceinline__ float eri_contract(
+static __device__ __forceinline__ float eri_contract_impl(
     const int* l, const int* c, const float* PA, const float* PB,
     const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
 {
@@ -252,4 +252,18 @@ static __device__ __forceinline__ float eri_contract(
                         }
             }
     return eri;
+}
+
+static __device__ __forceinline__ float eri_contract(
+    const int* l, const int* c, const float* PA, const float* PB,
+    const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
+{
+    return eri_contract_impl(l, c, PA, PB, QC, QD, inv2p, inv2q, R0);
+}
+
+static __device__ __noinline__ float eri_contract_noinline(
+    const int* l, const int* c, const float* PA, const float* PB,
+    const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
+{
+    return eri_contract_impl(l, c, PA, PB, QC, QD, inv2p, inv2q, R0);
 }

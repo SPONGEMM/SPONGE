@@ -17,7 +17,9 @@
 #define ERI_RW_SIZE 15
 #define ERI_MAX_CART 6
 #define KERNEL_NAME QC_Fock_D_L2_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -30,7 +32,9 @@
 #define ERI_RW_SIZE 35
 #define ERI_MAX_CART 18
 #define KERNEL_NAME QC_Fock_D_L3_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -43,7 +47,9 @@
 #define ERI_RW_SIZE 70
 #define ERI_MAX_CART 54
 #define KERNEL_NAME QC_Fock_D_L4_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -56,7 +62,9 @@
 #define ERI_RW_SIZE 126
 #define ERI_MAX_CART 162
 #define KERNEL_NAME QC_Fock_D_L5_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -69,7 +77,9 @@
 #define ERI_RW_SIZE 210
 #define ERI_MAX_CART 324
 #define KERNEL_NAME QC_Fock_D_L6_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -82,7 +92,9 @@
 #define ERI_RW_SIZE 330
 #define ERI_MAX_CART 648
 #define KERNEL_NAME QC_Fock_D_L7_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE
@@ -95,7 +107,9 @@
 #define ERI_RW_SIZE 495
 #define ERI_MAX_CART 1296
 #define KERNEL_NAME QC_Fock_D_L8_Kernel
+#define ERI_CONTRACT eri_contract_noinline
 #include "eri_d_Lsum.hpp"
+#undef ERI_CONTRACT
 #undef KERNEL_NAME
 #undef ERI_MAX_CART
 #undef ERI_RW_SIZE

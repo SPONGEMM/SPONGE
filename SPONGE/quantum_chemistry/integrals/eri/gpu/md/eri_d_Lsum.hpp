@@ -174,9 +174,9 @@ __global__ void KERNEL_NAME(
                                             const int cv[4] = {c0, c1, c2, c3};
                                             eri_cart[idx++] +=
                                                 n_abcd *
-                                                eri_contract(l, cv, PA, PB, QCv,
-                                                             QD, inv2p, inv2q,
-                                                             R0);
+                                                ERI_CONTRACT(
+                                                    l, cv, PA, PB, QCv, QD,
+                                                    inv2p, inv2q, R0);
                                         }
                         }
                     }
