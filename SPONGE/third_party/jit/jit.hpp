@@ -449,6 +449,7 @@ struct JIT_Function
 #define __host__
 #define __global__
 #define __forceinline__ inline
+#define __noinline__
 #define __launch_bounds__(THREADS)
 struct sponge_jit_dim3
 {

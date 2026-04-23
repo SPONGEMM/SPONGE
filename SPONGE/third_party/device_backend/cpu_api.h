@@ -13,6 +13,7 @@
 #define __host__
 #define __global__
 #define __forceinline__ inline
+#define __noinline__
 #define __launch_bounds__(THREAD)
 #if defined(_MSC_VER) && !defined(__restrict__)
 #define __restrict__ __restrict
