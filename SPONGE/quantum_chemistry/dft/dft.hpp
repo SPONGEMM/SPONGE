@@ -21,10 +21,8 @@ static inline __host__ __device__ void QC_Local_UKS_Derivs_FD(
     double& v_rho_b, double& v_sigma_aa, double& v_sigma_ab,
     double& v_sigma_bb);
 
-// =============================================================================
 // Device DFT Kernels
 // deriv_level: 0 = LDA (仅值), 1 = GGA (值+梯度), 2 = meta-GGA (预留)
-// =============================================================================
 
 // AO 求值: 在网格点上计算基函数值和（可选的）梯度
 template <int deriv_level>

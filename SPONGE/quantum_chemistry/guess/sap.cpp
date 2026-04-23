@@ -2,11 +2,10 @@
 
 #include "../quantum_chemistry.h"
 
-// ====================== SAP 拟合参数 (sap_helfem_large) ======================
+// SAP 拟合参数 (sap_helfem_large)
 // 来源: Psi4 / Basis Set Exchange, S. Lehtola 用 HelFEM 计算
 // 原子势展开为: V(r) = -Z_eff(r)/r = -(Z + Σ c_k erf(√α_k r))/r
 // 每个 SAP_TERM 存储一组 (alpha, coeff)
-// =============================================================================
 
 struct SAP_TERM
 {
@@ -580,15 +579,12 @@ static __device__ const SAP_ATOM_DATA SAP_DATA[] = {
 static __device__ const int SAP_MAX_Z =
     (int)(sizeof(SAP_DATA) / sizeof(SAP_DATA[0])) - 1;
 
-// ====================== V_SAP 积分核函数 ======================
+// V_SAP 积分核函数
 // 基于 arXiv:2603.16989 的方法：对核吸引积分的 Boys 函数做修正
-//
 // 标准核吸引: F_m(T), T = g * R_PC²
 // SAP 修正:   F_m(T) → F_m(T) - Σ_k c̃_k (α_k/(g+α_k))^(m+1/2)
 // F_m(T·α_k/(g+α_k)) 其中 c̃_k = c_k / Z_C
-//
 // 前因子 (-Z * 2π/g) 和 R tensor 递推完全不变
-// ==============================================================
 
 #include "../integrals/one_e.hpp"
 

@@ -1,8 +1,7 @@
 ﻿#pragma once
 
-// ====================== 核排斥梯度 ======================
+// 核排斥梯度
 // dE_nuc/dR_Ax = -Z_A × Σ_{B≠A} Z_B × (R_Ax - R_Bx) / |R_AB|³
-// ==============================================================
 
 static __global__ void QC_Nuclear_Gradient_Kernel(
     const int natm, const int* z_nuc, const int* atm, const float* env,

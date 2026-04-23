@@ -5,6 +5,9 @@
 #include "grid.hpp"
 #include "xc.hpp"
 
+// 密度低于此阈值的格点视为真空（不贡献 XC）
+static constexpr double QC_DFT_RHO_CUTOFF = 1e-10;
+
 // 对 AO 值施加归一化因子
 static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid, const int nao,
                                                 const float* norms,
@@ -70,7 +73,7 @@ static __global__ void QC_Build_Weighted_AO_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho[ig] < 1e-10)
+        if (rho[ig] < QC_DFT_RHO_CUTOFF)
         {
             for (int i = 0; i < nao; i++)
             {
@@ -283,7 +286,7 @@ static void QC_Build_DFT_VXC_RKS(
         call(std::integral_constant<int, 1>{});
 }
 
-// ====================== UKS BLAS 优化 kernel ======================
+// UKS BLAS 优化 kernel
 
 // UKS: 从 Pao_a/Pao_b 计算自旋密度和梯度
 template <int deriv_level>
@@ -351,7 +354,7 @@ static __global__ void QC_Eval_XC_UKS_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho_a[ig] + rho_b[ig] < 1e-10)
+        if (rho_a[ig] + rho_b[ig] < QC_DFT_RHO_CUTOFF)
         {
             exc[ig] = 0.0;
             v_rho_a[ig] = v_rho_b[ig] = 0.0;
@@ -388,7 +391,7 @@ static __global__ void QC_Build_Weighted_AO_UKS_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho_a[ig] + rho_b[ig] < 1e-10)
+        if (rho_a[ig] + rho_b[ig] < QC_DFT_RHO_CUTOFF)
         {
             for (int i = 0; i < nao; i++)
             {

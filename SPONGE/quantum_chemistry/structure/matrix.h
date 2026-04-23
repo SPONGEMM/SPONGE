@@ -2,7 +2,7 @@
 
 #include "../../common.h"
 
-// ====================== Float BLAS/Solver wrappers ======================
+// Float BLAS/Solver wrappers
 
 int QC_Diagonalize_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                   float* mat, float* w, float** work_ptr,
@@ -23,7 +23,7 @@ void QC_Build_Density_Blas(BLAS_HANDLE blas_handle, int nao, int n_occ,
                            float density_factor, const float* C_row,
                            float* P_new_row);
 
-// ====================== Double BLAS/Solver wrappers ======================
+// Double BLAS/Solver wrappers
 
 int QC_Diagonalize_Double_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                          double* mat, double* w,
@@ -41,16 +41,13 @@ void QC_Dgemm_TN(BLAS_HANDLE handle, int m, int n, int k, const double* A,
 void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                  int lda, const double* B, int ldb, double* C, int ldc);
 
-// ====================== Cart2Sph 通用构建 ======================
-
+// Cart2Sph 通用构建
 // 根据 shell 角动量列表，构建 block-diagonal cart2sph 矩阵 (host vector)
 // 返回 host 数组 [nao_cart × nao_sph]，行优先
 std::vector<float> QC_Build_Cart2Sph_Mat_Host(const std::vector<int>& l_list,
                                               int nao_cart, int nao_sph);
 
-// ====================== RI (Density Fitting) BLAS wrappers
-// ======================
-
+// RI (Density Fitting) BLAS wrappers
 // Sgemm: C = alpha * A * B + beta * C (col-major)
 void QC_Sgemm_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
                  const float* A, int lda, const float* B, int ldb, float beta,
@@ -68,7 +65,7 @@ void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k, float alpha,
                           const float* A, int lda, const float* B, int ldb,
                           float beta, float* C, int ldc);
 
-// ====================== Common matrix utility wrappers ======================
+// Common matrix utility wrappers
 
 void QC_Add_Matrix(int n, const float* A, const float* B, float* C);
 void QC_Sub_Matrix(int n, const float* A, const float* B, float* C);
@@ -92,8 +89,7 @@ void QC_Double_Dot(int n, const double* A, const double* B, double* out_sum);
 void QC_Double_Axpy(int n, double coeff, const double* src, double* dst);
 void QC_Double_Sub(int n, const double* A, const double* B, double* dst);
 
-// ====================== Common SCF matrix utility wrappers
-// ======================
+// Common SCF matrix utility wrappers
 
 void QC_Elec_Energy_Accumulate(int nao2, const float* P, const float* H_core,
                                const float* F, double* out_sum);

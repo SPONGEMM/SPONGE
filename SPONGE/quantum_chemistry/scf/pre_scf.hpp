@@ -2,9 +2,8 @@
 
 #include "../ecp/ecp_integrals.h"
 
-// ============================ 坐标同步 ===========================
+// 坐标同步
 // 从 MD 坐标更新 QC 的原子环境与壳层中心（含周期边界修正）
-// ================================================================
 static __global__ void QC_Update_Env_From_Crd_Kernel(
     const int natm, const int* atom_local, const VECTOR* crd, const int* atm,
     float* env, const float to_bohr, const VECTOR box_length)
@@ -82,10 +81,9 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
     }
 }
 
-// ========================== SCF 状态重置 =========================
+// SCF 状态重置
 // 清零收敛标志、能量缓存并重置 DIIS 历史
 // 保留密度矩阵 P（复用上一步 MD 的收敛密度作为初猜）
-// ================================================================
 void QUANTUM_CHEMISTRY::Reset_SCF_State()
 {
     scf_ws.diis.diis_hist_count = scf_ws.diis.diis_hist_head = 0;
@@ -120,9 +118,8 @@ void QUANTUM_CHEMISTRY::Reset_SCF_State()
         deviceMemset(scf_ws.direct.d_F_eri_b_accum_f, 0, fb);
 }
 
-// =========================== 单电子积分 ===========================
+// 单电子积分
 // 计算 S/T/V 单电子积分，并在球谐基下执行笛卡尔到球谐变换
-// ================================================================
 void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
 {
     const int nao_c = mol.nao_cart;
@@ -148,9 +145,8 @@ void QUANTUM_CHEMISTRY::Compute_OneE_Integrals()
     Cart2Sph_OneE_Integrals();
 }
 
-// ============================= ECP 矩阵 ============================
+// ECP 矩阵
 // 计算 V_ECP 并变换到有效基下, 归一化后加入 H_core
-// ================================================================
 void QUANTUM_CHEMISTRY::Compute_ECP_Matrix()
 {
     if (!mol.has_ecp) return;
@@ -173,9 +169,8 @@ void QUANTUM_CHEMISTRY::Compute_ECP_Matrix()
         Cart2Sph_Single_Matrix(d_V_ECP_cart, scf_ws.core.d_V_ECP);
 }
 
-// ============================ 核排斥能 ===========================
+// 核排斥能
 // 累加核间库仑排斥能，结果写入设备侧 d_nuc_energy_dev
-// ================================================================
 static __global__ void QC_Accumulate_Nuclear_Repulsion_Kernel(
     const int natm, const int* z_nuc, const int* atm, const float* env,
     double* e_nuc, const VECTOR box_length)
@@ -213,9 +208,8 @@ void QUANTUM_CHEMISTRY::Compute_Nuclear_Repulsion(const VECTOR box_length)
                          scf_ws.core.d_nuc_energy_dev, box_bohr);
 }
 
-// =========================== 积分预处理 ===========================
+// 积分预处理
 // 归一化单电子积分并构建 Hcore；双电子积分在 Build_Fock 中 direct 计算
-// ================================================================
 
 // 解析计算 AO 归一化因子 — 不依赖 1e 积分结果
 // 对于同壳同中心的对角重叠，S_μμ 有解析公式：
@@ -381,9 +375,8 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
 
 }
 
-// ========================= 重叠正交化矩阵 =========================
+// 重叠正交化矩阵
 // 对重叠矩阵 S 做 double 精度本征分解，并构建正交化变换矩阵 X
-// ================================================================
 void QUANTUM_CHEMISTRY::Build_Overlap_X()
 {
     const int nao = mol.nao;

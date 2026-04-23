@@ -4,19 +4,18 @@
 #include <cstring>
 #include <vector>
 
-// 依赖: 此文件需要在 scf/build_fock.hpp 之后 include，
-// 且需要 eri_rys.hpp 提供 rys_roots_weights。
-
-// ====================== 双电子积分梯度 (Rys quadrature) ======================
+// 双电子积分梯度 (Rys quadrature)
 // dE_2e/dR_A = Σ_{pqrs} Γ_eff(pqrs) × d(pq|rs)/dR_A
-//
 // Γ_eff = 4·P_pq·P_rs − exx·(P_pr·P_qs + P_ps·P_qr)
-//
 // d(pq|rs)/dA_x = 2αi·((p+1)q|rs) − p_x·((p−1)q|rs)
 // 使用 Rys quadrature + VRR + 因式分解 HRR 计算积分及其导数。
 // 优化: 预计算 Cartesian 有效密度 (gamma_cart)，在组装循环中直接收缩，
 // 消除 d_buf 中间数组和 Cart2Sph 变换。
-// ==============================================================
+// 依赖: 此文件需要在 scf/build_fock.hpp 之后 include，
+// 且需要 eri_rys.hpp 提供 rys_roots_weights。
+
+// 有效密度幅值低于此阈值时，该 task 对梯度无贡献，跳过
+static constexpr float QC_GRAD_GAMMA_CUTOFF = 1e-15f;
 
 #ifndef USE_GPU
 
@@ -392,8 +391,8 @@ static inline void QC_Build_ERI_Gradient_CPU(
                 const int ni = bra.dims_eff[0], nj = bra.dims_eff[1];
                 const int nk = ket.dims_eff[0], nl = ket.dims_eff[1];
 
-                // ====== Pre-compute effective density in Cartesian basis
-                // ====== Step 1: compute gamma_sph with symmetry and norms
+                // Step 1: compute gamma_sph (Cartesian effective density),
+                // with symmetry and norms applied.
                 const int sph_size = ni * nj * nk * nl;
                 memset(gamma_buf0.data(), 0, (size_t)sph_size * sizeof(float));
 
@@ -478,11 +477,10 @@ static inline void QC_Build_ERI_Gradient_CPU(
                     gamma_cart = gamma_buf0.data();
                 }
 
-                // Check if gamma has any significant elements
                 float max_gamma = 0.0f;
                 for (int i = 0; i < shell_size_cart; i++)
                     max_gamma = fmaxf(max_gamma, fabsf(gamma_cart[i]));
-                if (max_gamma < 1e-15f) continue;
+                if (max_gamma < QC_GRAD_GAMMA_CUTOFF) continue;
 
                 const float AB[3] = {bra.R[0][0] - bra.R[1][0],
                                      bra.R[0][1] - bra.R[1][1],
@@ -1090,7 +1088,7 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
 #else  // USE_GPU — GPU ERI gradient kernel
 
-// ====================== GPU ERI Gradient Kernel ======================
+// GPU ERI Gradient Kernel
 // One thread per screened shell quartet. Computes effective density gamma,
 // transforms to Cartesian basis (if spherical), then runs Rys quadrature
 // with extended VRR + HRR to produce derivative integrals and accumulates
@@ -1099,7 +1097,6 @@ static inline void QC_Build_ERI_Gradient_CPU(
 // Scratch sizes are chosen to cover up to g-shells (l_max=4):
 // G: (ij_am+2)*(kl_am+2) <= 10*10 = 100
 // I: (l0+2)*(l1+2)*(l2+2)*(l3+1) <= 6*6*6*5 = 1080
-// ==============================================================
 
 static __device__ void grad_factored_hrr_batch(
     const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
@@ -1379,11 +1376,10 @@ __global__ void QC_ERI_Grad_Kernel(
                 gamma_cart = gamma_buf0;
             }
 
-            // Check significance
             float max_gamma = 0.0f;
             for (int i = 0; i < shell_size_cart; i++)
                 max_gamma = fmaxf(max_gamma, fabsf(gamma_cart[i]));
-            if (max_gamma < 1e-15f) goto next_task;
+            if (max_gamma < QC_GRAD_GAMMA_CUTOFF) continue;
 
             {
                 const int ij_am = l[0] + l[1];
@@ -1677,7 +1673,6 @@ __global__ void QC_ERI_Grad_Kernel(
                               -(g_A[d] + g_B[d] + g_C[d]));
                 }
             }
-        next_task:;
         }  // screening
     }
 }

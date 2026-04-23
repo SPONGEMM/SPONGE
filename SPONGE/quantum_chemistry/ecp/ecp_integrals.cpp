@@ -12,7 +12,7 @@
 #include "ecp_integrals.h"
 // clang-format on
 
-// ==================== Angular projection coefficients ====================
+// Angular projection coefficients
 // c_{abc,lm} = ∫ Y_lm(Ω) × (x/r)^a (y/r)^b (z/r)^c dΩ
 // where Y_lm are ORTHONORMAL real spherical harmonics (∫ Y_lm Y_l'm' dΩ = δ)
 //
@@ -64,7 +64,7 @@ static __device__ const float c_l3[10][7] = {
     {0.0f, 0.0f, 0.0f, 0.53593967f, 0.0f, 0.0f, 0.0f}                // zzz
 };
 
-// ==================== ECP 径向积分 ====================
+// ECP 径向积分
 // R_l(η) = ∫₀^∞ r^{2l+2} exp(-η r²) dr = (2l+1)!! √π / (2^{l+2} η^{l+3/2})
 
 // Double-factorial: double_factorial(n) returns (2n-1)!!
@@ -76,7 +76,7 @@ static __device__ float double_factorial(int n)
     return result;
 }
 
-// ==================== Type-1 Local 积分 (n_k=2) ====================
+// Type-1 Local 积分 (n_k=2)
 // ⟨μ|d_k exp(-ζ_k r_C²)|ν⟩ — 三中心 Gaussian overlap, 无投影算子
 static __device__ float ecp_local_n2(
     float ei, float ej, float Ax, float Ay, float Az, float Bx, float By,
@@ -115,7 +115,7 @@ static __device__ float ecp_local_n2(
     return Kab * Kpc * ox * oy * oz * pi_over_eta_32;
 }
 
-// ==================== Type-2 Semi-local 积分 (n_k=2) ====================
+// Type-2 Semi-local 积分 (n_k=2)
 //
 // ⟨μ|ΔV_l P_l|ν⟩ 使用 factored angular projection:
 // P_l = (2l+1)/(4π) Σ_m |C_lm⟩⟨C_lm|
@@ -265,7 +265,7 @@ static __device__ int find_local_channel(
     return -1;
 }
 
-// ==================== ECP 主 Kernel ====================
+// ECP 主 Kernel
 static __global__ void ECP_Kernel(
     const int n_tasks, const QC_ONE_E_TASK* tasks, const VECTOR* centers,
     const int* l_list, const float* exps_arr, const float* coeffs_arr,
@@ -390,7 +390,7 @@ static __global__ void ECP_Kernel(
     }
 }
 
-// ==================== ECP 积分驱动 ====================
+// ECP 积分驱动
 void QC_Compute_V_ECP(const QC_MOLECULE& mol,
                       const QC_INTEGRAL_TASKS& task_ctx, float* d_V_ECP)
 {
@@ -414,7 +414,7 @@ void QC_Compute_V_ECP(const QC_MOLECULE& mol,
     }
 }
 
-// ==================== ECP 梯度 Kernel ====================
+// ECP 梯度 Kernel
 // 使用角动量平移求导: d/dA_x V = 2α V(lx_i+1) - lx_i V(lx_i-1)
 // ECP 中心导数由平移不变性得: d/dC = -(d/dA + d/dB)
 // 遵循 V_Grad_Kernel 约定:
@@ -622,7 +622,7 @@ static __global__ void ECP_Grad_Kernel(
     }
 }
 
-// ==================== 球谐→笛卡尔密度变换 ====================
+// 球谐→笛卡尔密度变换
 void QC_Sph2Cart_Density_Host(int ns, int nc,
                               const std::vector<float>& h_norms,
                               const std::vector<float>& h_C,
@@ -658,7 +658,7 @@ void QC_Sph2Cart_Density_Host(int ns, int nc,
         }
 }
 
-// ==================== ECP 梯度驱动 ====================
+// ECP 梯度驱动
 void QC_Compute_ECP_Gradient(const QC_MOLECULE& mol,
                              const QC_INTEGRAL_TASKS& task_ctx,
                              const int* d_shell_atom,

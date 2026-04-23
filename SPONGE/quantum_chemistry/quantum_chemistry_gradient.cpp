@@ -437,12 +437,10 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
 
     if (ri.direct)
     {
-        // ============================================================
         // Direct 模式：增量累积，不存储完整 eri3c 张量
         //   Pass 1: 逐 shell pair 累积 d_vec + B_occ
         //   Pass 2 (仅 EXX): 逐 shell pair 累积 Z_K
         //   内存: O(naux·nao·nocc) + O(naux²)，而非 O(naux·nao²)
-        // ============================================================
 
         // 下载额外数据
         std::vector<double> h_metric_inv((size_t)naux * naux);
@@ -802,9 +800,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
     }
     else
     {
-        // ============================================================
         // Stored 模式：下载预存的 eri3c，调用原始函数
-        // ============================================================
         std::vector<double> h_eri3c((size_t)naux * nao2);
         deviceMemcpy(h_eri3c.data(), ri.d_eri3c,
                      sizeof(double) * (size_t)naux * nao2,

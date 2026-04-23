@@ -3,10 +3,9 @@
 #include "grad_nuclear.hpp"
 #include "grad_wdensity.hpp"
 
-// ====================== 力/维里回写 kernel ======================
+// 力/维里回写 kernel
 // 将 QC 原子梯度（Hartree/Bohr）转换为 MD 力（kcal/mol/Å）
 // 并累加到 MD 力数组；可选地计算维里张量
-// ==============================================================
 static __global__ void QC_Writeback_Gradient_Kernel(
     const int natm, const int* atom_local, const double* grad,
     const VECTOR* crd, VECTOR* frc, const int need_virial,

@@ -550,10 +550,9 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
     return true;
 }
 
-// ===================== Rys quadrature ERI for high-L quartets
-// ===================== Replaces McMurchie-Davidson HR tensor approach for
-// L_sum >= 6. Uses VRR + HRR per Rys root: I arrays ~625 floats vs HR tensor
-// ~83,521 floats.
+// Rys quadrature ERI for high-L quartets.
+// Replaces McMurchie-Davidson HR-tensor path at L_sum >= 6.
+// Uses VRR + HRR per Rys root: I arrays ~625 floats vs HR tensor ~83 521 floats.
 
 static inline void QC_Fock_VRR_2D(float* G, int ij_max, int kl_max,
                                   int g_stride, float Cx_bra, float Cx_ket,
@@ -851,10 +850,10 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Rys_CPU(
     return true;
 }
 
-// ===================== Direct Fock contraction (Rys, no shell_eri buffer)
-// ===================== For non-unique quartets: pre-contracts density → 2D
-// partial Fock → 2D Cart2Sph. Eliminates 4D Cart2Sph (50x cheaper) and 4D Fock
-// accumulation loop entirely.
+// Direct Fock contraction (Rys, no shell_eri buffer).
+// For non-unique quartets: pre-contracts density → 2D partial Fock → 2D
+// Cart2Sph. Eliminates 4D Cart2Sph (~50x cheaper) and the 4D Fock accumulation
+// loop entirely.
 
 // Build Cartesian density: D_cart[ci,cj] = sum_{si,sj}
 // C[ci,si]*C[cj,sj]*P[oi+si,oj+sj]*norm[oi+si]*norm[oj+sj]

@@ -94,7 +94,9 @@ static void QC_Build_RI_Aux_Norms(QUANTUM_CHEMISTRY* qc)
     for (int i = 0; i < Ps; i++)
     {
         const float sii = h_S_final[(size_t)i * Ps + i];
-        ri.h_aux_norms[i] = 1.0f / sqrtf(fmaxf(sii, 1e-20f));
+        // 辅助基线性相关时对角元可能为零，加安全下限避免除零
+        constexpr float kNormSafeFloor = 1e-20f;
+        ri.h_aux_norms[i] = 1.0f / sqrtf(fmaxf(sii, kNormSafeFloor));
     }
 
     if (ri.d_aux_norms) deviceFree(ri.d_aux_norms);
@@ -615,11 +617,9 @@ static __global__ void QC_RI_Permute_B_Occ_Kernel(const int total,
     }
 }
 
-// ===================== Stored-mode Build_Fock_RI ======================
-// 使用预存的 d_eri3c 和 d_B
+// Stored-mode Build_Fock_RI: 使用预存的 d_eri3c 和 d_B
 static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc);
-// ===================== Direct-mode Build_Fock_RI =====================
-// 每轮在线计算 3c 积分
+// Direct-mode Build_Fock_RI: 每轮在线计算 3c 积分
 static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc);
 
 // RI-JK Fock 构建（入口）
@@ -656,7 +656,7 @@ void QUANTUM_CHEMISTRY::Build_Fock_RI()
         QC_Float_To_Double_Copy(nao2, scf_ws.beta.d_F, scf_ws.beta.d_F_double);
 }
 
-// ===================== Stored mode =====================
+// Stored mode
 // RI-K helper: B_occ → permute → single GEMM → K
 // 将 naux 次小 SGEMM 替换为 1 次 permute kernel + 1 次大 SGEMM
 static void RI_K_Build_Single_GEMM(BLAS_HANDLE blas_handle, QC_RI_WORKSPACE& ri,
@@ -755,7 +755,7 @@ static void Build_Fock_RI_Stored(QUANTUM_CHEMISTRY* qc)
     }
 }
 
-// ===================== Direct mode =====================
+// Direct mode
 // 在线计算 3c 积分，不存储 eri3c/B 张量。
 // 策略：逐轨道 shell pair 启动 GPU 3c kernel，结果到临时缓冲，
 //       host 端做 cart2sph + 收缩到 d_vec / B_occ。

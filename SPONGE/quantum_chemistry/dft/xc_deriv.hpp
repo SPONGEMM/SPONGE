@@ -1,15 +1,14 @@
 ﻿#pragma once
 
-// ===================== XC 泛函解析导数 =====================
+// XC 泛函解析导数
 // 替代有限差分，提供精确的 v_ρ 和 v_σ
 // 所有函数签名: (输入) → (exc, vrho, vsigma)
 // ε_xc 是 energy per volume (不是 per electron)
 // v_ρ = ∂ε_xc/∂ρ, v_σ = ∂ε_xc/∂σ
-// ============================================================
 
 #include <cmath>
 
-// ===================== Slater Exchange =====================
+// Slater Exchange
 // ε_x = -C_x · ρ^{4/3},  v_ρ = -(4/3)·C_x·ρ^{1/3}
 static inline __host__ __device__ void QC_VXC_Slater(double rho, double& exc,
                                                      double& vrho)
@@ -22,7 +21,7 @@ static inline __host__ __device__ void QC_VXC_Slater(double rho, double& exc,
     vrho = -(4.0 / 3.0) * Cx * rho13;
 }
 
-// ===================== VWN5 Correlation =====================
+// VWN5 Correlation
 // ε_c(rs) via Padé form; v_ρ = ε_c - (rs/3)·dε_c/drs
 static inline __host__ __device__ double QC_VWN5_Eps_And_Deps(double rs,
                                                               double& deps_drs)
@@ -82,7 +81,7 @@ static inline __host__ __device__ void QC_VXC_VWN5(double rho, double& exc,
     vrho = eps - (rs / 3.0) * deps_drs;
 }
 
-// ===================== PBE Exchange =====================
+// PBE Exchange
 // ε_x = -C_x · ρ^{4/3} · F_x(s),  s = |∇ρ|/(2·k_F·ρ)
 // F_x = 1 + κ - κ/(1 + μ·s²/κ)
 static inline __host__ __device__ void QC_VXC_PBE_X(double rho, double sigma,
@@ -121,7 +120,7 @@ static inline __host__ __device__ void QC_VXC_PBE_X(double rho, double sigma,
     vsigma = -Cx * rho43 * dfx_ds2 / fmax(1e-30, denom * denom);
 }
 
-// ===================== PW92 Correlation (unpolarized) =====================
+// PW92 Correlation (unpolarized)
 static inline __host__ __device__ double QC_PW92_Eopt_And_Deriv(
     double sqrt_rs, const double t[6], double& deps_drs)
 {
@@ -159,7 +158,7 @@ static inline __host__ __device__ void QC_VXC_PW92_Unpol(double rho,
     vrho = eps - (rs / 3.0) * deps_drs;
 }
 
-// ===================== PBE Correlation =====================
+// PBE Correlation
 static inline __host__ __device__ void QC_VXC_PBE_C(double rho, double sigma,
                                                     double& exc, double& vrho,
                                                     double& vsigma)
@@ -227,7 +226,7 @@ static inline __host__ __device__ void QC_VXC_PBE_C(double rho, double sigma,
     vrho = eps_pw + H + rho * (deps_pw_drho + dH_from_t2 + dH_from_A);
 }
 
-// ===================== RKS Dispatch =====================
+// RKS Dispatch
 static inline __host__ __device__ void QC_VXC_Analytical_RKS(
     QC_METHOD method, double rho, double sigma, double& exc, double& vrho,
     double& vsigma)
@@ -273,7 +272,7 @@ static inline __host__ __device__ void QC_VXC_Analytical_RKS(
     }
 }
 
-// ===================== PBE Correlation (spin-resolved) =====================
+// PBE Correlation (spin-resolved)
 // F = ρ·(ε_lsda(ρ,ζ) + H(ρ,ζ,σ))
 static inline __host__ __device__ void QC_VXC_PBE_C_Spin(
     double rho_a, double rho_b, double sigma_aa, double sigma_ab,
@@ -402,7 +401,7 @@ static inline __host__ __device__ void QC_VXC_PBE_C_Spin(
     vsigma_bb = vs_common;
 }
 
-// ===================== UKS 解析导数 =====================
+// UKS 解析导数
 // Exchange: spin-separable, ε_x = ½ε_x(2ρα) + ½ε_x(2ρβ)
 //   v_ρα = dε_x(2ρα)/d(2ρα) · 2 · ½ = dε_x(2ρα)/d(2ρα)
 //   v_σαα = dε_x(2ρα)/d(4σαα) · 4 · ½ = 2·dε_x(2ρα)/d(4σαα)

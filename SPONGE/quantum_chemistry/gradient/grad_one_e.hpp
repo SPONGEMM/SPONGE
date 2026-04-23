@@ -2,12 +2,11 @@
 
 #include "../integrals/one_e.hpp"
 
-// ====================== 单电子积分导数 ======================
+// 单电子积分导数
 // 计算 dS/dR, dT/dR, dV/dR 对原子梯度的贡献:
 //   grad_A -= Tr[W · dS/dR_A]      (Pulay)
 //   grad_A += Tr[P · dT/dR_A]      (动能)
 //   grad_A += Tr[P · dV/dR_A]      (核吸引)
-//
 // 全矩阵遍历只计算 bra 侧导数，乘以 2 补偿 ket 侧
 // (等价于 PySCF 的 h1ao + h1ao.T 对称化)
 //
@@ -15,12 +14,10 @@
 //   dS(a,b)/dA_x = 2αi·S(a+1,b) - a·S(a-1,b)  [重叠]
 //   dE^{ab}_t/dA_x = 2αi·E^{(a+1)b}_t - a·E^{(a-1)b}_t  [E系数]
 //   dR_{tuv,0}/dC_x = -R_{(t+1)uv,0}  [R-tensor, 核中心]
-// ==============================================================
-
-// ====================== 分离式 1e 梯度核 ======================
-// S/T 梯度: 无原子循环，每线程仅需 overlap 数组 (res_x/y/z)
-// V 梯度: 按 (shell_pair × atom) 并行化，提升 GPU 利用率
-// ==============================================================
+//
+// 分离式 1e 梯度核:
+//   S/T 梯度: 无原子循环，每线程仅需 overlap 数组 (res_x/y/z)
+//   V 梯度: 按 (shell_pair × atom) 并行化，提升 GPU 利用率
 
 // V 梯度用 R-tensor: 支持到 L_max=9 (g+g+1)
 #define GRAD_R_BASE 10
@@ -875,8 +872,6 @@ static inline void QC_Build_OneE_Gradient_Spherical_CPU(
     const float* P, const float* W, const float* norms,
     const float* cart2sph_mat, const int natm, const int nao_sph, double* grad)
 {
-    // Reusable buffers hoisted out of the task loop to avoid repeated
-    // allocation.
     std::vector<float> dS_cart, dT_cart, dV_A_cart, dV_C_cart;
     std::vector<float> sph_buf0, sph_buf1;
     std::vector<float> dS_sph, dT_sph, dV_A_sph, dV_C_sph_one;

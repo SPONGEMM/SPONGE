@@ -30,7 +30,7 @@ static void QC_Batched_Trace(BLAS_HANDLE blas_handle, int n, int ma,
                  deviceMemcpyDeviceToHost);
 }
 
-// ========================== DIIS 误差构造 ==========================
+// DIIS 误差构造
 static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
                                        const double* d_F, const float* d_P,
                                        const float* d_S, double* d_err,
@@ -49,7 +49,7 @@ static void QC_Build_DIIS_Error_Double(BLAS_HANDLE blas_handle, int nao,
     QC_Double_Sub(nao2, d_err, d_tmp1, d_err);
 }
 
-// ========================= 历史压入 =========================
+// 历史压入
 static void QC_DIIS_History_Push(int nao2, int diis_space, int& hist_count,
                                  int& hist_head, double** d_f_hist,
                                  double** d_e_hist, double** d_d_hist,
@@ -79,10 +79,9 @@ static void QC_DIIS_History_Push(int nao2, int diis_space, int& hist_count,
     energy_hist[write_idx] = energy;
 }
 
-// ========================= Simplex QP 求解器 =========================
+// Simplex QP 求解器
 // 求解: min 0.5 * c^T H c + g^T c, s.t. sum(c) = 1, c >= 0
 // 使用投影梯度法，适合 DIIS space 大小（6-8 维）的小规模问题
-// ====================================================================
 static void QC_Solve_Simplex_QP(int m, const std::vector<double>& H,
                                 const std::vector<double>& g,
                                 std::vector<double>& c)
@@ -142,9 +141,8 @@ static void QC_Solve_Simplex_QP(int m, const std::vector<double>& H,
     }
 }
 
-// ========================= EDIIS 外推 =========================
+// EDIIS 外推
 // E^EDIIS(c) = Σ c_i E_i - 0.5 Σ_ij c_i c_j Tr((F_i-F_j)(D_i-D_j))
-// ================================================================
 static bool QC_EDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
                                  int diis_space, int hist_count, int hist_head,
                                  double** d_f_hist, double** d_d_hist,
@@ -185,10 +183,9 @@ static bool QC_EDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
     return true;
 }
 
-// ========================= ADIIS 外推 =========================
+// ADIIS 外推
 // E^ADIIS(c) = E_n + 2 Σ c_i Tr((D_i-D_n) F_n)
 //            + Σ_ij c_i c_j Tr((D_i-D_n)(F_j-F_n))
-// ================================================================
 static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
                                  int diis_space, int hist_count, int hist_head,
                                  double** d_f_hist, double** d_d_hist,
@@ -233,7 +230,7 @@ static bool QC_ADIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao2,
     return true;
 }
 
-// ========================= CDIIS 外推 =========================
+// CDIIS 外推
 static bool QC_CDIIS_Extrapolate(BLAS_HANDLE blas_handle, int nao,
                                  int diis_space, int hist_count, int hist_head,
                                  double** d_f_hist, double** d_e_hist,
@@ -354,10 +351,9 @@ do_extrapolate:
     return true;
 }
 
-// ========================= MESA + CDIIS 外推 =========================
+// MESA + CDIIS 外推
 // MESA: 同时算 EDIIS 和 ADIIS，选密度变化更小的
 // 切换: 误差范数大时用 MESA，小时用 CDIIS
-// ===================================================================
 static bool QC_MESA_Or_CDIIS_Extrapolate(
     BLAS_HANDLE blas_handle, int nao, int diis_space, int hist_count,
     int hist_head, double** d_f_hist, double** d_e_hist, double** d_d_hist,
@@ -407,14 +403,12 @@ static bool QC_MESA_Or_CDIIS_Extrapolate(
     return true;
 }
 
-// ========================== SCF 中应用 DIIS ==========================
+// SCF 中应用 DIIS
 // MESA 算法: 远离收敛用 EDIIS/ADIIS，近收敛用 CDIIS
-//
 // 参考:
 //   S. Lehtola, "OpenOrbitalOptimizer", arXiv:2503.23034 (2025).
 //   X. Hu, W. Yang, J. Chem. Phys. 132, 054109 (2010). (ADIIS)
 //   K. N. Kudin et al., J. Chem. Phys. 116, 8255 (2002). (EDIIS)
-// ================================================================
 void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
 {
     if (!scf_ws.runtime.use_diis || (iter + 1) < scf_ws.runtime.diis_start_iter)

@@ -9,14 +9,13 @@ static __global__ void QC_Double_Accumulate_Kernel(int n, double* dst,
     SIMPLE_DEVICE_FOR(i, n) { dst[i] += src[i]; }
 }
 
-// ====================== DFT XC 网格梯度 ======================
+// DFT XC 网格梯度
 // dE_xc/dR_A_d = -2 Σ_g Σ_{μ∈A} ∂φ_μ/∂r_d · W_pao_μ(g)
 //              + -2 Σ_g Σ_{μ∈A} H_d_μ(g) · W_pao_a_μ(g)  [GGA term a]
 //
 // W_pao  = w·v_ρ·Pao + 2·w·v_σ·(∇ρ·GPao)         [LDA + GGA term b]
 // W_pao_a = 2·w·v_σ·Pao                             [GGA term a weight]
 // H_d_μ  = Σ_dir ∇ρ_dir · ∂²φ_μ/(∂r_dir·∂r_d)    [Hessian·∇ρ contraction]
-// ==============================================================
 
 // AO 二阶导数与 ∇ρ 的收缩:
 // H_d[μ,g] = Σ_dir ∇ρ_dir(g) · ∂²φ_μ/(∂r_dir · ∂r_d)(g)
@@ -275,7 +274,7 @@ static void QC_Build_DFT_XC_Gradient_RKS_Impl(
         const float* d_weights_batch = d_grid_weights + g0;
         const int total_ao = n_batch * nao;
 
-        // ====== 步骤 1-4: 与 VXC build 完全相同 ======
+        // 步骤 1-4: 与 VXC build 完全相同
 
         // 1. AO 求值 + Cart2Sph + 归一化
         {
@@ -360,7 +359,7 @@ static void QC_Build_DFT_XC_Gradient_RKS_Impl(
                              n_batch, (int)method, d_rho, d_sigma, d_exc,
                              d_vrho, d_vsigma);
 
-        // ====== 步骤 5-6: XC 梯度特有 ======
+        // 步骤 5-6: XC 梯度特有
 
         // 5. 构建 W_pao
         const bool is_gga = (method != QC_METHOD::LDA);
@@ -489,11 +488,10 @@ static void QC_Build_DFT_XC_Gradient_RKS(
         d_ao_offsets_grad, d_W_pao, d_GPao_scratch, d_grad);
 }
 
-// ====================== UKS XC 梯度 ======================
+// UKS XC 梯度
 // 对 alpha 和 beta 各处理一次
 // GGA: g_eff_α = 2·v_σαα·∇ρα + v_σαβ·∇ρβ
 //      g_eff_β = 2·v_σββ·∇ρβ + v_σαβ·∇ρα
-// ==========================================================
 
 // 单方向 eff_grad: out = 2*vs_same*gr_this + vsab*gr_other
 static __global__ void QC_Build_UKS_Eff_Grad_One_Kernel(
@@ -690,7 +688,7 @@ static void QC_Build_DFT_XC_Gradient_UKS(
                              256, 0, 0, n_batch, d_rho_a, d_rho_b);
         double* d_rho_total = d_rho_a;  // alias
 
-        // ====== 处理 alpha 和 beta ======
+        // 处理 alpha 和 beta
         // 不覆盖 ∇ρ，eff_grad 存入 sigma 缓冲
         double* d_eff_tmp[3] = {d_sigma_aa, d_sigma_ab, d_sigma_bb};
 

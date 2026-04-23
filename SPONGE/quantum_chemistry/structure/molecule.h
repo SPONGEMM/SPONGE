@@ -107,7 +107,7 @@ struct QC_MOLECULE
     std::vector<VECTOR> h_atom_coords;  // [natm]
     VECTOR* d_atom_coords = NULL;
 
-    // ===================== ECP 数据 =====================
+    // ECP 数据
     bool has_ecp = false;
     // 每个原子的核心电子数和 l_max (-1 = 无 ECP)
     std::vector<int> h_ecp_n_core;   // [natm]

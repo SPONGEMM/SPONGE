@@ -1,7 +1,7 @@
 ﻿#include "quantum_chemistry.h"
 #include "structure/matrix.h"
 
-// ====================== 单精度 BLAS/Solver 包装 ======================
+// 单精度 BLAS/Solver 包装
 
 int QC_Diagonalize_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                   float* mat, float* w, float** work_ptr,
@@ -146,7 +146,7 @@ void QC_Build_Density_Blas(BLAS_HANDLE blas_handle, int nao, int n_occ,
                     nao);
 }
 
-// ====================== 双精度 BLAS/Solver 包装 ======================
+// 双精度 BLAS/Solver 包装
 
 int QC_Diagonalize_Double_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
                                          double* mat, double* w,
@@ -211,7 +211,7 @@ void QC_Dgemm_NT(BLAS_HANDLE handle, int m, int n, int k, const double* A,
                     B, ldb, A, lda, &zero, C, ldc);
 }
 
-// ====================== RI BLAS 包装 ======================
+// RI BLAS 包装
 
 void QC_Sgemm_NN(BLAS_HANDLE handle, int m, int n, int k, float alpha,
                  const float* A, int lda, const float* B, int ldb, float beta,
@@ -249,7 +249,7 @@ void QC_Sgemm_RowMajor_NT(BLAS_HANDLE handle, int m, int n, int k, float alpha,
                     B, ldb, A, lda, &beta, C, ldc);
 }
 
-// ====================== 常用通用矩阵函数包装 ======================
+// 常用通用矩阵函数包装
 
 static __global__ void QC_Add_Matrix_Kernel(const int n, const float* A,
                                             const float* B, float* C)
@@ -379,7 +379,7 @@ void QC_Double_Sub(int n, const double* A, const double* B, double* dst)
                          threads, 0, 0, n, A, B, dst);
 }
 
-// ====================== 常用SCF矩阵函数包装 ======================
+// 常用 SCF 矩阵函数包装
 
 static __global__ void QC_Elec_Energy_Accumulate_Kernel(const int nao2,
                                                         const float* P,
@@ -487,8 +487,7 @@ void QC_Rect_Double_To_Padded_Float(int nao, int ne, const double* src,
                          src, dst);
 }
 
-// ====================== 笛卡尔基转球谐基 ======================
-
+// 笛卡尔基转球谐基
 // 用于将归一化笛卡尔基映射到归一化实球谐基
 // l=2（d 轨道）
 static const float CART2SPH_MAT_D[6][5] = {
