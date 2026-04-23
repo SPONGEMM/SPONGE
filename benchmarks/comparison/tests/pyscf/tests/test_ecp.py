@@ -68,7 +68,10 @@ ECP_CASES = [
     (
         "KH",
         [("K", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 2.244)],
-        0, 1, "def2-svp", "HF",
+        0,
+        1,
+        "def2-svp",
+        "HF",
         -34.98433691,  # PySCF reference energy (Ha)
     ),
 ]

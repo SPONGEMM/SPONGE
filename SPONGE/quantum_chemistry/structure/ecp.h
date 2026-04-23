@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <initializer_list>
 #include <map>
@@ -43,7 +43,7 @@ struct QC_ECP_SET
 
 // Helper to build ECP channels from inline data
 inline QC_ECP_CHANNEL make_channel(int l,
-    std::initializer_list<QC_ECP_TERM> terms)
+                                   std::initializer_list<QC_ECP_TERM> terms)
 {
     QC_ECP_CHANNEL ch;
     ch.l = l;

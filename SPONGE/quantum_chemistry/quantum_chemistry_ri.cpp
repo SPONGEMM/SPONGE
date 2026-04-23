@@ -373,7 +373,7 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
         }
     }
 
-    // ---- 1. 计算二中心 metric (P|Q) ----
+    // 1. 计算二中心 metric (P|Q)
     {
         const long long n2c_cart = (long long)Pc * Pc;
         double* d_metric_cart = NULL;
@@ -556,12 +556,12 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
             0, naux, nao, ri.d_aux_norms, scf_ws.ortho.d_norms, ri.d_eri3c);
     }
 
-    // ---- 3. 特征分解 → (P|Q)^{-1/2} ----
+    // 3. 特征分解 → (P|Q)^{-1/2}
     ri.naux_eff = QC_RI_Build_Metric_InvSqrt(solver_handle, blas_handle, naux,
                                              ri.d_metric, ri.d_metric_inv_sqrt,
                                              &ri.h_eigval, &ri.h_eigvec);
 
-    // ---- 4. 构建 (P|Q)^{-1} (RI-J 用) ----
+    // 4. 构建 (P|Q)^{-1} (RI-J 用)
     QC_RI_Build_Metric_Inv(solver_handle, blas_handle, naux, ri.d_metric,
                            ri.d_metric_inv, ri.naux_eff);
 
@@ -629,7 +629,7 @@ void QUANTUM_CHEMISTRY::Build_Fock_RI()
     const int nao2 = mol.nao2;
     const int threads = 256;
 
-    // ---- 0. F = H_core + Vxc ----
+    // 0. F = H_core + Vxc
     if (dft.enable_dft) Build_DFT_VXC();
 
     Launch_Device_Kernel(QC_Init_Fock_Kernel, (nao2 + threads - 1) / threads,
@@ -648,7 +648,7 @@ void QUANTUM_CHEMISTRY::Build_Fock_RI()
     else
         Build_Fock_RI_Stored(this);
 
-    // ---- F double 精度拷贝 (DIIS 用) ----
+    // F double 精度拷贝 (DIIS 用)
     if (scf_ws.alpha.d_F_double)
         QC_Float_To_Double_Copy(nao2, scf_ws.alpha.d_F,
                                 scf_ws.alpha.d_F_double);
@@ -830,7 +830,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc)
         h_B_occ_b.assign((long long)naux * nao * nocc_b_val, 0.0);
     }
 
-    // ---- pass 1: 逐 shell pair 计算 3c 积分 ----
+    // pass 1: 逐 shell pair 计算 3c 积分
     // 用 GPU kernel 计算笛卡尔 3c block，下载，cart2sph，收缩
     // 对每个 shell pair (mu_sh, nu_sh):
     //   tasks = {(P_sh, mu_sh, nu_sh) | P_sh = 0..naux_bas-1}
@@ -1081,7 +1081,7 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc)
         for (int Q = 0; Q < naux; Q++)
             h_g[P] += h_inv[P * naux + Q] * h_d_vec[Q];
 
-    // ---- pass 2: RI-J 第二趟，重新计算 3c 积分以构建 J ----
+    // pass 2: RI-J 第二趟，重新计算 3c 积分以构建 J
     Device_Malloc_Safely((void**)&d_tasks, sizeof(QC_RI_3C_TASK) * ri.naux_bas);
     for (int mu_sh = 0; mu_sh < mol.nbas; mu_sh++)
     {

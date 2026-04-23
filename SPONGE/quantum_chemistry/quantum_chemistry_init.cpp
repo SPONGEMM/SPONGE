@@ -639,9 +639,8 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         // ECP: 用有效核电荷替代全电荷
         // auto 模式下按基组规范过滤（def2-ECP 只对 Z>=37 生效）
         const bool apply_ecp =
-            ecp_set &&
-            (ecp_name != "auto" ||
-             QC_Auto_ECP_Applies(basis_set_name.c_str(), Z));
+            ecp_set && (ecp_name != "auto" ||
+                        QC_Auto_ECP_Applies(basis_set_name.c_str(), Z));
         if (apply_ecp)
         {
             auto it_ecp = ecp_set->data.find(atom_symbols[i]);
@@ -871,46 +870,46 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         mol.h_ecp_atom_channel_range[mol.natm] = mol.ecp_total_channels;
 
         // Device 拷贝
-        Device_Malloc_And_Copy_Safely(
-            (void**)&mol.d_ecp_l_max, (void*)mol.h_ecp_l_max.data(),
-            sizeof(int) * mol.natm);
+        Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_l_max,
+                                      (void*)mol.h_ecp_l_max.data(),
+                                      sizeof(int) * mol.natm);
         Device_Malloc_And_Copy_Safely(
             (void**)&mol.d_ecp_atom_channel_range,
             (void*)mol.h_ecp_atom_channel_range.data(),
             sizeof(int) * (mol.natm + 1));
         if (mol.ecp_total_channels > 0)
         {
-            Device_Malloc_And_Copy_Safely(
-                (void**)&mol.d_ecp_l, (void*)mol.h_ecp_l.data(),
-                sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_l,
+                                          (void*)mol.h_ecp_l.data(),
+                                          sizeof(int) * mol.ecp_total_channels);
             Device_Malloc_And_Copy_Safely(
                 (void**)&mol.d_ecp_channel_offsets,
                 (void*)mol.h_ecp_channel_offsets.data(),
                 sizeof(int) * mol.ecp_total_channels);
-            Device_Malloc_And_Copy_Safely(
-                (void**)&mol.d_ecp_channel_sizes,
-                (void*)mol.h_ecp_channel_sizes.data(),
-                sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_channel_sizes,
+                                          (void*)mol.h_ecp_channel_sizes.data(),
+                                          sizeof(int) * mol.ecp_total_channels);
         }
         if (mol.ecp_total_terms > 0)
         {
-            Device_Malloc_And_Copy_Safely(
-                (void**)&mol.d_ecp_d, (void*)mol.h_ecp_d.data(),
-                sizeof(float) * mol.ecp_total_terms);
-            Device_Malloc_And_Copy_Safely(
-                (void**)&mol.d_ecp_zeta, (void*)mol.h_ecp_zeta.data(),
-                sizeof(float) * mol.ecp_total_terms);
-            Device_Malloc_And_Copy_Safely(
-                (void**)&mol.d_ecp_n, (void*)mol.h_ecp_n.data(),
-                sizeof(int) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_d,
+                                          (void*)mol.h_ecp_d.data(),
+                                          sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_zeta,
+                                          (void*)mol.h_ecp_zeta.data(),
+                                          sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_n,
+                                          (void*)mol.h_ecp_n.data(),
+                                          sizeof(int) * mol.ecp_total_terms);
         }
 
-        printf("    [QC Init] ECP: %s, %d atoms with ECP, %d channels, "
-               "%d terms\n",
-               ecp_set->name, (int)std::count_if(mol.h_ecp_l_max.begin(),
-                                                  mol.h_ecp_l_max.end(),
-                                                  [](int x) { return x >= 0; }),
-               mol.ecp_total_channels, mol.ecp_total_terms);
+        printf(
+            "    [QC Init] ECP: %s, %d atoms with ECP, %d channels, "
+            "%d terms\n",
+            ecp_set->name,
+            (int)std::count_if(mol.h_ecp_l_max.begin(), mol.h_ecp_l_max.end(),
+                               [](int x) { return x >= 0; }),
+            mol.ecp_total_channels, mol.ecp_total_terms);
     }
 }
 
@@ -1086,7 +1085,8 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
                              sizeof(float) * (int)nao_c * (int)nao_s);
     }
 #ifdef USE_GPU
-    // GPU: scratch 池槽数与 bounds kernel 的 launch 线程总数一致，避免 O(n_pairs) 膨胀
+    // GPU: scratch 池槽数与 bounds kernel 的 launch 线程总数一致，避免
+    // O(n_pairs) 膨胀
     int hr_pool_tasks = QC_BOUNDS_POOL_SLOTS;
 #else
     int hr_pool_tasks = std::max(1, omp_get_max_threads());
@@ -1258,14 +1258,12 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
     if (mol.is_spherical || mol.has_ecp)
     {
         const int nc2 = mol.nao_cart * mol.nao_cart;
-        Device_Malloc_Safely((void**)&grad_ws.d_P_cart,
-                             sizeof(float) * nc2);
+        Device_Malloc_Safely((void**)&grad_ws.d_P_cart, sizeof(float) * nc2);
     }
     if (mol.is_spherical)
     {
         const int nc2 = mol.nao_cart * mol.nao_cart;
-        Device_Malloc_Safely((void**)&grad_ws.d_W_cart,
-                             sizeof(float) * nc2);
+        Device_Malloc_Safely((void**)&grad_ws.d_W_cart, sizeof(float) * nc2);
         Device_Malloc_Safely((void**)&grad_ws.d_norms_ones,
                              sizeof(float) * mol.nao_cart);
         std::vector<float> h_ones(mol.nao_cart, 1.0f);
@@ -1279,8 +1277,9 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         const int max_dim_cart = (max_l_cart + 1) * (max_l_cart + 2) / 2;
         grad_ws.grad_gamma_buf_size =
             max_dim_cart * max_dim_cart * max_dim_cart * max_dim_cart;
-        // 限制 gamma pool 占用 (qzvp: 15^4 * 8B/slot = 405 KB; 4096 slots = 1.6 GB)
-        // 高 L 时减少 slots, 启动时配套缩减 blocks (kernel worker stride 自适应)
+        // 限制 gamma pool 占用 (qzvp: 15^4 * 8B/slot = 405 KB; 4096 slots = 1.6
+        // GB) 高 L 时减少 slots, 启动时配套缩减 blocks (kernel worker stride
+        // 自适应)
         const size_t bytes_per_slot =
             (size_t)(2 * grad_ws.grad_gamma_buf_size) * sizeof(float);
         const size_t pool_budget_bytes = (size_t)512 * 1024 * 1024;  // 512 MB

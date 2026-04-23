@@ -29,7 +29,7 @@
 #define RI_GRAD_HAS_BLAS 0
 #endif
 
-// ---- 共用辅助函数 ----
+// 共用辅助函数
 
 // 构建 D3_eff = D3_J - exx * D3_K (三中心有效密度)
 static inline void QC_Build_D3_eff(
@@ -294,9 +294,8 @@ static inline void QC_Build_D2K_DaleckiiKrein(const int naux, const double* Z_K,
 // 基组指针均为 device 指针（已在 SCF 初始化时分配）。
 // 仅 h_U_aux/h_U_orb 和 D2/D3 需要临时上传。
 static inline void QC_Launch_RI_Grad_Kernels(
-    const QC_MOLECULE& mol, const QC_RI_WORKSPACE& ri,
-    const float* d_orb_norms, const QC_GRAD_WORKSPACE& grad_ws,
-    int max_aux_cart, int max_orb_cart,
+    const QC_MOLECULE& mol, const QC_RI_WORKSPACE& ri, const float* d_orb_norms,
+    const QC_GRAD_WORKSPACE& grad_ws, int max_aux_cart, int max_orb_cart,
     const std::vector<double>& D2_eff, const std::vector<double>& D3_eff)
 {
     // 局部别名: 保持函数体不变
@@ -353,7 +352,7 @@ static inline void QC_Launch_RI_Grad_Kernels(
         }
     }
 
-    // ---- 2c 梯度内核 ----
+    // 2c 梯度内核
     double* d_D2 = NULL;
     Device_Malloc_Safely((void**)&d_D2, sizeof(double) * D2_eff.size());
     deviceMemcpy(d_D2, D2_eff.data(), sizeof(double) * D2_eff.size(),
@@ -375,7 +374,7 @@ static inline void QC_Launch_RI_Grad_Kernels(
     deviceFree(d_ws_2c);
     deviceFree(d_D2);
 
-    // ---- 3c 梯度内核 ----
+    // 3c 梯度内核
     double* d_D3 = NULL;
     Device_Malloc_Safely((void**)&d_D3, sizeof(double) * D3_eff.size());
     deviceMemcpy(d_D3, D3_eff.data(), sizeof(double) * D3_eff.size(),

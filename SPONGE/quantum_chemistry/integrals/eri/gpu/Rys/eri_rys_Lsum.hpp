@@ -45,7 +45,7 @@ __global__ void KERNEL_NAME(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening ----
+        // Screening
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -74,7 +74,7 @@ __global__ void KERNEL_NAME(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Shell data ----
+            // Shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int l[4], np[4], p_exp_off[4], p_cof_off[4];
             float RC[4][3];
@@ -123,7 +123,7 @@ __global__ void KERNEL_NAME(
             const int ix_d1 = (l[2] + 1) * ix_d2;
             const int ix_d0 = (l[1] + 1) * ix_d1;
 
-            // ---- Primitive loop ----
+            // Primitive loop
             for (int ip = 0; ip < np[0]; ip++)
             {
                 const float ai = env[p_exp_off[0] + ip],
@@ -336,7 +336,7 @@ __global__ void KERNEL_NAME(
                 }
             }  // end primitives
 
-            // ---- In-place cart2sph (single buffer, no eri_buf1) ----
+            // In-place cart2sph (single buffer, no eri_buf1)
             const int n_eff = dim_eff[0] * dim_eff[1] * dim_eff[2] * dim_eff[3];
             if (is_spherical)
             {
@@ -385,7 +385,7 @@ __global__ void KERNEL_NAME(
                 }
             }
 
-            // ---- Norms + Fock ----
+            // Norms + Fock
             {
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_eff[0]; c0++)

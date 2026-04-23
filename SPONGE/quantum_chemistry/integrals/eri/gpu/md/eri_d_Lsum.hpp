@@ -45,7 +45,7 @@ __global__ void KERNEL_NAME(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening ----
+        // Screening
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -107,7 +107,7 @@ __global__ void KERNEL_NAME(
             float eri_cart[ERI_MAX_CART];  // compile-time sized
             for (int i = 0; i < n_cart; i++) eri_cart[i] = 0.0f;
 
-            // ---- Primitive loop ----
+            // Primitive loop
             for (int ip = 0; ip < np[0]; ip++)
             {
                 const float ai = env[p_exp_off[0] + ip],
@@ -174,16 +174,16 @@ __global__ void KERNEL_NAME(
                                             const int cv[4] = {c0, c1, c2, c3};
                                             eri_cart[idx++] +=
                                                 n_abcd *
-                                                ERI_CONTRACT(
-                                                    l, cv, PA, PB, QCv, QD,
-                                                    inv2p, inv2q, R0);
+                                                ERI_CONTRACT(l, cv, PA, PB, QCv,
+                                                             QD, inv2p, inv2q,
+                                                             R0);
                                         }
                         }
                     }
                 }
             }
 
-            // ---- Cart2sph ----
+            // Cart2sph
             float eri_out[ERI_MAX_CART];
             if (is_spherical)
             {
@@ -232,7 +232,7 @@ __global__ void KERNEL_NAME(
             else
                 for (int i = 0; i < n_cart; i++) eri_out[i] = eri_cart[i];
 
-            // ---- Norms ----
+            // Norms
             {
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_eff[0]; c0++)
@@ -244,7 +244,7 @@ __global__ void KERNEL_NAME(
                                     norms[off[2] + c2] * norms[off[3] + c3];
             }
 
-            // ---- Fock with dedup ----
+            // Fock with dedup
             const bool jk_same_bra = (tk.x == tk.y);
             const bool jk_same_ket = (tk.z == tk.w);
             const bool jk_same_braket = (tk.x == tk.z && tk.y == tk.w);

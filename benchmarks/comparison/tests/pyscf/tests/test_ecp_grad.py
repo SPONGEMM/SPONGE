@@ -98,7 +98,9 @@ ECP_GRAD_CASES = [
     (
         "KH",
         [("K", 0.0, 0.0, 0.0), ("H", 0.0, 0.0, 2.244)],
-        0, 1, "HF/def2-svp",
+        0,
+        1,
+        "HF/def2-svp",
     ),
 ]
 
@@ -118,7 +120,9 @@ def test_ecp_gradient_fd(name, atoms, charge, mult, model_chem):
 
     print(f"\n  {name} {model_chem} + ECP FD gradient (Ha/Bohr):")
     for ia, (sym, *_) in enumerate(atoms):
-        print(f"    {sym}: [{fd_grad[ia,0]:.6f}, {fd_grad[ia,1]:.6f}, {fd_grad[ia,2]:.6f}]")
+        print(
+            f"    {sym}: [{fd_grad[ia, 0]:.6f}, {fd_grad[ia, 1]:.6f}, {fd_grad[ia, 2]:.6f}]"
+        )
 
     max_grad = np.max(np.abs(fd_grad))
     print(f"    max|grad| = {max_grad:.6f} Ha/Bohr")
@@ -127,11 +131,15 @@ def test_ecp_gradient_fd(name, atoms, charge, mult, model_chem):
 
     # Newton's 3rd law
     force_sum = np.sum(fd_grad, axis=0)
-    print(f"    force_sum = [{force_sum[0]:.6f}, {force_sum[1]:.6f}, {force_sum[2]:.6f}]")
+    print(
+        f"    force_sum = [{force_sum[0]:.6f}, {force_sum[1]:.6f}, {force_sum[2]:.6f}]"
+    )
     assert np.max(np.abs(force_sum)) < 0.01, (
         f"Newton 3rd law violated: force sum = {force_sum}"
     )
 
     # Symmetry: x,y should be ~0 for z-axis diatomic
     xy_max = max(np.max(np.abs(fd_grad[:, 0])), np.max(np.abs(fd_grad[:, 1])))
-    assert xy_max < 0.01, f"x,y gradient too large for z-axis diatomic: {xy_max}"
+    assert xy_max < 0.01, (
+        f"x,y gradient too large for z-axis diatomic: {xy_max}"
+    )

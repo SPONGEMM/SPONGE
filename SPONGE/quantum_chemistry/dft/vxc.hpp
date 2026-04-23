@@ -258,10 +258,10 @@ static void QC_Build_DFT_VXC_Impl(
 }
 
 // RKS VXC: 根据方法自动分派到对应 deriv_level 模板
-static void QC_Build_DFT_VXC_RKS(
-    BLAS_HANDLE blas_handle, QC_METHOD method, const QC_MOLECULE& mol,
-    QC_DFT& dft, const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
-    const float* d_norms, const float* d_P)
+static void QC_Build_DFT_VXC_RKS(BLAS_HANDLE blas_handle, QC_METHOD method,
+                                 const QC_MOLECULE& mol, QC_DFT& dft,
+                                 const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
+                                 const float* d_norms, const float* d_P)
 {
     auto call = [&](auto deriv_tag)
     {
@@ -274,11 +274,11 @@ static void QC_Build_DFT_VXC_RKS(
             mol.d_shell_sizes, mol.d_ao_offsets, d_norms, d_P,
             dft.d_ao_vals_cart, dft.d_ao_grad_x_cart, dft.d_ao_grad_y_cart,
             dft.d_ao_grad_z_cart, dft.d_ao_vals, dft.d_ao_grad_x,
-            dft.d_ao_grad_y, dft.d_ao_grad_z, dft.d_rho, dft.d_sigma,
-            dft.d_exc, dft.d_vrho, dft.d_vsigma, dft.d_exc_total, dft.d_Vxc,
-            dft.d_ao_norm, dft.d_gx_norm, dft.d_gy_norm, dft.d_gz_norm,
-            dft.d_Pao, dft.d_W_full, dft.d_W_sigma, dft.d_grad_rho_x,
-            dft.d_grad_rho_y, dft.d_grad_rho_z, dft.d_shell_r2_screen);
+            dft.d_ao_grad_y, dft.d_ao_grad_z, dft.d_rho, dft.d_sigma, dft.d_exc,
+            dft.d_vrho, dft.d_vsigma, dft.d_exc_total, dft.d_Vxc, dft.d_ao_norm,
+            dft.d_gx_norm, dft.d_gy_norm, dft.d_gz_norm, dft.d_Pao,
+            dft.d_W_full, dft.d_W_sigma, dft.d_grad_rho_x, dft.d_grad_rho_y,
+            dft.d_grad_rho_z, dft.d_shell_r2_screen);
     };
     if (method == QC_METHOD::LDA)
         call(std::integral_constant<int, 0>{});
@@ -455,10 +455,11 @@ static __global__ void QC_Build_Weighted_AO_UKS_Kernel(
 }
 
 // UKS VXC 构建
-static void QC_Build_DFT_VXC_UKS(
-    BLAS_HANDLE blas_handle, QC_METHOD method, const QC_MOLECULE& mol,
-    QC_DFT& dft, const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
-    const float* d_norms, const float* d_Pa, const float* d_Pb)
+static void QC_Build_DFT_VXC_UKS(BLAS_HANDLE blas_handle, QC_METHOD method,
+                                 const QC_MOLECULE& mol, QC_DFT& dft,
+                                 const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
+                                 const float* d_norms, const float* d_Pa,
+                                 const float* d_Pb)
 {
     const int nao = mol.nao;
     const int nao2 = mol.nao2;

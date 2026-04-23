@@ -63,7 +63,7 @@ static __global__ void QC_RI_3Center_Kernel(
         const int n_cart = nP * nmu * nnu;
         for (int i = 0; i < n_cart; i++) buf[i] = 0.0;
 
-        // ---- primitive 循环 (外层) ----
+        // primitive 循环 (外层)
         for (int pP = 0; pP < aux_shell_sizes[P_sh]; pP++)
         {
             const float eP = aux_exps[aux_shell_offsets[P_sh] + pP];
@@ -131,7 +131,7 @@ static __global__ void QC_RI_3Center_Kernel(
                         ((double)eP * (double)g_ket *
                          sqrt((double)(eP + g_ket)));
 
-                    // ---- Cartesian 分量循环 (内层): 只做查表 + 乘法 ----
+                    // Cartesian 分量循环 (内层): 只做查表 + 乘法
                     for (int idxP = 0; idxP < nP; idxP++)
                     {
                         int lxP, lyP, lzP;
@@ -213,7 +213,7 @@ static __global__ void QC_RI_3Center_Kernel(
             }
         }
 
-        // ---- 写入输出 ----
+        // 写入输出
         for (int idxP = 0; idxP < nP; idxP++)
         {
             const int P_idx = offP + idxP;

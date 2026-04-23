@@ -1,4 +1,4 @@
-// def2-ECP: Stuttgart/Cologne effective core potentials
+﻿// def2-ECP: Stuttgart/Cologne effective core potentials
 // Reference: Dolg et al., Theor. Chim. Acta (various)
 // Data from Basis Set Exchange / Turbomole library
 //

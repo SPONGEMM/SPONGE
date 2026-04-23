@@ -68,7 +68,7 @@ __global__ void QC_Fock_ssss_Kernel(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Read shell data ----
+            // Read shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int np[4], p_exp_off[4], p_cof_off[4];
             float R[4][3];
@@ -95,7 +95,7 @@ __global__ void QC_Fock_ssss_Kernel(
                                (R[2][1] - R[3][1]) * (R[2][1] - R[3][1]) +
                                (R[2][2] - R[3][2]) * (R[2][2] - R[3][2]);
 
-            // ---- Primitive contraction: single ERI = sum n_abcd * F0(T) ----
+            // Primitive contraction: single ERI = sum n_abcd * F0(T)
             float eri = 0.0f;
 
             for (int ip = 0; ip < np[0]; ip++)
@@ -164,7 +164,7 @@ __global__ void QC_Fock_ssss_Kernel(
                 }
             }
 
-            // ---- Apply cart2sph (scalar for s shells) + norms ----
+            // Apply cart2sph (scalar for s shells) + norms
             float c2s = 1.0f;
             if (is_spherical)
             {

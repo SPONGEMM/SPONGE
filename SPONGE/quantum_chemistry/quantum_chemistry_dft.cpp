@@ -11,11 +11,11 @@ void QUANTUM_CHEMISTRY::Build_DFT_VXC()
 {
     if (scf_ws.runtime.unrestricted)
         QC_Build_DFT_VXC_UKS(blas_handle, method, mol, dft, cart2sph,
-                              scf_ws.ortho.d_norms, scf_ws.alpha.d_P,
-                              scf_ws.beta.d_P);
+                             scf_ws.ortho.d_norms, scf_ws.alpha.d_P,
+                             scf_ws.beta.d_P);
     else
         QC_Build_DFT_VXC_RKS(blas_handle, method, mol, dft, cart2sph,
-                              scf_ws.ortho.d_norms, scf_ws.alpha.d_P);
+                             scf_ws.ortho.d_norms, scf_ws.alpha.d_P);
 }
 
 void QUANTUM_CHEMISTRY::Build_DFT_XC_Gradient()

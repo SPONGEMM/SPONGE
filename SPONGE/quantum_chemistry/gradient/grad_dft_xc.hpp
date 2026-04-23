@@ -217,9 +217,9 @@ template <int deriv_level>
 static void QC_Build_DFT_XC_Gradient_RKS_Impl(
     BLAS_HANDLE blas_handle, QC_METHOD method, const QC_MOLECULE& mol,
     QC_DFT& dft, const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
-    const float* d_norms, const float* d_P,
-    const int* d_shell_atom, const int* d_ao_offsets_grad, float* d_W_pao,
-    float* d_GPao_scratch, double* d_grad)
+    const float* d_norms, const float* d_P, const int* d_shell_atom,
+    const int* d_ao_offsets_grad, float* d_W_pao, float* d_GPao_scratch,
+    double* d_grad)
 {
     // 局部别名: mol
     const int is_spherical = mol.is_spherical;

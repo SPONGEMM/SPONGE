@@ -552,7 +552,8 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
 
 // Rys quadrature ERI for high-L quartets.
 // Replaces McMurchie-Davidson HR-tensor path at L_sum >= 6.
-// Uses VRR + HRR per Rys root: I arrays ~625 floats vs HR tensor ~83 521 floats.
+// Uses VRR + HRR per Rys root: I arrays ~625 floats vs HR tensor ~83 521
+// floats.
 
 static inline void QC_Fock_VRR_2D(float* G, int ij_max, int kl_max,
                                   int g_stride, float Cx_bra, float Cx_ket,

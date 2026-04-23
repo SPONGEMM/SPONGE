@@ -19,7 +19,7 @@ static constexpr float QC_GRAD_GAMMA_CUTOFF = 1e-15f;
 
 #ifndef USE_GPU
 
-// ---- Rys VRR for gradient (supports extended angular momentum l+1) ----
+// Rys VRR for gradient (supports extended angular momentum l+1)
 static inline void QC_Grad_VRR_2D(float* __restrict__ G, int ij_max, int kl_max,
                                   int g_stride, float Cx_bra, float Cx_ket,
                                   float B00, float B10, float B01)
@@ -41,7 +41,7 @@ static inline void QC_Grad_VRR_2D(float* __restrict__ G, int ij_max, int kl_max,
         }
 }
 
-// ---- Optimized batched factored HRR ----
+// Optimized batched factored HRR
 static inline void QC_Grad_Factored_HRR_Batch(
     const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
     const int* __restrict__ l, float AB_d, float CD_d,
@@ -110,7 +110,7 @@ static inline void QC_Grad_Factored_HRR_Batch(
         }
 }
 
-// ---- Sph2Cart step: expands spherical → Cartesian along one index ----
+// Sph2Cart step: expands spherical → Cartesian along one index
 // dst[lead, cart, tail] = sum_sph C[cart * ns + sph] * src[lead, sph, tail]
 static inline void QC_Sph2Cart_Step_CPU(const float* C, int nc, int ns,
                                         int leading, int tail, const float* src,
@@ -136,7 +136,7 @@ static inline void QC_Sph2Cart_Step_CPU(const float* C, int nc, int ns,
     }
 }
 
-// ---- 4-index Sph→Cart transform for effective density ----
+// 4-index Sph→Cart transform for effective density
 // Input: gamma_sph in buf0 [ns0 × ns1 × ns2 × ns3]
 // Output: gamma_cart in buf0 [nc0 × nc1 × nc2 × nc3]
 static inline void QC_Sph2Cart_Density_CPU(
@@ -168,9 +168,8 @@ static inline void QC_Sph2Cart_Density_CPU(
 
 static inline void QC_Build_ERI_Gradient_CPU(
     const QC_INTEGRAL_TASKS& task_ctx, const QC_MOLECULE& mol,
-    const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
-    const QC_SCF_WORKSPACE& scf_ws, float exx_fraction,
-    float shell_screen_tol, float prim_screen_tol,
+    const QC_CARTESIAN_TO_SPHERICAL& cart2sph, const QC_SCF_WORKSPACE& scf_ws,
+    float exx_fraction, float shell_screen_tol, float prim_screen_tol,
     const int* shell_atom, double* grad)
 {
     // 局部别名: 保持函数体不变
@@ -185,8 +184,9 @@ static inline void QC_Build_ERI_Gradient_CPU(
     const float* shell_pair_bounds = task_ctx.buffers.d_shell_pair_bounds;
     const float* pair_density_coul = scf_ws.direct.d_pair_density_coul;
     const float* pair_density_exx_a = scf_ws.direct.d_pair_density_exx;
-    const float* pair_density_exx_b =
-        unrestricted ? scf_ws.direct.d_pair_density_exx_b : (const float*)nullptr;
+    const float* pair_density_exx_b = unrestricted
+                                          ? scf_ws.direct.d_pair_density_exx_b
+                                          : (const float*)nullptr;
     const float* P_coul = scf_ws.direct.d_P_coul;
     const float* P_exx_a = scf_ws.alpha.d_P;
     const float* P_exx_b =
@@ -1100,8 +1100,8 @@ static inline void QC_Build_ERI_Gradient_CPU(
 
 static __device__ void grad_factored_hrr_batch(
     const float* __restrict__ G, int ij_am, int kl_am, int g_stride,
-    const int* __restrict__ l, float AB_d, float CD_d, float* __restrict__ I_full,
-    int d0, int d1, int d2)
+    const int* __restrict__ l, float AB_d, float CD_d,
+    float* __restrict__ I_full, int d0, int d1, int d2)
 {
     const int l0_up = l[0] + 1, l1_up = l[1] + 1;
     const int l2_up = l[2] + 1, l3_max = l[3];
@@ -1221,7 +1221,7 @@ __global__ void QC_ERI_Grad_Kernel(
 
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening (same as Fock kernel) ----
+        // Screening (same as Fock kernel)
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -1251,7 +1251,7 @@ __global__ void QC_ERI_Grad_Kernel(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Shell data ----
+            // Shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int l[4], np[4], p_exp_off[4], p_cof_off[4];
             float RC[4][3];
@@ -1293,7 +1293,7 @@ __global__ void QC_ERI_Grad_Kernel(
                 (size_t)worker_id * (size_t)(2 * gamma_buf_size);
             float* gamma_buf1 = gamma_buf0 + gamma_buf_size;
 
-            // ---- Compute gamma in effective (sph or cart) basis ----
+            // Compute gamma in effective (sph or cart) basis
             const int sph_size = ni * nj * nk * nl;
             for (int i = 0; i < sph_size; i++) gamma_buf0[i] = 0.0f;
 
@@ -1349,7 +1349,7 @@ __global__ void QC_ERI_Grad_Kernel(
                 }
             }
 
-            // ---- Sph→Cart transform of gamma ----
+            // Sph→Cart transform of gamma
             float* gamma_cart;
             if (is_spherical)
             {
@@ -1412,7 +1412,7 @@ __global__ void QC_ERI_Grad_Kernel(
                 double g_B[3] = {0.0, 0.0, 0.0};
                 double g_C[3] = {0.0, 0.0, 0.0};
 
-                // ---- Primitive loop ----
+                // Primitive loop
                 for (int ip = 0; ip < np[0]; ip++)
                 {
                     const float ai = env[p_exp_off[0] + ip];
@@ -1501,14 +1501,14 @@ __global__ void QC_ERI_Grad_Kernel(
                                     // Extended VRR: up to (ij_am+1, kl_am+1)
                                     float Gx[120], Gy[120], Gz[120];
                                     rys_vrr_2d(Gx, ij_am + 1, kl_am + 1,
-                                                g_stride, Cx_bra[0], Cx_ket[0],
-                                                B00, B10, B01);
+                                               g_stride, Cx_bra[0], Cx_ket[0],
+                                               B00, B10, B01);
                                     rys_vrr_2d(Gy, ij_am + 1, kl_am + 1,
-                                                g_stride, Cx_bra[1], Cx_ket[1],
-                                                B00, B10, B01);
+                                               g_stride, Cx_bra[1], Cx_ket[1],
+                                               B00, B10, B01);
                                     rys_vrr_2d(Gz, ij_am + 1, kl_am + 1,
-                                                g_stride, Cx_bra[2], Cx_ket[2],
-                                                B00, B10, B01);
+                                               g_stride, Cx_bra[2], Cx_ket[2],
+                                               B00, B10, B01);
 
                                     float Ix[1100], Iy[1100], Iz[1100];
                                     grad_factored_hrr_batch(

@@ -38,7 +38,7 @@ __global__ void QC_Fock_pppp_Kernel(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening (identical to all other kernels) ----
+        // Screening (identical to all other kernels)
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -70,7 +70,7 @@ __global__ void QC_Fock_pppp_Kernel(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Read shell data ----
+            // Read shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int l[4], np[4], p_exp_off[4], p_cof_off[4];
             float RC[4][3];
@@ -99,7 +99,7 @@ __global__ void QC_Fock_pppp_Kernel(
                                (RC[2][1] - RC[3][1]) * (RC[2][1] - RC[3][1]) +
                                (RC[2][2] - RC[3][2]) * (RC[2][2] - RC[3][2]);
 
-            // ---- Accumulate Cartesian ERIs over primitives ----
+            // Accumulate Cartesian ERIs over primitives
             // Max 3^4=81 components, but for sspp it's
             // dim[0]*dim[1]*dim[2]*dim[3]
             const int n_cart = dim[0] * dim[1] * dim[2] * dim[3];
@@ -179,17 +179,17 @@ __global__ void QC_Fock_pppp_Kernel(
                                         {
                                             const int cv[4] = {c0, c1, c2, c3};
                                             eri_cart[idx++] +=
-                                                n_abcd *
-                                                eri_contract_noinline(
-                                                    l, cv, PA, PB, QCv, QD,
-                                                    inv2p, inv2q, R0);
+                                                n_abcd * eri_contract_noinline(
+                                                             l, cv, PA, PB, QCv,
+                                                             QD, inv2p, inv2q,
+                                                             R0);
                                         }
                         }
                     }
                 }
             }
 
-            // ---- Cart2sph transform for each p-shell index ----
+            // Cart2sph transform for each p-shell index
             // For l=1: cart dim = sph dim = 3, transform is a 3×3 matrix.
             // Apply sequentially per p-shell, preserving other indices.
             if (is_spherical)
@@ -274,7 +274,7 @@ __global__ void QC_Fock_pppp_Kernel(
                 }
             }
 
-            // ---- Apply s-shell cart2sph scalars + norms ----
+            // Apply s-shell cart2sph scalars + norms
             // (pppp has no s shells, so s_c2s is always 1.0, but keep for
             // uniformity)
             {
@@ -301,7 +301,7 @@ __global__ void QC_Fock_pppp_Kernel(
                             }
             }
 
-            // ---- Accumulate into Fock with dedup checks ----
+            // Accumulate into Fock with dedup checks
             const bool jk_same_bra = (tk.x == tk.y);
             const bool jk_same_ket = (tk.z == tk.w);
             const bool jk_same_braket = (tk.x == tk.z && tk.y == tk.w);

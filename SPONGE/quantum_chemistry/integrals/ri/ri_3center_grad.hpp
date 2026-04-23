@@ -69,7 +69,7 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                     d_cart_mu[k] = 0.0;
                 }
 
-                // ---- primitive 循环 (外层) ----
+                // primitive 循环 (外层)
                 for (int pP = 0; pP < aux_shell_sizes[P_sh]; pP++)
                 {
                     const float eP = aux_exps[aux_shell_offsets[P_sh] + pP];
@@ -226,7 +226,7 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                                 return v_sum;
                             };
 
-                            // ---- Cartesian 分量循环 (内层) ----
+                            // Cartesian 分量循环 (内层)
                             for (int idxP = 0; idxP < nP_cart; idxP++)
                             {
                                 int lxP, lyP, lzP;

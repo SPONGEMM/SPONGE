@@ -53,7 +53,7 @@ __global__ void KERNEL_NAME(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening ----
+        // Screening
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -183,7 +183,7 @@ __global__ void KERNEL_NAME(
                 }
             }
 
-            // ---- Cart2sph for p shells + s-shell scalar ----
+            // Cart2sph for p shells + s-shell scalar
             if (is_spherical)
             {
                 for (int si = 0; si < 4; si++)
@@ -221,7 +221,7 @@ __global__ void KERNEL_NAME(
                 }
             }
 
-            // ---- Norms ----
+            // Norms
             {
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_e[0]; c0++)
@@ -233,7 +233,7 @@ __global__ void KERNEL_NAME(
                                     norms[off[2] + c2] * norms[off[3] + c3];
             }
 
-            // ---- Fock accumulation with dedup ----
+            // Fock accumulation with dedup
             const bool jk_same_bra = (tk.x == tk.y);
             const bool jk_same_ket = (tk.z == tk.w);
             const bool jk_same_braket = (tk.x == tk.z && tk.y == tk.w);

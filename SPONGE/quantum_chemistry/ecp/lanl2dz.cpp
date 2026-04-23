@@ -1,4 +1,4 @@
-// LANL2DZ ECP (Los Alamos National Laboratory 2 Double-Zeta)
+﻿// LANL2DZ ECP (Los Alamos National Laboratory 2 Double-Zeta)
 // Reference: Hay & Wadt, J. Chem. Phys. 82, 270-283 (1985)
 // Data from Basis Set Exchange
 //

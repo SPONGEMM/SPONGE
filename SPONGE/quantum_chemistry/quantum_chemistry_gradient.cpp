@@ -22,7 +22,7 @@ static __global__ void QC_Float_Accumulate_Kernel(int n, float* dst,
 }
 
 static __global__ void QC_Weight_By_Norms_Kernel(int nao, const float* P,
-                                                  const float* norms, float* out)
+                                                 const float* norms, float* out)
 {
     SIMPLE_DEVICE_FOR(idx, nao * nao)
     {
@@ -137,25 +137,20 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 deviceMemcpy(h_norms.data(), scf_ws.ortho.d_norms,
                              sizeof(float) * ns, deviceMemcpyDeviceToHost);
                 deviceMemcpy(h_C.data(), cart2sph.d_cart2sph_mat,
-                             sizeof(float) * ns * nc,
-                             deviceMemcpyDeviceToHost);
+                             sizeof(float) * ns * nc, deviceMemcpyDeviceToHost);
                 deviceMemcpy(h_P.data(), scf_ws.direct.d_P_coul,
-                             sizeof(float) * ns * ns,
-                             deviceMemcpyDeviceToHost);
+                             sizeof(float) * ns * ns, deviceMemcpyDeviceToHost);
                 deviceMemcpy(h_W.data(), grad_ws.d_W_density,
-                             sizeof(float) * ns * ns,
-                             deviceMemcpyDeviceToHost);
+                             sizeof(float) * ns * ns, deviceMemcpyDeviceToHost);
 
                 std::vector<float> h_Pc, h_Wc;
                 QC_Sph2Cart_Density_Host(ns, nc, h_norms, h_C, h_P, h_Pc);
                 QC_Sph2Cart_Density_Host(ns, nc, h_norms, h_C, h_W, h_Wc);
 
                 deviceMemcpy(grad_ws.d_P_cart, h_Pc.data(),
-                             sizeof(float) * nc * nc,
-                             deviceMemcpyHostToDevice);
+                             sizeof(float) * nc * nc, deviceMemcpyHostToDevice);
                 deviceMemcpy(grad_ws.d_W_cart, h_Wc.data(),
-                             sizeof(float) * nc * nc,
-                             deviceMemcpyHostToDevice);
+                             sizeof(float) * nc * nc, deviceMemcpyHostToDevice);
 
                 d_P_use = grad_ws.d_P_cart;
                 d_W_use = grad_ws.d_W_cart;
@@ -196,10 +191,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
         {
             // 非球谐基: 需要计算 P_cart = P .* (norms * norms')
             const int nc2 = mol.nao_cart * mol.nao_cart;
-            Launch_Device_Kernel(QC_Weight_By_Norms_Kernel,
-                                 (nc2 + 255) / 256, 256, 0, 0,
-                                 mol.nao_cart, scf_ws.direct.d_P_coul,
-                                 scf_ws.ortho.d_norms, grad_ws.d_P_cart);
+            Launch_Device_Kernel(QC_Weight_By_Norms_Kernel, (nc2 + 255) / 256,
+                                 256, 0, 0, mol.nao_cart,
+                                 scf_ws.direct.d_P_coul, scf_ws.ortho.d_norms,
+                                 grad_ws.d_P_cart);
         }
         // 球谐基: grad_ws.d_P_cart 已在 1e 梯度中填充
         QC_Compute_ECP_Gradient(mol, task_ctx, grad_ws.d_shell_atom,
@@ -220,10 +215,10 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     else
     {
 #ifndef USE_GPU
-        QC_Build_ERI_Gradient_CPU(
-            task_ctx, mol, cart2sph, scf_ws, dft.exx_fraction,
-            grad_shell_screen_tol, grad_prim_screen_tol,
-            grad_ws.d_shell_atom, grad_ws.d_grad);
+        QC_Build_ERI_Gradient_CPU(task_ctx, mol, cart2sph, scf_ws,
+                                  dft.exx_fraction, grad_shell_screen_tol,
+                                  grad_prim_screen_tol, grad_ws.d_shell_atom,
+                                  grad_ws.d_grad);
 #else
         // GPU ERI gradient: reuse screening infrastructure, launch gradient
         // kernel
@@ -330,16 +325,14 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                         task_ctx.topo.h_combos[ci].output_offset;
                     const int max_blocks_pool =
                         grad_ws.grad_gamma_pool_slots / threads;
-                    const int blocks =
-                        std::min({QC_GRAD_GAMMA_POOL_BLOCKS,
-                                  (n + threads - 1) / threads,
-                                  max_blocks_pool});
+                    const int blocks = std::min({QC_GRAD_GAMMA_POOL_BLOCKS,
+                                                 (n + threads - 1) / threads,
+                                                 max_blocks_pool});
 
                     Launch_Device_Kernel(
                         QC_ERI_Grad_Kernel, blocks, threads, 0, 0, n, d_tasks,
-                        mol.d_atm, mol.d_bas,
-                        mol.d_env, mol.d_ao_offsets, mol.d_ao_offsets_sph,
-                        scf_ws.ortho.d_norms,
+                        mol.d_atm, mol.d_bas, mol.d_env, mol.d_ao_offsets,
+                        mol.d_ao_offsets_sph, scf_ws.ortho.d_norms,
                         task_ctx.buffers.d_shell_pair_bounds,
                         scf_ws.direct.d_pair_density_coul,
                         scf_ws.direct.d_pair_density_exx,
@@ -352,9 +345,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                                                     : (const float*)nullptr,
                         exx_a, exx_b, nao, mol.nao_sph, mol.is_spherical,
                         cart2sph.d_cart2sph_mat, grad_ws.d_grad_gamma_pool,
-                        gamma_buf_size, grad_ws.d_shell_atom,
-                        s_d_grad_copies, N_GRAD_COPIES, natm,
-                        grad_prim_screen_tol);
+                        gamma_buf_size, grad_ws.d_shell_atom, s_d_grad_copies,
+                        N_GRAD_COPIES, natm, grad_prim_screen_tol);
                 }
 
                 // 4. Reduce gradient copies
@@ -393,7 +385,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
     const int nao2 = mol.nao2;
     const int naux = ri.naux;
 
-    // ---- 下载两种模式共用的数据 ----
+    // 下载两种模式共用的数据
     std::vector<double> h_metric_inv_sqrt((size_t)naux * naux);
     std::vector<float> h_P(nao2);
     std::vector<float> h_orb_norms(nao);
@@ -431,8 +423,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                                    const std::vector<double>& D3_eff)
     {
         QC_Launch_RI_Grad_Kernels(mol, ri, scf_ws.ortho.d_norms, grad_ws,
-                                   max_aux_cart, max_orb_cart, D2_eff,
-                                   D3_eff);
+                                  max_aux_cart, max_orb_cart, D2_eff, D3_eff);
     };
 
     if (ri.direct)
@@ -475,7 +466,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
                              sizeof(QC_RI_3C_TASK) * ri.naux_bas);
         const int threads = 256;
 
-        // ---- 辅助 lambda: 计算一个 shell pair 的 block_sph ----
+        // 辅助 lambda: 计算一个 shell pair 的 block_sph
         // 复用 cart2sph + 归一化逻辑
         auto compute_block_sph = [&](int mu_sh, int nu_sh, int dmc, int dnc,
                                      int dms, int dns, int off_mu_s,
@@ -562,7 +553,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             }
         };
 
-        // ---- Pass 1: 累积 d_vec 和 B_occ, 同时缓存 3c 积分块 ----
+        // Pass 1: 累积 d_vec 和 B_occ, 同时缓存 3c 积分块
         std::vector<double> h_d_vec(naux, 0.0);
         std::vector<double> h_B_occ_d((size_t)M * nocc, 0.0);
 
@@ -654,7 +645,7 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
             for (int Q = 0; Q < naux; Q++)
                 h_g[P] += h_metric_inv[(size_t)P * naux + Q] * h_d_vec[Q];
 
-        // ---- Pass 2 (仅 EXX): 累积 Z_K (复用缓存的 3c 积分块) ----
+        // Pass 2 (仅 EXX): 累积 Z_K (复用缓存的 3c 积分块)
         std::vector<double> h_Z_K;
         if (need_exx && nocc > 0)
         {

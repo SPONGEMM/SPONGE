@@ -372,7 +372,6 @@ void QUANTUM_CHEMISTRY::Prepare_Integrals()
                          scf_ws.ortho.d_norms, scf_ws.core.d_S, scf_ws.core.d_T,
                          scf_ws.core.d_V, scf_ws.core.d_V_ECP,
                          scf_ws.core.d_H_core);
-
 }
 
 // 重叠正交化矩阵

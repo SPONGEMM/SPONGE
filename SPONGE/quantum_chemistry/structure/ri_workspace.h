@@ -22,7 +22,7 @@ struct QC_RI_WORKSPACE
     };
     DF_MODE mode = DF_AUTO;
 
-    // ---- 辅助基组信息 ----
+    // 辅助基组信息
     int naux = 0;       // 辅助基函数总数（球谐）
     int naux_cart = 0;  // 辅助基函数总数（笛卡尔）
     int naux_bas = 0;   // 辅助壳层总数
@@ -54,16 +54,16 @@ struct QC_RI_WORKSPACE
     std::vector<float> h_aux_norms;
     float* d_aux_norms = NULL;
 
-    // ---- 二中心 metric (P|Q) 及其分解（两种模式均存储） ----
+    // 二中心 metric (P|Q) 及其分解（两种模式均存储）
     double* d_metric = NULL;           // [naux × naux] 对称
     double* d_metric_inv = NULL;       // [naux × naux] (P|Q)^{-1} (RI-J)
     double* d_metric_inv_sqrt = NULL;  // [naux × naux] (P|Q)^{-1/2} (RI-K)
 
-    // ---- stored 模式专用 ----
+    // stored 模式专用
     double* d_eri3c = NULL;  // [naux × nao × nao] double（仅 stored）
     float* d_B = NULL;       // [naux × nao × nao] float（仅 stored）
 
-    // ---- 每轮迭代 scratch ----
+    // 每轮迭代 scratch
     double* d_d_vec = NULL;  // [naux] 密度拟合向量
     double* d_g_vec = NULL;  // [naux] 求解后的拟合系数
     float* d_B_occ = NULL;   // [naux × nao × nocc] B 与 MO 系数收缩
@@ -75,18 +75,18 @@ struct QC_RI_WORKSPACE
     float* d_K_scratch = NULL;  // [nao²] RI-K exchange 累加缓冲
     float* d_B_flat = NULL;     // [nao × naux × nocc] RI-K 重排缓冲
 
-    // ---- 辅助基 cart2sph（host，用于在线变换） ----
+    // 辅助基 cart2sph（host，用于在线变换）
     std::vector<float> h_U_aux;  // [naux_cart × naux] 行优先
     std::vector<float> h_U_orb;  // [nao_cart × nao] 行优先
 
-    // ---- 特征分解数据（梯度用 D2_K Daleckii-Kreĭn 公式） ----
+    // 特征分解数据（梯度用 D2_K Daleckii-Kreĭn 公式）
     std::vector<double> h_eigval;  // [naux] metric 特征值
     std::vector<double> h_eigvec;  // [naux × naux] 列优先特征向量
 
-    // ---- 内存管理 ----
+    // 内存管理
     int naux_eff = 0;  // 去除线性依赖后的有效辅助基维度
 
-    // ---- 辅助基 atm/bas/env（积分内核用，同 PySCF 格式） ----
+    // 辅助基 atm/bas/env（积分内核用，同 PySCF 格式）
     std::vector<int> h_aux_atm;
     int* d_aux_atm = NULL;
     std::vector<int> h_aux_bas;

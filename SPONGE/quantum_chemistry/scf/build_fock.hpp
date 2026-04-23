@@ -18,7 +18,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
 
     if (dft.enable_dft) Build_DFT_VXC();
 
-    // ---- Incremental Fock decision ----
+    // Incremental Fock decision
     // iter < 2: full P (SAP→SCF transition has huge ΔP, poor screening)
     // iter >= 2: ΔP = P - P_prev for better screening
     const bool use_incremental = (iter >= 2);
@@ -103,7 +103,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
             scf_ws.beta.d_F_double[i] = (double)scf_ws.beta.d_F[i];
 #endif
 
-    // ---- Pair density screening ----
+    // Pair density screening
 #ifdef USE_GPU
     float* d_F_build = scf_ws.alpha.d_F;
     float* d_F_b_build = unrestricted ? scf_ws.beta.d_F : (float*)nullptr;
@@ -138,7 +138,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     const float prim_screen_tol = QC_Effective_Prim_Screen_Tol(
         task_ctx.params.direct_eri_prim_screen_tol, iter);
 
-    // ---- ERI Fock build ----
+    // ERI Fock build
 #ifdef USE_GPU
     QC_Build_Fock_Direct_GPU(
         task_ctx, mol.d_atm, mol.d_bas, mol.d_env, mol.d_ao_offsets,
@@ -210,7 +210,7 @@ void QUANTUM_CHEMISTRY::Build_Fock(int iter)
     }
 #endif
 
-    // ---- Restore P from ΔP and save P_prev (device-agnostic) ----
+    // Restore P from ΔP and save P_prev (device-agnostic)
     if (use_incremental)
     {
         QC_Add_Matrix(total, scf_ws.direct.d_P_coul,

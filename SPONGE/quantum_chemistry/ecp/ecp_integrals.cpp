@@ -1,4 +1,4 @@
-// ECP 积分求值 (Type-1 local + Type-2 semi-local)
+﻿// ECP 积分求值 (Type-1 local + Type-2 semi-local)
 //
 // Type-1 (local, n_k=2): 三中心 Gaussian overlap — 无需 Boys 函数
 // Type-2 (semi-local): factored angular projection at ECP center
@@ -31,37 +31,37 @@ static __device__ const float c_l0[1][1] = {
 // Cart: x(1,0,0), y(0,1,0), z(0,0,1)
 // Sph: m=-1(y), m=0(z), m=+1(x)
 static __device__ const float c_l1[3][3] = {
-    {0.0f, 0.0f, 2.04665342f},   // x → Y_{1,+1}
-    {2.04665342f, 0.0f, 0.0f},   // y → Y_{1,-1}
-    {0.0f, 2.04665342f, 0.0f}    // z → Y_{1,0}
+    {0.0f, 0.0f, 2.04665342f},  // x → Y_{1,+1}
+    {2.04665342f, 0.0f, 0.0f},  // y → Y_{1,-1}
+    {0.0f, 2.04665342f, 0.0f}   // z → Y_{1,0}
 };
 
 // l=2: d → Y_{2m}
 // Cart: xx, xy, xz, yy, yz, zz
 // Sph: m=-2,-1,0,+1,+2
 static __device__ const float c_l2[6][5] = {
-    {0.0f, 0.0f, -0.52844364f, 0.0f,  0.91529123f},   // xx
-    {0.91529123f, 0.0f,  0.0f, 0.0f,  0.0f},           // xy
-    {0.0f, 0.0f,  0.0f, 0.91529123f,  0.0f},           // xz
-    {0.0f, 0.0f, -0.52844364f, 0.0f, -0.91529123f},    // yy
-    {0.0f, 0.91529123f,  0.0f, 0.0f,  0.0f},           // yz
-    {0.0f, 0.0f,  1.05688728f, 0.0f,  0.0f}            // zz
+    {0.0f, 0.0f, -0.52844364f, 0.0f, 0.91529123f},   // xx
+    {0.91529123f, 0.0f, 0.0f, 0.0f, 0.0f},           // xy
+    {0.0f, 0.0f, 0.0f, 0.91529123f, 0.0f},           // xz
+    {0.0f, 0.0f, -0.52844364f, 0.0f, -0.91529123f},  // yy
+    {0.0f, 0.91529123f, 0.0f, 0.0f, 0.0f},           // yz
+    {0.0f, 0.0f, 1.05688728f, 0.0f, 0.0f}            // zz
 };
 
 // l=3: f → Y_{3m}
 // Cart: xxx, xxy, xxz, xyy, xyz, xzz, yyy, yyz, yzz, zzz
 // Sph: m=-3,-2,-1,0,+1,+2,+3
 static __device__ const float c_l3[10][7] = {
-    {0.0f, 0.0f, 0.0f, 0.0f, -0.32819468f, 0.0f, 0.42369751f},       // xxx
-    {0.42369751f, 0.0f, -0.10939823f, 0.0f, 0.0f, 0.0f, 0.0f},       // xxy
-    {0.0f, 0.0f, 0.0f, -0.26796983f, 0.0f, 0.34594757f, 0.0f},       // xxz
-    {0.0f, 0.0f, 0.0f, 0.0f, -0.10939823f, 0.0f, -0.42369751f},      // xyy
-    {0.0f, 0.34594757f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},               // xyz
-    {0.0f, 0.0f, 0.0f, 0.0f, 0.43759291f, 0.0f, 0.0f},               // xzz
-    {-0.42369751f, 0.0f, -0.32819468f, 0.0f, 0.0f, 0.0f, 0.0f},      // yyy
-    {0.0f, 0.0f, 0.0f, -0.26796983f, 0.0f, -0.34594757f, 0.0f},      // yyz
-    {0.0f, 0.0f, 0.43759291f, 0.0f, 0.0f, 0.0f, 0.0f},               // yzz
-    {0.0f, 0.0f, 0.0f, 0.53593967f, 0.0f, 0.0f, 0.0f}                // zzz
+    {0.0f, 0.0f, 0.0f, 0.0f, -0.32819468f, 0.0f, 0.42369751f},   // xxx
+    {0.42369751f, 0.0f, -0.10939823f, 0.0f, 0.0f, 0.0f, 0.0f},   // xxy
+    {0.0f, 0.0f, 0.0f, -0.26796983f, 0.0f, 0.34594757f, 0.0f},   // xxz
+    {0.0f, 0.0f, 0.0f, 0.0f, -0.10939823f, 0.0f, -0.42369751f},  // xyy
+    {0.0f, 0.34594757f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f},           // xyz
+    {0.0f, 0.0f, 0.0f, 0.0f, 0.43759291f, 0.0f, 0.0f},           // xzz
+    {-0.42369751f, 0.0f, -0.32819468f, 0.0f, 0.0f, 0.0f, 0.0f},  // yyy
+    {0.0f, 0.0f, 0.0f, -0.26796983f, 0.0f, -0.34594757f, 0.0f},  // yyz
+    {0.0f, 0.0f, 0.43759291f, 0.0f, 0.0f, 0.0f, 0.0f},           // yzz
+    {0.0f, 0.0f, 0.0f, 0.53593967f, 0.0f, 0.0f, 0.0f}            // zzz
 };
 
 // ECP 径向积分
@@ -78,10 +78,12 @@ static __device__ float double_factorial(int n)
 
 // Type-1 Local 积分 (n_k=2)
 // ⟨μ|d_k exp(-ζ_k r_C²)|ν⟩ — 三中心 Gaussian overlap, 无投影算子
-static __device__ float ecp_local_n2(
-    float ei, float ej, float Ax, float Ay, float Az, float Bx, float By,
-    float Bz, float Cx, float Cy, float Cz, float dist_sq_AB, float zeta,
-    int lx_i, int ly_i, int lz_i, int lx_j, int ly_j, int lz_j)
+static __device__ float ecp_local_n2(float ei, float ej, float Ax, float Ay,
+                                     float Az, float Bx, float By, float Bz,
+                                     float Cx, float Cy, float Cz,
+                                     float dist_sq_AB, float zeta, int lx_i,
+                                     int ly_i, int lz_i, int lx_j, int ly_j,
+                                     int lz_j)
 {
     const float g = ei + ej;
     const float Kab = expf(-ei * ej / g * dist_sq_AB);
@@ -92,8 +94,8 @@ static __device__ float ecp_local_n2(
     const float Pz = (ei * Az + ej * Bz) / g;
 
     const float eta = g + zeta;
-    const float PC2 = (Px - Cx) * (Px - Cx) + (Py - Cy) * (Py - Cy) +
-                      (Pz - Cz) * (Pz - Cz);
+    const float PC2 =
+        (Px - Cx) * (Px - Cx) + (Py - Cy) * (Py - Cy) + (Pz - Cz) * (Pz - Cz);
     const float Kpc = expf(-g * zeta / eta * PC2);
 
     const float Qx = (g * Px + zeta * Cx) / eta;
@@ -109,8 +111,7 @@ static __device__ float ecp_local_n2(
     const float oy = E_y[ly_i][ly_j][0];
     const float oz = E_z[lz_i][lz_j][0];
 
-    const float pi_over_eta_32 =
-        sqrtf(CONSTANT_Pi / eta) * (CONSTANT_Pi / eta);
+    const float pi_over_eta_32 = sqrtf(CONSTANT_Pi / eta) * (CONSTANT_Pi / eta);
 
     return Kab * Kpc * ox * oy * oz * pi_over_eta_32;
 }
@@ -139,9 +140,9 @@ static __device__ float get_c_lm(int l, int cart_idx, int m_idx)
 
 // f_p 系数 (单方向): 基函数在 ECP 中心展开后 (r-C)^p 的权重
 // d_pow[k] = (C_d - A_d)^k, t_pow[k] = (-2α(C_d-A_d))^k
-static __device__ void compute_fp_1d(
-    int ecp_l, int l_xyz, const float* d_pow, const float* t_pow,
-    const float binom[][5], const float inv_fact[], float* f_out)
+static __device__ void compute_fp_1d(int ecp_l, int l_xyz, const float* d_pow,
+                                     const float* t_pow, const float binom[][5],
+                                     const float inv_fact[], float* f_out)
 {
     for (int p = 0; p <= ecp_l; p++)
     {
@@ -154,10 +155,12 @@ static __device__ void compute_fp_1d(
     }
 }
 
-static __device__ float ecp_semilocal_n2(
-    float ei, float ej, float Ax, float Ay, float Az, float Bx, float By,
-    float Bz, float Cx, float Cy, float Cz, float zeta,
-    int lx_i, int ly_i, int lz_i, int lx_j, int ly_j, int lz_j, int ecp_l)
+static __device__ float ecp_semilocal_n2(float ei, float ej, float Ax, float Ay,
+                                         float Az, float Bx, float By, float Bz,
+                                         float Cx, float Cy, float Cz,
+                                         float zeta, int lx_i, int ly_i,
+                                         int lz_i, int lx_j, int ly_j, int lz_j,
+                                         int ecp_l)
 {
     // 基函数中心到 ECP 中心的位移 d = C - A (或 C - B)
     const float dAx = Cx - Ax, dAy = Cy - Ay, dAz = Cz - Az;
@@ -173,12 +176,14 @@ static __device__ float ecp_semilocal_n2(
     const float eta = ei + ej + zeta;
 
     // 二项式系数 C(n,k), n ≤ 4
-    static __device__ const float binom[5][5] = {
-        {1, 0, 0, 0, 0}, {1, 1, 0, 0, 0}, {1, 2, 1, 0, 0},
-        {1, 3, 3, 1, 0}, {1, 4, 6, 4, 1}};
+    static __device__ const float binom[5][5] = {{1, 0, 0, 0, 0},
+                                                 {1, 1, 0, 0, 0},
+                                                 {1, 2, 1, 0, 0},
+                                                 {1, 3, 3, 1, 0},
+                                                 {1, 4, 6, 4, 1}};
     // 1/k!, k ≤ 4
-    static __device__ const float inv_fact[5] = {1.0f, 1.0f, 0.5f,
-                                                  1.0f / 6.0f, 1.0f / 24.0f};
+    static __device__ const float inv_fact[5] = {1.0f, 1.0f, 0.5f, 1.0f / 6.0f,
+                                                 1.0f / 24.0f};
 
     // f_p 系数: 基函数在 ECP 中心 C 展开后 (r-C)^p 方向的权重
     // 数组大小 4 支持 ecp_l ≤ 3 (覆盖 def2-ECP/LANL2DZ 所有通道)
@@ -239,8 +244,7 @@ static __device__ float ecp_semilocal_n2(
 
     // 角动量求和: Σ_m B̃_m^μ × B̃_m^ν
     float angular_sum = 0.0f;
-    for (int m = 0; m < n_sph; m++)
-        angular_sum += Bi[m] * Bj[m];
+    for (int m = 0; m < n_sph; m++) angular_sum += Bi[m] * Bj[m];
 
     // 径向积分: R_l(η) = (2l+1)!! √π / (2^{l+2} η^{l+3/2})
     float R_l = double_factorial(ecp_l + 1) * sqrtf(CONSTANT_Pi);
@@ -254,8 +258,8 @@ static __device__ float ecp_semilocal_n2(
 }
 
 // 找到 local channel (l == l_max 或 l < 0)
-static __device__ int find_local_channel(
-    int ch_start, int ch_end, int l_max, const int* ecp_channel_l)
+static __device__ int find_local_channel(int ch_start, int ch_end, int l_max,
+                                         const int* ecp_channel_l)
 {
     for (int ich = ch_start; ich < ch_end; ich++)
     {
@@ -316,8 +320,8 @@ static __global__ void ECP_Kernel(
                     const int ch_start = ecp_atom_channel_range[iat];
                     const int ch_end = ecp_atom_channel_range[iat + 1];
 
-                    int local_ch = find_local_channel(
-                        ch_start, ch_end, l_max, ecp_channel_l);
+                    int local_ch = find_local_channel(ch_start, ch_end, l_max,
+                                                      ecp_channel_l);
 
                     for (int pi = 0; pi < shell_sizes[i_sh]; pi++)
                     {
@@ -326,8 +330,7 @@ static __global__ void ECP_Kernel(
 
                         for (int pj = 0; pj < shell_sizes[j_sh]; pj++)
                         {
-                            const float ej =
-                                exps_arr[shell_offsets[j_sh] + pj];
+                            const float ej = exps_arr[shell_offsets[j_sh] + pj];
                             const float cj =
                                 coeffs_arr[shell_offsets[j_sh] + pj];
                             const float cc = ci * cj;
@@ -335,10 +338,8 @@ static __global__ void ECP_Kernel(
                             // 1. Local 贡献: ⟨μ|U_L|ν⟩ (无投影)
                             if (local_ch >= 0)
                             {
-                                const int t_off =
-                                    ecp_channel_offsets[local_ch];
-                                const int t_cnt =
-                                    ecp_channel_sizes[local_ch];
+                                const int t_off = ecp_channel_offsets[local_ch];
+                                const int t_cnt = ecp_channel_sizes[local_ch];
                                 for (int it = 0; it < t_cnt; it++)
                                 {
                                     const float dk = ecp_d[t_off + it];
@@ -347,9 +348,9 @@ static __global__ void ECP_Kernel(
                                     if (nk != 2) continue;
 
                                     float val = ecp_local_n2(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                        Cy, Cz, dist_sq, zk, lx_i, ly_i,
-                                        lz_i, lx_j, ly_j, lz_j);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, dist_sq, zk, lx_i, ly_i, lz_i, lx_j,
+                                        ly_j, lz_j);
                                     total_ecp += cc * dk * val;
                                 }
                             }
@@ -372,9 +373,9 @@ static __global__ void ECP_Kernel(
                                     if (nk != 2) continue;
 
                                     float val = ecp_semilocal_n2(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx,
-                                        Cy, Cz, zk, lx_i, ly_i,
-                                        lz_i, lx_j, ly_j, lz_j, ch_l);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, zk, lx_i, ly_i, lz_i, lx_j, ly_j,
+                                        lz_j, ch_l);
                                     total_ecp += cc * dk * val;
                                 }
                             }
@@ -391,8 +392,8 @@ static __global__ void ECP_Kernel(
 }
 
 // ECP 积分驱动
-void QC_Compute_V_ECP(const QC_MOLECULE& mol,
-                      const QC_INTEGRAL_TASKS& task_ctx, float* d_V_ECP)
+void QC_Compute_V_ECP(const QC_MOLECULE& mol, const QC_INTEGRAL_TASKS& task_ctx,
+                      float* d_V_ECP)
 {
     if (!mol.has_ecp || mol.ecp_total_terms == 0) return;
 
@@ -435,8 +436,7 @@ static __device__ float ecp_integral_for_term(
                             lz_j);
     else
         return ecp_semilocal_n2(ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy, Cz,
-                                zeta, lx_i, ly_i, lz_i, lx_j,
-                                ly_j, lz_j, ch_l);
+                                zeta, lx_i, ly_i, lz_i, lx_j, ly_j, lz_j, ch_l);
 }
 
 static __global__ void ECP_Grad_Kernel(
@@ -494,8 +494,8 @@ static __global__ void ECP_Grad_Kernel(
                     const int ch_start = ecp_atom_channel_range[iat];
                     const int ch_end = ecp_atom_channel_range[iat + 1];
 
-                    int local_ch = find_local_channel(
-                        ch_start, ch_end, l_max, ecp_channel_l);
+                    int local_ch = find_local_channel(ch_start, ch_end, l_max,
+                                                      ecp_channel_l);
 
                     // 对每个 primitive pair 累积梯度
                     for (int pi = 0; pi < shell_sizes[i_sh]; pi++)
@@ -504,8 +504,7 @@ static __global__ void ECP_Grad_Kernel(
                         const float ci = coeffs_arr[shell_offsets[i_sh] + pi];
                         for (int pj = 0; pj < shell_sizes[j_sh]; pj++)
                         {
-                            const float ej =
-                                exps_arr[shell_offsets[j_sh] + pj];
+                            const float ej = exps_arr[shell_offsets[j_sh] + pj];
                             const float cj =
                                 coeffs_arr[shell_offsets[j_sh] + pj];
                             const float cc = ci * cj;
@@ -517,8 +516,7 @@ static __global__ void ECP_Grad_Kernel(
                             int l_j[3] = {lx_j, ly_j, lz_j};
 
                             auto accumulate_grad =
-                                [&](float dk, float zk, int ch_l,
-                                    bool is_local)
+                                [&](float dk, float zk, int ch_l, bool is_local)
                             {
                                 double cdk = (double)(cc * dk);
 
@@ -530,55 +528,43 @@ static __global__ void ECP_Grad_Kernel(
                                     int orig_i = l_i[d];
                                     l_i[d] = orig_i + 1;
                                     float vp = ecp_integral_for_term(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
-                                        Cx, Cy, Cz, dist_sq, zk,
-                                        l_i[0], l_i[1], l_i[2],
-                                        l_j[0], l_j[1], l_j[2],
-                                        ch_l, is_local);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, dist_sq, zk, l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2], ch_l, is_local);
                                     l_i[d] = orig_i - 1;
                                     float vm = ecp_integral_for_term(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
-                                        Cx, Cy, Cz, dist_sq, zk,
-                                        l_i[0], l_i[1], l_i[2],
-                                        l_j[0], l_j[1], l_j[2],
-                                        ch_l, is_local);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, dist_sq, zk, l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2], ch_l, is_local);
                                     l_i[d] = orig_i;
-                                    dV_A[d] += cdk * (2.0 * (double)ei *
-                                                          (double)vp -
-                                                      (double)orig_i *
-                                                          (double)vm);
+                                    dV_A[d] +=
+                                        cdk * (2.0 * (double)ei * (double)vp -
+                                               (double)orig_i * (double)vm);
 
                                     // ket 导数
                                     int orig_j = l_j[d];
                                     l_j[d] = orig_j + 1;
                                     vp = ecp_integral_for_term(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
-                                        Cx, Cy, Cz, dist_sq, zk,
-                                        l_i[0], l_i[1], l_i[2],
-                                        l_j[0], l_j[1], l_j[2],
-                                        ch_l, is_local);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, dist_sq, zk, l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2], ch_l, is_local);
                                     l_j[d] = orig_j - 1;
                                     vm = ecp_integral_for_term(
-                                        ei, ej, Ax, Ay, Az, Bx, By, Bz,
-                                        Cx, Cy, Cz, dist_sq, zk,
-                                        l_i[0], l_i[1], l_i[2],
-                                        l_j[0], l_j[1], l_j[2],
-                                        ch_l, is_local);
+                                        ei, ej, Ax, Ay, Az, Bx, By, Bz, Cx, Cy,
+                                        Cz, dist_sq, zk, l_i[0], l_i[1], l_i[2],
+                                        l_j[0], l_j[1], l_j[2], ch_l, is_local);
                                     l_j[d] = orig_j;
-                                    dV_B[d] += cdk * (2.0 * (double)ej *
-                                                          (double)vp -
-                                                      (double)orig_j *
-                                                          (double)vm);
+                                    dV_B[d] +=
+                                        cdk * (2.0 * (double)ej * (double)vp -
+                                               (double)orig_j * (double)vm);
                                 }
                             };
 
                             // Local 通道
                             if (local_ch >= 0)
                             {
-                                const int t_off =
-                                    ecp_channel_offsets[local_ch];
-                                const int t_cnt =
-                                    ecp_channel_sizes[local_ch];
+                                const int t_off = ecp_channel_offsets[local_ch];
+                                const int t_cnt = ecp_channel_sizes[local_ch];
                                 for (int it = 0; it < t_cnt; it++)
                                 {
                                     if (ecp_n_arr[t_off + it] != 2) continue;
@@ -599,8 +585,8 @@ static __global__ void ECP_Grad_Kernel(
                                 {
                                     if (ecp_n_arr[t_off + it] != 2) continue;
                                     accumulate_grad(ecp_d[t_off + it],
-                                                    ecp_zeta[t_off + it],
-                                                    ch_l, false);
+                                                    ecp_zeta[t_off + it], ch_l,
+                                                    false);
                                 }
                             }
 
@@ -623,8 +609,7 @@ static __global__ void ECP_Grad_Kernel(
 }
 
 // 球谐→笛卡尔密度变换
-void QC_Sph2Cart_Density_Host(int ns, int nc,
-                              const std::vector<float>& h_norms,
+void QC_Sph2Cart_Density_Host(int ns, int nc, const std::vector<float>& h_norms,
                               const std::vector<float>& h_C,
                               const std::vector<float>& h_M_sph,
                               std::vector<float>& h_M_cart)
@@ -661,8 +646,8 @@ void QC_Sph2Cart_Density_Host(int ns, int nc,
 // ECP 梯度驱动
 void QC_Compute_ECP_Gradient(const QC_MOLECULE& mol,
                              const QC_INTEGRAL_TASKS& task_ctx,
-                             const int* d_shell_atom,
-                             const float* d_P_cart_eff, double* d_grad)
+                             const int* d_shell_atom, const float* d_P_cart_eff,
+                             double* d_grad)
 {
     if (!mol.has_ecp || mol.ecp_total_terms == 0) return;
 
@@ -675,15 +660,13 @@ void QC_Compute_ECP_Gradient(const QC_MOLECULE& mol,
         int current_chunk = std::min(chunk_size, n_total - i);
         const QC_ONE_E_TASK* task_ptr = task_ctx.buffers.d_1e_tasks + i;
         Launch_Device_Kernel(
-            ECP_Grad_Kernel, (current_chunk + 63) / 64, 64, 0, 0,
-            current_chunk, task_ptr, mol.d_centers, mol.d_l_list, mol.d_exps,
-            mol.d_coeffs, mol.d_shell_offsets, mol.d_shell_sizes,
-            mol.d_ao_offsets,
+            ECP_Grad_Kernel, (current_chunk + 63) / 64, 64, 0, 0, current_chunk,
+            task_ptr, mol.d_centers, mol.d_l_list, mol.d_exps, mol.d_coeffs,
+            mol.d_shell_offsets, mol.d_shell_sizes, mol.d_ao_offsets,
             mol.d_atom_coords, mol.natm, mol.d_ecp_l_max,
             mol.d_ecp_atom_channel_range, mol.d_ecp_l,
             mol.d_ecp_channel_offsets, mol.d_ecp_channel_sizes, mol.d_ecp_d,
-            mol.d_ecp_zeta, mol.d_ecp_n,
-            nao_cart, d_shell_atom, d_P_cart_eff,
+            mol.d_ecp_zeta, mol.d_ecp_n, nao_cart, d_shell_atom, d_P_cart_eff,
             d_grad);
     }
 }
