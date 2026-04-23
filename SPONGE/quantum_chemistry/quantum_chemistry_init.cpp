@@ -637,7 +637,12 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         }
 
         // ECP: 用有效核电荷替代全电荷
-        if (ecp_set)
+        // auto 模式下按基组规范过滤（def2-ECP 只对 Z>=37 生效）
+        const bool apply_ecp =
+            ecp_set &&
+            (ecp_name != "auto" ||
+             QC_Auto_ECP_Applies(basis_set_name.c_str(), Z));
+        if (apply_ecp)
         {
             auto it_ecp = ecp_set->data.find(atom_symbols[i]);
             if (it_ecp != ecp_set->data.end())
