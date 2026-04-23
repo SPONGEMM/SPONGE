@@ -1298,6 +1298,16 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         deviceMemcpy(grad_ws.d_shell_atom_aux, h_shell_atom_aux.data(),
                      sizeof(int) * ri.naux_bas, deviceMemcpyHostToDevice);
     }
+    // GPU ERI 梯度持久化缓冲 (combo 前缀 + gradient 多副本累加)
+    {
+        const int cp_size = task_ctx.topo.n_combos + 1;
+        Device_Malloc_Safely((void**)&grad_ws.d_combo_prefix_grad,
+                             sizeof(int) * cp_size);
+        const size_t copies_elems =
+            (size_t)QC_GRAD_N_COPIES * (size_t)(mol.natm * 3);
+        Device_Malloc_Safely((void**)&grad_ws.d_grad_copies,
+                             sizeof(double) * copies_elems);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)

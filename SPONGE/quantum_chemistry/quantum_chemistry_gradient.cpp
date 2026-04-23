@@ -247,17 +247,8 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
             deviceMemset(task_ctx.buffers.d_screen_counts, 0,
                          sizeof(int) * task_ctx.topo.n_combos);
 
-            static int* s_d_combo_prefix_grad = NULL;
-            static int s_combo_prefix_grad_size = 0;
             const int cp_needed = task_ctx.topo.n_combos + 1;
-            if (!s_d_combo_prefix_grad || s_combo_prefix_grad_size < cp_needed)
-            {
-                if (s_d_combo_prefix_grad) deviceFree(s_d_combo_prefix_grad);
-                Device_Malloc_Safely((void**)&s_d_combo_prefix_grad,
-                                     sizeof(int) * cp_needed);
-                s_combo_prefix_grad_size = cp_needed;
-            }
-            deviceMemcpy(s_d_combo_prefix_grad,
+            deviceMemcpy(grad_ws.d_combo_prefix_grad,
                          (void*)task_ctx.topo.combo_prefix,
                          sizeof(int) * cp_needed, deviceMemcpyHostToDevice);
 
@@ -269,7 +260,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
 
             QC_Launch_Screen(
                 task_ctx.topo.total_quartets, task_ctx.buffers.d_combos,
-                s_d_combo_prefix_grad, task_ctx.topo.n_combos,
+                grad_ws.d_combo_prefix_grad, task_ctx.topo.n_combos,
                 task_ctx.buffers.d_sorted_pair_ids,
                 task_ctx.buffers.d_shell_pairs,
                 task_ctx.buffers.d_shell_pair_bounds,
@@ -295,21 +286,11 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
 
             if (total_screened > 0)
             {
-                // 2. Allocate multi-copy gradient buffer
-                const int N_GRAD_COPIES = 64;
-                static double* s_d_grad_copies = NULL;
-                static int s_grad_copies_size = 0;
+                // 2. 清零多副本梯度缓冲 (在 Memory_Allocate 中已预分配)
                 const int grad_size = natm * 3;
                 const size_t copies_needed =
-                    (size_t)N_GRAD_COPIES * (size_t)grad_size;
-                if (!s_d_grad_copies || s_grad_copies_size < grad_size)
-                {
-                    if (s_d_grad_copies) deviceFree(s_d_grad_copies);
-                    Device_Malloc_Safely((void**)&s_d_grad_copies,
-                                         sizeof(double) * copies_needed);
-                    s_grad_copies_size = grad_size;
-                }
-                deviceMemset(s_d_grad_copies, 0,
+                    (size_t)QC_GRAD_N_COPIES * (size_t)grad_size;
+                deviceMemset(grad_ws.d_grad_copies, 0,
                              sizeof(double) * copies_needed);
 
                 const int gamma_buf_size = grad_ws.grad_gamma_buf_size;
@@ -345,14 +326,16 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                                                     : (const float*)nullptr,
                         exx_a, exx_b, nao, mol.nao_sph, mol.is_spherical,
                         cart2sph.d_cart2sph_mat, grad_ws.d_grad_gamma_pool,
-                        gamma_buf_size, grad_ws.d_shell_atom, s_d_grad_copies,
-                        N_GRAD_COPIES, natm, grad_prim_screen_tol);
+                        gamma_buf_size, grad_ws.d_shell_atom,
+                        grad_ws.d_grad_copies, QC_GRAD_N_COPIES, natm,
+                        grad_prim_screen_tol);
                 }
 
                 // 4. Reduce gradient copies
                 Launch_Device_Kernel(QC_Reduce_Grad_Copies_Kernel,
                                      (grad_size + 255) / 256, 256, 0, 0,
-                                     grad_size, N_GRAD_COPIES, s_d_grad_copies,
+                                     grad_size, QC_GRAD_N_COPIES,
+                                     grad_ws.d_grad_copies,
                                      grad_ws.d_grad);
             }
         }
@@ -385,13 +368,10 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
     const int nao2 = mol.nao2;
     const int naux = ri.naux;
 
-    // 下载两种模式共用的数据
-    std::vector<double> h_metric_inv_sqrt((size_t)naux * naux);
+    // 复用 RI_Precompute 阶段缓存的 host metric
+    const std::vector<double>& h_metric_inv_sqrt = ri.h_metric_inv_sqrt;
     std::vector<float> h_P(nao2);
     std::vector<float> h_orb_norms(nao);
-
-    deviceMemcpy(h_metric_inv_sqrt.data(), ri.d_metric_inv_sqrt,
-                 sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
 
     const float* d_P_coul =
         scf_ws.runtime.unrestricted ? scf_ws.direct.d_Ptot : scf_ws.alpha.d_P;
@@ -433,10 +413,8 @@ void QUANTUM_CHEMISTRY::Build_RI_Gradient()
         //   Pass 2 (仅 EXX): 逐 shell pair 累积 Z_K
         //   内存: O(naux·nao·nocc) + O(naux²)，而非 O(naux·nao²)
 
-        // 下载额外数据
-        std::vector<double> h_metric_inv((size_t)naux * naux);
-        deviceMemcpy(h_metric_inv.data(), ri.d_metric_inv,
-                     sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
+        // 复用 RI_Precompute 阶段缓存
+        const std::vector<double>& h_metric_inv = ri.h_metric_inv;
 
         std::vector<float> h_C_occ;
         if (need_exx && nocc > 0)

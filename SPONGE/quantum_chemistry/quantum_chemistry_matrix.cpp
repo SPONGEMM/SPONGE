@@ -171,20 +171,18 @@ int QC_Diagonalize_Double_Workspace_Size(SOLVER_HANDLE solver_handle, int n,
     return 0;
 }
 
-static int* s_diag_d_info = NULL;
-
 void QC_Diagonalize_Double(SOLVER_HANDLE solver_handle, int n, double* mat,
                            double* w, double* work, int lwork, int* info)
 {
-    if (!s_diag_d_info)
-    {
-        Device_Malloc_Safely((void**)&s_diag_d_info, sizeof(int));
-    }
-    deviceMemset(s_diag_d_info, 0, sizeof(int));
+    // 1 int 的设备缓冲，直接 alloc/free 避免 function-local static 生命周期
+    int* d_info = NULL;
+    Device_Malloc_Safely((void**)&d_info, sizeof(int));
+    deviceMemset(d_info, 0, sizeof(int));
     deviceSolverDsyevd(solver_handle, DEVICE_EIG_MODE_VECTOR,
                        DEVICE_FILL_MODE_UPPER, n, mat, n, w, work, lwork,
-                       s_diag_d_info);
-    deviceMemcpy(info, s_diag_d_info, sizeof(int), deviceMemcpyDeviceToHost);
+                       d_info);
+    deviceMemcpy(info, d_info, sizeof(int), deviceMemcpyDeviceToHost);
+    deviceFree(d_info);
 }
 
 void QC_Dgemm_NN(BLAS_HANDLE handle, int m, int n, int k, const double* A,

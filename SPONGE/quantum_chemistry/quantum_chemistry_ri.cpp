@@ -536,6 +536,15 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
     QC_RI_Build_Metric_Inv(solver_handle, blas_handle, naux, ri.d_metric,
                            ri.d_metric_inv, ri.naux_eff);
 
+    // 缓存 metric_inv / inv_sqrt 到 host: 供 direct-mode Build_Fock 和
+    // RI 梯度复用，消除每轮 SCF 的 O(naux²) D2H 拷贝
+    ri.h_metric_inv.resize((size_t)naux * naux);
+    ri.h_metric_inv_sqrt.resize((size_t)naux * naux);
+    deviceMemcpy(ri.h_metric_inv.data(), ri.d_metric_inv,
+                 sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
+    deviceMemcpy(ri.h_metric_inv_sqrt.data(), ri.d_metric_inv_sqrt,
+                 sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
+
     // ---- 5. 构建 B 张量（仅 stored 模式）----
     if (!ri.direct)
     {
@@ -753,11 +762,9 @@ static void Build_Fock_RI_Direct(QUANTUM_CHEMISTRY* qc)
     std::vector<double> h_D(nao2);
     for (int i = 0; i < nao2; i++) h_D[i] = (double)h_D_f[i];
 
-    std::vector<double> h_inv(naux * naux), h_inv_sqrt(naux * naux);
-    deviceMemcpy(h_inv.data(), ri.d_metric_inv, sizeof(double) * naux * naux,
-                 deviceMemcpyDeviceToHost);
-    deviceMemcpy(h_inv_sqrt.data(), ri.d_metric_inv_sqrt,
-                 sizeof(double) * naux * naux, deviceMemcpyDeviceToHost);
+    // 复用 RI_Precompute 阶段缓存的 host metric (不随 SCF 迭代改变)
+    const std::vector<double>& h_inv = ri.h_metric_inv;
+    const std::vector<double>& h_inv_sqrt = ri.h_metric_inv_sqrt;
     std::vector<float> h_orb_norms(nao);
     deviceMemcpy(h_orb_norms.data(), scf_ws.ortho.d_norms, sizeof(float) * nao,
                  deviceMemcpyDeviceToHost);

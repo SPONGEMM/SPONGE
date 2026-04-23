@@ -83,6 +83,10 @@ struct QC_RI_WORKSPACE
     std::vector<double> h_eigval;  // [naux] metric 特征值
     std::vector<double> h_eigvec;  // [naux × naux] 列优先特征向量
 
+    // host 侧缓存: RI_Precompute 后不变，避免每轮 Build_Fock_RI_Direct D2H
+    std::vector<double> h_metric_inv;       // [naux × naux]
+    std::vector<double> h_metric_inv_sqrt;  // [naux × naux]
+
     // 内存管理
     int naux_eff = 0;  // 去除线性依赖后的有效辅助基维度
 
