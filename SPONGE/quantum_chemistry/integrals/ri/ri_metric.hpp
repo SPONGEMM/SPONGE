@@ -32,7 +32,6 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
         solver_handle, naux, d_inv_sqrt, d_eigval, &d_work, &lwork);
     if (stat != 0)
     {
-        printf("    [QC-RI] WARNING: eigensolver workspace failed: %d\n", stat);
         if (d_eigval) deviceFree(d_eigval);
         return 0;
     }
@@ -42,8 +41,6 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
                           lwork, &info);
     if (info != 0)
     {
-        printf("    [QC-RI] WARNING: eigendecomposition failed: info=%d\n",
-               info);
         if (d_work) deviceFree(d_work);
         if (d_eigval) deviceFree(d_eigval);
         return 0;
@@ -63,14 +60,6 @@ static int QC_RI_Build_Metric_InvSqrt(SOLVER_HANDLE solver_handle,
             break;
     }
     const int naux_eff = naux - n_skip;
-
-    if (n_skip > 0)
-    {
-        printf(
-            "    [QC-RI] Removed %d linearly dependent aux functions "
-            "(threshold=%.1e)\n",
-            n_skip, lindep_thresh);
-    }
 
     // 构建 (P|Q)^{-1/2} = V * V^T，其中 V[i,k] = U[i,k] * λ_k^{-1/4}
     double* d_V = NULL;

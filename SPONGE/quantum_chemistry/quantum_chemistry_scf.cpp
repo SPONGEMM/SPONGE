@@ -16,7 +16,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                                   bool need_energy, int md_step)
 {
     if (!is_initialized) return;
-    auto scf_t0 = std::chrono::high_resolution_clock::now();
 
     Update_Coordinates_From_MD(crd, box_length);
     if (dft.enable_dft) Update_DFT_Grid();
@@ -39,8 +38,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         need_initial_guess = false;
     }
 
-    auto scf_t1 = std::chrono::high_resolution_clock::now();
-
     // SCF 收敛策略: HF 和 DFT 使用不同的启动策略
     //
     // HF: DIIS 从 iter 2 开始，level shift 0.25（默认）
@@ -57,15 +54,10 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     double dft_ls = dft_warmup_ls;
     int stable_count = 0;
 
-    double t_fock = 0, t_energy = 0, t_diis = 0, t_diag = 0, t_conv = 0;
-    int n_iter = 0;
     for (int iter = 0; iter < scf_ws.runtime.max_scf_iter; ++iter)
     {
-        auto it0 = std::chrono::high_resolution_clock::now();
         Build_Fock(iter);
-        auto it1 = std::chrono::high_resolution_clock::now();
         Accumulate_SCF_Energy(iter);
-        auto it2 = std::chrono::high_resolution_clock::now();
 
         // 缓存 DIIS 前的 Fock 供梯度使用（避免梯度中重建 Fock）
         if (need_gradient && scf_ws.alpha.d_F_for_grad)
@@ -109,36 +101,10 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 scf_ws.runtime.level_shift = 0.25;
             }
         }
-        auto it3 = std::chrono::high_resolution_clock::now();
 
         Diagonalize_And_Build_Density();
-        auto it4 = std::chrono::high_resolution_clock::now();
-        bool done = Check_Convergence(iter, md_step);
-        // Check_Convergence 内部的 D2H 拷贝已提供隐式同步
-        auto it5 = std::chrono::high_resolution_clock::now();
-        auto ms = [](auto a, auto b)
-        { return std::chrono::duration<double, std::milli>(b - a).count(); };
-        double dt_fock = ms(it0, it1);
-        t_fock += dt_fock;
-        t_energy += ms(it1, it2);
-        t_diis += ms(it2, it3);
-        t_diag += ms(it3, it4);
-        t_conv += ms(it4, it5);
-        printf("      iter %d: Fock=%.1f ms\n", iter, dt_fock);
-        n_iter = iter + 1;
-        if (done) break;
+        if (Check_Convergence(iter, md_step)) break;
     }
-    printf(
-        "    [SCF] %d iters: Fock=%.1f (avg %.1f) Ene=%.1f DIIS=%.1f Diag=%.1f "
-        "Conv=%.1f (ms)\n",
-        n_iter, t_fock, t_fock / n_iter, t_energy, t_diis, t_diag, t_conv);
-
-    auto scf_t2 = std::chrono::high_resolution_clock::now();
-    auto ms = [](auto a, auto b)
-    { return std::chrono::duration<double, std::milli>(b - a).count(); };
-    printf("    [SCF] Pre-SCF (grid+1e+X): %.1f ms\n", ms(scf_t0, scf_t1));
-    printf("    [SCF] SCF loop: %.1f ms\n", ms(scf_t1, scf_t2));
-    printf("    [SCF] Total: %.1f ms\n", ms(scf_t0, scf_t2));
 }
 
 void QUANTUM_CHEMISTRY::Compute_Spin_Square()

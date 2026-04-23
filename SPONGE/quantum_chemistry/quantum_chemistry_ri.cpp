@@ -243,11 +243,6 @@ void QUANTUM_CHEMISTRY::Initial_Auxiliary_Basis(CONTROLLER* controller)
     Device_Malloc_And_Copy_Safely((void**)&ri.d_aux_env,
                                   (void*)ri.h_aux_env.data(),
                                   sizeof(float) * ri.h_aux_env.size());
-
-    printf(
-        "    [QC-RI] Auxiliary basis: %d shells, %d functions "
-        "(cart=%d, sph=%d)\n",
-        ri.naux_bas, ri.naux, ri.naux_cart, ri.naux);
 }
 
 void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
@@ -272,11 +267,6 @@ void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
     else  // DF_AUTO
     {
         ri.direct = (mem_3c_mb > 512.0);
-        if (ri.direct)
-            printf(
-                "    [QC-RI] Auto-switch to direct mode "
-                "(3c tensor = %.0f MB)\n",
-                mem_3c_mb);
     }
 
     // 二中心 metric（两种模式均需要）
@@ -315,28 +305,14 @@ void QUANTUM_CHEMISTRY::RI_Memory_Allocate()
         ri.h_U_orb.clear();
     }
 
-    if (ri.direct)
-    {
-        // Direct 模式：d_3c_buf 在 Build_Fock_RI_Direct 内临时分配/释放
-
-        printf("    [QC-RI] Direct mode: metric %.1f MB, B_occ %.1f MB\n",
-               naux2 * sizeof(double) / 1e6,
-               (nocc > 0 ? (long long)naux * nao * nocc * sizeof(float) / 1e6
-                         : 0.0));
-    }
-    else
+    if (!ri.direct)
     {
         // Stored 模式：预存 eri3c 和 B
         Device_Malloc_Safely((void**)&ri.d_eri3c, sizeof(double) * n3c);
         deviceMemset(ri.d_eri3c, 0, sizeof(double) * n3c);
         Device_Malloc_Safely((void**)&ri.d_B, sizeof(float) * n3c);
-
-        printf(
-            "    [QC-RI] Stored mode: metric %.1f MB, 3c %.1f MB, "
-            "B %.1f MB\n",
-            naux2 * sizeof(double) / 1e6, n3c * sizeof(double) / 1e6,
-            n3c * sizeof(float) / 1e6);
     }
+    // Direct 模式：d_3c_buf 在 Build_Fock_RI_Direct 内临时分配/释放
 }
 
 void QUANTUM_CHEMISTRY::RI_Precompute()
@@ -346,8 +322,6 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
     const int nao = mol.nao;
     const int nao2 = mol.nao2;
     const int threads = 256;
-
-    printf("    [QC-RI] RI_Precompute (naux=%d, nao=%d)\n", naux, nao);
 
     QC_Build_RI_Aux_Norms(this);
 
@@ -482,9 +456,6 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
                     h_3c_tasks.push_back({P, mu, nu});
                 }
         const int n_3c = h_3c_tasks.size();
-        const int n_total = n_3c + n_screened;
-        printf("    [QC-RI] 3c screening: %d/%d tasks kept (%.0f%% screened)\n",
-               n_3c, n_total, 100.0 * n_screened / std::max(n_total, 1));
 
         Device_Malloc_Safely((void**)&d_3c_tasks, sizeof(QC_RI_3C_TASK) * n_3c);
         deviceMemcpy(d_3c_tasks, h_3c_tasks.data(),
@@ -586,9 +557,6 @@ void QUANTUM_CHEMISTRY::RI_Precompute()
 
     deviceFree(d_U_aux);
     deviceFree(d_U_orb);
-
-    printf("    [QC-RI] Precomputation done (%s, naux_eff=%d/%d)\n",
-           ri.direct ? "direct" : "stored", ri.naux_eff, naux);
 }
 
 // F[i] += scale * K[i]

@@ -415,7 +415,6 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
         return;
 
     double* dF = scf_ws.alpha.d_F_double;
-    if (!dF) return;
     const int nao2 = (int)mol.nao2;
 
     // 获取当前 SCF 能量
@@ -463,7 +462,6 @@ void QUANTUM_CHEMISTRY::Apply_DIIS(int iter)
 
     // beta 通道: 只用 CDIIS（EDIIS/ADIIS 基于总能量，只需对 alpha 做 MESA）
     double* dFb = scf_ws.beta.d_F_double;
-    if (!dFb) return;
     QC_Build_DIIS_Error_Double(
         blas_handle, mol.nao, dFb, scf_ws.beta.d_P, scf_ws.core.d_S,
         scf_ws.diis.d_diis_err, scf_ws.ortho.d_dwork_nao2_2,

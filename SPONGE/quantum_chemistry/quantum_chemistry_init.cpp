@@ -683,14 +683,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     Device_Malloc_And_Copy_Safely((void**)&mol.d_Z, (void*)mol.h_Z.data(),
                                   sizeof(int) * (int)mol.natm);
 
-    if (mol.has_ecp)
-    {
-        printf("    [QC Init] ECP Z_eff:");
-        for (int i = 0; i < mol.natm; i++)
-            printf(" %s=%d", atom_symbols[i].c_str(), mol.h_Z[i]);
-        printf(", nelectron=%d\n", mol.nelectron);
-    }
-
     const int spin_e = mol.multiplicity - 1;
     if (spin_e < 0)
     {
@@ -925,14 +917,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                                           (void*)mol.h_ecp_n.data(),
                                           sizeof(int) * mol.ecp_total_terms);
         }
-
-        printf(
-            "    [QC Init] ECP: %s, %d atoms with ECP, %d channels, "
-            "%d terms\n",
-            ecp_set->name,
-            (int)std::count_if(mol.h_ecp_l_max.begin(), mol.h_ecp_l_max.end(),
-                               [](int x) { return x >= 0; }),
-            mol.ecp_total_channels, mol.ecp_total_terms);
     }
 }
 
@@ -966,32 +950,17 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
                                            qc_type_file, basis_set_name);
     if (!need_qc) return;
 
-    auto t0 = std::chrono::high_resolution_clock::now();
     Initial_Molecule(controller, qc_type_file, basis_set_name);
     orbital_basis_name = basis_set_name;
-    auto t1 = std::chrono::high_resolution_clock::now();
 
     if (scf_ws.ri.enabled) Initial_Auxiliary_Basis(controller);
 
     Initial_Integral_Tasks(controller);
-    auto t2 = std::chrono::high_resolution_clock::now();
 
     is_initialized = 1;
     deviceBlasCreate(&blas_handle);
-    auto t3 = std::chrono::high_resolution_clock::now();
     deviceSolverCreate(&solver_handle);
-    auto t4 = std::chrono::high_resolution_clock::now();
     Memory_Allocate(controller);
-    auto t5 = std::chrono::high_resolution_clock::now();
-
-    auto ms = [](auto a, auto b)
-    { return std::chrono::duration<double, std::milli>(b - a).count(); };
-    printf("    [QC Init] Molecule: %.1f ms\n", ms(t0, t1));
-    printf("    [QC Init] Integrals: %.1f ms\n", ms(t1, t2));
-    printf("    [QC Init] BlasCreate: %.1f ms\n", ms(t2, t3));
-    printf("    [QC Init] SolverCreate: %.1f ms\n", ms(t3, t4));
-    printf("    [QC Init] MemoryAlloc: %.1f ms\n", ms(t4, t5));
-    printf("    [QC Init] Total: %.1f ms\n", ms(t0, t5));
 
     controller->Step_Print_Initial("QC", "%e");
     if (scf_ws.runtime.unrestricted)
