@@ -12,10 +12,13 @@ SPONGE -mdin mdin.spg.toml
 - [Input/Output](io.md) — file specification and output control
 - [Thermostat](thermostat.md) — thermostat algorithms and parameters
 - [Barostat](barostat.md) — barostat algorithms and parameters
+- [Restrain](restrain.md) — atom-coordinate restrain input
 - [Constraints](constraint.md) — SETTLE / SHAKE
 - [Neighbor List](neighbor-list.md) — neighbor list configuration
 - [PME Electrostatics](pme.md) — Particle Mesh Ewald
+- [Collective Variables](collective-variables.md) — CV definitions and examples
 - [Enhanced Sampling](enhanced-sampling.md) — CV, MetaD, SITS
+- [SinkMeta](sinkmeta.md) — detailed `meta` / SinkMeta parameter reference
 - [Advanced](advanced.md) — device, wall constraints, ReaxFF, plugins
 
 ## Quick Examples
@@ -30,11 +33,13 @@ dt = 0.002
 cutoff = 8.0
 default_in_file_prefix = "WAT"
 constrain_mode = "SHAKE"
-thermostat = "middle_langevin"
-thermostat_tau = 0.1
-thermostat_seed = 2026
 target_temperature = 300.0
 write_information_interval = 1000
+
+[thermostat]
+mode = "middle_langevin"
+tau = 0.1
+seed = 2026
 ```
 
 ### NPT
@@ -47,15 +52,19 @@ dt = 0.002
 cutoff = 8.0
 default_in_file_prefix = "WAT"
 constrain_mode = "SHAKE"
-thermostat = "middle_langevin"
-thermostat_tau = 0.1
-thermostat_seed = 2026
 target_temperature = 300.0
-barostat = "andersen_barostat"
-barostat_tau = 0.1
-barostat_update_interval = 10
 target_pressure = 1.0
 write_information_interval = 1000
+
+[thermostat]
+mode = "middle_langevin"
+tau = 0.1
+seed = 2026
+
+[barostat]
+mode = "andersen_barostat"
+tau = 0.1
+update_interval = 10
 ```
 
 ### Energy Minimization

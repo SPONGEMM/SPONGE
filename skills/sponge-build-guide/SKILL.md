@@ -5,7 +5,7 @@ description: >
   适用于 pixi 环境选择、CMake 配置、多后端编译、格式化、打包。
 ---
 
-本技能适配 SPONGE 版本号：2.0.0-alpha
+本技能适配 SPONGE 版本号：2.0.0-beta.1
 
 用于指导 SPONGE 项目的构建流程，包括环境选择、CMake 配置、编译、格式化和打包。
 
@@ -161,10 +161,10 @@ pixi run -e dev-cuda13 format-check  # 仅检查，不修改
 ## 打包
 
 ```bash
-pixi run -e dev-cuda13 package
+pixi run -e dev-cuda13 package-conda
 ```
 
-生成 conda v2 格式（`.conda`）包到 `conda/outputs/`。打包脚本会：
+生成 conda v2 格式（`.conda`）包到 `packaging/outputs/`。打包脚本会：
 
 - 根据环境名提取后端变体（如 `dev-cuda13` → `cuda13`）
 - 自动探测平台和架构

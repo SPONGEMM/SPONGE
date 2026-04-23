@@ -11,3 +11,121 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
+
+==============================================================================
+Third-Party Notices
+==============================================================================
+
+SPONGE includes or links to the following third-party software. Each
+component retains its own license terms as described below.
+
+------------------------------------------------------------------------------
+1. Vendored Components (included in source tree)
+------------------------------------------------------------------------------
+
+1.1 tomlplusplus
+    License: MIT
+    Copyright (c) Mark Gillard
+    https://github.com/marzer/tomlplusplus
+
+1.2 DLPack
+    License: Apache License 2.0
+    Copyright (c) 2017 by Contributors
+    https://github.com/dmlc/dlpack
+
+1.3 Philox PRNG (modified)
+    Source: https://github.com/DiamonDinoia/philox
+    This file contains code under three separate licenses:
+
+    (a) Copyright (c) 2024 Marco Barbone — MIT License
+    (b) Copyright (c) 2017-2023 Advanced Micro Devices, Inc. — MIT License
+    (c) Copyright 2010-2011, D. E. Shaw Research — BSD 3-Clause License
+
+------------------------------------------------------------------------------
+2. Open-Source Runtime Dependencies
+------------------------------------------------------------------------------
+
+The following open-source libraries are dynamically linked at runtime
+depending on the build configuration chosen:
+
+2.1 FFTW (Fastest Fourier Transform in the West)
+    License: GPL-2.0-or-later
+    Copyright (c) Matteo Frigo and MIT
+    Used in: ARM / macOS CPU builds for FFT
+    https://www.fftw.org
+
+    NOTE: The pre-built ARM / macOS CPU conda packages distributed by this
+    project link dynamically against FFTW, which is licensed under the
+    GPL-2.0. This means these specific binary builds are subject to GPL
+    copyleft obligations. This does NOT affect the SPONGE source code
+    itself, which remains under Apache License 2.0. If GPL copyleft is a
+    concern for your use case, you may substitute FFTW with Arm Performance
+    Libraries (ArmPL) or Kunpeng Math Library (KML) and build from source.
+
+2.2 OpenBLAS
+    License: BSD 3-Clause
+    Copyright (c) Zhang Xianyi and contributors
+    Used in: ARM / macOS CPU builds for BLAS
+    https://github.com/OpenMathLib/OpenBLAS
+
+2.3 LAPACKE
+    License: BSD 3-Clause
+    Copyright (c) University of Tennessee
+    Used in: ARM / macOS CPU builds for LAPACK
+    https://github.com/Reference-LAPACK/lapack
+
+2.4 zlib
+    License: zlib License (permissive, OSI-approved)
+    Copyright (c) 1995-2024 Jean-loup Gailly and Mark Adler
+    Used in: All CPU builds for data compression
+    https://zlib.net
+
+2.5 LLVM / Clang
+    License: Apache 2.0 with LLVM Exceptions
+    Copyright (c) LLVM Project
+    Used in: All CPU builds for JIT compilation backend
+    https://llvm.org
+
+2.6 OpenMPI
+    License: BSD 3-Clause
+    Copyright (c) The Open MPI Project
+    Used in: CPU-MPI builds for distributed parallel computing
+    https://www.open-mpi.org
+
+------------------------------------------------------------------------------
+3. Proprietary / Commercial Runtime Dependencies
+------------------------------------------------------------------------------
+
+The following commercial libraries may be linked depending on the build
+variant. Users are responsible for complying with their respective license
+terms.
+
+3.1 Intel oneAPI Math Kernel Library (MKL)
+    License: Intel Simplified Software License
+    Used in: x86_64 CPU builds for BLAS, LAPACK, and FFT
+    https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl.html
+
+3.2 NVIDIA CUDA Toolkit
+    License: NVIDIA CUDA Toolkit EULA
+    Used in: CUDA builds (libcufft, libcublas, libcusolver, libcurand, NVRTC)
+    https://developer.nvidia.com/cuda-toolkit
+
+3.3 NVIDIA NCCL
+    License: BSD 3-Clause
+    Used in: Multi-GPU MPI+CUDA builds
+    https://github.com/NVIDIA/nccl
+
+3.4 AMD ROCm / HIP
+    License: MIT / Apache 2.0 (varies by component)
+    Used in: HIP builds (hipFFT, hipBLAS, hipSOLVER, hipRAND)
+    https://rocm.docs.amd.com
+
+3.5 Arm Performance Libraries (ArmPL) — optional alternative
+    License: Arm End User License Agreement
+    May be used as a GPL-free substitute for FFTW + OpenBLAS on ARM platforms.
+    https://developer.arm.com/Tools%20and%20Software/Arm%20Performance%20Libraries
+
+3.6 Kunpeng Math Library (KML) — optional alternative
+    License: Huawei Kunpeng Software License
+    May be used as a GPL-free substitute for FFTW + OpenBLAS on Kunpeng platforms.
+    https://www.hikunpeng.com/developer/boostkit/math-lib

@@ -5,7 +5,7 @@ description: >
   适用于 C++、Python、CMake 的编码规范和格式化流程。
 ---
 
-本技能适配 SPONGE 版本号：2.0.0-alpha
+本技能适配 SPONGE 版本号：2.0.0-beta.1
 
 ## 格式化工具与版本
 

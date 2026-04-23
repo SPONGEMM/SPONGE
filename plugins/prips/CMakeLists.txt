@@ -4,11 +4,19 @@ project(${PROJECT_NAME} LANGUAGES CXX)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
 
+# Parse version from the packaged Python module so standalone builds do not
+# depend on monorepo-only files.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/prips/__init__.py" _PRIPS_INIT)
+string(REGEX MATCH "__version__ = \"([^\"]+)\"" _ "${_PRIPS_INIT}")
+set(PRIPS_VERSION "${CMAKE_MATCH_1}")
+
 set(PRIPS_INSTALL_DIR prips)
 
 set(PRIPS_SOURCES src/main.cpp)
 
 add_library(${PROJECT_NAME} SHARED ${PRIPS_SOURCES})
+target_compile_definitions(${PROJECT_NAME}
+                           PRIVATE PRIPS_VERSION="${PRIPS_VERSION}")
 set_target_properties(
   ${PROJECT_NAME}
   PROPERTIES OUTPUT_NAME ${PROJECT_NAME}

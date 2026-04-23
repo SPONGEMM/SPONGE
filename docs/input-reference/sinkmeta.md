@@ -1,6 +1,6 @@
 # SinkMeta/meta Input Parameters
 
-This list is derived from `META::Initial()` in `SPONGE/SPONGE/bias/SinkMeta/Meta.cpp` and default values in `SPONGE/SPONGE/bias/SinkMeta/Meta.h`.
+This list is derived from `META::Initial()` in `SPONGE/bias/sinkmeta/config/config.cpp` and default values in `SPONGE/bias/sinkmeta/meta.h`.
 
 ## Parameters (module: `meta`)
 
@@ -16,7 +16,6 @@ This list is derived from `META::Initial()` in `SPONGE/SPONGE/bias/SinkMeta/Meta
 | `maxforce` | float | No | `0.1` | Edge force criterion for exit label; only read when `mask` is set. |
 | `sink` | int | No | `0` | Nonzero enables negative-hill (sink/submarine) behavior. |
 | `sumhill_freq` | int | No | `0` | History frequency for `sumhill` accumulation (affects Rbias/RCT). |
-| `catheter` | flag | No | `false` | Presence-only: forces `use_scatter=true`, `usegrid=false`, `do_negative=true`, and sets `catheter=3` (hard-coded). |
 | `convmeta` | int | No | `0` | ConvolutionMeta flag; also sets `do_negative=true`. |
 | `grw` | int | No | `0` | GRW flag; also sets `do_negative=true`. |
 | `CV_period` | float array (ndim) | Yes | None in META | Periodic box length per CV. Always requested in `META::Initial()`. |

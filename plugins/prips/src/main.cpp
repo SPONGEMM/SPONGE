@@ -56,16 +56,20 @@ PLUGIN_API std::string Name()
     return std::string("Python Runtime Interface Plugin");
 }
 
-PLUGIN_API std::string Version() { return std::string("2.0a0"); }
+#ifndef PRIPS_VERSION
+#define PRIPS_VERSION "0.0.0"
+#endif
+
+PLUGIN_API std::string Version() { return std::string(PRIPS_VERSION); }
 
 PLUGIN_API std::string Version_Check(int i)
 {
     if (i != SPONGE_PRIPS_API_VERSION)
     {
-        return std::string(
-            "Reason:\n\tPRIPS v2.0a0 expects SPONGE plugin API version " +
-            std::to_string(SPONGE_PRIPS_API_VERSION) + ", but got " +
-            std::to_string(i));
+        return std::string("Reason:\n\tPRIPS v" PRIPS_VERSION
+                           " expects SPONGE plugin API version " +
+                           std::to_string(SPONGE_PRIPS_API_VERSION) +
+                           ", but got " + std::to_string(i));
     }
     return std::string();
 }

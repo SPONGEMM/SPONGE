@@ -694,7 +694,6 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
 
     int total_nnz = 0;
 #ifndef USE_CPU
-    // GPU: prefix sum on device via thrust, avoid full-array D2H copy
     {
         thrust::device_ptr<int> d_numnbrs_ptr(d_h_numnbrs);
         thrust::device_ptr<int> d_firstnbrs_ptr(d_h_firstnbrs);
@@ -704,7 +703,6 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
             (int)thrust::reduce(d_numnbrs_ptr, d_numnbrs_ptr + atom_numbers);
     }
 #else
-    // CPU: sequential prefix sum
     deviceMemcpy(h_h_numnbrs, d_h_numnbrs, sizeof(int) * atom_numbers,
                  deviceMemcpyDeviceToHost);
     for (int i = 0; i < atom_numbers; i++)
@@ -736,6 +734,7 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
                              atom_type_numbers, fnl_d_nl, cell, rcell, cutoff,
                              d_h_firstnbrs, d_h_jlist, d_h_val);
     }
+
     // ---- CG solver ----
 #ifndef USE_CPU
     // GPU path: Jacobi-preconditioned CG, device-side scalars

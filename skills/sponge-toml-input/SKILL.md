@@ -5,7 +5,7 @@ description: >
   适用于模拟参数设置、模块配置、输入输出文件指定等。
 ---
 
-本技能适配 SPONGE 版本号：2.0.0-alpha
+本技能适配 SPONGE 版本号：2.0.0-beta.1
 
 SPONGE 的输入文件为 TOML 格式，默认文件名 `mdin.spg.toml`，通过 `-mdin` 参数指定：
 

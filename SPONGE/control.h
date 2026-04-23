@@ -14,6 +14,7 @@ struct CONTROLLER
     static unsigned int device_optimized_block;
     static unsigned int device_warp;
     static unsigned int device_max_thread;
+    static int force_replica_count;
 
     // CPU MPI 相关
     // PP, PM 可能有多个进程，需要构造通信器；
@@ -68,11 +69,12 @@ struct CONTROLLER
     void Arguments_Parse(int argc, char** argv);  // 对终端输入进行分析
     void Commands_From_In_File(
         int argc, char** argv,
-        const char* subpackage_hint);  // 对mdin输入进行分析并打印日志信息
-    void Default_Set();                // 对最基本的功能进行默认设置
-    int working_device = 0;            // 使用的设备
-    void Init_Host_MPI();              // 对主机MPI初始化
-    void Init_Device();                // 对设备初始化
+        const char* subpackage_hint);    // 对mdin输入进行分析并打印日志信息
+    void Default_Set();                  // 对最基本的功能进行默认设置
+    int working_device = 0;              // 使用的设备
+    void Init_Host_MPI();                // 对主机MPI初始化
+    void Init_Device();                  // 对设备初始化
+    void Initial_Force_Replica_Count();  // 初始化力/能量/virial副本数量
     void Init_Device_MPI();  // 对设备MPI初始化 (优先初始化xccl，否则使用mpi)
     // 本部分的上面的内容最好不要外部调用
 

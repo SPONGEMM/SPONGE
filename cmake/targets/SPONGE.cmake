@@ -38,11 +38,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/plugin/plugin.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/bias/steer.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/bias/restrain_cv.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/Meta1D.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/SinkMeta/Meta.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/SinkMeta/Grid.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/SinkMeta/Scatter.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/bias/SinkMeta/SwitchFunction.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/bias/sinkmeta.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/SITS/SITS.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/custom_force/listed_forces.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/custom_force/pairwise_force.cpp
@@ -104,7 +100,8 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/over_under.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/valence_angle.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/torsion.cpp
-    ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/hydrogen_bond.cpp)
+    ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/hydrogen_bond.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/manybody/reaxff/reaxff.cpp)
 
 set(SOURCES ${SPONGE_SOURCES})
 
