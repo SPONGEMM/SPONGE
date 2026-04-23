@@ -5,6 +5,7 @@
 #include "gradient/grad_workspace.h"
 #include "structure/cart2sph.h"
 #include "structure/dft.h"
+#include "structure/ecp.h"
 #include "structure/integral_tasks.h"
 #include "structure/matrix.h"
 #include "structure/method.h"
@@ -82,8 +83,8 @@ struct QUANTUM_CHEMISTRY
    private:
     // 轨道基组��称（RI 初始化时用于映射辅助基）
     std::string orbital_basis_name;
-    // ECP 设置名称 ("auto"=根据基组自动选择, "none"=禁用, 或指定名称)
-    std::string ecp_name = "auto";
+    // ECP 选择: AUTO=根据基组自动选择, NONE=禁用, DEF2_ECP/LANL2DZ=显式指定
+    QC_ECP_TYPE ecp_type = QC_ECP_TYPE::AUTO;
 
     // 初始化内部流程
     bool Parsing_Arguments(CONTROLLER* controller, const int atom_numbers,

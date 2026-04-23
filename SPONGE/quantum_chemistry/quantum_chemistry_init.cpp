@@ -494,12 +494,28 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
     }
 
     // ECP 选择: auto (默认, 按基组匹配), none, def2-ecp, lanl2dz
-    ecp_name = "auto";
+    ecp_type = QC_ECP_TYPE::AUTO;
     if (controller->Command_Exist("qc_ecp"))
     {
-        ecp_name = controller->Command("qc_ecp");
-        std::transform(ecp_name.begin(), ecp_name.end(), ecp_name.begin(),
-                       ::tolower);
+        std::string ecp_name_str = controller->Command("qc_ecp");
+        std::transform(ecp_name_str.begin(), ecp_name_str.end(),
+                       ecp_name_str.begin(), ::tolower);
+        if (ecp_name_str == "auto")
+            ecp_type = QC_ECP_TYPE::AUTO;
+        else if (ecp_name_str == "none")
+            ecp_type = QC_ECP_TYPE::NONE;
+        else if (ecp_name_str == "def2-ecp")
+            ecp_type = QC_ECP_TYPE::DEF2_ECP;
+        else if (ecp_name_str == "lanl2dz")
+            ecp_type = QC_ECP_TYPE::LANL2DZ;
+        else
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_ecp must be \"auto\", \"none\", \"def2-ecp\""
+                ", or \"lanl2dz\", got \"%s\"\n",
+                ecp_name_str.c_str());
+        }
     }
 
     this->atom_numbers = atom_numbers;
@@ -601,13 +617,20 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
 
     // ECP 查找
     QC_ECP_SET* ecp_set = nullptr;
-    if (ecp_name == "auto")
-        ecp_set = QC_Get_Auto_ECP(basis_set_name.c_str());
-    else if (ecp_name == "def2-ecp")
-        ecp_set = QC_ECP_DEF2_PTR;
-    else if (ecp_name == "lanl2dz")
-        ecp_set = QC_ECP_LANL2DZ_PTR;
-    // ecp_name == "none" → ecp_set stays nullptr
+    switch (ecp_type)
+    {
+        case QC_ECP_TYPE::AUTO:
+            ecp_set = QC_Get_Auto_ECP(basis_set_name.c_str());
+            break;
+        case QC_ECP_TYPE::DEF2_ECP:
+            ecp_set = QC_ECP_DEF2_PTR;
+            break;
+        case QC_ECP_TYPE::LANL2DZ:
+            ecp_set = QC_ECP_LANL2DZ_PTR;
+            break;
+        case QC_ECP_TYPE::NONE:
+            break;
+    }
 
     if (ecp_set) ecp_set->Initialize();
 
@@ -639,7 +662,7 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         // ECP: 用有效核电荷替代全电荷
         // auto 模式下按基组规范过滤（def2-ECP 只对 Z>=37 生效）
         const bool apply_ecp =
-            ecp_set && (ecp_name != "auto" ||
+            ecp_set && (ecp_type != QC_ECP_TYPE::AUTO ||
                         QC_Auto_ECP_Applies(basis_set_name.c_str(), Z));
         if (apply_ecp)
         {

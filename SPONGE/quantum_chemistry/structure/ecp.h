@@ -5,6 +5,15 @@
 #include <string>
 #include <vector>
 
+// ECP 用户选项 ("auto" 按基组自动选、"none" 禁用、显式指定集合)
+enum class QC_ECP_TYPE
+{
+    AUTO,
+    NONE,
+    DEF2_ECP,
+    LANL2DZ,
+};
+
 // ECP 单项: d_k · r^(n_k-2) · exp(-ζ_k · r²)
 struct QC_ECP_TERM
 {
