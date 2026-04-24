@@ -153,7 +153,8 @@ static __global__ void QC_RI_3Center_Grad_Kernel(
                             const double prefactor =
                                 (double)cP * (double)c_mu * (double)c_nu *
                                 (double)K_ket *
-                                (2.0 * M_PI * M_PI * sqrt(M_PI)) /
+                                (2.0 * CONSTANT_Pi * CONSTANT_Pi *
+                                 sqrt(CONSTANT_Pi)) /
                                 ((double)eP * (double)g_ket *
                                  sqrt((double)(eP + g_ket)));
 
