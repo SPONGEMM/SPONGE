@@ -350,6 +350,9 @@ def _load_pyscf_reference_table(reference_path_str: str):
             raise ValueError(
                 f"Invalid PySCF reference entry #{idx}: expected object"
             )
+        # Skip non-energy entries (gradient, minimize, etc.)
+        if entry.get("type", "energy") != "energy":
+            continue
         try:
             key = _build_pyscf_reference_key(
                 case_name=entry["case_name"],
@@ -400,6 +403,90 @@ def get_pyscf_reference_energy_ha(
             f"restricted={int(bool(restricted))} in {reference_path}"
         )
     return table[key]
+
+
+@lru_cache(maxsize=8)
+def _load_pyscf_reference_typed(reference_path_str: str, entry_type: str):
+    reference_path = Path(reference_path_str)
+    if not reference_path.exists():
+        raise FileNotFoundError(
+            f"Missing PySCF reference file: {reference_path}"
+        )
+    with open(reference_path, "r") as f:
+        payload = json.load(f)
+    entries = (
+        payload if isinstance(payload, list) else payload.get("entries", [])
+    )
+    table = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type", "energy") != entry_type:
+            continue
+        key = _build_pyscf_reference_key(
+            case_name=entry["case_name"],
+            method_name=entry["method_name"],
+            basis_name=entry["basis_name"],
+            restricted=entry["restricted"],
+        )
+        table[key] = entry
+    return table
+
+
+def get_pyscf_reference_gradient(
+    statics_path: Path,
+    case_name: str,
+    method_name: str,
+    basis_name: str,
+    restricted: bool,
+):
+    comparison_root = get_comparison_root_from_statics(statics_path)
+    reference_path = (
+        comparison_root / PYSCF_REFERENCE_ENERGY_REL_PATH
+    ).resolve()
+    table = _load_pyscf_reference_typed(str(reference_path), "gradient")
+    key = _build_pyscf_reference_key(
+        case_name=case_name,
+        method_name=method_name,
+        basis_name=basis_name,
+        restricted=restricted,
+    )
+    if key not in table:
+        raise KeyError(
+            f"PySCF gradient reference not found for "
+            f"{case_name} {method_name}/{basis_name}"
+        )
+    entry = table[key]
+    return entry["gradient_ha_bohr"], entry["coords_angstrom"]
+
+
+def get_pyscf_reference_minimize(
+    statics_path: Path,
+    case_name: str,
+    method_name: str,
+    basis_name: str,
+):
+    comparison_root = get_comparison_root_from_statics(statics_path)
+    reference_path = (
+        comparison_root / PYSCF_REFERENCE_ENERGY_REL_PATH
+    ).resolve()
+    table = _load_pyscf_reference_typed(str(reference_path), "minimize")
+    key = _build_pyscf_reference_key(
+        case_name=case_name,
+        method_name=method_name,
+        basis_name=basis_name,
+        restricted=True,
+    )
+    if key not in table:
+        raise KeyError(
+            f"PySCF minimize reference not found for "
+            f"{case_name} {method_name}/{basis_name}"
+        )
+    entry = table[key]
+    return (
+        entry["equilibrium_bond_length_angstrom"],
+        entry["equilibrium_energy_ha"],
+    )
 
 
 def run_sponge_vs_pyscf(

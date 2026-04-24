@@ -43,6 +43,7 @@ static int Load_Ensure_Atom_Numbers(System* system, int atom_numbers,
 static void Load_Reset_Classical_Force_Field(ClassicalForceField* ff)
 {
     ff->bonds = Bonds{};
+    ff->constraints = DistanceConstraints{};
     ff->angles = Angles{};
     ff->dihedrals = Torsions{};
     ff->impropers = Torsions{};

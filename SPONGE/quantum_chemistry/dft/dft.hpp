@@ -2,6 +2,16 @@
 
 #include "../integrals/one_e.hpp"
 
+// xc_deriv.hpp 提供解析导数 (在 xc.hpp 之后 include)
+// 前向声明:
+static inline __host__ __device__ void QC_VXC_Analytical_RKS(
+    QC_METHOD method, double rho, double sigma, double& exc, double& vrho,
+    double& vsigma);
+static inline __host__ __device__ void QC_VXC_Analytical_UKS(
+    QC_METHOD method, double ra, double rb, double saa, double sab, double sbb,
+    double& exc, double& vra, double& vrb, double& vsaa, double& vsab,
+    double& vsbb);
+
 static inline __host__ __device__ void QC_Local_Vrho_Vsigma_FD(
     QC_METHOD method, double rho, double sigma, double& e, double& vrho,
     double& vsigma);
@@ -11,10 +21,8 @@ static inline __host__ __device__ void QC_Local_UKS_Derivs_FD(
     double& v_rho_b, double& v_sigma_aa, double& v_sigma_ab,
     double& v_sigma_bb);
 
-// =============================================================================
 // Device DFT Kernels
 // deriv_level: 0 = LDA (仅值), 1 = GGA (值+梯度), 2 = meta-GGA (预留)
-// =============================================================================
 
 // AO 求值: 在网格点上计算基函数值和（可选的）梯度
 template <int deriv_level>
@@ -170,8 +178,8 @@ static __global__ void QC_Eval_XC_Derivs_Kernel(
         else
         {
             double e = 0.0, v_rho = 0.0, v_sigma = 0.0;
-            QC_Local_Vrho_Vsigma_FD((QC_METHOD)method_id, rho_val, sigma[ig], e,
-                                    v_rho, v_sigma);
+            QC_VXC_Analytical_RKS((QC_METHOD)method_id, rho_val, sigma[ig], e,
+                                  v_rho, v_sigma);
             exc[ig] = e;
             vrho[ig] = v_rho;
             vsigma[ig] = v_sigma;

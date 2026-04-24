@@ -1,0 +1,11 @@
+h2 minimization sto3g
+mode = minimization
+minimization_dynamic_dt = 1
+step_limit = 5000
+coordinate_in_file = coordinate.txt
+qc_type_in_file = qc_type.txt
+mass_in_file = mass.txt
+charge_in_file = charge.txt
+qc_model_chemistry = HF/sto-3g
+write_mdout_interval = 500
+write_trajectory_interval = 5000

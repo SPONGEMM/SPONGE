@@ -70,6 +70,63 @@ def write_dna_cou_cv_file(
     )
 
 
+def write_dna_cou_continuation_cv_file(
+    case_dir,
+    cv_file="cv.txt",
+    *,
+    height=0.2,
+    sigma=0.6,
+    dip=1.0,
+    edge_file="sumhill.log",
+    sumhill_freq=1,
+):
+    lines = [
+        "ML",
+        "{",
+        "    vatom_type = center_of_mass",
+        "    atom_in_file = ligand.list",
+        "}",
+        "cx",
+        "{",
+        "    CV_type = position_x",
+        "    atom = ML",
+        "}",
+        "cy",
+        "{",
+        "    CV_type = position_y",
+        "    atom = ML",
+        "}",
+        "cz",
+        "{",
+        "    CV_type = position_z",
+        "    atom = ML",
+        "}",
+        "meta",
+        "{",
+        "    Ndim = 3",
+        "    CV = cx cy cz",
+        f"    CV_sigma = {float(sigma):.6f} {float(sigma):.6f} {float(sigma):.6f}",
+        f"    height = {float(height):.6f}",
+        "    potential_update_interval = 500",
+        "    welltemp_factor = 20",
+        "    sink = 1",
+        "    scatter_in_file = 14d5.txt",
+        "    kde = 1",
+        f"    dip = {float(dip):.6f}",
+        "    convmeta = 1",
+        f"    edge_in_file = {Path(edge_file).as_posix()}",
+        f"    sumhill_freq = {int(sumhill_freq)}",
+        "}",
+        "print",
+        "{",
+        "    CV = cx cy cz",
+        "}",
+    ]
+    Path(case_dir, cv_file).write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+
 def write_sinkmeta_mdin(
     case_dir,
     *,
@@ -134,9 +191,9 @@ def parse_meta_potential(path):
         if not line or line.startswith("#"):
             continue
         fields = line.split()
-        if len(fields) < 5:
-            continue
         try:
+            if len(fields) < 5:
+                continue
             rows.append(
                 {
                     "cx": float(fields[0]),

@@ -6,7 +6,10 @@
 // before the Cartesian assembly loop, avoiding redundant bra-HRR recomputation.
 
 // Max factored HRR array size per axis: (l_max+1)^4 = 5^4 = 625 for g-shells
+#ifndef ERI_MAX_IX
 #define ERI_MAX_IX 625
+#define ERI_MAX_IX_UNDEF_AFTER
+#endif
 
 __global__ void KERNEL_NAME(
     const int n_tasks, const QC_ERI_TASK* __restrict__ tasks,
@@ -23,13 +26,16 @@ __global__ void KERNEL_NAME(
     const int is_spherical, const float* __restrict__ cart2sph_mat,
     float* __restrict__ F_a, float* __restrict__ F_b,
     float* __restrict__ global_hr_pool, int hr_base, int hr_size,
-    int shell_buf_size, float prim_screen_tol)
+    int shell_buf_size, float prim_screen_tol, int n_fock_copies)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
 #ifdef GPU_ARCH_NAME
-        float* F_a_accum = F_a;
-        float* F_b_accum = F_b;
+        const int nao2 = nao * nao;
+        const size_t fock_off =
+            (size_t)(blockIdx.x % n_fock_copies) * (size_t)nao2;
+        float* F_a_accum = F_a + fock_off;
+        float* F_b_accum = (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
 #else
         const int tid = omp_get_thread_num();
         const int nao2 = nao * nao;
@@ -39,7 +45,7 @@ __global__ void KERNEL_NAME(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening ----
+        // Screening
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -68,7 +74,7 @@ __global__ void KERNEL_NAME(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Shell data ----
+            // Shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int l[4], np[4], p_exp_off[4], p_cof_off[4];
             float RC[4][3];
@@ -106,8 +112,8 @@ __global__ void KERNEL_NAME(
 
             const int n_cart =
                 dim_cart[0] * dim_cart[1] * dim_cart[2] * dim_cart[3];
-            float eri_cart[ERI_MAX_CART];
-            for (int i = 0; i < n_cart; i++) eri_cart[i] = 0.0f;
+            float eri_buf0[ERI_MAX_CART];
+            for (int i = 0; i < n_cart; i++) eri_buf0[i] = 0.0f;
 
             // Strides for Ix_full indexing: Ix[ax0][ax1][ax2][ax3]
             // Each axis index ranges 0..l[i], so stride for axis i = product of
@@ -117,7 +123,7 @@ __global__ void KERNEL_NAME(
             const int ix_d1 = (l[2] + 1) * ix_d2;
             const int ix_d0 = (l[1] + 1) * ix_d1;
 
-            // ---- Primitive loop ----
+            // Primitive loop
             for (int ip = 0; ip < np[0]; ip++)
             {
                 const float ai = env[p_exp_off[0] + ip],
@@ -315,7 +321,7 @@ __global__ void KERNEL_NAME(
                                                     az0 * ix_d0 + az1 * ix_d1 +
                                                     az2 * ix_d2 + az3;
 
-                                                eri_cart[idx] +=
+                                                eri_buf0[idx] +=
                                                     wn * Ix_full[ix_idx] *
                                                     Iy_full[iy_idx] *
                                                     Iz_full[iz_idx];
@@ -330,16 +336,13 @@ __global__ void KERNEL_NAME(
                 }
             }  // end primitives
 
-            // ---- Cart2sph (same as before) ----
+            // In-place cart2sph (single buffer, no eri_buf1)
             const int n_eff = dim_eff[0] * dim_eff[1] * dim_eff[2] * dim_eff[3];
-            float eri_out[ERI_MAX_CART];
             if (is_spherical)
             {
                 int cur_dim[4] = {dim_cart[0], dim_cart[1], dim_cart[2],
                                   dim_cart[3]};
-                float buf_a[ERI_MAX_CART], buf_b[ERI_MAX_CART];
                 int n_cur = n_cart;
-                for (int i = 0; i < n_cur; i++) buf_a[i] = eri_cart[i];
                 for (int si = 0; si < 4; si++)
                 {
                     const int nc = dim_cart[si], ns = dim_eff[si];
@@ -348,7 +351,7 @@ __global__ void KERNEL_NAME(
                         float c2s =
                             cart2sph_mat[ao_offsets_cart[sh[si]] * nao_sph +
                                          off[si]];
-                        for (int i = 0; i < n_cur; i++) buf_a[i] *= c2s;
+                        for (int i = 0; i < n_cur; i++) eri_buf0[i] *= c2s;
                         continue;
                     }
                     const int oc = ao_offsets_cart[sh[si]], os = off[si];
@@ -357,8 +360,14 @@ __global__ void KERNEL_NAME(
                     const int n_outer = n_cur / (nc * stride_si);
                     const int n_new = n_cur / nc * ns;
                     for (int o = 0; o < n_outer; o++)
-                        for (int s = 0; s < ns; s++)
-                            for (int inn = 0; inn < stride_si; inn++)
+                        for (int inn = 0; inn < stride_si; inn++)
+                        {
+                            // Buffer source row to avoid read-after-write
+                            float c2s_tmp[15];  // max dim_cart for g-shell
+                            for (int cc = 0; cc < nc; cc++)
+                                c2s_tmp[cc] = eri_buf0[o * nc * stride_si +
+                                                       cc * stride_si + inn];
+                            for (int s = 0; s < ns; s++)
                             {
                                 double sum = 0.0;
                                 for (int cc = 0; cc < nc; cc++)
@@ -366,28 +375,24 @@ __global__ void KERNEL_NAME(
                                         (double)
                                             cart2sph_mat[(oc + cc) * nao_sph +
                                                          (os + s)] *
-                                        (double)buf_a[o * nc * stride_si +
-                                                      cc * stride_si + inn];
-                                buf_b[o * ns * stride_si + s * stride_si +
-                                      inn] = (float)sum;
+                                        (double)c2s_tmp[cc];
+                                eri_buf0[o * ns * stride_si + s * stride_si +
+                                         inn] = (float)sum;
                             }
-                    for (int i = 0; i < n_new; i++) buf_a[i] = buf_b[i];
+                        }
                     cur_dim[si] = ns;
                     n_cur = n_new;
                 }
-                for (int i = 0; i < n_eff; i++) eri_out[i] = buf_a[i];
             }
-            else
-                for (int i = 0; i < n_cart; i++) eri_out[i] = eri_cart[i];
 
-            // ---- Norms + Fock ----
+            // Norms + Fock
             {
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_eff[0]; c0++)
                     for (int c1 = 0; c1 < dim_eff[1]; c1++)
                         for (int c2 = 0; c2 < dim_eff[2]; c2++)
                             for (int c3 = 0; c3 < dim_eff[3]; c3++)
-                                eri_out[idx++] *=
+                                eri_buf0[idx++] *=
                                     norms[off[0] + c0] * norms[off[1] + c1] *
                                     norms[off[2] + c2] * norms[off[3] + c3];
             }
@@ -413,7 +418,7 @@ __global__ void KERNEL_NAME(
                             for (int c3 = 0; c3 < dim_eff[3]; c3++)
                             {
                                 const int s = off[3] + c3;
-                                const float val = eri_out[idx++];
+                                const float val = eri_buf0[idx++];
                                 if (jk_same_ket && s > r) continue;
                                 if (jk_same_braket)
                                     if (QC_AO_Pair_Index(r, s) >
@@ -439,3 +444,8 @@ __global__ void KERNEL_NAME(
         }  // screening
     }
 }
+
+#ifdef ERI_MAX_IX_UNDEF_AFTER
+#undef ERI_MAX_IX
+#undef ERI_MAX_IX_UNDEF_AFTER
+#endif

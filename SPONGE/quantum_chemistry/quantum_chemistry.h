@@ -1,10 +1,11 @@
-﻿#ifndef QUANTUM_CHEMISTRY_H
-#define QUANTUM_CHEMISTRY_H
+﻿#pragma once
 
 #include "../common.h"
 #include "../control.h"
+#include "gradient/grad_workspace.h"
 #include "structure/cart2sph.h"
 #include "structure/dft.h"
+#include "structure/ecp.h"
 #include "structure/integral_tasks.h"
 #include "structure/matrix.h"
 #include "structure/method.h"
@@ -12,6 +13,10 @@
 #include "structure/scf_workspace.h"
 
 #define ONE_E_BATCH_SIZE 4096
+#define QC_GRAD_ERI_THREADS 64
+#define QC_GRAD_GAMMA_POOL_BLOCKS 64
+#define QC_GRAD_GAMMA_POOL_SLOTS \
+    (QC_GRAD_ERI_THREADS * QC_GRAD_GAMMA_POOL_BLOCKS)
 #define PI_25 17.4934183276248628469f
 #define HR_BASE_MAX 17
 #define HR_SIZE_MAX 83521
@@ -19,6 +24,7 @@
 #define ONEE_MD_IDX(t, u, v, n) \
     ((((t) * ONEE_MD_BASE + (u)) * ONEE_MD_BASE + (v)) * ONEE_MD_BASE + (n))
 #define ERI_BATCH_SIZE 128
+#define QC_BOUNDS_POOL_SLOTS 1024
 #define MAX_CART_SHELL 15
 #define MAX_SHELL_ERI \
     (MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL * MAX_CART_SHELL)
@@ -51,6 +57,8 @@ struct QUANTUM_CHEMISTRY
     QC_INTEGRAL_TASKS task_ctx;
     // SCF计算内容
     QC_SCF_WORKSPACE scf_ws;
+    // 梯度工作空间
+    QC_GRAD_WORKSPACE grad_ws;
 
     BLAS_HANDLE blas_handle;
     SOLVER_HANDLE solver_handle;
@@ -58,16 +66,26 @@ struct QUANTUM_CHEMISTRY
     // 笛卡尔基组转球形基组
     QC_CARTESIAN_TO_SPHERICAL cart2sph;
 
+    int need_gradient = 1;  // 是否计算梯度/力 (qc_need_gradient)
+
     // 外部入口
     void Initial(CONTROLLER* controller, const int atom_numbers,
                  const VECTOR* crd, const char* module_name = NULL);
     void Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                    bool need_energy = true, int md_step = -1);
+    void Compute_Gradient(VECTOR* frc, const VECTOR* crd,
+                          const VECTOR box_length, int need_virial = 0,
+                          LTMatrix3* atom_virial = NULL);
 
     // 外部查询与输出
     void Step_Print(CONTROLLER* controller);
 
    private:
+    // 轨道基组��称（RI 初始化时用于映射辅助基）
+    std::string orbital_basis_name;
+    // ECP 选择: AUTO=根据基组自动选择, NONE=禁用, DEF2_ECP/LANL2DZ=显式指定
+    QC_ECP_TYPE ecp_type = QC_ECP_TYPE::AUTO;
+
     // 初始化内部流程
     bool Parsing_Arguments(CONTROLLER* controller, const int atom_numbers,
                            const char*& qc_type_file,
@@ -88,12 +106,21 @@ struct QUANTUM_CHEMISTRY
 
     // 积分
     void Compute_OneE_Integrals();
+    void Compute_ECP_Matrix();
     void Compute_Nuclear_Repulsion(const VECTOR box_length);
+    void Compute_Analytical_Norms();
+    void Build_Shell_Pair_Bounds();
     void Prepare_Integrals();
 
     // DFT VXC 构建
     void Update_DFT_Grid();
     void Build_DFT_VXC();
+
+    // RI (Density Fitting) 内部流程
+    void Initial_Auxiliary_Basis(CONTROLLER* controller);
+    void RI_Memory_Allocate();
+    void RI_Precompute();
+    void Build_Fock_RI();
 
     // SCF 循环内部流程
     void Build_Fock(int iter);
@@ -104,8 +131,8 @@ struct QUANTUM_CHEMISTRY
     void Build_Overlap_X();
     void Reset_SCF_State();
     void Build_Initial_Guess();
+    void Build_DFT_XC_Gradient();
+    void Build_RI_Gradient();
     void Diag_Guess_And_Build_P();
     void Compute_Spin_Square();
 };
-
-#endif

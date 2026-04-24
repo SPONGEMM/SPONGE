@@ -1,5 +1,4 @@
-﻿#ifndef QC_STRUCTURE_METHOD_H
-#define QC_STRUCTURE_METHOD_H
+﻿#pragma once
 
 #include "../../common.h"
 
@@ -19,5 +18,3 @@ enum class QC_INITIAL_GUESS
     MINAO,
     SAP
 };
-
-#endif

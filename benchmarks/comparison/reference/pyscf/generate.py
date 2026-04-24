@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 REFERENCE_CASES = [
-    # RHF
+    # RHF (comp_rhf.py)
     ("h2", "HF", "sto-3g", True),
     ("he", "HF", "3-21g", True),
     ("h2", "HF", "6-31g", True),
@@ -19,32 +19,62 @@ REFERENCE_CASES = [
     ("he", "HF", "def2-tzvp", True),
     ("h2", "HF", "def2-tzvpp", True),
     ("he", "HF", "def2-qzvp", True),
-    ("ace_ala4_nme", "HF", "def2-svp", True),
-    ("benzene", "HF", "def2-qzvp", True),
     ("h2", "HF", "cc-pvdz", True),
     ("he", "HF", "cc-pvtz", True),
-    # UHF
+    # RHF 大体系 (perf_rhf.py)
+    ("ace_ala4_nme", "HF", "def2-svp", True),
+    ("benzene", "HF", "def2-qzvp", True),
+    # UHF (comp_uhf.py)
     ("no_doublet", "HF", "sto-3g", False),
     ("no_doublet", "HF", "3-21g", False),
     ("o_triplet", "HF", "6-31g", False),
     ("o_triplet", "HF", "cc-pvdz", False),
-    # RKS
+    # RKS (comp_rks.py)
     ("h2", "LDA", "6-31g", True),
     ("he", "PBE", "6-31g", True),
     ("oh2", "BLYP", "6-31g", True),
     ("ch4", "PBE0", "6-31g", True),
     ("co2", "B3LYP", "6-31g", True),
-    # UKS
+    # UKS (comp_uks.py)
     ("o_triplet", "LDA", "6-31g", False),
     ("o_triplet", "PBE", "6-31g", False),
     ("o_triplet", "BLYP", "6-31g", False),
     ("o_triplet", "PBE0", "6-31g", False),
     ("o_triplet", "B3LYP", "6-31g", False),
+    # 第四周期 (comp_4th_period.py)
+    ("br_anion", "HF", "ma-def2-svp", True),
+    ("fe_quintet", "HF", "6-31++g", False),
 ]
+
+# 梯度参考案例: (case_name, method_name, basis_name, restricted, coords_angstrom)
+GRADIENT_CASES = [
+    ("h2", "HF", "sto-3g", True, [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+    ("h2", "HF", "6-31g", True, [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]),
+]
+
+# H2 平衡键长参考案例: (case_name, basis_name)
+MINIMIZE_CASES = [
+    ("h2_min_sto3g", "HF", "sto-3g"),
+]
+
+# 需要做 UHF/UKS 稳定性分析的案例（过渡金属等容易收敛到鞍点）
+STABILITY_CASES = {"fe_quintet"}
 
 
 def get_repo_root() -> Path:
     return Path(__file__).resolve().parents[4]
+
+
+def _run_with_stability(mf, max_cycles=10):
+    """对 UHF/UKS 做稳定性分析，确保收敛到真正的极小值."""
+    mf.kernel()
+    for _ in range(max_cycles):
+        mo_new = mf.stability()[0]
+        if mo_new is mf.mo_coeff:
+            break
+        mf.mo_coeff = mo_new
+        mf.kernel()
+    return float(mf.e_tot)
 
 
 def build_reference_entries(statics_path: Path):
@@ -55,19 +85,36 @@ def build_reference_entries(statics_path: Path):
     sys.path.insert(0, str(repo_root))
     sys.path.insert(0, str(tests_dir))
 
-    from utils import load_case_definition, run_pyscf_energy_ha
+    from utils import (
+        _build_pyscf_method,
+        load_case_definition,
+        run_pyscf_energy_ha,
+    )
 
     entries = []
     for case_name, method_name, basis_name, restricted in REFERENCE_CASES:
         case = load_case_definition(statics_path, case_name)
-        energy_ha = run_pyscf_energy_ha(
-            atoms=case["atoms"],
-            basis_name=basis_name,
-            charge=case["charge"],
-            multiplicity=case["multiplicity"],
-            method_name=method_name,
-            restricted=restricted,
-        )
+
+        if case_name in STABILITY_CASES and not restricted:
+            _mol, mf = _build_pyscf_method(
+                atoms=case["atoms"],
+                basis_name=basis_name,
+                charge=case["charge"],
+                multiplicity=case["multiplicity"],
+                method_name=method_name,
+                restricted=restricted,
+            )
+            energy_ha = _run_with_stability(mf)
+        else:
+            energy_ha = run_pyscf_energy_ha(
+                atoms=case["atoms"],
+                basis_name=basis_name,
+                charge=case["charge"],
+                multiplicity=case["multiplicity"],
+                method_name=method_name,
+                restricted=restricted,
+            )
+
         entries.append(
             {
                 "case_name": case_name,
@@ -75,6 +122,64 @@ def build_reference_entries(statics_path: Path):
                 "basis_name": basis_name,
                 "restricted": restricted,
                 "energy_ha": energy_ha,
+            }
+        )
+
+    # 梯度参考数据
+    from pyscf import gto, scf, grad as pyscf_grad
+
+    for (
+        case_name,
+        method_name,
+        basis_name,
+        restricted,
+        coords,
+    ) in GRADIENT_CASES:
+        atom_str = "; ".join(f"H {c[0]} {c[1]} {c[2]}" for c in coords)
+        mol = gto.M(atom=atom_str, basis=basis_name, unit="Angstrom", verbose=0)
+        mf = scf.RHF(mol) if restricted else scf.UHF(mol)
+        mf.kernel()
+        g = mf.nuc_grad_method().kernel()  # (natm, 3), Ha/Bohr
+
+        entries.append(
+            {
+                "case_name": case_name,
+                "method_name": method_name,
+                "basis_name": basis_name,
+                "restricted": restricted,
+                "type": "gradient",
+                "gradient_ha_bohr": g.tolist(),
+                "coords_angstrom": coords,
+            }
+        )
+
+    # H2 平衡键长参考数据
+    import numpy as _np
+
+    for case_name, method_name, basis_name in MINIMIZE_CASES:
+        best_r, best_e = None, 1e10
+        for r in _np.arange(0.5, 1.2, 0.001):
+            mol = gto.M(
+                atom=f"H 0 0 {-r / 2}; H 0 0 {r / 2}",
+                basis=basis_name,
+                unit="Angstrom",
+                verbose=0,
+            )
+            mf = scf.RHF(mol)
+            mf.kernel()
+            if mf.e_tot < best_e:
+                best_e = float(mf.e_tot)
+                best_r = float(r)
+
+        entries.append(
+            {
+                "case_name": case_name,
+                "method_name": method_name,
+                "basis_name": basis_name,
+                "restricted": True,
+                "type": "minimize",
+                "equilibrium_bond_length_angstrom": best_r,
+                "equilibrium_energy_ha": best_e,
             }
         )
 
@@ -109,13 +214,23 @@ def build_payload(statics_path: Path):
 def _entries_to_map(payload):
     result = {}
     for entry in payload["entries"]:
+        entry_type = entry.get("type", "energy")
         key = (
             entry["case_name"],
             entry["method_name"],
             entry["basis_name"],
             bool(entry["restricted"]),
+            entry_type,
         )
-        result[key] = float(entry["energy_ha"])
+        if entry_type == "energy":
+            result[key] = float(entry["energy_ha"])
+        elif entry_type == "gradient":
+            result[key] = entry["gradient_ha_bohr"]
+        elif entry_type == "minimize":
+            result[key] = (
+                entry["equilibrium_bond_length_angstrom"],
+                entry["equilibrium_energy_ha"],
+            )
     return result
 
 
@@ -143,14 +258,31 @@ def compare_payloads(current, generated, abs_tol: float):
     max_diff = 0.0
     max_key = None
     for key in current_map:
-        diff = abs(current_map[key] - generated_map[key])
+        entry_type = key[-1]
+        if entry_type == "energy":
+            diff = abs(current_map[key] - generated_map[key])
+        elif entry_type == "minimize":
+            diff = abs(current_map[key][1] - generated_map[key][1])
+        elif entry_type == "gradient":
+            import numpy as _np
+
+            diff = float(
+                _np.max(
+                    _np.abs(
+                        _np.array(current_map[key])
+                        - _np.array(generated_map[key])
+                    )
+                )
+            )
+        else:
+            continue
         if diff > max_diff:
             max_diff = diff
             max_key = key
     if max_diff > abs_tol:
         return (
             False,
-            "Energy differs above tolerance: "
+            "Reference data differs above tolerance: "
             f"max_diff={max_diff:.3e} at {max_key}",
         )
     return True, f"max_diff={max_diff:.3e}"

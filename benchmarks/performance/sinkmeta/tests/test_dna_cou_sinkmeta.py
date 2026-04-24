@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from benchmarks.utils import Outputer, Runner
@@ -12,6 +13,7 @@ from benchmarks.performance.sinkmeta.tests.utils import (
     reimage_xyz_to_axis,
     save_sinkmeta_plots,
     summarize_sinkmeta,
+    write_dna_cou_continuation_cv_file,
     write_dna_cou_cv_file,
     write_sinkmeta_mdin,
 )
@@ -19,6 +21,7 @@ from benchmarks.performance.sinkmeta.tests.utils import (
 SINKMETA_HEIGHT = 0.2
 SINKMETA_SIGMA = 0.6
 SINKMETA_DIP = 1.0
+SINKMETA_CONTINUATION_STEPS = 1000
 
 
 def test_dna_cou_3d_positional_sinkmeta_long_nvt(
@@ -44,11 +47,16 @@ def test_dna_cou_3d_positional_sinkmeta_long_nvt(
         height=SINKMETA_HEIGHT,
         sigma=SINKMETA_SIGMA,
         dip=SINKMETA_DIP,
-        edge_file=edge_cache_path,
+        edge_file=edge_cache_path if edge_cache_path.exists() else None,
     )
     write_sinkmeta_mdin(case_dir, step_limit=sinkmeta_steps)
 
-    Runner.run_sponge(case_dir, timeout=172800, mpi_np=mpi_np)
+    Runner.run_sponge(
+        case_dir,
+        timeout=172800,
+        mpi_np=mpi_np,
+        input_text="\n",
+    )
 
     mdout_path = Path(case_dir) / "mdout.txt"
     potential_path = Path(case_dir) / "Meta_Potential.txt"
@@ -88,6 +96,53 @@ def test_dna_cou_3d_positional_sinkmeta_long_nvt(
         r_values=sr_projection["r"],
         axis_s=sr_projection["axis_s"],
     )
+
+    continuation_case_dir = Outputer.prepare_output_case(
+        statics_path=statics_path,
+        outputs_path=outputs_path,
+        case_name=case_name,
+        mpi_np=mpi_np,
+        run_name=f"{run_name}_continuation",
+    )
+    for file_name in (
+        "restart_coordinate.txt",
+        "restart_velocity.txt",
+        "sumhill.log",
+        "myhill.log",
+    ):
+        shutil.copy2(
+            Path(case_dir) / file_name, Path(continuation_case_dir) / file_name
+        )
+    write_dna_cou_continuation_cv_file(
+        continuation_case_dir,
+        height=SINKMETA_HEIGHT,
+        sigma=SINKMETA_SIGMA,
+        dip=SINKMETA_DIP,
+        edge_file="sumhill.log",
+        sumhill_freq=1,
+    )
+    write_sinkmeta_mdin(
+        continuation_case_dir,
+        step_limit=SINKMETA_CONTINUATION_STEPS,
+        coordinate_in_file="restart_coordinate.txt",
+        velocity_in_file="restart_velocity.txt",
+        write_trajectory_interval=SINKMETA_CONTINUATION_STEPS,
+    )
+    Runner.run_sponge(
+        continuation_case_dir,
+        timeout=172800,
+        mpi_np=mpi_np,
+        input_text="\n",
+    )
+    continuation_rows = parse_cv_rows(Path(continuation_case_dir) / "mdout.txt")
+    last_row = rows[-1]
+    continuation_zeroth = continuation_rows[0]
+    coord_tol = 1e-4
+    for key in ("cx", "cy", "cz"):
+        assert abs(continuation_zeroth[key] - last_row[key]) < coord_tol
+    assert continuation_rows[-1]["step"] >= SINKMETA_CONTINUATION_STEPS
+    assert any(abs(row["meta"]) > 1e-4 for row in continuation_rows[1:])
+    assert any(abs(row["rbias"]) > 1e-4 for row in continuation_rows[1:])
 
     table_rows = [
         ["RunName", run_name],
@@ -136,6 +191,22 @@ def test_dna_cou_3d_positional_sinkmeta_long_nvt(
         [
             "occupancy_plot",
             plot_paths.get("occupancy", Path("not-generated")).name,
+        ],
+        [
+            "continuation_steps",
+            str(SINKMETA_CONTINUATION_STEPS),
+        ],
+        [
+            "continuation_step0_xyz",
+            (
+                f"{continuation_zeroth['cx']:.4f},"
+                f"{continuation_zeroth['cy']:.4f},"
+                f"{continuation_zeroth['cz']:.4f}"
+            ),
+        ],
+        [
+            "continuation_last_step",
+            str(continuation_rows[-1]["step"]),
         ],
         ["Result", "PLOTTED"],
     ]

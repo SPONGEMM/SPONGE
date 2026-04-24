@@ -5,7 +5,7 @@ license = {"file" = "LICENSE"}
 authors = [{"name" = "Yijie Xia", "email" = "yijiexia@pku.edu.cn"}]
 keywords = ["SPONGE", "molecular dynamics"]
 classifiers = [
-        "Development Status :: 5 - Production/Stable",
+        "Development Status :: 4 - Beta",
         "Environment :: Plugins",
         "License :: OSI Approved :: Apache Software License",
         "Topic :: Scientific/Engineering :: Physics",

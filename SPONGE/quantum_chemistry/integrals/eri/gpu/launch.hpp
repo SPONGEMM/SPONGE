@@ -12,7 +12,7 @@
         const float *P_exx_b, float exx_scale_a, float exx_scale_b, int nao,  \
         int nao_sph, int is_spherical, const float *cart2sph_mat, float *F_a, \
         float *F_b, float *global_hr_pool, int hr_base, int hr_size,          \
-        int shell_buf_size, float prim_screen_tol
+        int shell_buf_size, float prim_screen_tol, int n_fock_copies
 
 void QC_Launch_ssss(ERI_KERNEL_PARAMS);
 void QC_Launch_psss(ERI_KERNEL_PARAMS);
@@ -63,16 +63,24 @@ void QC_Launch_Screen(
     const float* pair_density_exx_b, float shell_screen_tol, float exx_scale_a,
     float exx_scale_b, QC_ERI_TASK* output_tasks, int* output_counts);
 
-#define DEFINE_ERI_LAUNCH(launch_name, kernel_name)                          \
-    void launch_name(ERI_KERNEL_PARAMS)                                      \
-    {                                                                        \
-        const int threads = 256;                                             \
-        Launch_Device_Kernel(                                                \
-            kernel_name, (n_tasks + threads - 1) / threads, threads, 0, 0,   \
-            n_tasks, tasks, atm, bas, env, ao_offsets_cart, ao_offsets_sph,  \
-            norms, shell_pair_bounds, pair_density_coul, pair_density_exx_a, \
-            pair_density_exx_b, shell_screen_tol, P_coul, P_exx_a, P_exx_b,  \
-            exx_scale_a, exx_scale_b, nao, nao_sph, is_spherical,            \
-            cart2sph_mat, F_a, F_b, global_hr_pool, hr_base, hr_size,        \
-            shell_buf_size, prim_screen_tol);                                \
+// Stream used by ERI kernel launches (default=0, set externally for overlap)
+#ifdef GPU_ARCH_NAME
+inline deviceStream_t g_eri_stream = 0;
+#define ERI_STREAM g_eri_stream
+#else
+#define ERI_STREAM 0
+#endif
+
+#define DEFINE_ERI_LAUNCH(launch_name, kernel_name)                           \
+    void launch_name(ERI_KERNEL_PARAMS)                                       \
+    {                                                                         \
+        const int threads = 256;                                              \
+        Launch_Device_Kernel(                                                 \
+            kernel_name, (n_tasks + threads - 1) / threads, threads, 0,       \
+            ERI_STREAM, n_tasks, tasks, atm, bas, env, ao_offsets_cart,       \
+            ao_offsets_sph, norms, shell_pair_bounds, pair_density_coul,      \
+            pair_density_exx_a, pair_density_exx_b, shell_screen_tol, P_coul, \
+            P_exx_a, P_exx_b, exx_scale_a, exx_scale_b, nao, nao_sph,         \
+            is_spherical, cart2sph_mat, F_a, F_b, global_hr_pool, hr_base,    \
+            hr_size, shell_buf_size, prim_screen_tol, n_fock_copies);         \
     }

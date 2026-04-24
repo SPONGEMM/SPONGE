@@ -30,6 +30,27 @@ China mirror:
 powershell -ExecutionPolicy ByPass -c "irm https://conda.spongemm.cn/pixi/install.ps1 | iex"
 ```
 
+## Install from binary distributions
+
+If you want to use a prebuilt SPONGE binary, install one of the published
+packages instead of building from source.
+
+### Choose a package
+
+| Package | Hardware | Platforms |
+|---------|----------|-----------|
+| `sponge-cuda13` | NVIDIA GPU (driver >= 570) | Linux x86_64, Windows x64 |
+| `sponge-cuda12` | NVIDIA GPU (driver >= 525) | Linux x86_64, Windows x64 |
+| `sponge-cpu` | CPU only | Linux x86_64 / aarch64, Windows x64, macOS ARM64 |
+| `sponge-cpu-mpi` | CPU + MPI | Linux x86_64 / aarch64 |
+
+### Install with pixi global
+
+```bash
+pixi project channel add https://conda.spongemm.cn
+pixi add sponge-xxx
+```
+
 ## Build SPONGE
 
 ### Choose an environment

@@ -1,4 +1,5 @@
 ﻿#include "basis/basis.h"
+#include "ecp/ecp_library.h"
 #include "guess/minao.h"
 #include "guess/sap.h"
 #include "quantum_chemistry.h"
@@ -221,6 +222,11 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
             "Reason:\n    qc_model_chemistry \"%s\" not supported. Supported "
             "methods: HF, LDA, PBE, BLYP, PBE0, B3LYP.\n",
             model_chemistry.c_str());
+    }
+
+    if (controller->Command_Exist("qc_need_gradient"))
+    {
+        need_gradient = atoi(controller->Command("qc_need_gradient"));
     }
 
     task_ctx.params.eri_prim_screen_tol = 1e-12f;
@@ -447,6 +453,71 @@ bool QUANTUM_CHEMISTRY::Parsing_Arguments(CONTROLLER* controller,
         }
     }
 
+    // Density Fitting (RI-JK) 开关
+    scf_ws.ri.enabled = false;
+    if (controller->Command_Exist("qc_density_fit"))
+    {
+        controller->Check_Int("qc_density_fit", "QUANTUM_CHEMISTRY::Initial");
+        const int qc_df = atoi(controller->Command("qc_density_fit"));
+        if (qc_df != 0 && qc_df != 1)
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_density_fit must be 0 or 1, got \"%s\"\n",
+                controller->Command("qc_density_fit"));
+        }
+        scf_ws.ri.enabled = (qc_df != 0);
+    }
+
+    // DF 模式选择: auto（默认）/ stored / direct
+    scf_ws.ri.mode = QC_RI_WORKSPACE::DF_AUTO;
+    scf_ws.ri.direct = false;
+    if (controller->Command_Exist("qc_density_fitting_mode"))
+    {
+        std::string mode_str(controller->Command("qc_density_fitting_mode"));
+        std::transform(mode_str.begin(), mode_str.end(), mode_str.begin(),
+                       ::tolower);
+        if (mode_str == "auto")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_AUTO;
+        else if (mode_str == "stored")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_STORED;
+        else if (mode_str == "direct")
+            scf_ws.ri.mode = QC_RI_WORKSPACE::DF_DIRECT;
+        else
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_density_fitting_mode must be "
+                "\"auto\", \"stored\", or \"direct\", got \"%s\"\n",
+                mode_str.c_str());
+        }
+    }
+
+    // ECP 选择: auto (默认, 按基组匹配), none, def2-ecp, lanl2dz
+    ecp_type = QC_ECP_TYPE::AUTO;
+    if (controller->Command_Exist("qc_ecp"))
+    {
+        std::string ecp_name_str = controller->Command("qc_ecp");
+        std::transform(ecp_name_str.begin(), ecp_name_str.end(),
+                       ecp_name_str.begin(), ::tolower);
+        if (ecp_name_str == "auto")
+            ecp_type = QC_ECP_TYPE::AUTO;
+        else if (ecp_name_str == "none")
+            ecp_type = QC_ECP_TYPE::NONE;
+        else if (ecp_name_str == "def2-ecp")
+            ecp_type = QC_ECP_TYPE::DEF2_ECP;
+        else if (ecp_name_str == "lanl2dz")
+            ecp_type = QC_ECP_TYPE::LANL2DZ;
+        else
+        {
+            controller->Throw_Formatted_SPONGE_Error(
+                spongeErrorValueErrorCommand, "QUANTUM_CHEMISTRY::Initial",
+                "Reason:\n    qc_ecp must be \"auto\", \"none\", \"def2-ecp\""
+                ", or \"lanl2dz\", got \"%s\"\n",
+                ecp_name_str.c_str());
+        }
+    }
+
     this->atom_numbers = atom_numbers;
     return true;
 }
@@ -456,13 +527,33 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                                          const std::string& basis_set_name)
 {
     static QC_BASIS_SET* all_bases[] = {
-        QC_BASIS_STO_3G_PTR,        QC_BASIS_3_21G_PTR,
-        QC_BASIS_631G_PTR,          QC_BASIS_631G_STAR_PTR,
-        QC_BASIS_631G_STARSTAR_PTR, QC_BASIS_6311G_PTR,
-        QC_BASIS_6311G_STAR_PTR,    QC_BASIS_6311G_STARSTAR_PTR,
-        QC_BASIS_DEF2_SVP_PTR,      QC_BASIS_DEF2_TZVP_PTR,
-        QC_BASIS_DEF2_TZVPP_PTR,    QC_BASIS_DEF2_QZVP_PTR,
-        QC_BASIS_CC_PVDZ_PTR,       QC_BASIS_CC_PVTZ_PTR,
+        QC_BASIS_STO_3G_PTR,
+        QC_BASIS_3_21G_PTR,
+        QC_BASIS_631G_PTR,
+        QC_BASIS_631G_STAR_PTR,
+        QC_BASIS_631G_STARSTAR_PTR,
+        QC_BASIS_6311G_PTR,
+        QC_BASIS_6311G_STAR_PTR,
+        QC_BASIS_6311G_STARSTAR_PTR,
+        QC_BASIS_631PG_PTR,
+        QC_BASIS_631PPG_PTR,
+        QC_BASIS_631PG_STAR_PTR,
+        QC_BASIS_631PG_STARSTAR_PTR,
+        QC_BASIS_631PPG_STARSTAR_PTR,
+        QC_BASIS_6311PG_STAR_PTR,
+        QC_BASIS_6311PPG_STARSTAR_PTR,
+        QC_BASIS_DEF2_SVP_PTR,
+        QC_BASIS_DEF2_TZVP_PTR,
+        QC_BASIS_DEF2_TZVPP_PTR,
+        QC_BASIS_DEF2_QZVP_PTR,
+        QC_BASIS_DEF2_SVPD_PTR,
+        QC_BASIS_DEF2_TZVPD_PTR,
+        QC_BASIS_MA_DEF2_SVP_PTR,
+        QC_BASIS_MA_DEF2_TZVP_PTR,
+        QC_BASIS_CC_PVDZ_PTR,
+        QC_BASIS_CC_PVTZ_PTR,
+        QC_BASIS_AUG_CC_PVDZ_PTR,
+        QC_BASIS_AUG_CC_PVTZ_PTR,
     };
 
     QC_BASIS_SET* basis = nullptr;
@@ -524,8 +615,29 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         }
     }
 
+    // ECP 查找
+    QC_ECP_SET* ecp_set = nullptr;
+    switch (ecp_type)
+    {
+        case QC_ECP_TYPE::AUTO:
+            ecp_set = QC_Get_Auto_ECP(basis_set_name.c_str());
+            break;
+        case QC_ECP_TYPE::DEF2_ECP:
+            ecp_set = QC_ECP_DEF2_PTR;
+            break;
+        case QC_ECP_TYPE::LANL2DZ:
+            ecp_set = QC_ECP_LANL2DZ_PTR;
+            break;
+        case QC_ECP_TYPE::NONE:
+            break;
+    }
+
+    if (ecp_set) ecp_set->Initialize();
+
     mol.nelectron = -mol.charge;
     mol.h_Z.resize(mol.natm);
+    mol.h_ecp_n_core.resize(mol.natm, 0);
+    mol.h_ecp_l_max.resize(mol.natm, -1);
     for (int i = 0; i < mol.natm; ++i)
     {
         auto it_sym = QC_Z_FROM_SYMBOL.find(atom_symbols[i]);
@@ -538,7 +650,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                 atom_symbols[i].c_str(), i, qc_type_file);
         }
         int Z = it_sym->second;
-        mol.h_Z[i] = Z;
         int md_idx = atom_local[i];
         if (md_idx < 0 || md_idx >= this->atom_numbers)
         {
@@ -547,6 +658,25 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                 "Reason:\n    MD index %d out of bounds [0, %d)\n", md_idx,
                 this->atom_numbers);
         }
+
+        // ECP: 用有效核电荷替代全电荷
+        // auto 模式下按基组规范过滤（def2-ECP 只对 Z>=37 生效）
+        const bool apply_ecp =
+            ecp_set && (ecp_type != QC_ECP_TYPE::AUTO ||
+                        QC_Auto_ECP_Applies(basis_set_name.c_str(), Z));
+        if (apply_ecp)
+        {
+            auto it_ecp = ecp_set->data.find(atom_symbols[i]);
+            if (it_ecp != ecp_set->data.end())
+            {
+                const auto& ecp_data = it_ecp->second;
+                mol.h_ecp_n_core[i] = ecp_data.n_core;
+                mol.h_ecp_l_max[i] = ecp_data.l_max;
+                Z -= ecp_data.n_core;
+                mol.has_ecp = true;
+            }
+        }
+        mol.h_Z[i] = Z;
         mol.nelectron += Z;
     }
 
@@ -640,7 +770,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
             mol.h_bas.push_back(ptr_coeff);
             mol.h_bas.push_back(0);
 
-            mol.h_ao_loc.push_back(mol.nao_cart);
             int ao_dim = (shell.l + 1) * (shell.l + 2) / 2;
             mol.nao_cart += ao_dim;
             mol.nao_sph += (2 * shell.l + 1);
@@ -664,7 +793,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
         Build_Cart2Sph_Matrix();
     mol.nao = mol.is_spherical ? mol.nao_sph : mol.nao_cart;
     mol.nao2 = (int)((int)mol.nao * (int)mol.nao);
-    mol.h_ao_loc.push_back(mol.nao_cart);
     mol.h_ao_offsets.clear();
     mol.h_ao_offsets_sph.clear();
     int acc = 0;
@@ -693,10 +821,6 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
                                   sizeof(int) * mol.h_bas.size());
     Device_Malloc_And_Copy_Safely((void**)&mol.d_env, (void*)mol.h_env.data(),
                                   sizeof(float) * mol.h_env.size());
-    Device_Malloc_And_Copy_Safely((void**)&mol.d_ao_loc,
-                                  (void*)mol.h_ao_loc.data(),
-                                  sizeof(int) * mol.h_ao_loc.size());
-
     Device_Malloc_And_Copy_Safely((void**)&mol.d_centers,
                                   (void*)mol.h_centers.data(),
                                   sizeof(VECTOR) * mol.h_centers.size());
@@ -723,6 +847,77 @@ void QUANTUM_CHEMISTRY::Initial_Molecule(CONTROLLER* controller,
     Device_Malloc_And_Copy_Safely((void**)&d_atom_local,
                                   (void*)atom_local.data(),
                                   sizeof(int) * atom_local.size());
+
+    // 原子坐标数组 (初始为零, 由 Update_Coordinates_From_MD 更新)
+    mol.h_atom_coords.resize(mol.natm, VECTOR(0.0f));
+    Device_Malloc_And_Copy_Safely((void**)&mol.d_atom_coords,
+                                  (void*)mol.h_atom_coords.data(),
+                                  sizeof(VECTOR) * mol.natm);
+
+    // ECP 数据扁平化并拷贝到 device
+    if (mol.has_ecp && ecp_set)
+    {
+        mol.ecp_total_channels = 0;
+        mol.ecp_total_terms = 0;
+        mol.h_ecp_atom_channel_range.resize(mol.natm + 1);
+
+        for (int i = 0; i < mol.natm; i++)
+        {
+            mol.h_ecp_atom_channel_range[i] = mol.ecp_total_channels;
+            if (mol.h_ecp_l_max[i] < 0) continue;
+
+            const auto& ecp_data = ecp_set->data.at(atom_symbols[i]);
+            for (const auto& ch : ecp_data.channels)
+            {
+                mol.h_ecp_l.push_back(ch.l);
+                mol.h_ecp_channel_offsets.push_back(mol.ecp_total_terms);
+                mol.h_ecp_channel_sizes.push_back((int)ch.terms.size());
+                for (const auto& t : ch.terms)
+                {
+                    mol.h_ecp_d.push_back(t.d_k);
+                    mol.h_ecp_zeta.push_back(t.zeta_k);
+                    mol.h_ecp_n.push_back(t.n_k);
+                    mol.ecp_total_terms++;
+                }
+                mol.ecp_total_channels++;
+            }
+        }
+        mol.h_ecp_atom_channel_range[mol.natm] = mol.ecp_total_channels;
+
+        // Device 拷贝
+        Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_l_max,
+                                      (void*)mol.h_ecp_l_max.data(),
+                                      sizeof(int) * mol.natm);
+        Device_Malloc_And_Copy_Safely(
+            (void**)&mol.d_ecp_atom_channel_range,
+            (void*)mol.h_ecp_atom_channel_range.data(),
+            sizeof(int) * (mol.natm + 1));
+        if (mol.ecp_total_channels > 0)
+        {
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_l,
+                                          (void*)mol.h_ecp_l.data(),
+                                          sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely(
+                (void**)&mol.d_ecp_channel_offsets,
+                (void*)mol.h_ecp_channel_offsets.data(),
+                sizeof(int) * mol.ecp_total_channels);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_channel_sizes,
+                                          (void*)mol.h_ecp_channel_sizes.data(),
+                                          sizeof(int) * mol.ecp_total_channels);
+        }
+        if (mol.ecp_total_terms > 0)
+        {
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_d,
+                                          (void*)mol.h_ecp_d.data(),
+                                          sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_zeta,
+                                          (void*)mol.h_ecp_zeta.data(),
+                                          sizeof(float) * mol.ecp_total_terms);
+            Device_Malloc_And_Copy_Safely((void**)&mol.d_ecp_n,
+                                          (void*)mol.h_ecp_n.data(),
+                                          sizeof(int) * mol.ecp_total_terms);
+        }
+    }
 }
 
 void QUANTUM_CHEMISTRY::Initial_Integral_Tasks(CONTROLLER* controller)
@@ -756,12 +951,17 @@ void QUANTUM_CHEMISTRY::Initial(CONTROLLER* controller, const int atom_numbers,
     if (!need_qc) return;
 
     Initial_Molecule(controller, qc_type_file, basis_set_name);
+    orbital_basis_name = basis_set_name;
+
+    if (scf_ws.ri.enabled) Initial_Auxiliary_Basis(controller);
+
     Initial_Integral_Tasks(controller);
 
     is_initialized = 1;
     deviceBlasCreate(&blas_handle);
     deviceSolverCreate(&solver_handle);
     Memory_Allocate(controller);
+
     controller->Step_Print_Initial("QC", "%e");
     if (scf_ws.runtime.unrestricted)
         controller->Step_Print_Initial("QC_S_sq", "%.4f");
@@ -851,6 +1051,11 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
     Device_Malloc_Safely((void**)&scf_ws.core.d_V, sizeof(float) * mol.nao2);
     Device_Malloc_Safely((void**)&scf_ws.core.d_H_core,
                          sizeof(float) * mol.nao2);
+    if (mol.has_ecp)
+    {
+        Device_Malloc_Safely((void**)&scf_ws.core.d_V_ECP,
+                             sizeof(float) * mol.nao2);
+    }
     Device_Malloc_Safely((void**)&scf_ws.core.d_scf_energy, sizeof(double));
     Device_Malloc_Safely((void**)&scf_ws.core.d_nuc_energy_dev, sizeof(double));
     Device_Malloc_Safely((void**)&dft.d_exc_total, sizeof(double));
@@ -871,9 +1076,12 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         Device_Malloc_Safely((void**)&cart2sph.d_cart2sph_1e_tmp,
                              sizeof(float) * (int)nao_c * (int)nao_s);
     }
-    int hr_pool_tasks = ERI_BATCH_SIZE;
-#ifndef USE_GPU
-    hr_pool_tasks = std::max(1, omp_get_max_threads());
+#ifdef USE_GPU
+    // GPU: scratch 池槽数与 bounds kernel 的 launch 线程总数一致，避免
+    // O(n_pairs) 膨胀
+    int hr_pool_tasks = QC_BOUNDS_POOL_SLOTS;
+#else
+    int hr_pool_tasks = std::max(1, omp_get_max_threads());
 #endif
     Device_Malloc_Safely((void**)&scf_ws.direct.d_hr_pool,
                          (int)hr_pool_tasks *
@@ -1014,6 +1222,92 @@ void QUANTUM_CHEMISTRY::Memory_Allocate(CONTROLLER* controller)
         }
     }
     Build_SCF_Workspace();
+
+    // RI 内存分配在 Build_SCF_Workspace 之后，因为需要 n_alpha/n_beta
+    if (scf_ws.ri.enabled) RI_Memory_Allocate();
+
+    // 分配梯度工作空间
+    Device_Malloc_Safely((void**)&grad_ws.d_grad,
+                         sizeof(double) * mol.natm * 3);
+    Device_Malloc_Safely((void**)&grad_ws.d_W_density,
+                         sizeof(float) * mol.nao2);
+    if (scf_ws.runtime.unrestricted)
+    {
+        Device_Malloc_Safely((void**)&grad_ws.d_W_density_beta,
+                             sizeof(float) * mol.nao2);
+    }
+    // 壳层到原子映射
+    {
+        std::vector<int> h_shell_atom(mol.nbas);
+        for (int ish = 0; ish < mol.nbas; ish++)
+            h_shell_atom[ish] = mol.h_bas[ish * 8 + 0];
+        Device_Malloc_Safely((void**)&grad_ws.d_shell_atom,
+                             sizeof(int) * mol.nbas);
+        deviceMemcpy(grad_ws.d_shell_atom, h_shell_atom.data(),
+                     sizeof(int) * mol.nbas, deviceMemcpyHostToDevice);
+    }
+    // 预分配笛卡尔密度缓冲 (球谐 1e 梯度 + ECP 梯度共用)
+    if (mol.is_spherical || mol.has_ecp)
+    {
+        const int nc2 = mol.nao_cart * mol.nao_cart;
+        Device_Malloc_Safely((void**)&grad_ws.d_P_cart, sizeof(float) * nc2);
+    }
+    if (mol.is_spherical)
+    {
+        const int nc2 = mol.nao_cart * mol.nao_cart;
+        Device_Malloc_Safely((void**)&grad_ws.d_W_cart, sizeof(float) * nc2);
+        Device_Malloc_Safely((void**)&grad_ws.d_norms_ones,
+                             sizeof(float) * mol.nao_cart);
+        std::vector<float> h_ones(mol.nao_cart, 1.0f);
+        deviceMemcpy(grad_ws.d_norms_ones, h_ones.data(),
+                     sizeof(float) * mol.nao_cart, deviceMemcpyHostToDevice);
+    }
+    {
+        int max_l_cart = 0;
+        for (int sh = 0; sh < mol.nbas; sh++)
+            if (mol.h_l_list[sh] > max_l_cart) max_l_cart = mol.h_l_list[sh];
+        const int max_dim_cart = (max_l_cart + 1) * (max_l_cart + 2) / 2;
+        grad_ws.grad_gamma_buf_size =
+            max_dim_cart * max_dim_cart * max_dim_cart * max_dim_cart;
+        // 限制 gamma pool 占用 (qzvp: 15^4 * 8B/slot = 405 KB; 4096 slots = 1.6
+        // GB) 高 L 时减少 slots, 启动时配套缩减 blocks (kernel worker stride
+        // 自适应)
+        const size_t bytes_per_slot =
+            (size_t)(2 * grad_ws.grad_gamma_buf_size) * sizeof(float);
+        const size_t pool_budget_bytes = (size_t)512 * 1024 * 1024;  // 512 MB
+        int slots = QC_GRAD_GAMMA_POOL_SLOTS;
+        const int budget_slots = (int)(pool_budget_bytes / bytes_per_slot);
+        const int min_slots = QC_GRAD_ERI_THREADS;  // 至少 1 block
+        if (slots > budget_slots) slots = budget_slots;
+        if (slots < min_slots) slots = min_slots;
+        const size_t gamma_pool_elems =
+            (size_t)slots * (size_t)(2 * grad_ws.grad_gamma_buf_size);
+        Device_Malloc_Safely((void**)&grad_ws.d_grad_gamma_pool,
+                             sizeof(float) * gamma_pool_elems);
+        grad_ws.grad_gamma_pool_slots = slots;
+    }
+    // 辅助基壳层到原子映射 (RI 梯度用)
+    if (scf_ws.ri.enabled)
+    {
+        const auto& ri = scf_ws.ri;
+        std::vector<int> h_shell_atom_aux(ri.naux_bas);
+        for (int ish = 0; ish < ri.naux_bas; ish++)
+            h_shell_atom_aux[ish] = ri.h_aux_bas[ish * 8 + 0];
+        Device_Malloc_Safely((void**)&grad_ws.d_shell_atom_aux,
+                             sizeof(int) * ri.naux_bas);
+        deviceMemcpy(grad_ws.d_shell_atom_aux, h_shell_atom_aux.data(),
+                     sizeof(int) * ri.naux_bas, deviceMemcpyHostToDevice);
+    }
+    // GPU ERI 梯度持久化缓冲 (combo 前缀 + gradient 多副本累加)
+    {
+        const int cp_size = task_ctx.topo.n_combos + 1;
+        Device_Malloc_Safely((void**)&grad_ws.d_combo_prefix_grad,
+                             sizeof(int) * cp_size);
+        const size_t copies_elems =
+            (size_t)QC_GRAD_N_COPIES * (size_t)(mol.natm * 3);
+        Device_Malloc_Safely((void**)&grad_ws.d_grad_copies,
+                             sizeof(double) * copies_elems);
+    }
 }
 
 void QUANTUM_CHEMISTRY::Step_Print(CONTROLLER* controller)

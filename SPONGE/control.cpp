@@ -1,6 +1,7 @@
 ﻿#include "control.h"
 
-#define SPONGE_VERSION "v2.0.0 2026-02-16 Spring Festive"
+#define SPONGE_CODENAME "2026-04-01 April Fools' Day"
+#define SPONGE_VERSION "v" SPONGE_VERSION_STR " " SPONGE_CODENAME
 
 static const char* SPONGE_ASCII_ART = R"( ____  ____   ___  _   _  ____ _____
 / ___||  _ \ / _ \| \ | |/ ___| ____|
@@ -29,12 +30,22 @@ int CONTROLLER::CC_MPI_size = 0;
 unsigned int CONTROLLER::device_optimized_block = 64;
 unsigned int CONTROLLER::device_warp = 32;
 unsigned int CONTROLLER::device_max_thread = 1024;
+int CONTROLLER::force_replica_count = 1;
 MPI_Comm CONTROLLER::pp_comm;
 MPI_Comm CONTROLLER::pm_comm;
 
 D_MPI_Comm CONTROLLER::D_MPI_COMM_WORLD;
 D_MPI_Comm CONTROLLER::d_pp_comm;
 D_MPI_Comm CONTROLLER::d_pm_comm;
+
+void CONTROLLER::Initial_Force_Replica_Count()
+{
+#ifdef USE_CPU
+    force_replica_count = std::max(1, omp_get_max_threads());
+#else
+    force_replica_count = 1;
+#endif
+}
 
 bool CONTROLLER::Command_Exist(const char* key)
 {
@@ -750,6 +761,7 @@ neither equal to the size of MPI ranks (%d) nor 1\n",
     omp_set_num_threads(working_device);
     printf("    End initializing OpenMP\n");
 #endif  // USE_GPU
+    Initial_Force_Replica_Count();
 }
 
 void CONTROLLER::Init_Host_MPI()

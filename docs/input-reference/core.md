@@ -22,6 +22,15 @@
 | `"minimization"` / `"min"` | Energy minimization |
 | `"rerun"` | Trajectory reanalysis |
 
+## Periodic Boundary Conditions
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `pbc` | bool | `true` | Enable periodic boundary conditions |
+
+If `pbc = false`, SPONGE switches to the no-PBC path. This cannot be used with
+`npt`, is not supported in multi-process mode, and expects a very large box.
+
 ## Time and Steps
 
 | Parameter | Type | Default | Description |
@@ -41,10 +50,15 @@
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `target_temperature` | float | `300.0` | Target temperature (K), required for NVT/NPT |
-| `target_pressure` | float | `1.0` | Target pressure (bar), required for NPT |
+| `target_temperature` | float | `300.0` | Top-level target temperature (K), used in NVT/NPT |
+| `target_pressure` | float | `1.0` | Top-level target pressure (bar), used in NPT |
 
-Temperature and pressure support schedules (step/linear changes). See [Thermostat](thermostat.md) and [Barostat](barostat.md).
+These two keys stay at the top level even when thermostat and barostat options are
+written in `[thermostat]` and `[barostat]`.
+
+Temperature and pressure also support schedules through the top-level keys
+`target_temperature_schedule_*` and `target_pressure_schedule_*`. See
+[Thermostat](thermostat.md) and [Barostat](barostat.md).
 
 ## Working Directory
 

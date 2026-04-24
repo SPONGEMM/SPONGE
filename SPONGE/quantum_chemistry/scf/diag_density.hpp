@@ -6,9 +6,8 @@ void QUANTUM_CHEMISTRY::Diagonalize_And_Build_Density()
     const int nao2 = mol.nao2;
     const int ne = scf_ws.ortho.nao_eff > 0 ? scf_ws.ortho.nao_eff : nao;
 
-    // ======================== alpha 通道 ========================
+    // alpha 通道
     // 优先使用双精度 Fock；若当前只有浮点 Fock，则先提升到双精度
-    // ===========================================================
     double* dF = scf_ws.ortho.d_dwork_nao2_1;
     if (scf_ws.alpha.d_F_double)
         deviceMemcpy(dF, scf_ws.alpha.d_F_double, sizeof(double) * nao2,
@@ -68,9 +67,13 @@ void QUANTUM_CHEMISTRY::Diagonalize_And_Build_Density()
 
     if (!scf_ws.runtime.unrestricted) return;
 
-    // ========================= beta 通道 =========================
+    // UHF: 保存 alpha 特征值（beta 对角化会覆盖 d_W）
+    if (scf_ws.ortho.d_W_alpha)
+        deviceMemcpy(scf_ws.ortho.d_W_alpha, scf_ws.ortho.d_W,
+                     sizeof(float) * ne, deviceMemcpyDeviceToDevice);
+
+    // beta 通道
     // 非限制体系下复用同一流程处理 beta Fock / 密度
-    // ===========================================================
     if (scf_ws.beta.d_F_double)
         deviceMemcpy(dF, scf_ws.beta.d_F_double, sizeof(double) * nao2,
                      deviceMemcpyDeviceToDevice);

@@ -24,7 +24,7 @@ __global__ void KERNEL_NAME(
     const int is_spherical, const float* __restrict__ cart2sph_mat,
     float* __restrict__ F_a, float* __restrict__ F_b,
     float* __restrict__ global_hr_pool, int hr_base, int hr_size,
-    int shell_buf_size, float prim_screen_tol)
+    int shell_buf_size, float prim_screen_tol, int n_fock_copies)
 {
     // Compile-time constants from macros
     const int l[4] = {_1S3P_IS_P(0), _1S3P_IS_P(1), _1S3P_IS_P(2),
@@ -38,8 +38,11 @@ __global__ void KERNEL_NAME(
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
 #ifdef GPU_ARCH_NAME
-        float* F_a_accum = F_a;
-        float* F_b_accum = F_b;
+        const int nao2 = nao * nao;
+        const size_t fock_off =
+            (size_t)(blockIdx.x % n_fock_copies) * (size_t)nao2;
+        float* F_a_accum = F_a + fock_off;
+        float* F_b_accum = (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
 #else
         const int tid = omp_get_thread_num();
         const int nao2 = nao * nao;
@@ -49,7 +52,7 @@ __global__ void KERNEL_NAME(
 #endif
         const QC_ERI_TASK tk = tasks[task_id];
 
-        // ---- Screening ----
+        // Screening
         const int ij_pair = QC_Shell_Pair_Index(tk.x, tk.y);
         const int kl_pair = QC_Shell_Pair_Index(tk.z, tk.w);
         const int ik_pair = QC_Shell_Pair_Index(tk.x, tk.z);
@@ -179,7 +182,7 @@ __global__ void KERNEL_NAME(
                 }
             }
 
-            // ---- Cart2sph for p shells + s-shell scalar ----
+            // Cart2sph for p shells + s-shell scalar
             if (is_spherical)
             {
                 for (int si = 0; si < 4; si++)
@@ -217,7 +220,7 @@ __global__ void KERNEL_NAME(
                 }
             }
 
-            // ---- Norms ----
+            // Norms
             {
                 int idx = 0;
                 for (int c0 = 0; c0 < dim_e[0]; c0++)
@@ -229,7 +232,7 @@ __global__ void KERNEL_NAME(
                                     norms[off[2] + c2] * norms[off[3] + c3];
             }
 
-            // ---- Fock accumulation with dedup ----
+            // Fock accumulation with dedup
             const bool jk_same_bra = (tk.x == tk.y);
             const bool jk_same_ket = (tk.z == tk.w);
             const bool jk_same_braket = (tk.x == tk.z && tk.y == tk.w);

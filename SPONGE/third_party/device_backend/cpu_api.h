@@ -13,6 +13,7 @@
 #define __host__
 #define __global__
 #define __forceinline__ inline
+#define __noinline__
 #define __launch_bounds__(THREAD)
 #if defined(_MSC_VER) && !defined(__restrict__)
 #define __restrict__ __restrict
@@ -162,6 +163,9 @@ enum deviceEigMode_t
                 (transa == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans),    \
                 (transb == DEVICE_BLAS_OP_N ? CblasNoTrans : CblasTrans), m, \
                 n, k, *(alpha), A, lda, B, ldb, *(beta), C, ldc)
+
+#define deviceBlasDdot(handle, n, x, incx, y, incy, result) \
+    (*(result) = cblas_ddot(n, x, incx, y, incy), 0)
 #endif
 
 #endif  // BLAS_BACKEND_H

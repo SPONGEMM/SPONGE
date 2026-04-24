@@ -17,9 +17,7 @@ skin_permit = 0.5
 | `max_neighbor_numbers` | int | `1200` | Maximum neighbors per atom |
 | `max_atom_in_grid_numbers` | int | `150` | Maximum atoms per grid cell |
 | `max_ghost_in_grid_numbers` | int | `150` | Maximum ghost atoms per grid cell |
-| `max_padding` | int | - | Maximum array padding |
-| `min_padding` | int | - | Minimum array padding |
-| `check_overflow_interval` | int | - | Memory overflow check interval |
+| `check_overflow_interval` | int | `150` | Memory overflow check interval |
 | `throw_error_when_overflow` | bool | `false` | Whether to throw an error on overflow (otherwise auto-expands) |
 
 The rebuild strategy defaults to automatic detection based on `skin` distance. `refresh_interval = 0` enables automatic mode.

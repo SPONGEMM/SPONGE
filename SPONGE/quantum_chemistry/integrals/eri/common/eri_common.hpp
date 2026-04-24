@@ -16,7 +16,7 @@ static __device__ __forceinline__ int eri_get_l_axis(int l, int c, int axis)
     return QC_COMP_LZ_DEVICE[offset + c];
 }
 
-// ---- Boys function for max_m up to ~8 ----
+// Boys function for max_m up to ~8
 // Uses upward recursion for max_m <= 4 (fast, register-only).
 // Uses downward recursion for max_m > 4 (stable, needs small work array).
 static __device__ __forceinline__ void eri_boys(double* F, float T, int max_m)
@@ -53,7 +53,7 @@ static __device__ __forceinline__ void eri_boys(double* F, float T, int max_m)
     for (int m = 0; m <= max_m; m++) F[m] = work[m] * scale;
 }
 
-// ---- Compact R^0 tensor index ----
+// Compact R^0 tensor index
 static __device__ __forceinline__ int eri_R0_idx(int t, int u, int v)
 {
     const int N = t + u + v;
@@ -73,7 +73,7 @@ static __device__ __forceinline__ int eri_Rn_idx(int t, int u, int v, int n,
     return offset + eri_R0_idx(t, u, v);
 }
 
-// ---- Build R^0 tensor in registers ----
+// Build R^0 tensor in registers
 static __device__ void eri_build_R0(float* R0, float* Rw, const double* F,
                                     float alpha, const float* PQ, int L)
 {
@@ -124,7 +124,7 @@ static __device__ void eri_build_R0(float* R0, float* Rw, const double* F,
     for (int i = 0; i < n0; i++) R0[i] = Rw[i];
 }
 
-// ---- McMurchie-Davidson E-coefficient for one axis ----
+// McMurchie-Davidson E-coefficient for one axis
 // Supports la, lb up to 2 (d shells). Returns number of terms.
 static __device__ __forceinline__ int eri_E_coeff(float* e, int la, int lb,
                                                   float shift_a, float shift_b,
@@ -210,10 +210,10 @@ static __device__ __forceinline__ int eri_E_coeff(float* e, int la, int lb,
     return n_prev;
 }
 
-// ---- Contract E-coefficients with R^0 tensor ----
+// Contract E-coefficients with R^0 tensor
 // General version: supports any l values via eri_get_l_axis lookup.
 // For l<=1, eri_get_l_axis inlines to (c==d)?1:0, same perf as before.
-static __device__ __forceinline__ float eri_contract(
+static __device__ __forceinline__ float eri_contract_impl(
     const int* l, const int* c, const float* PA, const float* PB,
     const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
 {
@@ -252,4 +252,18 @@ static __device__ __forceinline__ float eri_contract(
                         }
             }
     return eri;
+}
+
+static __device__ __forceinline__ float eri_contract(
+    const int* l, const int* c, const float* PA, const float* PB,
+    const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
+{
+    return eri_contract_impl(l, c, PA, PB, QC, QD, inv2p, inv2q, R0);
+}
+
+static __device__ __noinline__ float eri_contract_noinline(
+    const int* l, const int* c, const float* PA, const float* PB,
+    const float* QC, const float* QD, float inv2p, float inv2q, const float* R0)
+{
+    return eri_contract_impl(l, c, PA, PB, QC, QD, inv2p, inv2q, R0);
 }

@@ -15,6 +15,34 @@ static __global__ void QC_Init_Fock_Kernel(const int n, const float* H_core,
     }
 }
 
+// Incremental Fock init: F = H_core + Vxc + F_eri_accum
+static __global__ void QC_Init_Fock_Incremental_Kernel(
+    const int n, const float* H_core, const float* Vxc, const int use_vxc,
+    const float* F_eri_accum, float* F)
+{
+    SIMPLE_DEVICE_FOR(idx, n)
+    {
+        float v = H_core[idx];
+        if (use_vxc) v += Vxc[idx];
+        F[idx] = v + F_eri_accum[idx];
+    }
+}
+
+// Extract ERI accumulator: F_eri_accum = F - H_core - Vxc
+static __global__ void QC_Extract_ERI_Accum_Kernel(const int n, const float* F,
+                                                   const float* H_core,
+                                                   const float* Vxc,
+                                                   const int use_vxc,
+                                                   float* F_eri_accum)
+{
+    SIMPLE_DEVICE_FOR(idx, n)
+    {
+        float init = H_core[idx];
+        if (use_vxc) init += Vxc[idx];
+        F_eri_accum[idx] = F[idx] - init;
+    }
+}
+
 static __device__ void QC_Cart2Sph_Shell_ERI(
     const float* U_row_nc_ns, const int nao_s, const int* off_cart,
     const int* off_sph, const int* dims_cart, const int* dims_sph, float* buf0,
@@ -151,8 +179,8 @@ static __device__ bool QC_Compute_Shell_Quartet_ERI_Buffer(
                        (R[2][1] - R[3][1]) * (R[2][1] - R[3][1]) +
                        (R[2][2] - R[3][2]) * (R[2][2] - R[3][2]);
 
-    float E_bra[3][5][5][9];
-    float E_ket[3][5][5][9];
+    float E_bra[3][6][6][11];
+    float E_ket[3][6][6][11];
 
     for (int ip = 0; ip < np[0]; ip++)
     {
@@ -341,11 +369,16 @@ static __global__ void QC_Build_Shell_Pair_Bounds_Kernel(
     float* global_hr_pool, int hr_base, int hr_size, int shell_buf_size,
     float prim_screen_tol)
 {
-    SIMPLE_DEVICE_FOR(task_id, n_pairs)
-    {
 #ifdef GPU_ARCH_NAME
-        const int scratch_id = task_id;
+    const int scratch_id = blockDim.x * blockIdx.x + threadIdx.x;
+    const int stride = gridDim.x * blockDim.x;
+    for (int task_id = scratch_id; task_id < n_pairs; task_id += stride)
 #else
+#pragma omp parallel for
+    for (int task_id = 0; task_id < n_pairs; task_id++)
+#endif
+    {
+#ifndef GPU_ARCH_NAME
         const int scratch_id = omp_get_thread_num();
 #endif
         float* task_pool =

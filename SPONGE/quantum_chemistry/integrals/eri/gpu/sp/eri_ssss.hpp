@@ -19,13 +19,16 @@ __global__ void QC_Fock_ssss_Kernel(
     const int is_spherical, const float* __restrict__ cart2sph_mat,
     float* __restrict__ F_a, float* __restrict__ F_b,
     float* __restrict__ global_hr_pool, int hr_base, int hr_size,
-    int shell_buf_size, float prim_screen_tol)
+    int shell_buf_size, float prim_screen_tol, int n_fock_copies)
 {
     SIMPLE_DEVICE_FOR(task_id, n_tasks)
     {
 #ifdef GPU_ARCH_NAME
-        float* F_a_accum = F_a;
-        float* F_b_accum = F_b;
+        const int nao2 = nao * nao;
+        const size_t fock_off =
+            (size_t)(blockIdx.x % n_fock_copies) * (size_t)nao2;
+        float* F_a_accum = F_a + fock_off;
+        float* F_b_accum = (F_b != NULL) ? (F_b + fock_off) : (float*)NULL;
 #else
         const int tid = omp_get_thread_num();
         const int nao2 = nao * nao;
@@ -65,7 +68,7 @@ __global__ void QC_Fock_ssss_Kernel(
         if (fmaxf(coul_screen, fmaxf(exx_screen_a, exx_screen_b)) >=
             shell_screen_tol)
         {
-            // ---- Read shell data ----
+            // Read shell data
             const int sh[4] = {tk.x, tk.y, tk.z, tk.w};
             int np[4], p_exp_off[4], p_cof_off[4];
             float R[4][3];
@@ -92,7 +95,7 @@ __global__ void QC_Fock_ssss_Kernel(
                                (R[2][1] - R[3][1]) * (R[2][1] - R[3][1]) +
                                (R[2][2] - R[3][2]) * (R[2][2] - R[3][2]);
 
-            // ---- Primitive contraction: single ERI = sum n_abcd * F0(T) ----
+            // Primitive contraction: single ERI = sum n_abcd * F0(T)
             float eri = 0.0f;
 
             for (int ip = 0; ip < np[0]; ip++)
@@ -161,7 +164,7 @@ __global__ void QC_Fock_ssss_Kernel(
                 }
             }
 
-            // ---- Apply cart2sph (scalar for s shells) + norms ----
+            // Apply cart2sph (scalar for s shells) + norms
             float c2s = 1.0f;
             if (is_spherical)
             {

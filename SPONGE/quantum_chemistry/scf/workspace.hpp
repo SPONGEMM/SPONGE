@@ -90,6 +90,7 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_from_host_float(&scf_ws.beta.d_P_new, scf_ws.beta.h_P_new);
         alloc_from_host_float(&scf_ws.beta.d_C, scf_ws.beta.h_C);
         alloc_zero_float(&scf_ws.direct.d_Ptot, nao2);
+        alloc_zero_float(&scf_ws.ortho.d_W_alpha, (int)nao);
     }
     else
     {
@@ -128,10 +129,41 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.direct.d_pair_density_exx_b = NULL;
     }
 
+    // Incremental Fock buffers
+    alloc_zero_float(&scf_ws.direct.d_P_coul_prev, nao2);
+    alloc_zero_float(&scf_ws.direct.d_F_eri_accum_f, nao2);
+    alloc_zero_double(&scf_ws.direct.d_F_eri_accum, nao2);
+    if (unrestricted)
+    {
+        alloc_zero_float(&scf_ws.direct.d_P_exx_prev, nao2);
+        alloc_zero_float(&scf_ws.direct.d_P_exx_b_prev, nao2);
+        alloc_zero_float(&scf_ws.direct.d_F_eri_b_accum_f, nao2);
+        alloc_zero_double(&scf_ws.direct.d_F_eri_b_accum, nao2);
+    }
+    else
+    {
+        scf_ws.direct.d_P_exx_prev = NULL;
+        scf_ws.direct.d_P_exx_b_prev = NULL;
+        scf_ws.direct.d_F_eri_b_accum_f = NULL;
+        scf_ws.direct.d_F_eri_b_accum = NULL;
+    }
+
 #ifdef USE_GPU
     scf_ws.direct.fock_thread_count = 1;
     scf_ws.direct.d_F_thread = NULL;
     scf_ws.direct.d_F_b_thread = NULL;
+    alloc_zero_double(&scf_ws.alpha.d_F_double, nao2);
+    alloc_zero_double(&scf_ws.alpha.d_F_for_grad, nao2);
+    if (unrestricted)
+    {
+        alloc_zero_double(&scf_ws.beta.d_F_double, nao2);
+        alloc_zero_double(&scf_ws.beta.d_F_for_grad, nao2);
+    }
+    else
+    {
+        scf_ws.beta.d_F_double = NULL;
+        scf_ws.beta.d_F_for_grad = NULL;
+    }
 #else
     scf_ws.direct.fock_thread_count = std::max(1, omp_get_max_threads());
     alloc_zero_double(&scf_ws.direct.d_F_thread,
@@ -158,10 +190,17 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         throw std::runtime_error("malloc direct CPU angular scratch failed");
     }
     alloc_zero_double(&scf_ws.alpha.d_F_double, nao2);
+    alloc_zero_double(&scf_ws.alpha.d_F_for_grad, nao2);
     if (unrestricted)
+    {
         alloc_zero_double(&scf_ws.beta.d_F_double, nao2);
+        alloc_zero_double(&scf_ws.beta.d_F_for_grad, nao2);
+    }
     else
+    {
         scf_ws.beta.d_F_double = NULL;
+        scf_ws.beta.d_F_for_grad = NULL;
+    }
 #endif
 
     // Double workspace for diag/DIIS
@@ -210,6 +249,10 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         alloc_zero_float(&scf_ws.diis.d_diis_w3, nao2);
         alloc_zero_float(&scf_ws.diis.d_diis_w4, nao2);
         alloc_zero_double(&scf_ws.diis.d_diis_accum, 1);
+        // 批量 Tr 缓冲: gather 两组历史 + 输出
+        alloc_zero_double(&scf_ws.diis.d_gather_a, (size_t)diis_space * nao2);
+        alloc_zero_double(&scf_ws.diis.d_gather_b, (size_t)diis_space * nao2);
+        alloc_zero_double(&scf_ws.diis.d_dot_out, diis_space * diis_space);
         scf_ws.diis.d_diis_f_hist.assign((int)diis_space, nullptr);
         scf_ws.diis.d_diis_e_hist.assign((int)diis_space, nullptr);
         scf_ws.diis.d_diis_d_hist.assign((int)diis_space, nullptr);
@@ -242,6 +285,9 @@ void QUANTUM_CHEMISTRY::Build_SCF_Workspace()
         scf_ws.diis.d_diis_w3 = NULL;
         scf_ws.diis.d_diis_w4 = NULL;
         scf_ws.diis.d_diis_accum = NULL;
+        scf_ws.diis.d_gather_a = NULL;
+        scf_ws.diis.d_gather_b = NULL;
+        scf_ws.diis.d_dot_out = NULL;
     }
 
     scf_ws.runtime.n_alpha = (mol.nelectron + (unrestricted ? spin_e : 0)) / 2;

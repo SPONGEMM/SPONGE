@@ -96,7 +96,7 @@ struct QC_Bra_Prim_Cache_CPU
     float P[3];
     float inv_p;
     float n_ab;
-    float E_bra[3][5][5][9];
+    float E_bra[3][6][6][11];
 };
 
 struct QC_Cart_Pair_Geom_CPU
@@ -349,7 +349,7 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
     int bra_term_counts[QC_MAX_CART_PAIR_COUNT_CPU];
     int ket_term_counts[QC_MAX_CART_PAIR_COUNT_CPU];
 
-    float E_ket[3][5][5][9];
+    float E_ket[3][6][6][11];
     for (const QC_Bra_Prim_Cache_CPU& prim : bra_prims)
     {
         // Build bra term lists (once per bra prim, reused across ket prims)
@@ -548,6 +548,712 @@ static inline bool QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
         }
     }
     return true;
+}
+
+// Rys quadrature ERI for high-L quartets.
+// Replaces McMurchie-Davidson HR-tensor path at L_sum >= 6.
+// Uses VRR + HRR per Rys root: I arrays ~625 floats vs HR tensor ~83 521
+// floats.
+
+static inline void QC_Fock_VRR_2D(float* G, int ij_max, int kl_max,
+                                  int g_stride, float Cx_bra, float Cx_ket,
+                                  float B00, float B10, float B01)
+{
+    G[0] = 1.0f;
+    for (int i = 0; i < ij_max; i++)
+    {
+        float val = Cx_bra * G[i * g_stride];
+        if (i > 0) val += (float)i * B10 * G[(i - 1) * g_stride];
+        G[(i + 1) * g_stride] = val;
+    }
+    for (int j = 0; j < kl_max; j++)
+        for (int i = 0; i <= ij_max; i++)
+        {
+            float val = Cx_ket * G[i * g_stride + j];
+            if (j > 0) val += (float)j * B01 * G[i * g_stride + (j - 1)];
+            if (i > 0) val += (float)i * B00 * G[(i - 1) * g_stride + j];
+            G[i * g_stride + (j + 1)] = val;
+        }
+}
+
+// HRR: distribute total AM to individual shells for ERI.
+// Input: G[0..ij_am, 0..kl_am] from VRR (stride g_stride)
+// Output: I[a0, a1, a2, a3] for a0 in 0..l[0], a1 in 0..l[1], etc.
+static inline void QC_Fock_HRR_Batch(const float* G, int ij_am, int kl_am,
+                                     int g_stride, const int* l, float AB_d,
+                                     float CD_d, float* __restrict__ I_full,
+                                     int d0, int d1, int d2)
+{
+    const int l0 = l[0], l1 = l[1], l2 = l[2], l3 = l[3];
+    const int ij_ext = ij_am + 1;
+    const int kl_ext = kl_am + 1;
+
+    const int h_a1_stride = kl_ext;
+    const int h_a0_stride = (l1 + 1) * h_a1_stride;
+    float h_all[10 * 10 * 10];  // max (l0+1)*(l1+1)*(kl_am+1) = 5*5*9=225
+
+    for (int j = 0; j < kl_ext; j++)
+    {
+        float work[2][10];
+        for (int i = 0; i < ij_ext; i++) work[0][i] = G[i * g_stride + j];
+
+        for (int a0 = 0; a0 <= l0; a0++)
+            h_all[a0 * h_a0_stride + 0 * h_a1_stride + j] = work[0][a0];
+
+        int cur = 0;
+        for (int b = 0; b < l1; b++)
+        {
+            int nxt = 1 - cur;
+            int n_curr = ij_am - b - 1;
+            for (int a = 0; a <= n_curr; a++)
+                work[nxt][a] = work[cur][a + 1] + AB_d * work[cur][a];
+            int a0_max = std::min(l0, n_curr);
+            for (int a0 = 0; a0 <= a0_max; a0++)
+                h_all[a0 * h_a0_stride + (b + 1) * h_a1_stride + j] =
+                    work[nxt][a0];
+            cur = nxt;
+        }
+    }
+
+    for (int a0 = 0; a0 <= l0; a0++)
+        for (int a1 = 0; a1 <= l1; a1++)
+        {
+            if (a0 + a1 > ij_am) continue;
+            const float* h_bra = &h_all[a0 * h_a0_stride + a1 * h_a1_stride];
+
+            for (int a2 = 0; a2 <= l2; a2++)
+                I_full[a0 * d0 + a1 * d1 + a2 * d2 + 0] = h_bra[a2];
+
+            if (l3 > 0)
+            {
+                float work[2][10];
+                for (int i = 0; i < kl_ext; i++) work[0][i] = h_bra[i];
+
+                int cur = 0;
+                for (int d = 0; d < l3; d++)
+                {
+                    int nxt = 1 - cur;
+                    int n_curr = kl_am - d - 1;
+                    for (int a = 0; a <= n_curr; a++)
+                        work[nxt][a] = work[cur][a + 1] + CD_d * work[cur][a];
+                    int a2_max = std::min(l2, n_curr);
+                    for (int a2 = 0; a2 <= a2_max; a2++)
+                        I_full[a0 * d0 + a1 * d1 + a2 * d2 + (d + 1)] =
+                            work[nxt][a2];
+                    cur = nxt;
+                }
+            }
+        }
+}
+
+static inline bool QC_Compute_Shell_Quartet_ERI_Rys_CPU(
+    const QC_Shell_Pair_Meta_CPU& bra, const QC_Shell_Pair_Meta_CPU& ket,
+    const float* env, const float* norms, const int is_spherical,
+    const float* cart2sph_mat, const int nao_sph,
+    const std::vector<QC_Bra_Prim_Cache_CPU>& bra_prims, float* shell_eri,
+    float* shell_tmp, int shell_buf_size, float prim_screen_tol, int* dims_eff,
+    int* off_eff)
+{
+    const int dims_cart[4] = {bra.dims_cart[0], bra.dims_cart[1],
+                              ket.dims_cart[0], ket.dims_cart[1]};
+    const int dims_sph[4] = {bra.dims_sph[0], bra.dims_sph[1], ket.dims_sph[0],
+                             ket.dims_sph[1]};
+    const int off_cart[4] = {bra.off_cart[0], bra.off_cart[1], ket.off_cart[0],
+                             ket.off_cart[1]};
+    const int l[4] = {bra.l[0], bra.l[1], ket.l[0], ket.l[1]};
+    dims_eff[0] = bra.dims_eff[0];
+    dims_eff[1] = bra.dims_eff[1];
+    dims_eff[2] = ket.dims_eff[0];
+    dims_eff[3] = ket.dims_eff[1];
+    off_eff[0] = bra.off_eff[0];
+    off_eff[1] = bra.off_eff[1];
+    off_eff[2] = ket.off_eff[0];
+    off_eff[3] = ket.off_eff[1];
+
+    const int shell_size =
+        dims_cart[0] * dims_cart[1] * dims_cart[2] * dims_cart[3];
+    if (shell_size > shell_buf_size) return false;
+    memset(shell_eri, 0, (size_t)shell_size * sizeof(float));
+    if (bra_prims.empty()) return true;
+
+    const int shell_stride_k = dims_cart[3];
+    const int shell_stride_j = dims_cart[2] * dims_cart[3];
+    const int shell_stride_i = dims_cart[1] * dims_cart[2] * dims_cart[3];
+
+    const int ij_am = l[0] + l[1], kl_am = l[2] + l[3];
+    const int L_sum = ij_am + kl_am;
+    const int nrys = (L_sum + 2) / 2;
+    const int g_stride = kl_am + 1;
+
+    // I array strides: I[a0][a1][a2][a3]
+    const int ix_d2 = l[3] + 1;
+    const int ix_d1 = (l[2] + 1) * ix_d2;
+    const int ix_d0 = (l[1] + 1) * ix_d1;
+
+    const float AB[3] = {bra.R[0][0] - bra.R[1][0], bra.R[0][1] - bra.R[1][1],
+                         bra.R[0][2] - bra.R[1][2]};
+    const float CD[3] = {ket.R[0][0] - ket.R[1][0], ket.R[0][1] - ket.R[1][1],
+                         ket.R[0][2] - ket.R[1][2]};
+
+    // Working buffers (stack-allocated)
+    static constexpr int MAX_NRYS_FOCK = 12;
+    static constexpr int MAX_I_SIZE_FOCK = 625;  // (l+1)^4 = 5^4 for g shells
+    float all_Ix[MAX_NRYS_FOCK * MAX_I_SIZE_FOCK];
+    float all_Iy[MAX_NRYS_FOCK * MAX_I_SIZE_FOCK];
+    float all_Iz[MAX_NRYS_FOCK * MAX_I_SIZE_FOCK];
+    float Gx[100], Gy[100], Gz[100];  // max (ij_am+1)*(kl_am+1) = 9*9
+    const int I_size = (l[0] + 1) * ix_d0;
+
+    for (const QC_Bra_Prim_Cache_CPU& bp : bra_prims)
+    {
+        const float p = 1.0f / bp.inv_p;
+        const float PA[3] = {bp.P[0] - bra.R[0][0], bp.P[1] - bra.R[0][1],
+                             bp.P[2] - bra.R[0][2]};
+
+        for (int kp = 0; kp < ket.np[0]; kp++)
+        {
+            const float ak = env[ket.p_exp[0] + kp];
+            for (int lp = 0; lp < ket.np[1]; lp++)
+            {
+                const float al = env[ket.p_exp[1] + lp];
+                const float q = ak + al;
+                const float inv_q = 1.0f / q;
+                const float kcd = expf(-(ak * al * inv_q) * ket.pair_dist2);
+                const float pref = 2.0f * PI_25 / (p * q * sqrtf(p + q));
+                const float n_abcd = bp.n_ab * env[ket.p_cof[0] + kp] *
+                                     env[ket.p_cof[1] + lp] * kcd * pref;
+                if (fabsf(n_abcd) < prim_screen_tol) continue;
+
+                float Q[3], QCv[3], PQ[3];
+                for (int d = 0; d < 3; d++)
+                {
+                    Q[d] = (ak * ket.R[0][d] + al * ket.R[1][d]) * inv_q;
+                    QCv[d] = Q[d] - ket.R[0][d];
+                    PQ[d] = bp.P[d] - Q[d];
+                }
+                const float rho = p * q / (p + q);
+                const float T =
+                    rho * (PQ[0] * PQ[0] + PQ[1] * PQ[1] + PQ[2] * PQ[2]);
+
+                double rys_r[MAX_NRYS_FOCK], rys_w[MAX_NRYS_FOCK];
+                rys_roots_weights(nrys, (double)T, rys_r, rys_w);
+
+                // Phase 1: Compute all roots' I arrays
+                float wn_all[MAX_NRYS_FOCK];
+                for (int ir = 0; ir < nrys; ir++)
+                {
+                    const float u = (float)rys_r[ir];
+                    wn_all[ir] = n_abcd * (float)rys_w[ir];
+
+                    const float factor = u / (p + q);
+                    const float B00 = 0.5f * factor;
+                    const float B10 = 0.5f / p * (1.0f - q * factor);
+                    const float B01 = 0.5f / q * (1.0f - p * factor);
+
+                    const float Cx_bra[3] = {PA[0] - factor * q * PQ[0],
+                                             PA[1] - factor * q * PQ[1],
+                                             PA[2] - factor * q * PQ[2]};
+                    const float Cx_ket[3] = {QCv[0] + factor * p * PQ[0],
+                                             QCv[1] + factor * p * PQ[1],
+                                             QCv[2] + factor * p * PQ[2]};
+
+                    QC_Fock_VRR_2D(Gx, ij_am, kl_am, g_stride, Cx_bra[0],
+                                   Cx_ket[0], B00, B10, B01);
+                    QC_Fock_VRR_2D(Gy, ij_am, kl_am, g_stride, Cx_bra[1],
+                                   Cx_ket[1], B00, B10, B01);
+                    QC_Fock_VRR_2D(Gz, ij_am, kl_am, g_stride, Cx_bra[2],
+                                   Cx_ket[2], B00, B10, B01);
+
+                    QC_Fock_HRR_Batch(Gx, ij_am, kl_am, g_stride, l, AB[0],
+                                      CD[0], &all_Ix[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                    QC_Fock_HRR_Batch(Gy, ij_am, kl_am, g_stride, l, AB[1],
+                                      CD[1], &all_Iy[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                    QC_Fock_HRR_Batch(Gz, ij_am, kl_am, g_stride, l, AB[2],
+                                      CD[2], &all_Iz[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                }
+
+                // Phase 2: Assemble shell_eri (one pass over output)
+                for (int ci = 0; ci < dims_cart[0]; ci++)
+                {
+                    const int ixi = bra.comp_x[0][ci];
+                    const int iyi = bra.comp_y[0][ci];
+                    const int izi = bra.comp_z[0][ci];
+                    for (int cj = 0; cj < dims_cart[1]; cj++)
+                    {
+                        const int ixj = bra.comp_x[1][cj];
+                        const int iyj = bra.comp_y[1][cj];
+                        const int izj = bra.comp_z[1][cj];
+                        float* eri_ij = shell_eri + ci * shell_stride_i +
+                                        cj * shell_stride_j;
+                        const int bx = ixi * ix_d0 + ixj * ix_d1;
+                        const int by = iyi * ix_d0 + iyj * ix_d1;
+                        const int bz = izi * ix_d0 + izj * ix_d1;
+                        for (int ck = 0; ck < dims_cart[2]; ck++)
+                        {
+                            const int ixk = ket.comp_x[0][ck];
+                            const int iyk = ket.comp_y[0][ck];
+                            const int izk = ket.comp_z[0][ck];
+                            const int kx = bx + ixk * ix_d2;
+                            const int ky = by + iyk * ix_d2;
+                            const int kz = bz + izk * ix_d2;
+                            for (int cl = 0; cl < dims_cart[3]; cl++)
+                            {
+                                const int ixl = ket.comp_x[1][cl];
+                                const int iyl = ket.comp_y[1][cl];
+                                const int izl = ket.comp_z[1][cl];
+                                const int ax = kx + ixl;
+                                const int ay = ky + iyl;
+                                const int az = kz + izl;
+                                float val = 0.0f;
+                                for (int ir = 0; ir < nrys; ir++)
+                                {
+                                    const int off = ir * I_size;
+                                    val += wn_all[ir] * all_Ix[off + ax] *
+                                           all_Iy[off + ay] * all_Iz[off + az];
+                                }
+                                eri_ij[ck * shell_stride_k + cl] += val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (is_spherical)
+    {
+        QC_Cart2Sph_Shell_ERI_CPU(cart2sph_mat, nao_sph, off_cart, off_eff,
+                                  dims_cart, dims_sph, shell_eri, shell_tmp);
+    }
+
+    for (int i = 0; i < dims_eff[0]; i++)
+    {
+        const float ni = norms[off_eff[0] + i];
+        for (int j = 0; j < dims_eff[1]; j++)
+        {
+            const float nj = norms[off_eff[1] + j];
+            for (int k = 0; k < dims_eff[2]; k++)
+            {
+                const float nk = norms[off_eff[2] + k];
+                for (int l_idx = 0; l_idx < dims_eff[3]; l_idx++)
+                {
+                    const float nl = norms[off_eff[3] + l_idx];
+                    const int idx = QC_Shell_Buffer_Index(
+                        i, j, k, l_idx, dims_eff[1], dims_eff[2], dims_eff[3]);
+                    shell_eri[idx] *= ni * nj * nk * nl;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// Direct Fock contraction (Rys, no shell_eri buffer).
+// For non-unique quartets: pre-contracts density → 2D partial Fock → 2D
+// Cart2Sph. Eliminates 4D Cart2Sph (~50x cheaper) and the 4D Fock accumulation
+// loop entirely.
+
+// Build Cartesian density: D_cart[ci,cj] = sum_{si,sj}
+// C[ci,si]*C[cj,sj]*P[oi+si,oj+sj]*norm[oi+si]*norm[oj+sj]
+static inline void QC_Build_Cart_Density_2D(
+    const float* P, int nao, const float* norms, const float* C2S, int nao_sph,
+    int off_cart_0, int off_cart_1, int off_eff_0, int off_eff_1, int nc0,
+    int nc1, int ns0, int ns1, const int* l, int is_spherical, float* D_cart,
+    bool symmetrize = true)
+{
+    if (!is_spherical)
+    {
+        for (int ci = 0; ci < nc0; ci++)
+            for (int cj = 0; cj < nc1; cj++)
+            {
+                const int p = off_eff_0 + ci, q = off_eff_1 + cj;
+                const float Pval = symmetrize
+                                       ? (P[p * nao + q] + P[q * nao + p])
+                                       : P[p * nao + q];
+                D_cart[ci * nc1 + cj] = Pval * norms[p] * norms[q];
+            }
+        return;
+    }
+    for (int ci = 0; ci < nc0; ci++)
+    {
+        for (int cj = 0; cj < nc1; cj++)
+        {
+            double sum = 0.0;
+            for (int si = 0; si < ns0; si++)
+            {
+                const float c_i =
+                    C2S[(off_cart_0 + ci) * nao_sph + (off_eff_0 + si)];
+                if (c_i == 0.0f) continue;
+                const int p = off_eff_0 + si;
+                const double cn_i = (double)c_i * (double)norms[p];
+                for (int sj = 0; sj < ns1; sj++)
+                {
+                    const float c_j =
+                        C2S[(off_cart_1 + cj) * nao_sph + (off_eff_1 + sj)];
+                    if (c_j == 0.0f) continue;
+                    const int q = off_eff_1 + sj;
+                    const double Pval =
+                        symmetrize ? (double)(P[p * nao + q] + P[q * nao + p])
+                                   : (double)P[p * nao + q];
+                    sum += cn_i * (double)c_j * (double)norms[q] * Pval;
+                }
+            }
+            D_cart[ci * nc1 + cj] = (float)sum;
+        }
+    }
+}
+
+// Apply 2D Cart2Sph to partial Fock and accumulate into thread-local F (double)
+static inline void QC_Cart2Sph_Fock_2D(const float* R_cart, int nc0, int nc1,
+                                       int ns0, int ns1, const float* C2S,
+                                       int nao_sph, int off_cart_0,
+                                       int off_cart_1, int off_eff_0,
+                                       int off_eff_1, const float* norms,
+                                       double scale, double* F, int nao)
+{
+    for (int si = 0; si < ns0; si++)
+    {
+        const int p = off_eff_0 + si;
+        const double n_i = (double)norms[p] * scale;
+        for (int sj = 0; sj < ns1; sj++)
+        {
+            const int q = off_eff_1 + sj;
+            const double n_ij = n_i * (double)norms[q];
+            double val = 0.0;
+            for (int ci = 0; ci < nc0; ci++)
+            {
+                const float c_i =
+                    C2S[(off_cart_0 + ci) * nao_sph + (off_eff_0 + si)];
+                if (c_i == 0.0f) continue;
+                for (int cj = 0; cj < nc1; cj++)
+                {
+                    const float c_j =
+                        C2S[(off_cart_1 + cj) * nao_sph + (off_eff_1 + sj)];
+                    if (c_j == 0.0f) continue;
+                    val += (double)c_i * (double)c_j *
+                           (double)R_cart[ci * nc1 + cj];
+                }
+            }
+            val *= n_ij;
+            F[p * nao + q] += val;
+            F[q * nao + p] += val;
+        }
+    }
+}
+
+// Non-spherical version: just apply norms and accumulate
+static inline void QC_Accum_Fock_2D_NoSph(const float* R_cart, int nc0, int nc1,
+                                          int off0, int off1,
+                                          const float* norms, double scale,
+                                          double* F, int nao)
+{
+    for (int ci = 0; ci < nc0; ci++)
+    {
+        const int p = off0 + ci;
+        const double n_i = (double)norms[p] * scale;
+        for (int cj = 0; cj < nc1; cj++)
+        {
+            const int q = off1 + cj;
+            const double val =
+                n_i * (double)norms[q] * (double)R_cart[ci * nc1 + cj];
+            F[p * nao + q] += val;
+            F[q * nao + p] += val;
+        }
+    }
+}
+
+static inline void QC_Direct_Fock_Rys_CPU(
+    const QC_Shell_Pair_Meta_CPU& bra, const QC_Shell_Pair_Meta_CPU& ket,
+    const float* env, const std::vector<QC_Bra_Prim_Cache_CPU>& bra_prims,
+    const float* norms, const int is_spherical, const float* C2S,
+    const int nao_sph, const float* P_coul, const float* P_exx_a,
+    const float exx_scale_a, const int nao, float prim_screen_tol, double* F_a,
+    float* eri_cart_buf)
+{
+    const int l[4] = {bra.l[0], bra.l[1], ket.l[0], ket.l[1]};
+    const int ni = bra.dims_cart[0], nj = bra.dims_cart[1];
+    const int nk = ket.dims_cart[0], nl = ket.dims_cart[1];
+    const int nijkl = ni * nj * nk * nl;
+
+    const int ij_am = l[0] + l[1], kl_am = l[2] + l[3];
+    const int L_sum = ij_am + kl_am;
+    const int nrys = (L_sum + 2) / 2;
+    const int g_stride = kl_am + 1;
+
+    const int ix_d2 = l[3] + 1;
+    const int ix_d1 = (l[2] + 1) * ix_d2;
+    const int ix_d0 = (l[1] + 1) * ix_d1;
+    const int I_size = (l[0] + 1) * ix_d0;
+
+    const float AB[3] = {bra.R[0][0] - bra.R[1][0], bra.R[0][1] - bra.R[1][1],
+                         bra.R[0][2] - bra.R[1][2]};
+    const float CD[3] = {ket.R[0][0] - ket.R[1][0], ket.R[0][1] - ket.R[1][1],
+                         ket.R[0][2] - ket.R[1][2]};
+
+    // Phase 1: Rys assembly → Cart ERI buffer (no Cart2Sph)
+    const int shell_stride_k = nl;
+    const int shell_stride_j = nk * nl;
+    const int shell_stride_i = nj * nk * nl;
+    memset(eri_cart_buf, 0, (size_t)nijkl * sizeof(float));
+
+    static constexpr int MAX_NRYS_DF = 12;
+    static constexpr int MAX_I_SIZE_DF = 625;
+    float all_Ix[MAX_NRYS_DF * MAX_I_SIZE_DF];
+    float all_Iy[MAX_NRYS_DF * MAX_I_SIZE_DF];
+    float all_Iz[MAX_NRYS_DF * MAX_I_SIZE_DF];
+    float Gx[100], Gy[100], Gz[100];
+
+    for (const QC_Bra_Prim_Cache_CPU& bp : bra_prims)
+    {
+        const float p = 1.0f / bp.inv_p;
+        const float PA[3] = {bp.P[0] - bra.R[0][0], bp.P[1] - bra.R[0][1],
+                             bp.P[2] - bra.R[0][2]};
+        for (int kp = 0; kp < ket.np[0]; kp++)
+        {
+            const float ak = env[ket.p_exp[0] + kp];
+            for (int lp = 0; lp < ket.np[1]; lp++)
+            {
+                const float al = env[ket.p_exp[1] + lp];
+                const float q = ak + al;
+                const float inv_q = 1.0f / q;
+                const float kcd = expf(-(ak * al * inv_q) * ket.pair_dist2);
+                const float pref = 2.0f * PI_25 / (p * q * sqrtf(p + q));
+                const float n_abcd = bp.n_ab * env[ket.p_cof[0] + kp] *
+                                     env[ket.p_cof[1] + lp] * kcd * pref;
+                if (fabsf(n_abcd) < prim_screen_tol) continue;
+
+                float Q[3], QCv[3], PQ[3];
+                for (int d = 0; d < 3; d++)
+                {
+                    Q[d] = (ak * ket.R[0][d] + al * ket.R[1][d]) * inv_q;
+                    QCv[d] = Q[d] - ket.R[0][d];
+                    PQ[d] = bp.P[d] - Q[d];
+                }
+                const float rho = p * q / (p + q);
+                const float T =
+                    rho * (PQ[0] * PQ[0] + PQ[1] * PQ[1] + PQ[2] * PQ[2]);
+
+                double rys_r[MAX_NRYS_DF], rys_w[MAX_NRYS_DF];
+                rys_roots_weights(nrys, (double)T, rys_r, rys_w);
+
+                float wn_all[MAX_NRYS_DF];
+                for (int ir = 0; ir < nrys; ir++)
+                {
+                    const float u = (float)rys_r[ir];
+                    wn_all[ir] = n_abcd * (float)rys_w[ir];
+                    const float factor = u / (p + q);
+                    const float B00 = 0.5f * factor;
+                    const float B10 = 0.5f / p * (1.0f - q * factor);
+                    const float B01 = 0.5f / q * (1.0f - p * factor);
+                    const float Cx_bra[3] = {PA[0] - factor * q * PQ[0],
+                                             PA[1] - factor * q * PQ[1],
+                                             PA[2] - factor * q * PQ[2]};
+                    const float Cx_ket[3] = {QCv[0] + factor * p * PQ[0],
+                                             QCv[1] + factor * p * PQ[1],
+                                             QCv[2] + factor * p * PQ[2]};
+                    QC_Fock_VRR_2D(Gx, ij_am, kl_am, g_stride, Cx_bra[0],
+                                   Cx_ket[0], B00, B10, B01);
+                    QC_Fock_VRR_2D(Gy, ij_am, kl_am, g_stride, Cx_bra[1],
+                                   Cx_ket[1], B00, B10, B01);
+                    QC_Fock_VRR_2D(Gz, ij_am, kl_am, g_stride, Cx_bra[2],
+                                   Cx_ket[2], B00, B10, B01);
+                    QC_Fock_HRR_Batch(Gx, ij_am, kl_am, g_stride, l, AB[0],
+                                      CD[0], &all_Ix[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                    QC_Fock_HRR_Batch(Gy, ij_am, kl_am, g_stride, l, AB[1],
+                                      CD[1], &all_Iy[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                    QC_Fock_HRR_Batch(Gz, ij_am, kl_am, g_stride, l, AB[2],
+                                      CD[2], &all_Iz[ir * I_size], ix_d0, ix_d1,
+                                      ix_d2);
+                }
+
+                // Assembly: accumulate into Cart ERI buffer
+                for (int ci = 0; ci < ni; ci++)
+                {
+                    const int ixi = bra.comp_x[0][ci], iyi = bra.comp_y[0][ci],
+                              izi = bra.comp_z[0][ci];
+                    for (int cj = 0; cj < nj; cj++)
+                    {
+                        const int ixj = bra.comp_x[1][cj],
+                                  iyj = bra.comp_y[1][cj],
+                                  izj = bra.comp_z[1][cj];
+                        float* eri_ij = eri_cart_buf + ci * shell_stride_i +
+                                        cj * shell_stride_j;
+                        const int bx = ixi * ix_d0 + ixj * ix_d1;
+                        const int by = iyi * ix_d0 + iyj * ix_d1;
+                        const int bz = izi * ix_d0 + izj * ix_d1;
+                        for (int ck = 0; ck < nk; ck++)
+                        {
+                            const int ixk = ket.comp_x[0][ck],
+                                      iyk = ket.comp_y[0][ck],
+                                      izk = ket.comp_z[0][ck];
+                            const int kx = bx + ixk * ix_d2;
+                            const int ky = by + iyk * ix_d2;
+                            const int kz = bz + izk * ix_d2;
+                            for (int cl = 0; cl < nl; cl++)
+                            {
+                                const int ixl = ket.comp_x[1][cl],
+                                          iyl = ket.comp_y[1][cl],
+                                          izl = ket.comp_z[1][cl];
+                                float val = 0.0f;
+                                for (int ir = 0; ir < nrys; ir++)
+                                {
+                                    const int off = ir * I_size;
+                                    val += wn_all[ir] * all_Ix[off + kx + ixl] *
+                                           all_Iy[off + ky + iyl] *
+                                           all_Iz[off + kz + izl];
+                                }
+                                eri_ij[ck * shell_stride_k + cl] += val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Phase 2: Pre-compute Cartesian density matrices
+    float D_J_kl[MAX_CART_SHELL * MAX_CART_SHELL];
+    float D_J_ij[MAX_CART_SHELL * MAX_CART_SHELL];
+
+    QC_Build_Cart_Density_2D(P_coul, nao, norms, C2S, nao_sph, bra.off_cart[0],
+                             bra.off_cart[1], bra.off_eff[0], bra.off_eff[1],
+                             ni, nj, bra.dims_eff[0], bra.dims_eff[1], l,
+                             is_spherical, D_J_ij);
+    QC_Build_Cart_Density_2D(P_coul, nao, norms, C2S, nao_sph, ket.off_cart[0],
+                             ket.off_cart[1], ket.off_eff[0], ket.off_eff[1],
+                             nk, nl, ket.dims_eff[0], ket.dims_eff[1], l + 2,
+                             is_spherical, D_J_kl);
+
+    float D_K_jl[MAX_CART_SHELL * MAX_CART_SHELL];
+    float D_K_jk[MAX_CART_SHELL * MAX_CART_SHELL];
+    float D_K_il[MAX_CART_SHELL * MAX_CART_SHELL];
+    float D_K_ik[MAX_CART_SHELL * MAX_CART_SHELL];
+    const bool need_exx = (exx_scale_a != 0.0f);
+    if (need_exx)
+    {
+        QC_Build_Cart_Density_2D(
+            P_exx_a, nao, norms, C2S, nao_sph, bra.off_cart[1], ket.off_cart[1],
+            bra.off_eff[1], ket.off_eff[1], nj, nl, bra.dims_eff[1],
+            ket.dims_eff[1], l + 1, is_spherical, D_K_jl, false);
+        QC_Build_Cart_Density_2D(
+            P_exx_a, nao, norms, C2S, nao_sph, bra.off_cart[1], ket.off_cart[0],
+            bra.off_eff[1], ket.off_eff[0], nj, nk, bra.dims_eff[1],
+            ket.dims_eff[0], l + 1, is_spherical, D_K_jk, false);
+        QC_Build_Cart_Density_2D(
+            P_exx_a, nao, norms, C2S, nao_sph, bra.off_cart[0], ket.off_cart[1],
+            bra.off_eff[0], ket.off_eff[1], ni, nl, bra.dims_eff[0],
+            ket.dims_eff[1], l, is_spherical, D_K_il, false);
+        QC_Build_Cart_Density_2D(
+            P_exx_a, nao, norms, C2S, nao_sph, bra.off_cart[0], ket.off_cart[0],
+            bra.off_eff[0], ket.off_eff[0], ni, nk, bra.dims_eff[0],
+            ket.dims_eff[0], l, is_spherical, D_K_ik, false);
+    }
+
+    // Phase 3: Contract Cart ERI with Cart density → Cart partial Fock
+    double R_J_bra[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+    double R_J_ket[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+    double R_K_ik[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+    double R_K_il[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+    double R_K_jk[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+    double R_K_jl[MAX_CART_SHELL * MAX_CART_SHELL] = {};
+
+    for (int ci = 0; ci < ni; ci++)
+    {
+        for (int cj = 0; cj < nj; cj++)
+        {
+            const float* eri_ij =
+                eri_cart_buf + ci * shell_stride_i + cj * shell_stride_j;
+            const float d_ij = D_J_ij[ci * nj + cj];
+            double r_j_bra = 0.0;
+
+            for (int ck = 0; ck < nk; ck++)
+            {
+                for (int cl = 0; cl < nl; cl++)
+                {
+                    const float val = eri_ij[ck * nl + cl];
+                    if (val == 0.0f) continue;
+                    const double v = (double)val;
+
+                    r_j_bra += v * (double)D_J_kl[ck * nl + cl];
+                    R_J_ket[ck * nl + cl] += v * (double)d_ij;
+
+                    if (need_exx)
+                    {
+                        const double nv = -(double)exx_scale_a * v;
+                        R_K_ik[ci * nk + ck] +=
+                            nv * (double)D_K_jl[cj * nl + cl];
+                        R_K_il[ci * nl + cl] +=
+                            nv * (double)D_K_jk[cj * nk + ck];
+                        R_K_jk[cj * nk + ck] +=
+                            nv * (double)D_K_il[ci * nl + cl];
+                        R_K_jl[cj * nl + cl] +=
+                            nv * (double)D_K_ik[ci * nk + ck];
+                    }
+                }
+            }
+            R_J_bra[ci * nj + cj] += r_j_bra;
+        }
+    }
+
+    // Phase 4: 2D Cart2Sph + accumulate into F
+    if (is_spherical)
+    {
+        float R_f[MAX_CART_SHELL * MAX_CART_SHELL];
+        auto accum_2d = [&](const double* R, int nc0, int nc1, int oc0, int oc1,
+                            int oe0, int oe1, int ns0, int ns1)
+        {
+            for (int i = 0; i < nc0 * nc1; i++) R_f[i] = (float)R[i];
+            QC_Cart2Sph_Fock_2D(R_f, nc0, nc1, ns0, ns1, C2S, nao_sph, oc0, oc1,
+                                oe0, oe1, norms, 1.0, F_a, nao);
+        };
+
+        accum_2d(R_J_bra, ni, nj, bra.off_cart[0], bra.off_cart[1],
+                 bra.off_eff[0], bra.off_eff[1], bra.dims_eff[0],
+                 bra.dims_eff[1]);
+        accum_2d(R_J_ket, nk, nl, ket.off_cart[0], ket.off_cart[1],
+                 ket.off_eff[0], ket.off_eff[1], ket.dims_eff[0],
+                 ket.dims_eff[1]);
+        if (need_exx)
+        {
+            accum_2d(R_K_ik, ni, nk, bra.off_cart[0], ket.off_cart[0],
+                     bra.off_eff[0], ket.off_eff[0], bra.dims_eff[0],
+                     ket.dims_eff[0]);
+            accum_2d(R_K_il, ni, nl, bra.off_cart[0], ket.off_cart[1],
+                     bra.off_eff[0], ket.off_eff[1], bra.dims_eff[0],
+                     ket.dims_eff[1]);
+            accum_2d(R_K_jk, nj, nk, bra.off_cart[1], ket.off_cart[0],
+                     bra.off_eff[1], ket.off_eff[0], bra.dims_eff[1],
+                     ket.dims_eff[0]);
+            accum_2d(R_K_jl, nj, nl, bra.off_cart[1], ket.off_cart[1],
+                     bra.off_eff[1], ket.off_eff[1], bra.dims_eff[1],
+                     ket.dims_eff[1]);
+        }
+    }
+    else
+    {
+        auto accum_nosph =
+            [&](const double* R, int nc0, int nc1, int off0, int off1)
+        {
+            float R_f[MAX_CART_SHELL * MAX_CART_SHELL];
+            for (int i = 0; i < nc0 * nc1; i++) R_f[i] = (float)R[i];
+            QC_Accum_Fock_2D_NoSph(R_f, nc0, nc1, off0, off1, norms, 1.0, F_a,
+                                   nao);
+        };
+        accum_nosph(R_J_bra, ni, nj, bra.off_eff[0], bra.off_eff[1]);
+        accum_nosph(R_J_ket, nk, nl, ket.off_eff[0], ket.off_eff[1]);
+        if (need_exx)
+        {
+            accum_nosph(R_K_ik, ni, nk, bra.off_eff[0], ket.off_eff[0]);
+            accum_nosph(R_K_il, ni, nl, bra.off_eff[0], ket.off_eff[1]);
+            accum_nosph(R_K_jk, nj, nk, bra.off_eff[1], ket.off_eff[0]);
+            accum_nosph(R_K_jl, nj, nl, bra.off_eff[1], ket.off_eff[1]);
+        }
+    }
 }
 
 static inline void QC_Accumulate_Fock_Unique_Quartet_Double(
@@ -768,19 +1474,31 @@ static inline void QC_Build_Fock_Direct_CPU(
                 const QC_ONE_E_TASK& kl = task_ctx.topo.h_shell_pairs[pair_kl];
                 const QC_Shell_Pair_Meta_CPU& ket_meta =
                     pair_meta[(size_t)pair_kl];
-                int dims_eff[4];
-                int off_eff[4];
-                const bool eri_ok =
-                    QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
-                        bra_meta, ket_meta, env, norms, is_spherical,
-                        cart2sph_mat, nao_sph, bra_prims, HR, shell_eri,
-                        shell_tmp, bra_terms_buf, ket_terms_buf, hr_base,
-                        shell_buf_size, prim_screen_tol, dims_eff, off_eff);
-                if (!eri_ok) continue;
+                const int L_sum_q = bra_meta.l[0] + bra_meta.l[1] +
+                                    ket_meta.l[0] + ket_meta.l[1];
+                const bool use_rys = (L_sum_q >= 4);
 
                 const bool jk_same_bra = (ij.x == ij.y);
                 const bool jk_same_ket = (kl.x == kl.y);
                 const bool jk_same_braket = (ij.x == kl.x && ij.y == kl.y);
+
+                // Compute shell ERI buffer then accumulate into Fock
+                int dims_eff[4];
+                int off_eff[4];
+                const bool eri_ok =
+                    use_rys ? QC_Compute_Shell_Quartet_ERI_Rys_CPU(
+                                  bra_meta, ket_meta, env, norms, is_spherical,
+                                  cart2sph_mat, nao_sph, bra_prims, shell_eri,
+                                  shell_tmp, shell_buf_size, prim_screen_tol,
+                                  dims_eff, off_eff)
+                            : QC_Compute_Shell_Quartet_ERI_Buffer_CPU_BraCached(
+                                  bra_meta, ket_meta, env, norms, is_spherical,
+                                  cart2sph_mat, nao_sph, bra_prims, HR,
+                                  shell_eri, shell_tmp, bra_terms_buf,
+                                  ket_terms_buf, hr_base, shell_buf_size,
+                                  prim_screen_tol, dims_eff, off_eff);
+                if (!eri_ok) continue;
+
                 if (!jk_same_bra && !jk_same_ket && !jk_same_braket)
                 {
                     for (int i = 0; i < dims_eff[0]; i++)
@@ -914,6 +1632,24 @@ static __global__ void QC_Reduce_Thread_Fock_Kernel(const int total,
         double sum = (double)F_out[idx];
         for (int tid = 0; tid < n_threads; tid++)
             sum += F_thread[(size_t)tid * (size_t)total + (size_t)idx];
+        F_out[idx] = (float)sum;
+        if (F_out_double != NULL) F_out_double[idx] = sum;
+    }
+}
+
+// Incremental Fock reduce: accumulate thread ΔF_eri into F_eri_accum,
+// then build final Fock = H_core(+Vxc) + F_eri_accum
+static __global__ void QC_Reduce_Thread_Fock_Incremental_Kernel(
+    const int total, const int n_threads, const double* F_thread, float* F_out,
+    double* F_out_double, double* F_eri_accum)
+{
+    SIMPLE_DEVICE_FOR(idx, total)
+    {
+        double delta = 0.0;
+        for (int tid = 0; tid < n_threads; tid++)
+            delta += F_thread[(size_t)tid * (size_t)total + (size_t)idx];
+        F_eri_accum[idx] += delta;
+        double sum = (double)F_out[idx] + F_eri_accum[idx];
         F_out[idx] = (float)sum;
         if (F_out_double != NULL) F_out_double[idx] = sum;
     }

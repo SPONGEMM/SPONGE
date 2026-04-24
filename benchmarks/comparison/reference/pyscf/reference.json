@@ -1,7 +1,4 @@
 {
-  "format_version": 1,
-  "unit": "Hartree",
-  "pyscf_version": "2.12.1",
   "entries": [
     {
       "case_name": "ace_ala4_nme",
@@ -18,6 +15,13 @@
       "energy_ha": -230.79559011755344
     },
     {
+      "case_name": "br_anion",
+      "method_name": "HF",
+      "basis_name": "ma-def2-svp",
+      "restricted": true,
+      "energy_ha": -2572.1767317530894
+    },
+    {
       "case_name": "ch4",
       "method_name": "PBE0",
       "basis_name": "6-31g",
@@ -30,6 +34,13 @@
       "basis_name": "6-31g",
       "restricted": true,
       "energy_ha": -188.4150974618718
+    },
+    {
+      "case_name": "fe_quintet",
+      "method_name": "HF",
+      "basis_name": "6-31++g",
+      "restricted": false,
+      "energy_ha": -1262.264705128
     },
     {
       "case_name": "h2",
@@ -212,6 +223,103 @@
       "basis_name": "6-31g",
       "restricted": true,
       "energy_ha": -76.35572432680483
+    },
+    {
+      "case_name": "oh2",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -75.95751551113939
+    },
+    {
+      "case_name": "ch4",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -40.16917737606288
+    },
+    {
+      "case_name": "co2",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -187.48436889043452
+    },
+    {
+      "case_name": "benzene",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -230.5356583721245
+    },
+    {
+      "case_name": "oh2",
+      "method_name": "PBE",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -76.26303761733287
+    },
+    {
+      "case_name": "oh2",
+      "method_name": "B3LYP",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -76.31341446179863
+    },
+    {
+      "case_name": "ch4",
+      "method_name": "PBE0",
+      "basis_name": "def2-svp",
+      "restricted": true,
+      "energy_ha": -40.428367992751895
+    },
+    {
+      "case_name": "no_doublet",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": false,
+      "energy_ha": -129.140836819007
+    },
+    {
+      "case_name": "o_triplet",
+      "method_name": "HF",
+      "basis_name": "def2-svp",
+      "restricted": false,
+      "energy_ha": -74.72010092377238
+    },
+    {
+      "case_name": "no_doublet",
+      "method_name": "B3LYP",
+      "basis_name": "def2-svp",
+      "restricted": false,
+      "energy_ha": -129.73306597863177
+    },
+    {
+      "case_name": "h2",
+      "method_name": "HF",
+      "basis_name": "sto-3g",
+      "restricted": true,
+      "type": "gradient",
+      "gradient_ha_bohr": [[0.0, 0.0, -0.027679600706794538], [0.0, 0.0, 0.027679600706794538]],
+      "coords_angstrom": [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]
+    },
+    {
+      "case_name": "h2",
+      "method_name": "HF",
+      "basis_name": "6-31g",
+      "restricted": true,
+      "type": "gradient",
+      "gradient_ha_bohr": [[0.0, 0.0, -0.007561163489053446], [0.0, 0.0, 0.007561163489053446]],
+      "coords_angstrom": [[0.0, 0.0, -0.37], [0.0, 0.0, 0.37]]
+    },
+    {
+      "case_name": "h2_min_sto3g",
+      "method_name": "HF",
+      "basis_name": "sto-3g",
+      "restricted": true,
+      "type": "minimize",
+      "equilibrium_bond_length_angstrom": 0.7120000000000002,
+      "equilibrium_energy_ha": -1.1175058310435149
     }
   ]
 }

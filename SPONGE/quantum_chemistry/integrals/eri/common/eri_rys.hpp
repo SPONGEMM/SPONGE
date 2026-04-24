@@ -94,7 +94,7 @@ static __device__ void rys_roots_weights(int nrys, double T, double* roots,
     }
 }
 
-// ---- VRR: build G[i][j] for one axis at one Rys root ----
+// VRR: build G[i][j] for one axis at one Rys root
 // G[0][0] = 1
 // G[i+1][j] = Cx_bra * G[i][j] + i * B10 * G[i-1][j] + j * B00 * G[i][j-1]
 // G[i][j+1] = Cx_ket * G[i][j] + j * B01 * G[i][j-1] + i * B00 * G[i-1][j]
@@ -121,7 +121,7 @@ static __device__ void rys_vrr_2d(float* G, int ij_max, int kl_max,
         }
 }
 
-// ---- HRR: distribute total AM (a+b) to individual shells (a, b) ----
+// HRR: distribute total AM (a+b) to individual shells (a, b)
 // I(a, b) from G[0..a+b] using: I(a, b) = I(a+1, b-1) + AB * I(a, b-1)
 static __device__ float rys_hrr_1d(const float* g_col, int la, int lb, float AB)
 {

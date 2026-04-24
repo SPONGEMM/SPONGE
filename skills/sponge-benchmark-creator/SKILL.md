@@ -9,7 +9,7 @@ description: >
   - pixi task 接入
 ---
 
-本技能适配 SPONGE 版本号：2.0.0-alpha
+本技能适配 SPONGE 版本号：2.0.0-beta.1
 
 用于新建或调整 `benchmarks/` 下的测试时，目标是让 benchmark 分类清楚、结构统一、可复用、可维护。
 

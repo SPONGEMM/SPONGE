@@ -1,4 +1,6 @@
-﻿#include "integrals/one_e.hpp"
+﻿// clang-format off
+#include "integrals/one_e.hpp"
+#include "integrals/eri/common/eri_rys.hpp"
 #include "quantum_chemistry.h"
 #include "scf/accumulate_energy.hpp"
 #include "scf/apply_diis.hpp"
@@ -8,6 +10,7 @@
 #include "scf/pre_scf.hpp"
 #include "scf/workspace.hpp"
 #include "structure/matrix.h"
+// clang-format on
 
 void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                                   bool need_energy, int md_step)
@@ -18,9 +21,15 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     if (dft.enable_dft) Update_DFT_Grid();
 
     Reset_SCF_State();
+
+    // 解析计算 norms（不依赖 1e 积分的 S 矩阵）
+    Compute_Analytical_Norms();
     Compute_OneE_Integrals();
+    Compute_ECP_Matrix();
     if (need_energy) Compute_Nuclear_Repulsion(box_length);
     Prepare_Integrals();
+    Build_Shell_Pair_Bounds();
+    if (scf_ws.ri.enabled) RI_Precompute();
     Build_Overlap_X();
 
     if (need_initial_guess)
@@ -40,10 +49,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     //     等待历史点稳定
     //   Phase 3 (stable ~): CDIIS，shift 关闭
     //     超线性收敛
-    // SCF 收敛策略: HF 和 DFT 使用不同的启动策略
-    // HF: DIIS 从 iter 2 开始，固定 level shift 0.25
-    // DFT: 前 N 轮禁用 DIIS + 大 shift，然后 MESA + shift 衰减，最后 CDIIS + 无
-    // shift
     const int dft_warmup = dft.enable_dft ? 3 : 0;
     const double dft_warmup_ls = 1.5;
     double dft_ls = dft_warmup_ls;
@@ -54,9 +59,19 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
         Build_Fock(iter);
         Accumulate_SCF_Energy(iter);
 
+        // 缓存 DIIS 前的 Fock 供梯度使用（避免梯度中重建 Fock）
+        if (need_gradient && scf_ws.alpha.d_F_for_grad)
+        {
+            deviceMemcpy(scf_ws.alpha.d_F_for_grad, scf_ws.alpha.d_F_double,
+                         sizeof(double) * mol.nao2, deviceMemcpyDeviceToDevice);
+            if (scf_ws.runtime.unrestricted && scf_ws.beta.d_F_for_grad)
+                deviceMemcpy(scf_ws.beta.d_F_for_grad, scf_ws.beta.d_F_double,
+                             sizeof(double) * mol.nao2,
+                             deviceMemcpyDeviceToDevice);
+        }
+
         if (dft.enable_dft && iter < dft_warmup)
         {
-            // DFT Phase 1: 禁用 DIIS，大 level shift 稳定
             scf_ws.runtime.level_shift = dft_warmup_ls;
         }
         else
@@ -65,7 +80,6 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
 
             if (dft.enable_dft)
             {
-                // 追踪连续能量下降
                 double h_delta_e = 0.0;
                 if (iter > 0)
                     deviceMemcpy(&h_delta_e, scf_ws.runtime.d_delta_e,
@@ -75,12 +89,10 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
                 else
                     stable_count = 0;
 
-                // DFT Phase 2/3: shift 缓慢衰减，稳定后加速
                 if (stable_count >= 2)
-                    dft_ls *= 0.8;  // 连续稳定 → 衰减
+                    dft_ls *= 0.8;
                 else
-                    dft_ls =
-                        fmin(dft_ls * 1.2, dft_warmup_ls);  // 不稳定 → 适度回升
+                    dft_ls = fmin(dft_ls * 1.2, dft_warmup_ls);
 
                 scf_ws.runtime.level_shift = fmax(dft_ls, 0.0);
             }
@@ -124,10 +136,18 @@ void QUANTUM_CHEMISTRY::Compute_Spin_Square()
 
     // Tr(P_alpha * S * P_beta * S) = Σ_ij (P_alpha·S·P_beta)_ij * S_ij
     double trace = 0.0;
-    deviceMemset(scf_ws.diis.d_diis_accum, 0, sizeof(double));
-    QC_Double_Dot(nao2, d_tmp4, d_tmp2, scf_ws.diis.d_diis_accum);
-    deviceMemcpy(&trace, scf_ws.diis.d_diis_accum, sizeof(double),
-                 deviceMemcpyDeviceToHost);
+    double* d_accum = scf_ws.diis.d_diis_accum;
+    if (d_accum == NULL)
+    {
+        Device_Malloc_Safely((void**)&d_accum, sizeof(double));
+    }
+    deviceMemset(d_accum, 0, sizeof(double));
+    QC_Double_Dot(nao2, d_tmp4, d_tmp2, d_accum);
+    deviceMemcpy(&trace, d_accum, sizeof(double), deviceMemcpyDeviceToHost);
+    if (scf_ws.diis.d_diis_accum == NULL)
+    {
+        deviceFree(d_accum);
+    }
 
     double s = 0.5 * (scf_ws.runtime.n_alpha - scf_ws.runtime.n_beta);
     scf_ws.runtime.spin_square_exact = s * (s + 1.0);

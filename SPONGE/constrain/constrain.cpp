@@ -1,5 +1,9 @@
 ﻿#include "constrain.h"
 
+#include <set>
+
+#include "../xponge/xponge.h"
+
 void CONSTRAIN::Initial_Constrain(CONTROLLER* controller,
                                   const int atom_numbers, const float dt,
                                   const VECTOR box_length, float* atom_mass,
@@ -96,13 +100,17 @@ void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
                                 "CONSTRAIN::Add_HBond_To_Constrain_Pair");
         constrain_mass = atof(controller->Command(this->module_name, "mass"));
     }
+    const auto& explicit_constraints =
+        Xponge::system.classical_force_field.constraints;
     // 预先分配一个足够大的CONSTRAIN_PAIR用于临时存储
     Malloc_Safely((void**)&h_bond_pair,
-                  sizeof(CONSTRAIN_PAIR) * con_dis.size());
+                  sizeof(CONSTRAIN_PAIR) *
+                      (con_dis.size() + explicit_constraints.r0.size()));
     int s = 0;
     float mass_a, mass_b;
     int atom_a, atom_b;
     float r0;
+    std::set<std::pair<int, int>> added_pairs;
     for (auto& i : con_dis)
     {
         atom_a = i.first.first;
@@ -117,8 +125,30 @@ void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
             h_bond_pair[s].atom_j_serial = atom_b;
             h_bond_pair[s].constant_r = r0;
             h_bond_pair[s].constrain_k = mass_a * mass_b / (mass_a + mass_b);
+            added_pairs.insert({atom_a, atom_b});
             s = s + 1;
         }
+    }
+    for (std::size_t i = 0; i < explicit_constraints.r0.size(); i++)
+    {
+        atom_a = explicit_constraints.atom_a[i];
+        atom_b = explicit_constraints.atom_b[i];
+        if (atom_b < atom_a)
+        {
+            std::swap(atom_a, atom_b);
+        }
+        if (added_pairs.count({atom_a, atom_b}) > 0)
+        {
+            continue;
+        }
+        mass_a = atom_mass[atom_a];
+        mass_b = atom_mass[atom_b];
+        h_bond_pair[s].atom_i_serial = atom_a;
+        h_bond_pair[s].atom_j_serial = atom_b;
+        h_bond_pair[s].constant_r = explicit_constraints.r0[i];
+        h_bond_pair[s].constrain_k = mass_a * mass_b / (mass_a + mass_b);
+        added_pairs.insert({atom_a, atom_b});
+        s = s + 1;
     }
     bond_constrain_pair_numbers = s;
     if (controller->Command_Exist(this->module_name, "angle") &&

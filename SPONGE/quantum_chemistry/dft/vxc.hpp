@@ -5,21 +5,8 @@
 #include "grid.hpp"
 #include "xc.hpp"
 
-static void QC_Cart2Sph_AO_Batch_Device(
-    BLAS_HANDLE blas_handle, int n_batch, int nao_c, int nao_s,
-    const float* d_cart2sph_mat, const float* d_ao_vals_c,
-    const float* d_ao_gx_c, const float* d_ao_gy_c, const float* d_ao_gz_c,
-    float* d_ao_vals_s, float* d_ao_gx_s, float* d_ao_gy_s, float* d_ao_gz_s)
-{
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_vals_c,
-                          d_cart2sph_mat, d_ao_vals_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gx_c,
-                          d_cart2sph_mat, d_ao_gx_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gy_c,
-                          d_cart2sph_mat, d_ao_gy_s);
-    QC_MatMul_RowRow_Blas(blas_handle, n_batch, nao_s, nao_c, d_ao_gz_c,
-                          d_cart2sph_mat, d_ao_gz_s);
-}
+// 密度低于此阈值的格点视为真空（不贡献 XC）
+static constexpr double QC_DFT_RHO_CUTOFF = 1e-10;
 
 // 对 AO 值施加归一化因子
 static __global__ void QC_Apply_Norms_AO_Kernel(const int n_grid, const int nao,
@@ -86,7 +73,7 @@ static __global__ void QC_Build_Weighted_AO_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho[ig] < 1e-10)
+        if (rho[ig] < QC_DFT_RHO_CUTOFF)
         {
             for (int i = 0; i < nao; i++)
             {
@@ -270,54 +257,36 @@ static void QC_Build_DFT_VXC_Impl(
     }
 }
 
-// 外部接口：根据方法自动分派到对应模板实例
-static void QC_Build_DFT_VXC(
-    BLAS_HANDLE blas_handle, QC_METHOD method, int is_spherical, int nao_c,
-    int nao_s, int total_grid_size, int grid_batch_size, int nbas,
-    const float* d_grid_coords, const float* d_grid_weights,
-    const float* d_cart2sph_mat, const VECTOR* d_centers, const int* d_l_list,
-    const float* d_exps, const float* d_coeffs, const int* d_shell_offsets,
-    const int* d_shell_sizes, const int* d_ao_offsets, const float* d_norms,
-    const float* d_P, float* d_ao_vals_cart, float* d_ao_grad_x_cart,
-    float* d_ao_grad_y_cart, float* d_ao_grad_z_cart, float* d_ao_vals,
-    float* d_ao_grad_x, float* d_ao_grad_y, float* d_ao_grad_z, double* d_rho,
-    double* d_sigma, double* d_exc, double* d_vrho, double* d_vsigma,
-    double* d_exc_total, float* d_Vxc, float* d_ao_norm, float* d_gx_norm,
-    float* d_gy_norm, float* d_gz_norm, float* d_Pao, float* d_W_full,
-    float* d_W_sigma, double* d_grad_rho_x, double* d_grad_rho_y,
-    double* d_grad_rho_z, const float* d_shell_r2_screen)
+// RKS VXC: 根据方法自动分派到对应 deriv_level 模板
+static void QC_Build_DFT_VXC_RKS(BLAS_HANDLE blas_handle, QC_METHOD method,
+                                 const QC_MOLECULE& mol, QC_DFT& dft,
+                                 const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
+                                 const float* d_norms, const float* d_P)
 {
+    auto call = [&](auto deriv_tag)
+    {
+        constexpr int DL = decltype(deriv_tag)::value;
+        QC_Build_DFT_VXC_Impl<DL>(
+            blas_handle, method, mol.is_spherical, mol.nao_cart, mol.nao,
+            dft.max_grid_size, dft.grid_batch_size, mol.nbas, dft.d_grid_coords,
+            dft.d_grid_weights, cart2sph.d_cart2sph_mat, mol.d_centers,
+            mol.d_l_list, mol.d_exps, mol.d_coeffs, mol.d_shell_offsets,
+            mol.d_shell_sizes, mol.d_ao_offsets, d_norms, d_P,
+            dft.d_ao_vals_cart, dft.d_ao_grad_x_cart, dft.d_ao_grad_y_cart,
+            dft.d_ao_grad_z_cart, dft.d_ao_vals, dft.d_ao_grad_x,
+            dft.d_ao_grad_y, dft.d_ao_grad_z, dft.d_rho, dft.d_sigma, dft.d_exc,
+            dft.d_vrho, dft.d_vsigma, dft.d_exc_total, dft.d_Vxc, dft.d_ao_norm,
+            dft.d_gx_norm, dft.d_gy_norm, dft.d_gz_norm, dft.d_Pao,
+            dft.d_W_full, dft.d_W_sigma, dft.d_grad_rho_x, dft.d_grad_rho_y,
+            dft.d_grad_rho_z, dft.d_shell_r2_screen);
+    };
     if (method == QC_METHOD::LDA)
-    {
-        QC_Build_DFT_VXC_Impl<0>(
-            blas_handle, method, is_spherical, nao_c, nao_s, total_grid_size,
-            grid_batch_size, nbas, d_grid_coords, d_grid_weights,
-            d_cart2sph_mat, d_centers, d_l_list, d_exps, d_coeffs,
-            d_shell_offsets, d_shell_sizes, d_ao_offsets, d_norms, d_P,
-            d_ao_vals_cart, d_ao_grad_x_cart, d_ao_grad_y_cart,
-            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y, d_ao_grad_z,
-            d_rho, d_sigma, d_exc, d_vrho, d_vsigma, d_exc_total, d_Vxc,
-            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao, d_W_full,
-            d_W_sigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
-            d_shell_r2_screen);
-    }
+        call(std::integral_constant<int, 0>{});
     else
-    {
-        QC_Build_DFT_VXC_Impl<1>(
-            blas_handle, method, is_spherical, nao_c, nao_s, total_grid_size,
-            grid_batch_size, nbas, d_grid_coords, d_grid_weights,
-            d_cart2sph_mat, d_centers, d_l_list, d_exps, d_coeffs,
-            d_shell_offsets, d_shell_sizes, d_ao_offsets, d_norms, d_P,
-            d_ao_vals_cart, d_ao_grad_x_cart, d_ao_grad_y_cart,
-            d_ao_grad_z_cart, d_ao_vals, d_ao_grad_x, d_ao_grad_y, d_ao_grad_z,
-            d_rho, d_sigma, d_exc, d_vrho, d_vsigma, d_exc_total, d_Vxc,
-            d_ao_norm, d_gx_norm, d_gy_norm, d_gz_norm, d_Pao, d_W_full,
-            d_W_sigma, d_grad_rho_x, d_grad_rho_y, d_grad_rho_z,
-            d_shell_r2_screen);
-    }
+        call(std::integral_constant<int, 1>{});
 }
 
-// ====================== UKS BLAS 优化 kernel ======================
+// UKS BLAS 优化 kernel
 
 // UKS: 从 Pao_a/Pao_b 计算自旋密度和梯度
 template <int deriv_level>
@@ -385,7 +354,7 @@ static __global__ void QC_Eval_XC_UKS_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho_a[ig] + rho_b[ig] < 1e-10)
+        if (rho_a[ig] + rho_b[ig] < QC_DFT_RHO_CUTOFF)
         {
             exc[ig] = 0.0;
             v_rho_a[ig] = v_rho_b[ig] = 0.0;
@@ -395,9 +364,9 @@ static __global__ void QC_Eval_XC_UKS_Kernel(
         {
             double e = 0.0, vra = 0.0, vrb = 0.0;
             double vsaa = 0.0, vsab = 0.0, vsbb = 0.0;
-            QC_Local_UKS_Derivs_FD((QC_METHOD)method_id, rho_a[ig], rho_b[ig],
-                                   sigma_aa[ig], sigma_ab[ig], sigma_bb[ig], e,
-                                   vra, vrb, vsaa, vsab, vsbb);
+            QC_VXC_Analytical_UKS((QC_METHOD)method_id, rho_a[ig], rho_b[ig],
+                                  sigma_aa[ig], sigma_ab[ig], sigma_bb[ig], e,
+                                  vra, vrb, vsaa, vsab, vsbb);
             exc[ig] = e;
             v_rho_a[ig] = vra;
             v_rho_b[ig] = vrb;
@@ -422,7 +391,7 @@ static __global__ void QC_Build_Weighted_AO_UKS_Kernel(
 {
     SIMPLE_DEVICE_FOR(ig, n_grid)
     {
-        if (rho_a[ig] + rho_b[ig] < 1e-10)
+        if (rho_a[ig] + rho_b[ig] < QC_DFT_RHO_CUTOFF)
         {
             for (int i = 0; i < nao; i++)
             {
@@ -485,40 +454,77 @@ static __global__ void QC_Build_Weighted_AO_UKS_Kernel(
     }
 }
 
-// UKS BLAS 优化版本
-static void QC_Build_DFT_VXC_UKS(
-    BLAS_HANDLE blas_handle, QC_METHOD method, int is_spherical, int nao_c,
-    int nao_s, int total_grid_size, int grid_batch_size, int nbas,
-    const float* d_grid_coords, const float* d_grid_weights,
-    const float* d_cart2sph_mat, const VECTOR* d_centers, const int* d_l_list,
-    const float* d_exps, const float* d_coeffs, const int* d_shell_offsets,
-    const int* d_shell_sizes, const int* d_ao_offsets, const float* d_norms,
-    const float* d_Pa, const float* d_Pb, float* d_ao_vals_cart,
-    float* d_ao_grad_x_cart, float* d_ao_grad_y_cart, float* d_ao_grad_z_cart,
-    float* d_ao_vals, float* d_ao_grad_x, float* d_ao_grad_y,
-    float* d_ao_grad_z, double* d_exc_total, float* d_Vxc_a, float* d_Vxc_b,
-    const float* d_shell_r2_screen,
-    // 预分配缓冲
-    float* d_ao_norm, float* d_gx_norm, float* d_gy_norm, float* d_gz_norm,
-    float* d_Pao, float* d_W_full, float* d_W_sigma, double* d_grad_rho_x,
-    double* d_grad_rho_y, double* d_grad_rho_z,
-    // UKS 预分配缓冲
-    float* d_Pao_b, double* d_rho_a, double* d_rho_b, double* d_sigma_aa,
-    double* d_sigma_ab, double* d_sigma_bb, double* d_grb_x, double* d_grb_y,
-    double* d_grb_z, double* d_exc, double* d_vra, double* d_vrb,
-    double* d_vsaa, double* d_vsab, double* d_vsbb, float* d_Wb_full,
-    float* d_Wb_sigma)
+// UKS VXC 构建
+static void QC_Build_DFT_VXC_UKS(BLAS_HANDLE blas_handle, QC_METHOD method,
+                                 const QC_MOLECULE& mol, QC_DFT& dft,
+                                 const QC_CARTESIAN_TO_SPHERICAL& cart2sph,
+                                 const float* d_norms, const float* d_Pa,
+                                 const float* d_Pb)
 {
-    const int nao = nao_s;
-    const int nao2 = nao * nao;
-    deviceMemset(d_Vxc_a, 0, sizeof(float) * nao2);
-    deviceMemset(d_Vxc_b, 0, sizeof(float) * nao2);
-    deviceMemset(d_exc_total, 0, sizeof(double));
-    if (total_grid_size <= 0) return;
-
-    const int batch_size = std::max(1, grid_batch_size);
+    const int nao = mol.nao;
+    const int nao2 = mol.nao2;
+    deviceMemset(dft.d_Vxc, 0, sizeof(float) * nao2);
+    deviceMemset(dft.d_Vxc_beta, 0, sizeof(float) * nao2);
+    deviceMemset(dft.d_exc_total, 0, sizeof(double));
+    if (dft.max_grid_size <= 0) return;
+    const int batch_size = std::max(1, dft.grid_batch_size);
     const int threads = 128;
     const bool is_gga = (method != QC_METHOD::LDA);
+
+    // 局部别名简化内核调用
+    const int is_spherical = mol.is_spherical;
+    const int nao_c = mol.nao_cart, nao_s = mol.nao;
+    const int nbas = mol.nbas;
+    const float* d_grid_coords = dft.d_grid_coords;
+    const float* d_grid_weights = dft.d_grid_weights;
+    const float* d_cart2sph_mat = cart2sph.d_cart2sph_mat;
+    const VECTOR* d_centers = mol.d_centers;
+    const int* d_l_list = mol.d_l_list;
+    const float* d_exps = mol.d_exps;
+    const float* d_coeffs = mol.d_coeffs;
+    const int* d_shell_offsets = mol.d_shell_offsets;
+    const int* d_shell_sizes = mol.d_shell_sizes;
+    const int* d_ao_offsets = mol.d_ao_offsets;
+    const float* d_shell_r2_screen = dft.d_shell_r2_screen;
+    float* d_ao_vals_cart = dft.d_ao_vals_cart;
+    float* d_ao_grad_x_cart = dft.d_ao_grad_x_cart;
+    float* d_ao_grad_y_cart = dft.d_ao_grad_y_cart;
+    float* d_ao_grad_z_cart = dft.d_ao_grad_z_cart;
+    float* d_ao_vals = dft.d_ao_vals;
+    float* d_ao_grad_x = dft.d_ao_grad_x;
+    float* d_ao_grad_y = dft.d_ao_grad_y;
+    float* d_ao_grad_z = dft.d_ao_grad_z;
+    float* d_ao_norm = dft.d_ao_norm;
+    float* d_gx_norm = dft.d_gx_norm;
+    float* d_gy_norm = dft.d_gy_norm;
+    float* d_gz_norm = dft.d_gz_norm;
+    float* d_Pao = dft.d_Pao;
+    float* d_W_full = dft.d_W_full;
+    float* d_W_sigma = dft.d_W_sigma;
+    double* d_grad_rho_x = dft.d_grad_rho_x;
+    double* d_grad_rho_y = dft.d_grad_rho_y;
+    double* d_grad_rho_z = dft.d_grad_rho_z;
+    float* d_Pao_b = dft.d_Pao_b;
+    double* d_rho_a = dft.d_rho_a;
+    double* d_rho_b = dft.d_rho_b;
+    double* d_sigma_aa = dft.d_sigma_aa;
+    double* d_sigma_ab = dft.d_sigma_ab;
+    double* d_sigma_bb = dft.d_sigma_bb;
+    double* d_grb_x = dft.d_grb_x;
+    double* d_grb_y = dft.d_grb_y;
+    double* d_grb_z = dft.d_grb_z;
+    double* d_exc = dft.d_exc_buf;
+    double* d_vra = dft.d_vra;
+    double* d_vrb = dft.d_vrb;
+    double* d_vsaa = dft.d_vsaa;
+    double* d_vsab = dft.d_vsab;
+    double* d_vsbb = dft.d_vsbb;
+    float* d_Wb_full = dft.d_Wb_full;
+    float* d_Wb_sigma = dft.d_Wb_sigma;
+    float* d_Vxc_a = dft.d_Vxc;
+    float* d_Vxc_b = dft.d_Vxc_beta;
+    double* d_exc_total = dft.d_exc_total;
+    const int total_grid_size = dft.max_grid_size;
 
     for (int g0 = 0; g0 < total_grid_size; g0 += batch_size)
     {

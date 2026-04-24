@@ -1,5 +1,4 @@
-﻿#ifndef QC_GUESS_SAP_H
-#define QC_GUESS_SAP_H
+﻿#pragma once
 
 // Superposition of Atomic Potentials (SAP) initial guess
 //
@@ -22,5 +21,3 @@
 // Compute the SAP potential matrix V_SAP in Cartesian basis.
 void QC_Compute_V_SAP(const QC_MOLECULE& mol, const QC_INTEGRAL_TASKS& task_ctx,
                       float* d_V_SAP);
-
-#endif

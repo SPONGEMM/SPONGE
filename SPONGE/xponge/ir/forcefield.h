@@ -13,6 +13,13 @@ struct Bonds
     std::vector<float> r0;
 };
 
+struct DistanceConstraints
+{
+    std::vector<int> atom_a;
+    std::vector<int> atom_b;
+    std::vector<float> r0;
+};
+
 struct Angles
 {
     std::vector<int> atom_a;
@@ -115,6 +122,7 @@ struct VirtualAtoms
 struct ClassicalForceField
 {
     Bonds bonds;
+    DistanceConstraints constraints;
     Angles angles;
     Torsions dihedrals;
     Torsions impropers;

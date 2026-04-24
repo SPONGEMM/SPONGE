@@ -127,6 +127,32 @@ struct Gromacs_Dihedral
     std::vector<float> parameters;
 };
 
+struct Gromacs_Settle
+{
+    int ow = 0;
+    int funct = 0;
+    float doh = 0.0f;
+    float dhh = 0.0f;
+};
+
+struct Gromacs_Constraint
+{
+    int ai = 0;
+    int aj = 0;
+    int funct = 0;
+    std::vector<float> parameters;
+};
+
+struct Gromacs_CMap
+{
+    int ai = 0;
+    int aj = 0;
+    int ak = 0;
+    int al = 0;
+    int am = 0;
+    int funct = 0;
+};
+
 struct Gromacs_Molecule
 {
     std::string name;
@@ -136,6 +162,9 @@ struct Gromacs_Molecule
     std::vector<Gromacs_Pair> pairs;
     std::vector<Gromacs_Angle> angles;
     std::vector<Gromacs_Dihedral> dihedrals;
+    std::vector<Gromacs_Settle> settles;
+    std::vector<Gromacs_Constraint> constraints;
+    std::vector<Gromacs_CMap> cmaps;
 };
 
 struct Gromacs_Residue_Info
@@ -580,6 +609,40 @@ static const Gromacs_Pair_Type* Gromacs_Find_Pair_Type(
     return NULL;
 }
 
+static int Gromacs_Find_CMap_Type(
+    const std::vector<Gromacs_CMap_Type>& cmap_types, const std::string& ai,
+    const std::string& aj, const std::string& ak, const std::string& al,
+    const std::string& am, int funct)
+{
+    int match = -1;
+    int best_wildcards = 1000;
+    for (std::size_t i = 0; i < cmap_types.size(); i++)
+    {
+        const Gromacs_CMap_Type& type = cmap_types[i];
+        if (type.funct != funct)
+        {
+            continue;
+        }
+        bool forward = Gromacs_Type_Match(type.ai, ai) &&
+                       Gromacs_Type_Match(type.aj, aj) &&
+                       Gromacs_Type_Match(type.ak, ak) &&
+                       Gromacs_Type_Match(type.al, al) &&
+                       Gromacs_Type_Match(type.am, am);
+        if (!forward)
+        {
+            continue;
+        }
+        int wildcards = Gromacs_Count_Wildcards(
+            {type.ai, type.aj, type.ak, type.al, type.am});
+        if (wildcards < best_wildcards)
+        {
+            best_wildcards = wildcards;
+            match = static_cast<int>(i);
+        }
+    }
+    return match;
+}
+
 static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
 {
     const char* error_by = "Xponge::Load_Gromacs_Inputs";
@@ -911,6 +974,59 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             }
             current_molecule->dihedrals.push_back(dihedral);
         }
+        else if (current_section == "settles")
+        {
+            if (current_molecule == NULL || tokens.size() < 4)
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, error_by,
+                    "Reason:\n\tinvalid [ settles ] section in GROMACS "
+                    "topology\n");
+            }
+            Gromacs_Settle settle;
+            settle.ow = std::stoi(tokens[0]);
+            settle.funct = std::stoi(tokens[1]);
+            settle.doh = std::stof(tokens[2]);
+            settle.dhh = std::stof(tokens[3]);
+            current_molecule->settles.push_back(settle);
+        }
+        else if (current_section == "constraints")
+        {
+            if (current_molecule == NULL || tokens.size() < 3)
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, error_by,
+                    "Reason:\n\tinvalid [ constraints ] section in GROMACS "
+                    "topology\n");
+            }
+            Gromacs_Constraint constraint;
+            constraint.ai = std::stoi(tokens[0]);
+            constraint.aj = std::stoi(tokens[1]);
+            constraint.funct = std::stoi(tokens[2]);
+            for (std::size_t i = 3; i < tokens.size(); i++)
+            {
+                constraint.parameters.push_back(std::stof(tokens[i]));
+            }
+            current_molecule->constraints.push_back(constraint);
+        }
+        else if (current_section == "cmap")
+        {
+            if (current_molecule == NULL || tokens.size() < 6)
+            {
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               error_by,
+                                               "Reason:\n\tinvalid [ cmap ] "
+                                               "section in GROMACS topology\n");
+            }
+            Gromacs_CMap cmap;
+            cmap.ai = std::stoi(tokens[0]);
+            cmap.aj = std::stoi(tokens[1]);
+            cmap.ak = std::stoi(tokens[2]);
+            cmap.al = std::stoi(tokens[3]);
+            cmap.am = std::stoi(tokens[4]);
+            cmap.funct = std::stoi(tokens[5]);
+            current_molecule->cmaps.push_back(cmap);
+        }
         else if (current_section == "molecules")
         {
             if (tokens.size() < 2)
@@ -922,13 +1038,6 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             }
             topology.system_molecules.push_back(
                 {tokens[0], std::stoi(tokens[1])});
-        }
-        else if (current_section == "settles" ||
-                 current_section == "constraints" || current_section == "cmap")
-        {
-            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat, error_by,
-                                           "Reason:\n\tthis GROMACS topology "
-                                           "feature is not supported yet\n");
         }
     }
 
@@ -1083,11 +1192,31 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
     int atom_numbers = static_cast<int>(system->atoms.mass.size());
     system->exclusions.excluded_atoms.assign(atom_numbers, {});
     Xponge::Bonds& bonds = system->classical_force_field.bonds;
+    Xponge::DistanceConstraints& constraints =
+        system->classical_force_field.constraints;
     Xponge::Angles& angles = system->classical_force_field.angles;
     Xponge::UreyBradley& urey = system->classical_force_field.urey_bradley;
     Xponge::Torsions& dihedrals = system->classical_force_field.dihedrals;
     Xponge::Torsions& impropers = system->classical_force_field.impropers;
     Xponge::NB14& nb14 = system->classical_force_field.nb14;
+    Xponge::CMap& cmap = system->classical_force_field.cmap;
+
+    cmap.unique_type_numbers = static_cast<int>(topology.cmap_types.size());
+    cmap.resolution.resize(cmap.unique_type_numbers);
+    cmap.type_offset.resize(cmap.unique_type_numbers);
+    cmap.unique_gridpoint_numbers = 0;
+    for (int i = 0; i < cmap.unique_type_numbers; i++)
+    {
+        const Gromacs_CMap_Type& cmap_type = topology.cmap_types[i];
+        cmap.resolution[i] = cmap_type.resolution;
+        cmap.type_offset[i] = 16 * cmap.unique_gridpoint_numbers;
+        cmap.unique_gridpoint_numbers +=
+            cmap_type.resolution * cmap_type.resolution;
+        for (float value : cmap_type.grid)
+        {
+            cmap.grid_value.push_back(Gromacs_To_Kcal(value));
+        }
+    }
 
     std::unordered_map<std::string, int> atom_type_id;
     std::vector<std::string> ordered_types;
@@ -1146,20 +1275,55 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
             const std::vector<int>& local_to_global =
                 molecule_local_to_global[molecule_index];
             std::vector<std::vector<int>> adjacency(molecule.atoms.size());
+
+            auto require_local_atom = [&](int local_index)
+            {
+                if (local_index < 0 ||
+                    local_index >= static_cast<int>(molecule.atoms.size()))
+                {
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorBadFileFormat, error_by,
+                        "Reason:\n\tGROMACS molecule atom index is out of "
+                        "range\n");
+                }
+            };
+
+            auto append_bond =
+                [&](int ai_local, int aj_local, float k, float r0)
+            {
+                require_local_atom(ai_local);
+                require_local_atom(aj_local);
+                bonds.atom_a.push_back(local_to_global[ai_local]);
+                bonds.atom_b.push_back(local_to_global[aj_local]);
+                bonds.k.push_back(k);
+                bonds.r0.push_back(r0);
+                adjacency[ai_local].push_back(aj_local);
+                adjacency[aj_local].push_back(ai_local);
+            };
+
+            auto append_constraint = [&](int ai_local, int aj_local, float r0)
+            {
+                require_local_atom(ai_local);
+                require_local_atom(aj_local);
+                constraints.atom_a.push_back(local_to_global[ai_local]);
+                constraints.atom_b.push_back(local_to_global[aj_local]);
+                constraints.r0.push_back(r0);
+            };
+
             for (const Gromacs_Bond& bond : molecule.bonds)
             {
                 int ai_local = bond.ai - 1;
                 int aj_local = bond.aj - 1;
+                require_local_atom(ai_local);
+                require_local_atom(aj_local);
                 const Gromacs_Molecule_Atom& atom_i = molecule.atoms[ai_local];
                 const Gromacs_Molecule_Atom& atom_j = molecule.atoms[aj_local];
                 const Gromacs_Bond_Type* type = NULL;
                 if (bond.parameters.size() >= 2)
                 {
-                    bonds.atom_a.push_back(local_to_global[ai_local]);
-                    bonds.atom_b.push_back(local_to_global[aj_local]);
-                    bonds.k.push_back(Gromacs_To_Kcal(bond.parameters[1]) /
-                                      200.0f);
-                    bonds.r0.push_back(Gromacs_To_Angstrom(bond.parameters[0]));
+                    append_bond(ai_local, aj_local,
+                                Gromacs_To_Kcal(bond.parameters[1]) / 200.0f,
+                                Gromacs_To_Angstrom(bond.parameters[0]));
                 }
                 else
                 {
@@ -1172,13 +1336,48 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                             spongeErrorBadFileFormat, error_by,
                             "Reason:\n\tfailed to find GROMACS bond type\n");
                     }
-                    bonds.atom_a.push_back(local_to_global[ai_local]);
-                    bonds.atom_b.push_back(local_to_global[aj_local]);
-                    bonds.k.push_back(Gromacs_To_Kcal(type->kb) / 200.0f);
-                    bonds.r0.push_back(Gromacs_To_Angstrom(type->b0));
+                    append_bond(ai_local, aj_local,
+                                Gromacs_To_Kcal(type->kb) / 200.0f,
+                                Gromacs_To_Angstrom(type->b0));
                 }
-                adjacency[ai_local].push_back(aj_local);
-                adjacency[aj_local].push_back(ai_local);
+            }
+
+            for (const Gromacs_Settle& settle : molecule.settles)
+            {
+                int oxygen_local = settle.ow - 1;
+                int hydrogen_1_local = oxygen_local + 1;
+                int hydrogen_2_local = oxygen_local + 2;
+                require_local_atom(oxygen_local);
+                require_local_atom(hydrogen_1_local);
+                require_local_atom(hydrogen_2_local);
+                append_bond(oxygen_local, hydrogen_1_local, 0.0f,
+                            Gromacs_To_Angstrom(settle.doh));
+                append_constraint(oxygen_local, hydrogen_1_local,
+                                  Gromacs_To_Angstrom(settle.doh));
+                append_bond(oxygen_local, hydrogen_2_local, 0.0f,
+                            Gromacs_To_Angstrom(settle.doh));
+                append_constraint(oxygen_local, hydrogen_2_local,
+                                  Gromacs_To_Angstrom(settle.doh));
+                append_bond(hydrogen_1_local, hydrogen_2_local, 0.0f,
+                            Gromacs_To_Angstrom(settle.dhh));
+                append_constraint(hydrogen_1_local, hydrogen_2_local,
+                                  Gromacs_To_Angstrom(settle.dhh));
+            }
+
+            for (const Gromacs_Constraint& constraint : molecule.constraints)
+            {
+                if (constraint.parameters.empty())
+                {
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorBadFileFormat, error_by,
+                        "Reason:\n\tfailed to resolve GROMACS constraint "
+                        "distance\n");
+                }
+                append_bond(constraint.ai - 1, constraint.aj - 1, 0.0f,
+                            Gromacs_To_Angstrom(constraint.parameters[0]));
+                append_constraint(
+                    constraint.ai - 1, constraint.aj - 1,
+                    Gromacs_To_Angstrom(constraint.parameters[0]));
             }
 
             for (int i = 0; i < static_cast<int>(molecule.atoms.size()); i++)
@@ -1214,6 +1413,40 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                             .push_back(local_to_global[j]);
                     }
                 }
+            }
+
+            for (const Gromacs_CMap& cmap_item : molecule.cmaps)
+            {
+                int ai_local = cmap_item.ai - 1;
+                int aj_local = cmap_item.aj - 1;
+                int ak_local = cmap_item.ak - 1;
+                int al_local = cmap_item.al - 1;
+                int am_local = cmap_item.am - 1;
+                require_local_atom(ai_local);
+                require_local_atom(aj_local);
+                require_local_atom(ak_local);
+                require_local_atom(al_local);
+                require_local_atom(am_local);
+                const Gromacs_Molecule_Atom& atom_i = molecule.atoms[ai_local];
+                const Gromacs_Molecule_Atom& atom_j = molecule.atoms[aj_local];
+                const Gromacs_Molecule_Atom& atom_k = molecule.atoms[ak_local];
+                const Gromacs_Molecule_Atom& atom_l = molecule.atoms[al_local];
+                const Gromacs_Molecule_Atom& atom_m = molecule.atoms[am_local];
+                int cmap_type = Gromacs_Find_CMap_Type(
+                    topology.cmap_types, atom_i.type, atom_j.type, atom_k.type,
+                    atom_l.type, atom_m.type, cmap_item.funct);
+                if (cmap_type < 0)
+                {
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorBadFileFormat, error_by,
+                        "Reason:\n\tfailed to find GROMACS CMAP type\n");
+                }
+                cmap.atom_a.push_back(local_to_global[ai_local]);
+                cmap.atom_b.push_back(local_to_global[aj_local]);
+                cmap.atom_c.push_back(local_to_global[ak_local]);
+                cmap.atom_d.push_back(local_to_global[al_local]);
+                cmap.atom_e.push_back(local_to_global[am_local]);
+                cmap.cmap_type.push_back(cmap_type);
             }
 
             for (const Gromacs_Angle& angle : molecule.angles)

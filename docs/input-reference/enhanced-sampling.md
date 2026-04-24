@@ -6,13 +6,11 @@
 |-----------|------|-------------|
 | `cv_in_file` | string | Collective variable definition file path |
 
-CVs can also be defined inline via the `[CV]` section:
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `CV_type` | string | CV type |
-| `CV_period` | int | CV update frequency |
-| `CV_minimal` / `CV_maximum` | float | CV value range |
+CV definitions are loaded from the file pointed to by `cv_in_file`. New CV
+files should use TOML; the legacy block format remains supported for
+compatibility. See
+[Collective Variables Guide](collective-variables.md) for the supported CV
+types, virtual atoms, printing, and complete examples.
 
 ## Metadynamics
 
@@ -22,24 +20,56 @@ Configured via `[META]` or `[meta]` section:
 |-----------|------|-------------|
 | `sink` | string | Sink metadynamics mode |
 
+Detailed SinkMeta parameter list: [sinkmeta.md](sinkmeta.md)
+
 ## SITS
 
-SITS (Self-guided Integrated Tempering Sampling) parameters:
+SITS parameters live under the `[SITS]` scope:
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `SITS_mode` | string | Run mode |
-| `SITS_atom_numbers` | int | Number of atoms participating in SITS |
-| `SITS_k_numbers` | int | Number of k-space points |
-| `SITS_T_low` / `SITS_T_high` | float | Temperature range (K) |
-| `SITS_record_interval` | int | Record interval |
-| `SITS_update_interval` | int | Update interval |
-| `SITS_nk_fix` | int | Fixed k-space point count |
-| `SITS_nk_in_file` | string | k-space input file |
-| `SITS_pe_a` / `SITS_pe_b` | float | Potential energy parameters |
-| `SITS_fb_interval` | int | Feedback interval |
+```toml
+[SITS]
+mode = "iteration"
+atom_numbers = "ALL"
+k_numbers = 40
+T_low = 300.0
+T_high = 600.0
+record_interval = 1
+update_interval = 100
+```
 
-`SITS_mode` options:
+### Common Parameters
+
+| Parameter | Scope | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `mode` | `SITS` | string | required | SITS run mode |
+| `atom_in_file` | `SITS` | string | - | File-based atom partition definition for selective enhancement |
+| `atom_numbers` | `SITS` | int or string | required if `atom_in_file` is absent | Number of leading atoms in the selectively enhanced set, or `"ALL"` / `"ITS"` |
+| `cross_enhance_factor` | `SITS` | float | `0.5` | Enhancement factor for the cross term |
+| `fb_interval` | `SITS` | int | `1` | Feedback-bias update interval |
+
+Exactly one atom-selection method is required: `atom_in_file` or
+`atom_numbers`.
+
+### Iteration / Production Parameters
+
+| Parameter | Scope | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `k_numbers` | `SITS` | int | `40` | Number of temperature points |
+| `T_low` | `SITS` | float | - | Lower temperature bound for generated ladder |
+| `T_high` | `SITS` | float | - | Upper temperature bound for generated ladder |
+| `T` | `SITS` | slash-separated string | - | Explicit temperature ladder used instead of `T_low` / `T_high` |
+| `record_interval` | `SITS` | int | `1` | Energy record interval |
+| `update_interval` | `SITS` | int | `100` | Parameter update interval |
+| `pe_a` | `SITS` | float | `1.0` | Multiplicative energy scaling factor |
+| `pe_b` | `SITS` | float | `0.0` | Additive energy offset |
+| `fb_bias` | `SITS` | float | `0.0` | Additional bias applied to `fb` |
+| `nk_rest` | `SITS` | bool | `false` in `iteration`, `true` otherwise | Whether to read restart `Nk` values |
+| `nk_in_file` | `SITS` | string | required when `nk_rest = true` or in `production` mode | Input file for restarting `Nk` |
+| `nk_fix` | `SITS` | bool | `false` in `iteration`, `true` otherwise | Freeze `Nk` during the run |
+| `nk_rest_file` | `SITS` | string | auto-generated | Output file for restart `Nk` values when `nk_fix = false` |
+| `nk_traj_file` | `SITS` | string | auto-generated | Output file for `Nk` history when `nk_fix = false` |
+
+`mode` options:
 
 | Value | Description |
 |-------|-------------|
@@ -49,3 +79,19 @@ SITS (Self-guided Integrated Tempering Sampling) parameters:
 | `"empirical"` | Empirical mode |
 | `"amd"` | AMD mode |
 | `"gamd"` | GaMD mode |
+
+### Empirical / AMD / GaMD Parameters
+
+| Parameter | Scope | Type | Default | Description |
+|-----------|-------|------|---------|-------------|
+| `pe_a` | `SITS` | float | required in `amd` / `gamd`, `1.0` in `empirical` | Bias strength parameter |
+| `pe_b` | `SITS` | float | required in `amd` / `gamd`, `0.0` in `empirical` | Bias threshold parameter |
+| `T_low` | `SITS` | float | required in `empirical` | Lower temperature bound |
+| `T_high` | `SITS` | float | required in `empirical` | Upper temperature bound |
+
+Notes:
+
+- `amd`, `gamd`, and `empirical` do not use the full `k_numbers` / `Nk` update
+  workflow.
+- The current source reads `T` as a slash-separated string rather than a TOML
+  numeric array.
