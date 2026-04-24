@@ -335,8 +335,7 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
                 Launch_Device_Kernel(QC_Reduce_Grad_Copies_Kernel,
                                      (grad_size + 255) / 256, 256, 0, 0,
                                      grad_size, QC_GRAD_N_COPIES,
-                                     grad_ws.d_grad_copies,
-                                     grad_ws.d_grad);
+                                     grad_ws.d_grad_copies, grad_ws.d_grad);
             }
         }
 #endif

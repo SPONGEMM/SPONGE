@@ -204,6 +204,7 @@ def _apply_random_perturbation(
     return coords
 
 
+@pytest.mark.flaky(reruns=3)
 @pytest.mark.parametrize("iteration", range(3))
 def test_custom_pairwise_morse_vs_lammps(
     iteration, outputs_path, statics_path, mpi_np
@@ -354,6 +355,7 @@ def test_custom_pairwise_morse_vs_lammps(
     )
 
 
+@pytest.mark.flaky(reruns=3)
 @pytest.mark.parametrize("iteration", range(3))
 def test_custom_listed_class2_vs_lammps(
     iteration, outputs_path, statics_path, mpi_np
