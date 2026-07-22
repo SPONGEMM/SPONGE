@@ -561,8 +561,7 @@ void MD_INFORMATION::system_information::Initial(CONTROLLER* controller,
         }
 
         target_temperature = 300.0f;
-        if (md_info->mode >= md_info->NVT &&
-            controller[0].Command_Exist("target_temperature"))
+        if (controller[0].Command_Exist("target_temperature"))
         {
             controller->Check_Float(
                 "target_temperature",
