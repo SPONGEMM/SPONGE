@@ -339,13 +339,14 @@ jobs:
           set -euo pipefail
           raw_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pixi.toml | head -n 1)"
           conda_version="${raw_version//-/_}"
-          export PIXI_HOME="${RUNNER_TEMP}/pixi-home"
+          smoke_dir="${RUNNER_TEMP}/sponge-conda-smoke"
 
-          pixi global install \
-            --channel https://conda.spongemm.cn \
-            --channel conda-forge \
+          pixi init "${smoke_dir}" --channel conda-forge
+          pixi project channel add --manifest-path "${smoke_dir}" \
+            https://conda.spongemm.cn
+          pixi add --manifest-path "${smoke_dir}" \
             "sponge-cpu=${conda_version}"
-          "${PIXI_HOME}/bin/SPONGE" -v \
+          pixi run --manifest-path "${smoke_dir}" SPONGE -v \
             | tee "${RUNNER_TEMP}/sponge-version.txt"
           grep -F "v${raw_version}" "${RUNNER_TEMP}/sponge-version.txt"
 

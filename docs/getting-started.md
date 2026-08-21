@@ -47,19 +47,8 @@ packages instead of building from source.
 ### Install with pixi global
 
 ```bash
-pixi global install --channel https://conda.spongemm.cn --channel conda-forge sponge-cpu
-SPONGE -v
-```
-
-Replace `sponge-cpu` with the package matching your hardware from the table
-above. The public SPONGE channel is `https://conda.spongemm.cn`; dependencies
-are resolved from conda-forge automatically.
-
-### Install with conda, mamba, or micromamba
-
-```bash
-conda install -c https://conda.spongemm.cn -c conda-forge sponge-cpu
-SPONGE -v
+pixi project channel add https://conda.spongemm.cn
+pixi add sponge-xxx
 ```
 
 ## Build SPONGE
