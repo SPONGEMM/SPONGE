@@ -36,10 +36,13 @@ PATCH_TOOL_BY_SYSTEM = {
     "linux": "patchelf",
     "darwin": "install_name_tool",
 }
+COMMON_RUNTIME_DEPENDENCIES = [
+    "hdf5 >=2.1,<2.2",
+]
 RUNTIME_DEPENDENCIES = {
     "cpu": {
         "linux-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
             "libgomp",
@@ -57,7 +60,7 @@ RUNTIME_DEPENDENCIES = {
             "libgcc-ng",
         ],
         "win-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
             "vc14_runtime",
@@ -76,7 +79,7 @@ RUNTIME_DEPENDENCIES = {
     },
     "cpu-mpi": {
         "linux-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
             "openmpi >=5,<6",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
@@ -305,7 +308,10 @@ def make_metadata(
             f"Known subdirs: {known_subdirs}"
         )
 
-    depends = list(variant_dependencies[subdir])
+    depends = [
+        *COMMON_RUNTIME_DEPENDENCIES,
+        *variant_dependencies[subdir],
+    ]
 
     return {
         "name": name,
