@@ -134,6 +134,8 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/prips
+    outputs:
+      version: ${{ steps.prips-metadata.outputs.version }}
     permissions:
       contents: read
       id-token: write
@@ -156,10 +158,52 @@ jobs:
         run: |
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
+      - name: Record PRIPS distribution metadata
+        id: prips-metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t sdists < <(compgen -G 'plugins/prips/dist/*.tar.gz')
+          if [[ "${#sdists[@]}" -ne 1 ]]; then
+            echo "::error::Expected exactly one PRIPS sdist, found ${#sdists[@]}."
+            exit 1
+          fi
+
+          version="$(pixi run -e dev-cpu python -c 'from importlib.metadata import version; print(version("prips"))')"
+          sha256="$(sha256sum "${sdists[0]}" | cut -d ' ' -f 1)"
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "sha256=${sha256}" >> "${GITHUB_OUTPUT}"
+
       - name: Publish PRIPS package to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: plugins/prips/dist/
+
+      - name: Verify PRIPS publication on PyPI
+        shell: bash
+        env:
+          PRIPS_VERSION: ${{ steps.prips-metadata.outputs.version }}
+          PRIPS_SHA256: ${{ steps.prips-metadata.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          metadata="${RUNNER_TEMP}/prips-pypi.json"
+
+          for attempt in {1..12}; do
+            if curl --fail --silent --show-error \
+              "https://pypi.org/pypi/prips/${PRIPS_VERSION}/json" \
+              --output "${metadata}" \
+              && jq -e --arg sha256 "${PRIPS_SHA256}" \
+                '.urls[] | select(.packagetype == "sdist" and .digests.sha256 == $sha256)' \
+                "${metadata}" > /dev/null; then
+              echo "Verified prips ${PRIPS_VERSION} on PyPI with SHA-256 ${PRIPS_SHA256}."
+              exit 0
+            fi
+            echo "Waiting for prips ${PRIPS_VERSION} to become visible on PyPI (${attempt}/12)..."
+            sleep 10
+          done
+
+          echo "::error::prips ${PRIPS_VERSION} was not visible on PyPI with the expected SHA-256."
+          exit 1
 
       - name: Stage PRIPS artifacts
         shell: bash
@@ -434,10 +478,10 @@ jobs:
 
             ### PRIPS（Python 接口）
 
-            下载本 Release Assets 中的 `prips-*.tar.gz`，然后执行：
+            PRIPS 已发布到 PyPI。安装与本 Release 对应的版本：
 
             ```bash
-            pip install ./prips-*.tar.gz
+            pip install "prips==${{ needs.release-prips-sdist.outputs.version }}"
             ```
 
             ### 从源码编译
