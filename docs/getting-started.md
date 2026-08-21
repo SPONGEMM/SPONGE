@@ -44,43 +44,43 @@ packages instead of building from source.
 | `sponge-cpu` | CPU only | Linux x86_64 / aarch64, Windows x64, macOS ARM64 |
 | `sponge-cpu-mpi` | CPU + MPI | Linux x86_64 / aarch64 |
 
-### Install with pixi global
+The commands below use `sponge-cpu` as an example. Replace it with another
+package from the table when appropriate.
+
+### Install in a Pixi project
+
+Create a Pixi project, add the SPONGE channel, and install the package into the
+project environment:
 
 ```bash
+pixi init sponge-project --channel conda-forge
+cd sponge-project
 pixi project channel add https://conda.spongemm.cn
-pixi add sponge-xxx
+pixi add sponge-cpu
+pixi run SPONGE -v
 ```
 
-## Build SPONGE
+If you are already in a Pixi project that uses `conda-forge`, only the last
+three commands are needed.
 
-### Choose an environment
+### Install globally with Pixi
 
-Pick the environment that matches your hardware:
-
-| Environment | Hardware |
-|-------------|----------|
-| `dev-cuda13` | NVIDIA GPU (recommended) |
-| `dev-cuda12` | NVIDIA GPU (older drivers) |
-| `dev-hip` | AMD GPU / Hygon DCU (requires system-installed HIP/ROCm) |
-| `dev-cpu` | CPU |
-| `dev-cpu-mpi` | CPU + MPI |
-
-### Compile
+Install SPONGE into a Pixi-managed global environment when you want to run it
+outside a project:
 
 ```bash
-pixi install -e dev-cuda13          # install dependencies
-pixi run -e dev-cuda13 configure    # CMake configure
-pixi run -e dev-cuda13 compile      # build
+pixi global install \
+  --channel https://conda.spongemm.cn \
+  --channel conda-forge \
+  sponge-cpu
+SPONGE -v
 ```
 
-The `SPONGE` binary is installed into the pixi environment upon completion.
+## Optional: Build SPONGE from source
 
-### Verify
-
-```bash
-pixi run -e dev-cuda13 which SPONGE
-pixi run -e dev-cuda13 SPONGE --help
-```
+Most users should install a binary distribution above. To compile SPONGE from
+source or set up a development environment, follow the
+[Build Guide](build-guide.md).
 
 ## Run a simulation
 
@@ -101,13 +101,27 @@ target_temperature = 300.0
 write_information_interval = 1000
 ```
 
-Run:
+Use the command that matches how SPONGE was installed.
+
+For a global installation:
+
+```bash
+SPONGE -mdin mdin.spg.toml
+```
+
+For an installation in a Pixi project:
+
+```bash
+pixi run SPONGE -mdin mdin.spg.toml
+```
+
+For an optional source build in a development environment:
 
 ```bash
 pixi run -e dev-cuda13 SPONGE -mdin mdin.spg.toml
 ```
 
-Or enter a shell first:
+You can also enter that development environment first:
 
 ```bash
 pixi shell -e dev-cuda13
@@ -115,6 +129,9 @@ SPONGE -mdin mdin.spg.toml
 ```
 
 ## Run benchmarks
+
+The benchmark tasks are available from a source checkout with a development
+environment installed:
 
 ```bash
 pixi run -e dev-cuda13 perf-amber       # AMBER force field performance
