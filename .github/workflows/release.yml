@@ -131,8 +131,12 @@ jobs:
   release-prips-sdist:
     name: Release PRIPS sdist
     runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/prips
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -152,18 +156,10 @@ jobs:
         run: |
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
-      - name: Upload PRIPS package with Twine
-        env:
-          TWINE_REPOSITORY_URL: ${{ secrets.TWINE_REPOSITORY_URL }}
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          if [[ -z "${TWINE_PASSWORD}" ]]; then
-            echo "::notice::PYPI_TOKEN is not configured; publishing the PRIPS sdist as a GitHub Release artifact only."
-            exit 0
-          fi
-          pixi run -e dev-cpu pip install --disable-pip-version-check twine
-          pixi run -e dev-cpu twine upload plugins/prips/dist/*.tar.gz
+      - name: Publish PRIPS package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: plugins/prips/dist/
 
       - name: Stage PRIPS artifacts
         shell: bash
