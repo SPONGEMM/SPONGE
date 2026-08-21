@@ -53,7 +53,7 @@ Create a Pixi project, add the SPONGE channel, and install the package into the
 project environment:
 
 ```bash
-pixi init sponge-project --channel conda-forge
+pixi init sponge-project
 cd sponge-project
 pixi project channel add https://conda.spongemm.cn
 pixi add sponge-cpu
