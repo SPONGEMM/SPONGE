@@ -524,7 +524,9 @@ std::filesystem::path Resolve_Vds_Shard_Path(
 void Require_VDS_Shards_Are_Complete(
     const std::filesystem::path& wrapper_path,
     const std::vector<std::int64_t>& expected_steps,
-    const std::vector<double>& expected_times)
+    const std::vector<double>& expected_times,
+    const std::vector<std::int64_t>& expected_shard_step_starts,
+    const std::vector<double>& expected_shard_time_starts)
 {
     SpongeH5InputMatrix::Require_Path_Exists(wrapper_path);
     HighFive::File file(wrapper_path.string(), HighFive::File::ReadOnly);
@@ -599,6 +601,8 @@ void Require_VDS_Shards_Are_Complete(
 
     const std::size_t shard_count = indices.size();
     REQUIRE_TRUE(shard_count > 0);
+    REQUIRE_EQ(expected_shard_step_starts.size(), shard_count);
+    REQUIRE_EQ(expected_shard_time_starts.size(), shard_count);
     REQUIRE_EQ(paths.size(), shard_count);
     REQUIRE_EQ(statuses.size(), shard_count);
     REQUIRE_EQ(frame_starts.size(), shard_count);
@@ -627,9 +631,10 @@ void Require_VDS_Shards_Are_Complete(
         const std::size_t last_frame =
             first_frame + static_cast<std::size_t>(frame_counts[i]) - 1;
         REQUIRE_TRUE(last_frame < expected_steps.size());
-        REQUIRE_EQ(step_starts[i], expected_steps[first_frame]);
+        // A shard can open on an observable before its first particle frame.
+        REQUIRE_EQ(step_starts[i], expected_shard_step_starts[i]);
         REQUIRE_EQ(step_ends[i], expected_steps[last_frame]);
-        REQUIRE_TRUE(std::fabs(time_starts[i] - expected_times[first_frame]) <
+        REQUIRE_TRUE(std::fabs(time_starts[i] - expected_shard_time_starts[i]) <
                      1.0e-12);
         REQUIRE_TRUE(std::fabs(time_ends[i] - expected_times[last_frame]) <
                      1.0e-12);
@@ -809,21 +814,6 @@ void Require_H5_Observable_Stream_Matches_Mdout(
         Require_Double_Vector_Close(h5_values, mdout_column->second,
                                     "observable " + original_columns[i]);
     }
-}
-
-void Require_H5_Observable_Stream_Has_Frames(
-    const std::filesystem::path& path,
-    const std::vector<std::int64_t>& expected_steps,
-    const std::vector<double>& expected_times)
-{
-    HighFive::File file(path.string(), HighFive::File::ReadOnly);
-    REQUIRE_TRUE(file.exist(SpongeH5MD::path::observables_all_step));
-    REQUIRE_TRUE(file.exist(SpongeH5MD::path::observables_all_time));
-    const auto steps =
-        Read_Int64_Vector(file, SpongeH5MD::path::observables_all_step);
-    const auto times =
-        Read_Float64_Vector(file, SpongeH5MD::path::observables_all_time);
-    Require_Frame_Sequence(steps, times, expected_steps, expected_times);
 }
 
 std::string Shell_Quote(const std::filesystem::path& path)
@@ -1034,9 +1024,20 @@ struct PreparedCase
     std::filesystem::path h5_observable;
 };
 
-void Install_Valid_Native_EAM_Atom_Types(
-    const std::filesystem::path& topology_h5)
+void Install_Valid_EAM_Atom_Types(const std::filesystem::path& root)
 {
+    // The synthetic funcfl fixture has one element. Its serialized type 1
+    // is out of range during simulation.
+    // Normalize every runtime representation, including legacy and sidecar
+    // input.
+    for (const auto& relative :
+         {"eam_atom_type.txt",
+          "legacy_sidecars/EAM_atom_type_in_file/eam_atom_type.txt"})
+    {
+        const auto path = root / relative;
+        if (std::filesystem::exists(path)) Write_Text(path, "0\n0\n");
+    }
+    const auto topology_h5 = root / "topology.spgt.h5";
     if (!std::filesystem::exists(topology_h5)) return;
     HighFive::File file(topology_h5.string(), HighFive::File::ReadWrite);
     if (!file.exist("/manybody/eam/atom_type")) return;
@@ -1208,7 +1209,7 @@ PreparedCase Prepare_Case(const std::filesystem::path& temp_root,
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
-    Install_Valid_Native_EAM_Atom_Types(prepared.root / "topology.spgt.h5");
+    Install_Valid_EAM_Atom_Types(prepared.root);
     const auto output_paths =
         SpongeH5InputMatrix::Normal_Output_Paths(prepared.root);
     std::filesystem::create_directories(output_paths.output_dir);
@@ -1272,7 +1273,7 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
-    Install_Valid_Native_EAM_Atom_Types(prepared.root / "topology.spgt.h5");
+    Install_Valid_EAM_Atom_Types(prepared.root);
     const auto output_paths =
         SpongeH5InputMatrix::Rerun_Output_Paths(prepared.root);
     std::filesystem::create_directories(output_paths.output_dir);
@@ -2295,9 +2296,6 @@ void Run_Rerun_Mode_Matrix(const std::filesystem::path& sponge_executable)
         const std::vector<double> observable_times =
             h5_rerun_input ? std::vector<double>{1.0, 1.001}
                            : std::vector<double>{0.0, 0.001};
-        const std::vector<double> vds_trajectory_observable_times =
-            h5_rerun_input ? std::vector<double>{1.001}
-                           : std::vector<double>{0.001};
         SpongeH5InputMatrix::Require_Path_Exists(sidecar_bundled.h5_trajectory);
         Require_H5_Trajectory_Has_Frames(sidecar_bundled.h5_trajectory, {1},
                                          trajectory_times);
@@ -2305,18 +2303,16 @@ void Run_Rerun_Mode_Matrix(const std::filesystem::path& sponge_executable)
             sidecar_bundled.h5_trajectory, 0);
         if (spec.vds)
         {
+            // Step 0 observables open the shard before particle step 1.
             Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory, {1},
-                                            trajectory_times);
-            Require_H5_Observable_Stream_Has_Frames(
-                sidecar_bundled.h5_trajectory, {1},
-                vds_trajectory_observable_times);
+                                            trajectory_times, {0},
+                                            {observable_times.front()});
         }
-        else
-        {
-            Require_H5_Observable_Stream_Matches_Mdout(
-                sidecar_bundled.h5_trajectory, sidecar_bundled.mdout, {0, 1},
-                observable_times);
-        }
+        // VDS and single-file outputs both retain the initial observable frame,
+        // including its values, even though no particle frame exists at step 0.
+        Require_H5_Observable_Stream_Matches_Mdout(
+            sidecar_bundled.h5_trajectory, sidecar_bundled.mdout, {0, 1},
+            observable_times);
         SpongeH5InputMatrix::Require_Path_Exists(sidecar_bundled.h5_observable);
         Require_H5_Observable_Stream_Matches_Mdout(
             sidecar_bundled.h5_observable, sidecar_bundled.mdout, {0, 1},

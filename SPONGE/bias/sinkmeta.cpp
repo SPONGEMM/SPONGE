@@ -1,5 +1,6 @@
 ﻿#include "sinkmeta.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/h5_structural_state.hpp"
 
 static float Evaluate_Gaussian_Switch(const float rij, const float center,
@@ -2326,8 +2327,8 @@ namespace
 {
 bool Meta_State_Is_Finite(const std::vector<float>& values)
 {
-    return std::all_of(values.begin(), values.end(),
-                       [](const float value) { return std::isfinite(value); });
+    return std::all_of(values.begin(), values.end(), [](const float value)
+                       { return SpongeFloat::Is_Finite(value); });
 }
 
 bool Meta_State_Almost_Equal(const float lhs, const float rhs)

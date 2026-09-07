@@ -1,4 +1,6 @@
 ﻿#include "PM_force.h"
+
+#include "../utils/float_classification.hpp"
 /*
     2025-10-14 SPONGE Particle Mesh算法
     目前支持单进程Particle-Mesh-Ewald 与 PMC-IZ
@@ -707,8 +709,9 @@ __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
         UNSIGNED_INT_VECTOR* temp_uxyz = &PME_uxyz[atom];
         VECTOR frac_crd = crd[atom] * rcell;
         frac_crd = frac_crd - floorf(frac_crd);
-        if (!isfinite(frac_crd.x) || !isfinite(frac_crd.y) ||
-            !isfinite(frac_crd.z))
+        if (!SpongeFloat::Is_Finite(frac_crd.x) ||
+            !SpongeFloat::Is_Finite(frac_crd.y) ||
+            !SpongeFloat::Is_Finite(frac_crd.z))
         {
             frac_crd = {0.0f, 0.0f, 0.0f};
         }

@@ -16,6 +16,8 @@
 #include <utility>
 #include <vector>
 
+#include "../float_classification.hpp"
+
 namespace SpongeH5MD
 {
 struct ProtocolCVDefinition
@@ -658,7 +660,7 @@ class ProtocolCVH5Reader
 
     static std::string Format_Float(double value)
     {
-        if (!std::isfinite(value))
+        if (!SpongeFloat::Is_Finite(value))
             throw std::runtime_error("CV numeric field is not finite");
         std::ostringstream output;
         output << std::setprecision(std::numeric_limits<double>::max_digits10)
@@ -671,7 +673,7 @@ class ProtocolCVH5Reader
                                 const std::string& path)
     {
         for (T value : values)
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
                 throw std::runtime_error(path + " contains a non-finite value");
     }
 

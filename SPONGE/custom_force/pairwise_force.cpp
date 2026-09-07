@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <limits>
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/topology_custom_force_h5_materializer.hpp"
 
 static __global__ void pairwise_force_scatter_types(
@@ -513,7 +514,7 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
                     native_parameter_values[static_cast<std::size_t>(j) *
                                                 total_type_pairwise_numbers +
                                             i];
-                if (!std::isfinite(value)) scanf_ret = 0;
+                if (!SpongeFloat::Is_Finite(value)) scanf_ret = 0;
                 if (parameter_type[j] == "int")
                 {
                     if (std::trunc(value) != value ||

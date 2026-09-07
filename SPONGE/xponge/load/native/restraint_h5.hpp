@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "../../../utils/float_classification.hpp"
 #include "../../ir/protocol.h"
 
 namespace SpongeH5MD
@@ -159,7 +160,7 @@ class NativeRestraintH5Reader
                 Validate_Finite(reference, reference_path);
             }
             if (has_single_weight_default_ &&
-                (!std::isfinite(single_weight_default_) ||
+                (!SpongeFloat::Is_Finite(single_weight_default_) ||
                  single_weight_default_ < 0.0f))
             {
                 return Fail(restraint_root +
@@ -368,7 +369,7 @@ class NativeRestraintH5Reader
     {
         for (float value : values)
         {
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
             {
                 throw std::runtime_error(path + " contains a non-finite value");
             }

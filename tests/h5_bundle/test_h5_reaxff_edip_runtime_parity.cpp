@@ -14,6 +14,7 @@
 #include <string>
 #include <vector>
 
+#include "../../SPONGE/utils/float_classification.hpp"
 #include "h5_input_matrix_fixture.hpp"
 #include "utils/h5md/h5md_writer.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
@@ -628,7 +629,7 @@ void Require_Manybody_Results_Nontrivial(
         bool nontrivial = false;
         for (const double value : iter->second)
         {
-            if (std::isfinite(value) && std::fabs(value) > 1.0e-8)
+            if (SpongeFloat::Is_Finite(value) && std::fabs(value) > 1.0e-8)
             {
                 nontrivial = true;
                 break;
@@ -741,7 +742,7 @@ void Require_Reaxff_Eeq_Charge_Snapshot(const std::filesystem::path& h5_path)
     REQUIRE_TRUE(!charges.empty());
     for (const float charge : charges)
     {
-        REQUIRE_TRUE(std::isfinite(charge));
+        REQUIRE_TRUE(SpongeFloat::Is_Finite(charge));
     }
 }
 

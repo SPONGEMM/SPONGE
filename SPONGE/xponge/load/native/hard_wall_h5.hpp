@@ -2,13 +2,13 @@
 
 #include <array>
 #include <cmath>
-#include <cstdint>
-#include <cstring>
 #include <highfive/highfive.hpp>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "../../../utils/float_classification.hpp"
 
 namespace SpongeH5MD
 {
@@ -145,7 +145,7 @@ class NativeHardWallH5Reader
         {
             const float low = definition.bounds_low[axis];
             const float high = definition.bounds_high[axis];
-            if (Is_Nan(low) || Is_Nan(high))
+            if (SpongeFloat::Is_Nan(low) || SpongeFloat::Is_Nan(high))
             {
                 throw std::runtime_error(
                     "hard-wall bounds must not contain NaN");
@@ -156,32 +156,15 @@ class NativeHardWallH5Reader
                     "each hard-wall low bound must be smaller than its high "
                     "bound");
             }
-            has_finite_bound =
-                has_finite_bound || Is_Finite(low) || Is_Finite(high);
+            has_finite_bound = has_finite_bound ||
+                               SpongeFloat::Is_Finite(low) ||
+                               SpongeFloat::Is_Finite(high);
         }
         if (!has_finite_bound)
         {
             throw std::runtime_error(
                 "hard-wall protocol requires at least one finite bound");
         }
-    }
-
-    static std::uint32_t Float_Bits(float value)
-    {
-        std::uint32_t bits = 0;
-        std::memcpy(&bits, &value, sizeof(bits));
-        return bits;
-    }
-
-    static bool Is_Nan(float value)
-    {
-        const std::uint32_t bits = Float_Bits(value);
-        return (bits & 0x7f800000U) == 0x7f800000U && (bits & 0x007fffffU) != 0;
-    }
-
-    static bool Is_Finite(float value)
-    {
-        return (Float_Bits(value) & 0x7f800000U) != 0x7f800000U;
     }
 
     bool Fail(const std::string& message)

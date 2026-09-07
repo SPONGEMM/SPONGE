@@ -1,5 +1,6 @@
 ﻿#include "Nose_Hoover_Chain.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
 
 static __global__ void Nose_Hoover_Chain_Update(
@@ -283,7 +284,7 @@ void NOSE_HOOVER_CHAIN_INFORMATION::Set_Target_Temperature(
         return;
     }
     const float ratio = target_temperature_new / target_temperature;
-    if (!(ratio > 0.0f) || !isfinite(ratio))
+    if (!(ratio > 0.0f) || !SpongeFloat::Is_Finite(ratio))
     {
         return;
     }
