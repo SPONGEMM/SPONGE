@@ -1,4 +1,4 @@
-#if defined(__CUDACC__)
+﻿#if defined(__CUDACC__)
 #include <cuda_runtime.h>
 #elif defined(__HIPCC__)
 #include <hip/hip_runtime.h>
