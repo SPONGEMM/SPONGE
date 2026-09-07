@@ -17621,6 +17621,14 @@ def _assert_virtual_atom_oracle(
         raise AssertionError(
             f"{label} redistributed real-atom force is all trivial"
         )
+    if any(
+        not math.isfinite(value) or abs(value) > 1.0e-6
+        for value in virtual_components
+    ):
+        raise AssertionError(
+            f"{label} retained force on a virtual atom: "
+            f"maximum={max(abs(value) for value in virtual_components)}"
+        )
     return {
         "coordinate_value_count": len(coordinates),
         "virtual_atom_indices": list(virtual_indices),

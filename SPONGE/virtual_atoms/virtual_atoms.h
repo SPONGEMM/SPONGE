@@ -2,7 +2,8 @@
 #include "../collective_variable/collective_variable.h"
 #include "../common.h"
 #include "../control.h"
-// debug
+#include "virtual_atom_graph.h"
+#include "virtual_atom_math.h"
 
 // virtual atom type 0
 //  x_v = x_1
@@ -68,6 +69,7 @@ struct VIRTUAL_TYPE_2_INFROMATION
 {
     int virtual_numbers = 0;
     int local_numbers = 0;
+    bool need_atomic = false;
     int* d_local_numbers = NULL;
     VIRTUAL_TYPE_2* h_virtual_type_2 = NULL;
     VIRTUAL_TYPE_2* d_virtual_type_2 = NULL;
@@ -134,8 +136,10 @@ struct VIRTUAL_INFORMATION
     int is_initialized = 0;
     int is_controller_printf_initialized = 0;
     int last_modify_date = 20260216;
-    bool need_atomic = false;
     bool local_state_ready = false;
+    bool has_type_3 = false;
+    CONTROLLER* controller = NULL;
+    int* d_runtime_error = NULL;
 
     // 内容信息
     int max_level = 0;  // 最大的虚拟层级
@@ -170,4 +174,7 @@ struct VIRTUAL_INFORMATION
     void Get_Local(const int* atom_local_id, const char* atom_local_label,
                    const int local_atom_numbers);
     void update_ug_connectivity(CONECT* connectivity);
+
+    void Reset_Runtime_Error();
+    void Throw_If_Runtime_Error(const char* operation);
 };

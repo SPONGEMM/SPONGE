@@ -101,6 +101,16 @@ static void Native_Load_Virtual_Atoms(VirtualAtoms* virtual_atoms,
                     "Reason:\n\tvirtual_atom_in_file contains an unsupported "
                     "virtual atom type\n");
         }
+        std::string trailing;
+        if (stream >> trailing && (trailing.empty() || trailing[0] != '#'))
+        {
+            std::ostringstream reason;
+            reason << "Reason:\n\tvirtual_atom_in_file line " << line_numbers
+                   << " contains unexpected trailing fields\n";
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "Xponge::Native_Load_Virtual_Atoms",
+                                           reason.str().c_str());
+        }
         virtual_atoms->records.push_back(record);
     }
     fclose(fp);

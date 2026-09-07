@@ -1853,6 +1853,9 @@ void Main_Print()
 {
     if (md_info.output.Check_Mdout_Step())
     {
+        if (vatom.has_type_3)
+            vatom.Throw_If_Runtime_Error(
+                "coordinate refresh or force redistribution");
         md_info.Step_Print(&controller);
         if (!md_info.pbc.pbc)
         {
