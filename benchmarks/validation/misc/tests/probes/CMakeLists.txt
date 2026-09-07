@@ -21,7 +21,8 @@ add_executable(
 add_executable(settle_pair_guard_probe ../settle_pair_guard_probe.cpp)
 
 foreach(target constraint_velocity_projection_probe settle_pair_guard_probe)
-  target_sources(${target} PRIVATE "${SPONGE_SOURCE_DIR}/SPONGE/common.cpp")
+  target_sources(${target} PRIVATE controller_stubs.cpp
+                                   "${SPONGE_SOURCE_DIR}/SPONGE/common.cpp")
   target_compile_features(${target} PRIVATE cxx_std_17)
   target_compile_definitions(${target} PRIVATE USE_CPU NO_GLOBAL_CONTROLLER)
   target_include_directories(${target} PRIVATE "${SPONGE_SOURCE_DIR}/SPONGE"
