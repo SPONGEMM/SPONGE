@@ -15,7 +15,7 @@ struct STEER_CV
     float *h_ene, *d_ene;
     void Initial(CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* manager);
-    void Steer(int atom_numbers, VECTOR* crd, const Boundary boundary, int step,
+    void Steer(int atom_numbers, VECTOR* crd, Boundary boundary, int step,
                float* d_ene, LTMatrix3* d_virial, VECTOR* frc,
                int need_potential, int need_pressure);
     void Step_Print(CONTROLLER* controller);

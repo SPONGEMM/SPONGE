@@ -1274,6 +1274,7 @@ void CLASSIC_SITS_INFORMATION::SITS_Write_Nk_Norm()
 }
 
 void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
+                               const BoundaryPolicy boundary_policy,
                                const char* given_module_name)
 {
     if (given_module_name == NULL)
@@ -1444,6 +1445,14 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                 spongeErrorMissingCommand, "SITS_INFORMATION::Initial",
                 "Reason:\n\tAtom information must be given in the form of "
                 "SITS_atom_in_file or SITS_atom_numbers\n");
+        }
+
+        if (boundary_policy == BoundaryPolicy::Open && selectively_applied)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "SITS_INFORMATION::Initial",
+                "Reason:\n\tselective SITS requires periodic boundary "
+                "conditions; NOPBC supports only full-system ITS/ALL\n");
         }
 
         classic_sits.Initial(controller, this);

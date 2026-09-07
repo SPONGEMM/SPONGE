@@ -1128,7 +1128,7 @@ void META::Step_Print(CONTROLLER* controller)
     {
         return;
     }
-    if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+    if (CONTROLLER::MPI_size == 1)
     {
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
@@ -1136,7 +1136,7 @@ void META::Step_Print(CONTROLLER* controller)
         return;
     }
 #ifdef USE_MPI
-    if (CONTROLLER::MPI_rank == CONTROLLER::MPI_size - 1)
+    if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
         MPI_Send(&potential_local, 1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&rbias, 1, MPI_FLOAT, 0, 1, MPI_COMM_WORLD);
@@ -1144,12 +1144,12 @@ void META::Step_Print(CONTROLLER* controller)
     }
     if (CONTROLLER::MPI_rank == 0)
     {
-        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 0,
+        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 1,
+        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 1,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 2,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 2, MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
         controller->Step_Print("rct", rct);
@@ -2800,10 +2800,9 @@ void META::Border_Derivative(float* border_upper, float* border_lower,
     }
 }
 
-void META::Do_Metadynamics(int atom_numbers, VECTOR* crd,
-                           const Boundary boundary, int step,
-                           int need_potential, int need_pressure, VECTOR* frc,
-                           float* d_potential, LTMatrix3* d_virial,
+void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, Boundary boundary,
+                           int step, int need_potential, int need_pressure,
+                           VECTOR* frc, float* d_potential, LTMatrix3* d_virial,
                            float sys_temp)
 {
     if (this->is_initialized)

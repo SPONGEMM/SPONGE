@@ -53,16 +53,6 @@ void MD_INFORMATION::periodic_box_condition_information::No_PBC_Check(
             "MD_INFORMATION::periodic_box_condition_information::No_PBC_Check",
             "NPT mode can not be used for NOPBC");
     }
-    if (!(controller->Command_Exist("SITS", "atom_numbers") &&
-          (strcmp(controller->Command("SITS", "atom_numbers"), "ITS") == 0 ||
-           strcmp(controller->Command("SITS", "atom_numbers"), "ALL") == 0)) &&
-        controller->Command_Exist("SITS", "mode"))
-    {
-        controller->Throw_SPONGE_Error(
-            spongeErrorConflictingCommand,
-            "MD_INFORMATION::periodic_box_condition_information::No_PBC_Check",
-            "SITS can not be used for NOPBC now");
-    }
 }
 
 void MD_INFORMATION::periodic_box_condition_information::PBC_Check()

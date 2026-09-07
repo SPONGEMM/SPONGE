@@ -73,6 +73,9 @@ jobs:
       - name: Benchmark validation/cv
         run: pixi run -e ${{ matrix.env_name }} vali-cv
 
+      - name: Benchmark validation/nopbc
+        run: pixi run -e ${{ matrix.env_name }} vali-nopbc
+
       - name: Benchmark validation/thermostat
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat
 
@@ -288,6 +291,9 @@ jobs:
 
       - name: Benchmark validation/cv (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-cv --mpi 2
+
+      - name: Benchmark validation/nopbc rejection (MPI np=2)
+        run: pixi run -e ${{ matrix.env_name }} vali-nopbc-mpi
 
       - name: Benchmark validation/thermostat (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat --mpi 2

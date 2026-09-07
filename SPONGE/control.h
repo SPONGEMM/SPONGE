@@ -28,6 +28,10 @@ struct CONTROLLER
     static int PP_MPI_rank;
     static int PM_MPI_rank;
     static int CC_MPI_rank;
+    // World rank that owns the complete coordinate set used by CV and bias
+    // calculations. Rank 0 owns CVs in a single-process run; in an MPI run
+    // the first (and currently only supported) PM rank owns them.
+    static int CV_MPI_rank;
 
     static MPI_Comm pp_comm;
     static MPI_Comm pm_comm;

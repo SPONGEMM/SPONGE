@@ -360,7 +360,7 @@ static __global__ void v4_Force_Redistribute(const int atom_numbers,
 #ifdef USE_GPU
     for (int i = threadIdx.x; i < atom_numbers; i += blockDim.x)
 #else
-#pragma omp parallel for private(new_force) firstprivate(this_weight, this_frc)
+#pragma omp parallel for firstprivate(new_force) private(this_weight, this_frc)
     for (int i = 0; i < atom_numbers; i++)
 #endif
     {
