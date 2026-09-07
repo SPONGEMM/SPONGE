@@ -1,18 +1,7 @@
 ﻿#include "hard_wall.h"
 
-#include <cstdint>
-#include <cstring>
-
+#include "../utils/float_classification.hpp"
 #include "../xponge/load/native/hard_wall_h5.hpp"
-
-static bool Is_Hard_Wall_Infinite(float value)
-{
-    static_assert(sizeof(float) == sizeof(std::uint32_t),
-                  "hard-wall bounds require IEEE-754 binary32 floats");
-    std::uint32_t bits = 0;
-    std::memcpy(&bits, &value, sizeof(bits));
-    return (bits & 0x7fffffffU) == 0x7f800000U;
-}
 
 static bool Has_Legacy_Hard_Wall(CONTROLLER* controller,
                                  const char* module_name)
@@ -185,7 +174,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
 
     auto f = Hard_Wall_Reflection_Device<false, 0>;
 
-    if (!Is_Hard_Wall_Infinite(this->x_high))
+    if (!SpongeFloat::Is_Inf(this->x_high))
     {
         f = Hard_Wall_Reflection_Device<false, 0>;
         Launch_Device_Kernel(
@@ -195,7 +184,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers, (float*)crd,
             (float*)vel, this->x_high);
     }
-    if (!Is_Hard_Wall_Infinite(this->y_high))
+    if (!SpongeFloat::Is_Inf(this->y_high))
     {
         f = Hard_Wall_Reflection_Device<false, 1>;
         Launch_Device_Kernel(
@@ -205,7 +194,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers, (float*)crd,
             (float*)vel, this->y_high);
     }
-    if (!Is_Hard_Wall_Infinite(this->z_high))
+    if (!SpongeFloat::Is_Inf(this->z_high))
     {
         f = Hard_Wall_Reflection_Device<false, 2>;
         Launch_Device_Kernel(
@@ -215,7 +204,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers, (float*)crd,
             (float*)vel, this->z_high);
     }
-    if (!Is_Hard_Wall_Infinite(this->x_low))
+    if (!SpongeFloat::Is_Inf(this->x_low))
     {
         f = Hard_Wall_Reflection_Device<true, 0>;
         Launch_Device_Kernel(
@@ -225,7 +214,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers, (float*)crd,
             (float*)vel, this->x_low);
     }
-    if (!Is_Hard_Wall_Infinite(this->y_low))
+    if (!SpongeFloat::Is_Inf(this->y_low))
     {
         f = Hard_Wall_Reflection_Device<true, 1>;
         Launch_Device_Kernel(
@@ -235,7 +224,7 @@ void HARD_WALL::Reflect(int atom_numbers, VECTOR* crd, VECTOR* vel)
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers, (float*)crd,
             (float*)vel, this->y_low);
     }
-    if (!Is_Hard_Wall_Infinite(this->z_low))
+    if (!SpongeFloat::Is_Inf(this->z_low))
     {
         f = Hard_Wall_Reflection_Device<true, 2>;
         Launch_Device_Kernel(

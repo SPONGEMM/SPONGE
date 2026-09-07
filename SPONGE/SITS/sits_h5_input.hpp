@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "../control.h"
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_plan.hpp"
 #include "../utils/h5md/restart_h5_reader.hpp"
 
@@ -189,7 +190,7 @@ inline void Load_Typed_Method(CONTROLLER* controller, HighFive::File* file,
         const std::string path = std::string(root) + "/" + field;
         if (!file->exist(path)) return;
         const float value = Read_Scalar<float>(file, path);
-        if (!std::isfinite(value))
+        if (!SpongeFloat::Is_Finite(value))
         {
             throw std::runtime_error(path + " must be finite");
         }
@@ -234,7 +235,8 @@ inline void Load_Typed_Method(CONTROLLER* controller, HighFive::File* file,
         value << std::setprecision(9);
         for (std::size_t index = 0; index < ladder.size(); ++index)
         {
-            if (!(ladder[index] > 0.0f) || !std::isfinite(ladder[index]))
+            if (!(ladder[index] > 0.0f) ||
+                !SpongeFloat::Is_Finite(ladder[index]))
             {
                 throw std::runtime_error(
                     ladder_path + " must contain finite positive values");

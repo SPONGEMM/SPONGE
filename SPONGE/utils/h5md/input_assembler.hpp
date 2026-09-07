@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "../float_classification.hpp"
 #include "utils/h5md/h5_legacy_sidecar_contract.hpp"
 #include "utils/h5md/h5_structural_state.hpp"
 
@@ -231,7 +232,7 @@ inline bool Extract_Sits_Nk_Protocol_State(const RestartProtocolState& state,
     }
     for (const float value : values_iter->second)
     {
-        if (!(value > 0.0f) || !std::isfinite(value))
+        if (!(value > 0.0f) || !SpongeFloat::Is_Finite(value))
         {
             return fail("H5 SITS nk values must be positive finite numbers");
         }

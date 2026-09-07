@@ -13,6 +13,8 @@
 #include <string>
 #include <vector>
 
+#include "../float_classification.hpp"
+
 namespace SpongeH5MD
 {
 struct ProtocolCVRestraint
@@ -193,7 +195,7 @@ class ProtocolRestraintH5Reader
                     H5P_DEFAULT, values.data()) < 0)
             throw std::runtime_error("failed to read " + path);
         for (float value : values)
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
                 throw std::runtime_error(path + " contains a non-finite value");
         return values;
     }

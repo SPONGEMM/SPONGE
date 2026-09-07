@@ -1,5 +1,6 @@
 ﻿#include "SITS.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
 #include "sits_h5_input.hpp"
 
@@ -986,7 +987,7 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
                 for (int i = 0; i < k_numbers; ++i)
                 {
                     const float value = h5_nk->second[i];
-                    if (!(value > 0.0f) || !std::isfinite(value))
+                    if (!(value > 0.0f) || !SpongeFloat::Is_Finite(value))
                     {
                         controller->Throw_SPONGE_Error(
                             spongeErrorValueErrorCommand,
@@ -1009,7 +1010,8 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
                 for (int i = 0; i < k_numbers; ++i)
                 {
                     if (fscanf(nk_read_file, "%f", beta_lin + i) != 1 ||
-                        !(beta_lin[i] > 0.0f) || !std::isfinite(beta_lin[i]))
+                        !(beta_lin[i] > 0.0f) ||
+                        !SpongeFloat::Is_Finite(beta_lin[i]))
                     {
                         fclose(nk_read_file);
                         controller->Throw_SPONGE_Error(
@@ -1503,8 +1505,9 @@ bool SITS_INFORMATION::Export_H5_Restart_State(
                  deviceMemcpyDeviceToHost);
     for (std::size_t index = 0; index < count; ++index)
     {
-        if (!(nk[index] > 0.0f) || !std::isfinite(nk[index]) ||
-            !std::isfinite(log_norm[index]) || !std::isfinite(log_nk[index]))
+        if (!(nk[index] > 0.0f) || !SpongeFloat::Is_Finite(nk[index]) ||
+            !SpongeFloat::Is_Finite(log_norm[index]) ||
+            !SpongeFloat::Is_Finite(log_nk[index]))
         {
             return fail(
                 "SITS restart state contains a non-finite or "
@@ -1579,7 +1582,7 @@ bool SITS_INFORMATION::Apply_H5_Restart_State(
         }
         for (const float value : log_norm_state->second)
         {
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
             {
                 return fail("H5 SITS log_norm values must be finite");
             }
@@ -1589,7 +1592,7 @@ bool SITS_INFORMATION::Apply_H5_Restart_State(
     std::vector<float> log_nk_inverse_values(nk_values.size());
     for (std::size_t i = 0; i < nk_values.size(); ++i)
     {
-        if (!std::isfinite(log_nk_values[i]))
+        if (!SpongeFloat::Is_Finite(log_nk_values[i]))
         {
             return fail("H5 SITS log_nk values must be finite");
         }

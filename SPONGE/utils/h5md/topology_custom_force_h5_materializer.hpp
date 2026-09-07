@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "../float_classification.hpp"
+
 namespace SpongeH5MD
 {
 struct ListedForceBinding
@@ -218,7 +220,8 @@ class TopologyCustomForceH5Materializer
         }
         try
         {
-            if (!std::isfinite(lambda_bond) || !std::isfinite(alpha))
+            if (!SpongeFloat::Is_Finite(lambda_bond) ||
+                !SpongeFloat::Is_Finite(alpha))
             {
                 return Fail("bond_soft lambda and alpha must be finite");
             }
@@ -255,7 +258,8 @@ class TopologyCustomForceH5Materializer
                 {
                     return Fail("bond_soft atom indices are invalid");
                 }
-                if (!std::isfinite(k[index]) || !std::isfinite(r0[index]) ||
+                if (!SpongeFloat::Is_Finite(k[index]) ||
+                    !SpongeFloat::Is_Finite(r0[index]) ||
                     (from_a_or_b[index] != 0 && from_a_or_b[index] != 1))
                 {
                     return Fail("bond_soft typed values are invalid");
@@ -413,7 +417,8 @@ class TopologyCustomForceH5Materializer
         if (!Ensure_File()) return false;
         try
         {
-            if (!std::isfinite(lambda_bond) || !std::isfinite(alpha))
+            if (!SpongeFloat::Is_Finite(lambda_bond) ||
+                !SpongeFloat::Is_Finite(alpha))
             {
                 return Fail("bond_soft lambda and alpha must be finite");
             }
@@ -518,7 +523,7 @@ class TopologyCustomForceH5Materializer
                     definition
                         .parameter_values[parameter * definition.pair_count +
                                           pair];
-                if (!std::isfinite(value) ||
+                if (!SpongeFloat::Is_Finite(value) ||
                     (definition.parameter_types[parameter] == "int" &&
                      std::trunc(value) != value))
                 {
@@ -565,7 +570,7 @@ class TopologyCustomForceH5Materializer
                     definition.parameter_values[static_cast<std::size_t>(item) *
                                                     parameter_count +
                                                 parameter];
-                if (!std::isfinite(value) ||
+                if (!SpongeFloat::Is_Finite(value) ||
                     (definition.parameter_types[parameter] == "int" &&
                      std::trunc(value) != value))
                 {

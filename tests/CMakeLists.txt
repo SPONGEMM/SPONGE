@@ -1,3 +1,4 @@
 add_subdirectory(control)
 add_subdirectory(cmap)
 add_subdirectory(h5_bundle)
+add_subdirectory(floating_point)

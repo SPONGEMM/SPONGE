@@ -1,5 +1,6 @@
 ﻿#include "main.h"
 
+#include "utils/float_classification.hpp"
 #include "utils/h5md/h5_legacy_sidecar.hpp"
 #include "utils/h5md/input_validation.hpp"
 #include "utils/h5md/topology_native_h5_reader.hpp"
@@ -175,7 +176,8 @@ void Apply_H5_Dynamic_Integrator_State(
         const double checkpoint_time = std::stod(time->second, &time_consumed);
         if (step_consumed != step->second.size() ||
             time_consumed != time->second.size() || checkpoint_step < 0 ||
-            checkpoint_step >= INT_MAX || !std::isfinite(checkpoint_time))
+            checkpoint_step >= INT_MAX ||
+            !SpongeFloat::Is_Finite(checkpoint_time))
         {
             throw std::invalid_argument("invalid integrator step/time");
         }
