@@ -1,5 +1,6 @@
 ﻿#include "settle.h"
 
+#include "../utils/float_classification.hpp"
 #include "velocity_projection.h"
 
 static __global__ void remember_triangle_BA_CA(
@@ -256,53 +257,12 @@ static __global__ void settle_triangle(
     }
 }
 
-static __device__ __forceinline__ unsigned int Settle_Float_Bits(float value)
-{
-#ifdef GPU_ARCH_NAME
-    return __float_as_uint(value);
-#elif defined(__GNUC__) || defined(__clang__)
-    unsigned int bits = 0;
-    static_assert(sizeof(bits) == sizeof(value),
-                  "SPONGE requires 32-bit IEEE-754 floats");
-    memcpy(&bits, &value, sizeof(value));
-    __asm__ __volatile__("" : "+r"(bits));
-    return bits;
-#else
-    unsigned int bits = 0;
-    memcpy(&bits, &value, sizeof(value));
-    return bits;
-#endif
-}
-
-static __device__ __forceinline__ unsigned long long Settle_Double_Bits(
-    double value)
-{
-#ifdef GPU_ARCH_NAME
-    return static_cast<unsigned long long>(__double_as_longlong(value));
-#else
-    unsigned long long bits = 0;
-    static_assert(sizeof(bits) == sizeof(value),
-                  "SPONGE requires 64-bit IEEE-754 doubles");
-    memcpy(&bits, &value, sizeof(value));
-#if defined(__GNUC__) || defined(__clang__)
-    __asm__ __volatile__("" : "+r"(bits));
-#endif
-    return bits;
-#endif
-}
-
-static __device__ __forceinline__ bool Settle_Double_Is_Finite(double value)
-{
-    const unsigned long long bits = Settle_Double_Bits(value);
-    return (bits & 0x7ff0000000000000ULL) != 0x7ff0000000000000ULL;
-}
-
 static __device__ __forceinline__ bool Settle_Double_Is_Finite_Nonnegative(
     double value)
 {
-    const unsigned long long bits = Settle_Double_Bits(value);
+    const unsigned long long bits = SpongeFloat::Bits(value);
     const unsigned long long magnitude = bits & 0x7fffffffffffffffULL;
-    return (magnitude & 0x7ff0000000000000ULL) != 0x7ff0000000000000ULL &&
+    return SpongeFloat::Is_Finite(value) &&
            ((bits & 0x8000000000000000ULL) == 0ULL || magnitude == 0ULL);
 }
 
@@ -350,13 +310,13 @@ static __device__ __noinline__ bool Settle_Try_Precise_Pair_Solution(
     }
     const double precise_k = (sqrt(radicand) - r1r2) / r2r2;
     const double maximum_float = static_cast<double>(FLT_MAX);
-    if (!Settle_Double_Is_Finite(precise_k) || precise_k > maximum_float ||
+    if (!SpongeFloat::Is_Finite(precise_k) || precise_k > maximum_float ||
         precise_k < -maximum_float)
     {
         return false;
     }
     const float narrowed_k = static_cast<float>(precise_k);
-    if ((Settle_Float_Bits(narrowed_k) & 0x7f800000U) == 0x7f800000U)
+    if (!SpongeFloat::Is_Finite(narrowed_k))
     {
         return false;
     }
@@ -443,20 +403,17 @@ static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
         const float radicand_error_bound =
             8.0f * FLT_EPSILON *
             (projection_squared + length_product + target_product);
-        const unsigned int radicand_bits = Settle_Float_Bits(radicand);
-        const unsigned int radicand_magnitude = radicand_bits & 0x7fffffffU;
-        const unsigned int r2r2_bits = Settle_Float_Bits(r2r2);
+        const unsigned int r2r2_bits = SpongeFloat::Bits(r2r2);
         const unsigned int r2r2_magnitude = r2r2_bits & 0x7fffffffU;
-        const bool finite_radicand =
-            (radicand_magnitude & 0x7f800000U) != 0x7f800000U;
+        const bool finite_radicand = SpongeFloat::Is_Finite(radicand);
         const bool valid_r2r2 = (r2r2_bits & 0x80000000U) == 0U &&
                                 r2r2_magnitude != 0U &&
-                                (r2r2_magnitude & 0x7f800000U) != 0x7f800000U;
+                                SpongeFloat::Is_Finite(r2r2);
         bool solved = false;
         if (finite_radicand && valid_r2r2 && radicand > radicand_error_bound)
         {
             k = (sqrt(radicand) - r1r2) / r2r2;
-            solved = (Settle_Float_Bits(k) & 0x7f800000U) != 0x7f800000U;
+            solved = SpongeFloat::Is_Finite(k);
         }
         else if (finite_radicand && valid_r2r2)
         {

@@ -2,6 +2,8 @@
 
 #include "cmap/cmap.h"
 
+// This standalone test does not link control.cpp. CUDA retains the host
+// controller printing path, which needs the serial rank definition.
 int CONTROLLER::MPI_rank = 0;
 
 struct GridIndexCase

@@ -1,5 +1,6 @@
 ﻿#include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <fstream>
@@ -170,6 +171,17 @@ static void Test_Extract_Sits_Nk_Protocol_State_Rejects_Bad_State()
     Require(!SpongeH5MD::Extract_Sits_Nk_Protocol_State(state, "SITS", 2,
                                                         &nk_values, &error));
     Require(error.find("positive finite") != std::string::npos);
+
+    // Parse at runtime so the regression exercises Release/fast-math checks.
+    for (const char* text : {"inf", "-inf", "nan"})
+    {
+        state.sits_states[0].float_states["nk"] = {1.0f,
+                                                   std::strtof(text, nullptr)};
+        error.clear();
+        Require(!SpongeH5MD::Extract_Sits_Nk_Protocol_State(
+            state, "SITS", 2, &nk_values, &error));
+        Require(error.find("positive finite") != std::string::npos);
+    }
 
     sits_state.float_states["nk"] = {1.0f};
     state.sits_states.clear();

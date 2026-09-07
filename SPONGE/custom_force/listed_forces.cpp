@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <limits>
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/topology_custom_force_h5_materializer.hpp"
 
 static constexpr int LISTED_FORCE_MAX_ATOMS = 6;
@@ -767,7 +768,7 @@ void LISTED_FORCE::Initial(CONTROLLER* controller, CONECT* connectivity,
                     native_parameter_values[static_cast<std::size_t>(i) *
                                                 parameter_name.size() +
                                             j];
-                if (!std::isfinite(value)) scanf_ret = 0;
+                if (!SpongeFloat::Is_Finite(value)) scanf_ret = 0;
                 if (parameter_type[j] == "int")
                 {
                     if (std::trunc(value) != value ||

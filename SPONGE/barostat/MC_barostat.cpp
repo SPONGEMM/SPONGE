@@ -1,5 +1,6 @@
 ﻿#include "MC_barostat.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/random/restart_rng_state.hpp"
 
 std::uint64_t MC_BAROSTAT_INFORMATION::Next_Random_U64()
@@ -515,9 +516,9 @@ bool MC_BAROSTAT_INFORMATION::Apply_H5_Restart_State(
     }
     for (int dimension = 0; dimension < 3; ++dimension)
     {
-        if (!isfinite(delta->second[dimension]) ||
+        if (!SpongeFloat::Is_Finite(delta->second[dimension]) ||
             delta->second[dimension] < 0.0f ||
-            !isfinite(rates->second[dimension]) ||
+            !SpongeFloat::Is_Finite(rates->second[dimension]) ||
             totals->second[dimension] < 0 || accepts->second[dimension] < 0 ||
             accepts->second[dimension] > totals->second[dimension] ||
             totals->second[dimension] > INT_MAX ||

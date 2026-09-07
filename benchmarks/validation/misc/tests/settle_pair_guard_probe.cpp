@@ -3,6 +3,7 @@
 #include <cstring>
 
 #include "constrain/settle.cpp"
+#include "utils/float_classification.hpp"
 
 unsigned int CONTROLLER::device_max_thread = 64;
 
@@ -48,8 +49,7 @@ bool Check_Pair(const char* name, const VECTOR& predicted,
 
     const VECTOR constrained = coordinates[1] - coordinates[0];
     const float distance = std::sqrt(constrained * constrained);
-    const bool finite_distance =
-        (Settle_Float_Bits(distance) & 0x7f800000U) != 0x7f800000U;
+    const bool finite_distance = SpongeFloat::Is_Finite(distance);
     if (invalid_pair == -1 && finite_distance &&
         std::fabs(distance - target) <= 2.0e-6f)
         return true;

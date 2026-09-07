@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "../../SPONGE/utils/float_classification.hpp"
 #include "h5_input_matrix_fixture.hpp"
 #include "utils/h5md/h5md_writer.hpp"
 #include "utils/h5md/restart_h5_reader.hpp"
@@ -1045,7 +1046,7 @@ void Require_Finite_Values(const std::vector<float>& values)
     REQUIRE_TRUE(!values.empty());
     for (const float value : values)
     {
-        REQUIRE_TRUE(std::isfinite(value));
+        REQUIRE_TRUE(SpongeFloat::Is_Finite(value));
     }
 }
 

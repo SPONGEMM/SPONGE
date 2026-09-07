@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "../../SPONGE/utils/float_classification.hpp"
 #include "barostat/pressure_based_barostat.h"
 #include "thermostat/Bussi_thermostat.h"
 #include "utils/random/portable_philox_sampler.hpp"
@@ -173,12 +174,12 @@ static void Test_Portable_Philox_Sampler_Is_Deterministic()
     const double first_normal = first.Normal();
     const double repeated_normal = repeated.Normal();
     const double next_normal = next.Normal();
-    Require(std::isfinite(first_normal));
+    Require(SpongeFloat::Is_Finite(first_normal));
     Require(first_normal == repeated_normal);
     Require(first_normal != next_normal);
     const double first_gamma = first.Gamma(8.0, 2.0);
     const double repeated_gamma = repeated.Gamma(8.0, 2.0);
-    Require(std::isfinite(first_gamma));
+    Require(SpongeFloat::Is_Finite(first_gamma));
     Require(first_gamma > 0.0);
     Require(first_gamma == repeated_gamma);
 }
@@ -193,7 +194,7 @@ static void Test_Portable_Philox_Is_Addressable_And_Round_Trips()
     SPONGE_PHILOX4X32_10(0x123456789abcdef0ULL, 7, 48).Normal4(next);
     for (int index = 0; index < 4; ++index)
     {
-        Require(std::isfinite(first[index]));
+        Require(SpongeFloat::Is_Finite(first[index]));
         Require(first[index] == repeated[index]);
     }
     Require(first[0] != next[0] || first[1] != next[1] || first[2] != next[2] ||
