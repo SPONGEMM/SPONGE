@@ -2320,8 +2320,7 @@ void Main_MC_Barostat()
 
         if (!mc_baro.Check_MC_Barostat_Accept())  // 如果不接受
         {
-            mc_baro.g = {-mc_baro.g.a11, 0, -mc_baro.g.a22, 0, 0,
-                         -mc_baro.g.a33};
+            mc_baro.g = Get_Reverse_Diagonal_Box_Change(mc_baro.g, md_info.dt);
             if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
             {
                 deviceMemcpy(dd.frc, mc_baro.frc_backup,

@@ -2,6 +2,7 @@
 #include "../common.h"
 #include "../control.h"
 #include "../utils/h5md/h5_structural_state.hpp"
+#include "mc_barostat_math.h"
 
 // 用于记录与计算MC控压相关的信息
 struct MC_BAROSTAT_INFORMATION

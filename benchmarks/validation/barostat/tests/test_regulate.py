@@ -17,6 +17,13 @@ from benchmarks.validation.barostat.tests.utils import (
 REGULATE_CASES = [
     pytest.param(
         {
+            "id": "monte_carlo_barostat",
+            "barostat": "monte_carlo_barostat",
+        },
+        id="monte_carlo_barostat",
+    ),
+    pytest.param(
+        {
             "id": "andersen_barostat",
             "barostat": "andersen_barostat",
         },
@@ -75,6 +82,9 @@ def _write_and_run_stage(
         barostat=barostat,
         barostat_tau=barostat_tau,
         barostat_update_interval=barostat_update_interval,
+        monte_carlo_initial_ratio=0.01,
+        monte_carlo_update_interval=1,
+        monte_carlo_check_interval=10,
         write_information_interval=write_information_interval,
         write_mdout_interval=write_mdout_interval,
         default_in_file_prefix="tip3p",
@@ -203,3 +213,42 @@ def test_tip3p_regulate_from_moderately_expanded_box(
     )
 
     assert final_density_ok
+
+
+def test_monte_carlo_barostat_rejects_nonorthogonal_box(
+    statics_path, outputs_path, mpi_np, capsys
+):
+    if mpi_np is not None:
+        pytest.skip(
+            "MC nonorthogonal input validation is a single-process contract"
+        )
+
+    case_dir = Outputer.prepare_output_case(
+        statics_path=statics_path,
+        outputs_path=outputs_path,
+        case_name="tip3p_water",
+        mpi_np=mpi_np,
+        run_name="monte_carlo_barostat_nonorthogonal_rejected",
+    )
+    rescale_coordinate_box(
+        case_dir / "tip3p_coordinate.txt",
+        new_lx=26.0,
+        new_ly=26.0,
+        new_lz=26.0,
+        new_alpha=70.0,
+        new_beta=80.0,
+        new_gamma=100.0,
+        scale_coordinates=False,
+    )
+    write_barostat_mdin(
+        case_dir,
+        step_limit=1,
+        barostat="monte_carlo_barostat",
+        write_information_interval=1,
+        write_mdout_interval=1,
+    )
+
+    with pytest.raises(RuntimeError):
+        run_sponge_barostat(case_dir, timeout=STAGE_TIMEOUT, mpi_np=mpi_np)
+    captured = capsys.readouterr()
+    assert "MC barostat only supports orthogonal box now" in captured.out
