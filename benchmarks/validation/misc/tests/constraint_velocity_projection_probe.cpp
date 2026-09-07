@@ -154,10 +154,9 @@ bool Check_Settle()
     VECTOR velocities[kAtomCount];
     std::memcpy(coordinates, kCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kVelocities, sizeof(velocities));
-    const LTMatrix3 direct_space;
+    const Boundary boundary = Boundary{};
     if (!settle.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kMassInverse, direct_space, direct_space,
-            false))
+            velocities, coordinates, kMassInverse, boundary, false))
         return Fail("SETTLE velocity-only projection did not converge");
     if (!Check_Velocity_Only_Result("SETTLE", kCoordinates, coordinates,
                                     velocities))
@@ -166,8 +165,7 @@ bool Check_Settle()
     std::memcpy(coordinates, kRoundoffCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kRoundoffVelocities, sizeof(velocities));
     if (!settle.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kRoundoffMassInverse, direct_space,
-            direct_space, false))
+            velocities, coordinates, kRoundoffMassInverse, boundary, false))
         return Fail("SETTLE rejected a float-limited attainable projection");
     if (!Check_Roundoff_Floor_Result("SETTLE", kRoundoffCoordinates,
                                      coordinates, velocities))
@@ -175,8 +173,8 @@ bool Check_Settle()
 
     std::memcpy(coordinates, kCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kVelocities, sizeof(velocities));
-    if (!settle.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kMassInverse, direct_space, direct_space))
+    if (!settle.Project_Velocity_To_Constraint_Manifold(velocities, coordinates,
+                                                        kMassInverse, boundary))
         return Fail("SETTLE default projection reported failure");
     return std::memcmp(kCoordinates, coordinates, sizeof(coordinates)) != 0 ||
            Fail("SETTLE default projection no longer updates coordinates");
@@ -206,10 +204,9 @@ bool Check_Shake()
     VECTOR velocities[kAtomCount];
     std::memcpy(coordinates, kCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kVelocities, sizeof(velocities));
-    const LTMatrix3 direct_space;
+    const Boundary boundary = Boundary{};
     if (!shake.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kMassInverse, direct_space, direct_space,
-            kAtomCount, false))
+            velocities, coordinates, kMassInverse, boundary, kAtomCount, false))
         return Fail("SHAKE velocity-only projection did not converge");
     if (!Check_Velocity_Only_Result("SHAKE", kCoordinates, coordinates,
                                     velocities))
@@ -218,8 +215,8 @@ bool Check_Shake()
     std::memcpy(coordinates, kRoundoffCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kRoundoffVelocities, sizeof(velocities));
     if (!shake.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kRoundoffMassInverse, direct_space,
-            direct_space, kAtomCount, false))
+            velocities, coordinates, kRoundoffMassInverse, boundary, kAtomCount,
+            false))
         return Fail("SHAKE rejected a float-limited attainable projection");
     if (!Check_Roundoff_Floor_Result("SHAKE", kRoundoffCoordinates, coordinates,
                                      velocities))
@@ -228,11 +225,77 @@ bool Check_Shake()
     std::memcpy(coordinates, kCoordinates, sizeof(coordinates));
     std::memcpy(velocities, kVelocities, sizeof(velocities));
     if (!shake.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, kMassInverse, direct_space, direct_space,
-            kAtomCount))
+            velocities, coordinates, kMassInverse, boundary, kAtomCount))
         return Fail("SHAKE default projection reported failure");
     return std::memcmp(kCoordinates, coordinates, sizeof(coordinates)) != 0 ||
            Fail("SHAKE default projection no longer updates coordinates");
+}
+
+bool Check_Boundary_Projection()
+{
+    const LTMatrix3 cell(10.0f, 0.0f, 10.0f, 0.0f, 0.0f, 10.0f);
+    const LTMatrix3 rcell(0.1f, 0.0f, 0.1f, 0.0f, 0.0f, 0.1f);
+    const Boundary boundaries[] = {{BoundaryPolicy::Open, cell, rcell},
+                                   {BoundaryPolicy::Periodic, cell, rcell}};
+    const VECTOR expected_displacements[] = {{11.0f, 1.0f, 0.0f},
+                                             {1.0f, 1.0f, 0.0f}};
+    const VECTOR original_coordinates[2] = {{21.0f, 0.0f, 0.0f},
+                                            {10.0f, -1.0f, 0.0f}};
+    const VECTOR original_velocities[2] = {{1.0f, 2.0f, 3.0f},
+                                           {-1.0f, 0.0f, 1.0f}};
+    const float mass_inverse[2] = {1.0f, 1.0f};
+    CONSTRAIN_PAIR pair = {};
+    pair.atom_i_serial = 0;
+    pair.atom_j_serial = 1;
+    CONSTRAIN constrain;
+    constrain.dt = 0.002f;
+    constrain.maximum_constraint_degree = 1;
+    constrain.num_pair_local = 1;
+    constrain.constrain_pair_local = &pair;
+    VECTOR correction[2] = {};
+    SETTLE settle;
+    settle.is_initialized = 1;
+    settle.constrain = &constrain;
+    settle.local_atom_numbers = 2;
+    settle.num_pair_local = 1;
+    settle.d_pairs_local = &pair;
+    settle.d_delta_vel_local = correction;
+    SHAKE shake;
+    shake.is_initialized = 1;
+    shake.constrain = &constrain;
+    shake.constrain_frc = correction;
+    for (int policy = 0; policy < 2; ++policy)
+    {
+        const VECTOR dr = expected_displacements[policy];
+        const VECTOR dv = original_velocities[0] - original_velocities[1];
+        const VECTOR delta = (-0.5f * (dr * dv) / (dr * dr)) * dr;
+        const VECTOR expected[2] = {original_velocities[0] + delta,
+                                    original_velocities[1] - delta};
+        for (int algorithm = 0; algorithm < 2; ++algorithm)
+        {
+            VECTOR coordinates[2], velocities[2];
+            std::memcpy(coordinates, original_coordinates, sizeof(coordinates));
+            std::memcpy(velocities, original_velocities, sizeof(velocities));
+            const bool converged =
+                algorithm == 0 ? settle.Project_Velocity_To_Constraint_Manifold(
+                                     velocities, coordinates, mass_inverse,
+                                     boundaries[policy], false)
+                               : shake.Project_Velocity_To_Constraint_Manifold(
+                                     velocities, coordinates, mass_inverse,
+                                     boundaries[policy], 2, false);
+            if (!converged || std::memcmp(coordinates, original_coordinates,
+                                          sizeof(coordinates)) != 0)
+                return Fail("boundary projection failed or moved coordinates");
+            for (int atom = 0; atom < 2; ++atom)
+            {
+                const VECTOR error = velocities[atom] - expected[atom];
+                if (error * error > 1.0e-10f)
+                    return Fail(
+                        "projection used the wrong boundary displacement");
+            }
+        }
+    }
+    return true;
 }
 
 bool Check_Degenerate_Constraint_Status()
@@ -253,7 +316,7 @@ bool Check_Degenerate_Constraint_Status()
     const float dynamic_mass_inverse[2] = {1.0f, 1.0f};
     const float fixed_mass_inverse[2] = {0.0f, 0.0f};
     VECTOR correction[2] = {};
-    const LTMatrix3 direct_space;
+    const Boundary boundary = Boundary{};
 
     SETTLE settle;
     settle.is_initialized = 1;
@@ -263,12 +326,10 @@ bool Check_Degenerate_Constraint_Status()
     settle.d_pairs_local = &pair;
     settle.d_delta_vel_local = correction;
     if (settle.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, dynamic_mass_inverse, direct_space,
-            direct_space, false))
+            velocities, coordinates, dynamic_mass_inverse, boundary, false))
         return Fail("SETTLE accepted a degenerate dynamic constraint");
     if (!settle.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, fixed_mass_inverse, direct_space,
-            direct_space, false))
+            velocities, coordinates, fixed_mass_inverse, boundary, false))
         return Fail("SETTLE rejected an all-fixed constraint");
 
     SHAKE shake;
@@ -276,12 +337,10 @@ bool Check_Degenerate_Constraint_Status()
     shake.constrain = &constrain;
     shake.constrain_frc = correction;
     if (shake.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, dynamic_mass_inverse, direct_space,
-            direct_space, 2, false))
+            velocities, coordinates, dynamic_mass_inverse, boundary, 2, false))
         return Fail("SHAKE accepted a degenerate dynamic constraint");
     if (!shake.Project_Velocity_To_Constraint_Manifold(
-            velocities, coordinates, fixed_mass_inverse, direct_space,
-            direct_space, 2, false))
+            velocities, coordinates, fixed_mass_inverse, boundary, 2, false))
         return Fail("SHAKE rejected an all-fixed constraint");
     return true;
 }
@@ -290,7 +349,7 @@ bool Check_Degenerate_Constraint_Status()
 
 int main()
 {
-    return Check_Settle() && Check_Shake() &&
+    return Check_Settle() && Check_Shake() && Check_Boundary_Projection() &&
                    Check_Degenerate_Constraint_Status()
                ? 0
                : 1;

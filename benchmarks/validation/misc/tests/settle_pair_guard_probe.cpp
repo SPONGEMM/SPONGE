@@ -27,10 +27,10 @@ bool Check_Pair(const char* name, const VECTOR& predicted,
     const VECTOR original_coordinates[2] = {coordinates[0], coordinates[1]};
     const VECTOR original_velocities[2] = {velocities[0], velocities[1]};
     const LTMatrix3 original_virial = virial[0];
-    const LTMatrix3 cell;
+    const Boundary boundary = Boundary{};
     int invalid_pair = -1;
 
-    settle_pair(1, &pair, atom_local, mass, coordinates, cell, cell, last_pair,
+    settle_pair(1, &pair, atom_local, mass, coordinates, boundary, last_pair,
                 0.002f, 1.0f, 1.0f, velocities, virial, &invalid_pair);
 
     if (should_fail)

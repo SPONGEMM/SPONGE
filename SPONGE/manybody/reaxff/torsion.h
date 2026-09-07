@@ -58,8 +58,8 @@ struct REAXFF_TORSION
     void Initial(CONTROLLER* controller, int atom_numbers,
                  const char* module_name);
     void Calculate_Torsion_Energy_And_Force(
-        int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const ATOM_GROUP* nl,
+        int atom_numbers, const VECTOR* crd, VECTOR* frc,
+        const Boundary boundary, const ATOM_GROUP* nl,
         REAXFF_BOND_ORDER* bo_module, const float* Delta_boc,
         const int need_atom_energy, float* atom_energy, const int need_virial,
         LTMatrix3* atom_virial);

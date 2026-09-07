@@ -75,13 +75,16 @@ static __host__ __device__ __forceinline__ int Find_Neighbor_Grids_Scan(
 
 static __global__ void Find_Neighor_Grids_Device(
     int grid_numbers, int* neighbor_grid_numbers, int* neighbor_grids, int Nx,
-    int Ny, int Nz, float grid_length, LTMatrix3 cell, LTMatrix3 rcell)
+    int Ny, int Nz, float grid_length, const Boundary boundary)
 {
     SIMPLE_DEVICE_FOR(grid_i, grid_numbers)
     {
-        const int64_t dxy = static_cast<int64_t>(cell.a21 / grid_length);
-        const int64_t dxz = static_cast<int64_t>(cell.a31 / grid_length);
-        const int64_t dyz = static_cast<int64_t>(cell.a32 / grid_length);
+        const int64_t dxy =
+            static_cast<int64_t>(boundary.cell.a21 / grid_length);
+        const int64_t dxz =
+            static_cast<int64_t>(boundary.cell.a31 / grid_length);
+        const int64_t dyz =
+            static_cast<int64_t>(boundary.cell.a32 / grid_length);
         int* neighbor_i = neighbor_grids + (size_t)MAX_GRID_NEIGHBORS * grid_i;
         int local = 0;
 #ifdef GPU_ARCH_NAME
@@ -100,12 +103,14 @@ static __global__ void Find_Neighor_Grids_Device(
             const int dx = k / 9 - 1;
             const int dy = (k % 9) / 3 - 1;
             const int dz = k % 3 - 1;
-            const int cx = static_cast<double>(dy) * cell.a21 +
-                                       static_cast<double>(dz) * cell.a31 ==
-                                   0.0
-                               ? -2
-                               : -3;
-            const int cy = static_cast<double>(dz) * cell.a32 == 0.0 ? -2 : -3;
+            const int cx =
+                static_cast<double>(dy) * boundary.cell.a21 +
+                            static_cast<double>(dz) * boundary.cell.a31 ==
+                        0.0
+                    ? -2
+                    : -3;
+            const int cy =
+                static_cast<double>(dz) * boundary.cell.a32 == 0.0 ? -2 : -3;
             const int64_t shift_x =
                 static_cast<int64_t>(dx) * Nx + dy * dxy + dz * dxz;
             const int64_t shift_y = static_cast<int64_t>(dy) * Ny + dz * dyz;
@@ -175,11 +180,11 @@ static __global__ void Find_Neighor_Grids_Device(
         else
         {
             local = Find_Neighbor_Grids_Scan(grid_i, Nx, Ny, Nz, dxy, dxz, dyz,
-                                             cell, neighbor_i);
+                                             boundary.cell, neighbor_i);
         }
 #else
         local = Find_Neighbor_Grids_Scan(grid_i, Nx, Ny, Nz, dxy, dxz, dyz,
-                                         cell, neighbor_i);
+                                         boundary.cell, neighbor_i);
 #endif
         neighbor_grid_numbers[grid_i] = local;
     }
@@ -188,13 +193,12 @@ static __global__ void Find_Neighor_Grids_Device(
 void NEIGHBOR_LIST::GRIDS::Initial(CONTROLLER* controller,
                                    int max_atom_in_grid_numbers,
                                    int max_ghost_in_grid_numbers,
-                                   LTMatrix3 cell, LTMatrix3 rcell,
-                                   float grid_length)
+                                   const Boundary boundary, float grid_length)
 {
     controller->printf("    initializing grids\n");
-    Nx = floorf(cell.a11 / grid_length);
-    Ny = floorf(cell.a22 / grid_length);
-    Nz = floorf(cell.a33 / grid_length);
+    Nx = floorf(boundary.cell.a11 / grid_length);
+    Ny = floorf(boundary.cell.a22 / grid_length);
+    Nz = floorf(boundary.cell.a33 / grid_length);
     controller->printf("        Nx: %d        Ny: %d        Nz: %d\n", Nx, Ny,
                        Nz);
     controller->printf("        Max number of atoms in one grid: %d\n",
@@ -244,7 +248,7 @@ void NEIGHBOR_LIST::GRIDS::Initial(CONTROLLER* controller,
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, grid_numbers,
                          d_neighbor_grid_numbers, d_neighbor_grids, Nx, Ny, Nz,
-                         grid_length, cell, rcell);
+                         grid_length, boundary);
 }
 
 void NEIGHBOR_LIST::GRIDS::Clear()
@@ -302,13 +306,13 @@ void NEIGHBOR_LIST::UPDATOR::Initial(CONTROLLER* controller, int atom_numbers)
 
 static __global__ void Check_Refresh(int h_need_update, int atom_numbers,
                                      VECTOR* crd, VECTOR* crd_old,
-                                     LTMatrix3 cell, LTMatrix3 rcell,
+                                     const Boundary boundary,
                                      int* d_need_refresh, float permit_square)
 {
     SIMPLE_DEVICE_FOR(tid, atom_numbers)
     {
-        VECTOR dr =
-            Get_Periodic_Displacement(crd[tid], crd_old[tid], cell, rcell);
+        VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+            crd[tid], crd_old[tid], boundary);
         if (dr * dr > permit_square)
         {
             d_need_refresh[0] = 1;
@@ -317,14 +321,14 @@ static __global__ void Check_Refresh(int h_need_update, int atom_numbers,
 }
 
 void NEIGHBOR_LIST::UPDATOR::Check(int atom_numbers, float skin, VECTOR* crd,
-                                   LTMatrix3 cell, LTMatrix3 rcell)
+                                   const Boundary boundary)
 {
     if (atom_numbers <= 0) return;
     Launch_Device_Kernel(Check_Refresh,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, h_need_update,
-                         atom_numbers, crd, old_crd, cell, rcell, d_need_update,
+                         atom_numbers, crd, old_crd, boundary, d_need_update,
                          skin * skin * skin_permit * skin_permit);
 }
 
@@ -343,12 +347,12 @@ static __global__ void Clear_Bucket(const int* need, int grid_numbers,
 static __global__ void Put_Atom_In_Grids(
     const int* need, const int need_copy, const int* atom_local,
     const int atom_numbers, const int ghost_numbers, const int grid_numbers,
-    const VECTOR* crd, VECTOR* old_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float grid_length, const int Nx, const int Ny,
-    const int Nz, int* grid_atoms, int* grid_atom_numbers, VECTOR* grid_crd,
-    ATOM_GROUP* nl, const int max_grid_atoms, int* neighbor_grid_overflow,
-    int* grid_ghosts, int* grid_ghost_numbers, VECTOR* grid_ghost_crd,
-    const int max_grid_ghosts, int* neighbor_grid_ghost_overflow)
+    const VECTOR* crd, VECTOR* old_crd, const Boundary boundary,
+    const float grid_length, const int Nx, const int Ny, const int Nz,
+    int* grid_atoms, int* grid_atom_numbers, VECTOR* grid_crd, ATOM_GROUP* nl,
+    const int max_grid_atoms, int* neighbor_grid_overflow, int* grid_ghosts,
+    int* grid_ghost_numbers, VECTOR* grid_ghost_crd, const int max_grid_ghosts,
+    int* neighbor_grid_ghost_overflow)
 {
     if (need[0] == 0) return;
     SIMPLE_DEVICE_FOR(tid, atom_numbers + ghost_numbers)
@@ -359,13 +363,14 @@ static __global__ void Put_Atom_In_Grids(
             old_crd[tid] = local_crd;
         }
 
-        float k3 = floorf(local_crd.z / cell.a33);
-        local_crd.z -= k3 * cell.a33;
-        local_crd.y -= k3 * cell.a32;
-        float k2 = floorf(local_crd.y / cell.a22);
-        local_crd.y -= k2 * cell.a22;
-        local_crd.x -= k3 * cell.a31 + k2 * cell.a21;
-        local_crd.x -= floorf(local_crd.x / cell.a11) * cell.a11;
+        float k3 = floorf(local_crd.z / boundary.cell.a33);
+        local_crd.z -= k3 * boundary.cell.a33;
+        local_crd.y -= k3 * boundary.cell.a32;
+        float k2 = floorf(local_crd.y / boundary.cell.a22);
+        local_crd.y -= k2 * boundary.cell.a22;
+        local_crd.x -= k3 * boundary.cell.a31 + k2 * boundary.cell.a21;
+        local_crd.x -=
+            floorf(local_crd.x / boundary.cell.a11) * boundary.cell.a11;
         int nx = local_crd.x / grid_length;
         int ny = local_crd.y / grid_length;
         int nz = local_crd.z / grid_length;
@@ -416,9 +421,9 @@ static __global__ void Put_Atom_In_Grids(
 static __global__ void Find_Neighbors_Gridly(
     int* atom_local, int atom_numbers, const int* need, int grid_numbers,
     int* grid_neighbor_numbers, int* grid_neighbors, VECTOR* grid_crd,
-    LTMatrix3 cell, LTMatrix3 rcell, int max_atom_numbers_in_grid,
-    ATOM_GROUP* nl, float cutoff_skin_square, int* grid_atom_numbers,
-    int* grid_atoms, int max_neighbor_numbers, int* neighbor_list_overflow,
+    const Boundary boundary, int max_atom_numbers_in_grid, ATOM_GROUP* nl,
+    float cutoff_skin_square, int* grid_atom_numbers, int* grid_atoms,
+    int max_neighbor_numbers, int* neighbor_list_overflow,
     VECTOR* grid_ghost_crd, int max_ghost_numbers_in_grid,
     int* grid_ghost_numbers, int* grid_ghosts)
 {
@@ -503,8 +508,8 @@ static __global__ void Find_Neighbors_Gridly(
                     bool is_neighbor = false;
                     if (active && global_j > global_i)
                     {
-                        VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
-                                                              cell, rcell);
+                        VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                            sh_crd[i], crd_j, boundary);
                         float dr2 = dr * dr;
                         if (dr2 < cutoff_skin_square)
                         {
@@ -580,8 +585,8 @@ static __global__ void Find_Neighbors_Gridly(
                     bool is_neighbor = false;
                     if (active)
                     {
-                        VECTOR dr = Get_Periodic_Displacement(sh_crd[i], crd_j,
-                                                              cell, rcell);
+                        VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                            sh_crd[i], crd_j, boundary);
                         float dr2 = dr * dr;
                         if (dr2 < cutoff_skin_square)
                         {
@@ -632,9 +637,9 @@ static __global__ void Find_Neighbors_Gridly(
 static __global__ void Find_Neighbors_Gridly(
     int* atom_local, int atom_numbers, const int* need, int grid_numbers,
     int* grid_neighbor_numbers, int* grid_neighbors, VECTOR* grid_crd,
-    LTMatrix3 cell, LTMatrix3 rcell, int max_atom_numbers_in_grid,
-    ATOM_GROUP* nl, float cutoff_skin_square, int* grid_atom_numbers,
-    int* grid_atoms, int max_neighbor_numbers, int* neighbor_list_overflow,
+    const Boundary boundary, int max_atom_numbers_in_grid, ATOM_GROUP* nl,
+    float cutoff_skin_square, int* grid_atom_numbers, int* grid_atoms,
+    int max_neighbor_numbers, int* neighbor_list_overflow,
     VECTOR* grid_ghost_crd, int max_ghost_numbers_in_grid,
     int* grid_ghost_numbers, int* grid_ghosts)
 {
@@ -666,8 +671,8 @@ static __global__ void Find_Neighbors_Gridly(
                     int atom_j = bucket_j[j];
                     if (atom_local[atom_j] <= global_i) continue;
                     VECTOR crd_j = grid_crd_j[j];
-                    VECTOR dr =
-                        Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
+                    VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                        crd_i, crd_j, boundary);
                     float dr2 = dr * dr;
                     if (dr2 < cutoff_skin_square)
                     {
@@ -705,8 +710,8 @@ static __global__ void Find_Neighbors_Gridly(
                 {
                     int atom_j = bucket_j[j];
                     VECTOR crd_j = grid_ghost_crd_j[j];
-                    VECTOR dr =
-                        Get_Periodic_Displacement(crd_i, crd_j, cell, rcell);
+                    VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                        crd_i, crd_j, boundary);
                     float dr2 = dr * dr;
                     if (dr2 < cutoff_skin_square)
                     {
@@ -803,7 +808,7 @@ static __global__ void Delete_Excluded_Atoms_Serial_In_Neighbor_List(
 
 void NEIGHBOR_LIST::UPDATOR::Update(
     int* atom_local, int local_atom_numbers, int ghost_numbers, int need_copy,
-    VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell, NEIGHBOR_LIST::GRIDS* grids,
+    VECTOR* crd, const Boundary boundary, NEIGHBOR_LIST::GRIDS* grids,
     int max_atom_in_grid_numbers, int max_ghost_in_grid_numbers,
     int max_neighbor_numbers, float grid_length, int* d_neighbor_grid_overflow,
     int* d_neighbor_grid_ghost_overflow, int* d_neighbor_list_overflow,
@@ -826,7 +831,7 @@ void NEIGHBOR_LIST::UPDATOR::Update(
             CONTROLLER::device_max_thread,
         CONTROLLER::device_max_thread, 0, NULL, d_need_update, need_copy,
         atom_local, local_atom_numbers, ghost_numbers, grids->grid_numbers, crd,
-        old_crd, cell, rcell, grid_length, grids->Nx, grids->Ny, grids->Nz,
+        old_crd, boundary, grid_length, grids->Nx, grids->Ny, grids->Nz,
         grids->d_grid_atoms, grids->d_grid_atom_numbers, grids->d_grid_atom_crd,
         d_nl, max_atom_in_grid_numbers, d_neighbor_grid_overflow,
         grids->d_grid_ghosts, grids->d_grid_ghost_numbers,
@@ -838,7 +843,7 @@ void NEIGHBOR_LIST::UPDATOR::Update(
         (size_t)(max_atom_in_grid_numbers * (sizeof(VECTOR) + sizeof(int))),
         NULL, atom_local, local_atom_numbers, d_need_update,
         grids->grid_numbers, grids->d_neighbor_grid_numbers,
-        grids->d_neighbor_grids, grids->d_grid_atom_crd, cell, rcell,
+        grids->d_neighbor_grids, grids->d_grid_atom_crd, boundary,
         max_atom_in_grid_numbers, d_nl, grid_length * grid_length * 4.0f,
         grids->d_grid_atom_numbers, grids->d_grid_atoms, max_neighbor_numbers,
         d_neighbor_list_overflow, grids->d_grid_ghost_crd,
@@ -864,8 +869,7 @@ void NEIGHBOR_LIST::UPDATOR::Clear()
 }
 
 void NEIGHBOR_LIST::Initial(CONTROLLER* controller, int atom_numbers,
-                            float cutoff, float skin, LTMatrix3 cell,
-                            LTMatrix3 rcell)
+                            float cutoff, float skin, const Boundary boundary)
 {
     this->atom_numbers = atom_numbers;
     this->cutoff = cutoff;
@@ -936,8 +940,7 @@ void NEIGHBOR_LIST::Initial(CONTROLLER* controller, int atom_numbers,
     }
 
     grids.Initial(controller, max_atom_in_grid_numbers,
-                  max_ghost_in_grid_numbers, cell, rcell,
-                  (cutoff + skin) * 0.5f);
+                  max_ghost_in_grid_numbers, boundary, (cutoff + skin) * 0.5f);
 
     updator.Initial(controller, atom_numbers);
 
@@ -969,8 +972,8 @@ void NEIGHBOR_LIST::Initial(CONTROLLER* controller, int atom_numbers,
 }
 
 void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
-                           int ghost_numbers, VECTOR* crd, LTMatrix3 cell,
-                           LTMatrix3 rcell, int step, int update,
+                           int ghost_numbers, VECTOR* crd,
+                           const Boundary boundary, int step, int update,
                            int* excluded_list_start, int* excluded_list,
                            int* excluded_numbers)
 {
@@ -984,7 +987,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
     else if (updator.refresh_interval <= 0)
     {
         deviceMemset(updator.d_need_update, 0, sizeof(int));
-        updator.Check(local_atom_numbers, skin, crd, cell, rcell);
+        updator.Check(local_atom_numbers, skin, crd, boundary);
     }
     else if ((step + 1) % updator.refresh_interval == 0)
     {
@@ -997,7 +1000,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
     if (this->is_needed_half)
     {
         updator.Update(atom_local, local_atom_numbers, ghost_numbers,
-                       updator.refresh_interval <= 0, crd, cell, rcell, &grids,
+                       updator.refresh_interval <= 0, crd, boundary, &grids,
                        max_atom_in_grid_numbers, max_ghost_in_grid_numbers,
                        max_neighbor_numbers, 0.5f * (cutoff + skin),
                        d_neighbor_grid_overflow, d_neighbor_grid_ghost_overflow,
@@ -1010,7 +1013,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
         if (this->cutoff_full > 0.0f)
         {
             full_neighbor_list.Build_From_Half_With_Cutoff(
-                this->d_nl, local_atom_numbers, crd, cell, rcell,
+                this->d_nl, local_atom_numbers, crd, boundary,
                 this->cutoff_full + skin);
         }
         else
@@ -1022,8 +1025,7 @@ void NEIGHBOR_LIST::Update(int* atom_local, int local_atom_numbers,
 }
 
 void NEIGHBOR_LIST::Check_Overflow(CONTROLLER* controller, int steps,
-                                   const LTMatrix3 cell, const LTMatrix3 rcell,
-                                   LTMatrix3* cell0)
+                                   const Boundary boundary, LTMatrix3* cell0)
 {
     if (is_initialized && (steps + 1) % check_overflow_interval == 0)
     {
@@ -1081,9 +1083,8 @@ SPONGE will re-initialize the neighbor list module with %s = %d.\n\n",
             if (!throw_error_when_overflow)
             {
                 this->Clear();
-                this->Initial(controller, atom_numbers, cutoff, skin, cell,
-                              rcell);
-                cell0[0] = cell;
+                this->Initial(controller, atom_numbers, cutoff, skin, boundary);
+                cell0[0] = boundary.cell;
                 printf(
                     "--------------------------------------------------"
                     "--------"

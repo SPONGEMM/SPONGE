@@ -582,10 +582,9 @@ struct SADvector
     {
         return veca ^ vecb;
     }
-    friend __device__ __host__ __forceinline__ SADvector<N>
-    Get_Periodic_Displacement(const SADvector<N> vec_a,
-                              const SADvector<N> vec_b,
-                              const SADvector<N> box_length)
+    friend __device__ __host__ __forceinline__ SADvector<N> Get_Displacement(
+        const SADvector<N> vec_a, const SADvector<N> vec_b,
+        const SADvector<N> box_length)
     {
         SADvector<N> dr;
         dr = vec_a - vec_b;
@@ -606,15 +605,16 @@ struct SADvector
         }
         return dr;
     }
-    friend __device__ __host__ __forceinline__ SADvector<N>
-    Get_Periodic_Displacement(const SADvector<N> a, const SADvector<N> b,
-                              const LTMatrix3 cell, const LTMatrix3 rcell)
+    friend __device__ __host__ __forceinline__ SADvector<N> Get_Displacement(
+        const SADvector<N> a, const SADvector<N> b, const Boundary boundary)
     {
         SADvector<N> dr = a - b;
+        if (boundary.policy == BoundaryPolicy::Open) return dr;
         SADvector<N> scaled_dr;
-        scaled_dr.x = dr.x * rcell.a11 + dr.y * rcell.a21 + dr.z * rcell.a31;
-        scaled_dr.y = dr.y * rcell.a22 + dr.z * rcell.a32;
-        scaled_dr.z = dr.z * rcell.a33;
+        scaled_dr.x = dr.x * boundary.rcell.a11 + dr.y * boundary.rcell.a21 +
+                      dr.z * boundary.rcell.a31;
+        scaled_dr.y = dr.y * boundary.rcell.a22 + dr.z * boundary.rcell.a32;
+        scaled_dr.z = dr.z * boundary.rcell.a33;
 
         SADvector<N> shift;
         shift.x = floorf(scaled_dr.x.val + 0.5f);
@@ -622,10 +622,10 @@ struct SADvector
         shift.z = floorf(scaled_dr.z.val + 0.5f);
 
         SADvector<N> result = dr;
-        result.x -=
-            shift.x * cell.a11 + shift.y * cell.a21 + shift.z * cell.a31;
-        result.y -= shift.y * cell.a22 + shift.z * cell.a32;
-        result.z -= shift.z * cell.a33;
+        result.x -= shift.x * boundary.cell.a11 + shift.y * boundary.cell.a21 +
+                    shift.z * boundary.cell.a31;
+        result.y -= shift.y * boundary.cell.a22 + shift.z * boundary.cell.a32;
+        result.z -= shift.z * boundary.cell.a33;
         return result;
     }
 };
@@ -1219,9 +1219,9 @@ struct SA2Dvector
         return vec;
     }
     friend __device__ __host__ __forceinline__ SA2Dvector<N, N2, N2l>
-    Get_Periodic_Displacement(const SA2Dvector<N, N2, N2l> vec_a,
-                              const SA2Dvector<N, N2, N2l> vec_b,
-                              const SA2Dvector<N, N2, N2l> box_length)
+    Get_Displacement(const SA2Dvector<N, N2, N2l> vec_a,
+                     const SA2Dvector<N, N2, N2l> vec_b,
+                     const SA2Dvector<N, N2, N2l> box_length)
     {
         SA2Dvector<N, N2, N2l> dr;
         dr = vec_a - vec_b;

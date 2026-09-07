@@ -12,12 +12,12 @@
 #include "structure/matrix.h"
 // clang-format on
 
-void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
+void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, Boundary boundary,
                                   bool need_energy, int md_step)
 {
     if (!is_initialized) return;
 
-    Update_Coordinates_From_MD(crd, box_length);
+    Update_Coordinates_From_MD(crd, boundary);
     if (dft.enable_dft) Update_DFT_Grid();
 
     Reset_SCF_State();
@@ -26,7 +26,7 @@ void QUANTUM_CHEMISTRY::Solve_SCF(const VECTOR* crd, const VECTOR box_length,
     Compute_Analytical_Norms();
     Compute_OneE_Integrals();
     Compute_ECP_Matrix();
-    if (need_energy) Compute_Nuclear_Repulsion(box_length);
+    if (need_energy) Compute_Nuclear_Repulsion(boundary);
     Prepare_Integrals();
     Build_Shell_Pair_Bounds();
     if (scf_ws.ri.enabled) RI_Precompute();

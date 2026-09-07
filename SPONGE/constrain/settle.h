@@ -36,17 +36,14 @@ struct SETTLE
     VECTOR* last_pair_AB = NULL;
     VECTOR* last_triangle_BA = NULL;
     VECTOR* last_triangle_CA = NULL;
-    void Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
-                                   const LTMatrix3 rcell);
+    void Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary);
 
     LTMatrix3* virial_tensor = NULL;
     void Do_SETTLE(CONTROLLER* controller, const int* atom_local,
-                   const float* d_mass, VECTOR* crd, const LTMatrix3 cell,
-                   const LTMatrix3 rcell, VECTOR* vel, const int need_pressure,
-                   LTMatrix3* d_stress);
+                   const float* d_mass, VECTOR* crd, Boundary boundary,
+                   VECTOR* vel, const int need_pressure, LTMatrix3* d_stress);
     bool Project_Velocity_To_Constraint_Manifold(
-        VECTOR* vel, VECTOR* crd, const float* mass_inverse,
-        const LTMatrix3 cell, const LTMatrix3 rcell,
+        VECTOR* vel, VECTOR* crd, const float* mass_inverse, Boundary boundary,
         bool update_coordinates = true);
 
     int local_atom_numbers = 0;

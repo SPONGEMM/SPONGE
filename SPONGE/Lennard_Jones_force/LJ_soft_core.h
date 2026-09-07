@@ -24,11 +24,12 @@ struct VECTOR_LJ_SOFT_TYPE
     int mask;
     float charge;
     float charge_BA;
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(
-        VECTOR_LJ_SOFT_TYPE vec_a, VECTOR_LJ_SOFT_TYPE vec_b, LTMatrix3 cell,
-        LTMatrix3 rcell)
+    template <BoundaryPolicy policy>
+    friend __device__ __host__ __forceinline__ VECTOR
+    Get_Displacement(VECTOR_LJ_SOFT_TYPE vec_a, VECTOR_LJ_SOFT_TYPE vec_b,
+                     const Boundary& boundary)
     {
-        return Get_Periodic_Displacement(vec_a.crd, vec_b.crd, cell, rcell);
+        return Get_Displacement<policy>(vec_a.crd, vec_b.crd, boundary);
     }
     friend __device__ __host__ __forceinline__ float Get_LJ_Energy(
         VECTOR_LJ_SOFT_TYPE r1, VECTOR_LJ_SOFT_TYPE r2, float dr_abs,
@@ -246,10 +247,10 @@ struct LJ_SOFT_CORE
     void LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-        const float* charge, VECTOR* frc, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-        const int need_atom_energy, float* atom_energy, const int need_virial,
-        LTMatrix3* atom_lj_virial, float* atom_direct_pme_energy);
+        const float* charge, VECTOR* frc, const Boundary boundary,
+        const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+        float* atom_energy, const int need_virial, LTMatrix3* atom_lj_virial,
+        float* atom_direct_pme_energy);
 
     void Step_Print(CONTROLLER* controller);
 
@@ -258,10 +259,9 @@ struct LJ_SOFT_CORE
                                const float volume);
 
     float Get_Partial_H_Partial_Lambda_With_Columb_Direct(
-        const int solvent_numbers, const VECTOR* crd, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const float* charge, const ATOM_GROUP* nl,
-        const float* charge_B_A, const float pme_beta,
-        const int charge_perturbated);
+        const int solvent_numbers, const VECTOR* crd, const Boundary boundary,
+        const float* charge, const ATOM_GROUP* nl, const float* charge_B_A,
+        const float pme_beta, const int charge_perturbated);
 
     /*
         以下用于区域分解

@@ -170,8 +170,8 @@ enum ghost_dir_enum
     send_down = 32
 };
 
-// 向量与三角矩阵定义
-#include "utils/vector.hpp"
+// 向量、三角矩阵与边界条件定义
+#include "utils/boundary.h"
 
 // 用于记录原子组
 struct ATOM_GROUP

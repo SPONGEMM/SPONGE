@@ -45,9 +45,8 @@ struct IMPROPER_DIHEDRAL
 
     // 计算dihedral force并同时计算能量并加到原子能量列表上
     void Dihedral_Force_With_Atom_Energy_And_Virial(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        VECTOR* frc, int need_atom_energy, float* atom_energy, int need_virial,
-        LTMatrix3* atom_virial);
+        const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+        float* atom_energy, int need_virial, LTMatrix3* atom_virial);
 
     /*
         以下用于区域分解

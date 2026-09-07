@@ -153,21 +153,19 @@ struct VIRTUAL_INFORMATION
                  CONECT* connectivity,
                  const char* module_name = NULL);  // 初始化
 
-    void Force_Redistribute(const VECTOR* crd, const LTMatrix3 cell,
-                            const LTMatrix3 rcell,
+    void Force_Redistribute(const VECTOR* crd, Boundary boundary,
                             VECTOR* frc);  // 进行力重分配
 
-    void Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
-                            const LTMatrix3 rcell);  // 更新虚拟位点的坐标
+    void Coordinate_Refresh(VECTOR* crd,
+                            Boundary boundary);  // 更新虚拟位点的坐标
 
     // 目前的虚原子构建策略中，将CV定义的虚原子独立处理
     // CV构建的虚原子只能是质心；而VIRTUAL_INFORMATION构建的虚原子不可以是V4类型。
 
-    void Force_Redistribute_CV(const VECTOR* crd, const LTMatrix3 cell,
-                               const LTMatrix3 rcell,
+    void Force_Redistribute_CV(const VECTOR* crd, Boundary boundary,
                                VECTOR* frc);  // 进行力重分配
-    void Coordinate_Refresh_CV(VECTOR* crd, const LTMatrix3 cell,
-                               const LTMatrix3 rcell);  // 更新虚拟位点的坐标
+    void Coordinate_Refresh_CV(VECTOR* crd,
+                               Boundary boundary);  // 更新虚拟位点的坐标
 
     void Get_Local(const int* atom_local_id, const char* atom_local_label,
                    const int local_atom_numbers);

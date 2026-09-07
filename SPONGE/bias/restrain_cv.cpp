@@ -216,8 +216,8 @@ void RESTRAIN_CV::Step_Print(CONTROLLER* controller)
     }
 }
 
-void RESTRAIN_CV::Restraint(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                            LTMatrix3 rcell, int step, float* d_ene,
+void RESTRAIN_CV::Restraint(int atom_numbers, VECTOR* crd,
+                            const Boundary boundary, int step, float* d_ene,
                             LTMatrix3* d_virial, VECTOR* frc,
                             int need_potential, int need_pressure)
 {
@@ -238,7 +238,7 @@ void RESTRAIN_CV::Restraint(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
             local_weight *=
                 (float)(stop_step[i] - step) / (stop_step[i] - reduce_step[i]);
         cv = cv_list[i];
-        cv->Compute(atom_numbers, crd, cell, rcell, need, step);
+        cv->Compute(atom_numbers, crd, boundary, need, step);
         if (!need_pressure)
         {
             Launch_Device_Kernel(

@@ -36,10 +36,11 @@ struct VECTOR_LJ
         x = (x - y) >> 1;
         return (z * (z + 1) >> 1) + x;
     }
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(
-        VECTOR_LJ uvec_a, VECTOR_LJ uvec_b, LTMatrix3 cell, LTMatrix3 rcell)
+    template <BoundaryPolicy policy>
+    friend __device__ __host__ __forceinline__ VECTOR Get_Displacement(
+        VECTOR_LJ uvec_a, VECTOR_LJ uvec_b, const Boundary& boundary)
     {
-        return Get_Periodic_Displacement(uvec_a.crd, uvec_b.crd, cell, rcell);
+        return Get_Displacement<policy>(uvec_a.crd, uvec_b.crd, boundary);
     }
     friend __device__ __host__ __forceinline__ float Get_LJ_Energy(
         VECTOR_LJ r1, VECTOR_LJ r2, float dr_abs, const float A, const float B)
@@ -138,26 +139,26 @@ struct LENNARD_JONES_INFORMATION
     void LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-        const float* charge, VECTOR* frc, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-        const int need_atom_energy, float* atom_energy, const int need_virial,
-        LTMatrix3* atom_virial, float* atom_direct_pme_energy);
+        const float* charge, VECTOR* frc, const Boundary boundary,
+        const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+        float* atom_energy, const int need_virial, LTMatrix3* atom_virial,
+        float* atom_direct_pme_energy);
 
 #ifdef KPCCL_TASKLOOP
     void LJ_PME_Direct_Force_With_Atom_Energy_And_Virial_Init(
         const int atom_numbers, const int local_atom_numbers,
         const int ghost_numbers, const VECTOR* crd, const float* charge,
-        VECTOR* frc, const LTMatrix3 cell, const LTMatrix3 rcell,
-        const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
-        float* atom_energy, const int need_virial, LTMatrix3* atom_virial,
+        VECTOR* frc, const Boundary boundary, const ATOM_GROUP* nl,
+        const float pme_beta, const int need_atom_energy, float* atom_energy,
+        const int need_virial, LTMatrix3* atom_virial,
         float* atom_direct_pme_energy);
 
     void LJ_PME_Direct_Force_With_Atom_Energy_And_Virial_KPCCL(
         const int atom_numbers, const int local_atom_numbers,
         const int ghost_numbers, const VECTOR* crd, const float* charge,
-        VECTOR* frc, const LTMatrix3 cell, const LTMatrix3 rcell,
-        const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
-        float* atom_energy, const int need_virial, LTMatrix3* atom_virial,
+        VECTOR* frc, const Boundary boundary, const ATOM_GROUP* nl,
+        const float pme_beta, const int need_atom_energy, float* atom_energy,
+        const int need_virial, LTMatrix3* atom_virial,
         float* atom_direct_pme_energy);
 #endif
 

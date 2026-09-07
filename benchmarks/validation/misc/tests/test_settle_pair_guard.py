@@ -33,10 +33,11 @@ def _dependency_include():
         REPOSITORY_ROOT / ".pixi" / "envs" / "dev-cpu" / "include"
     )
     for candidate in candidates:
-        if (candidate / "omp.h").is_file() and (
-            candidate / "fftw3.h"
-        ).is_file():
+        # GCC provides omp.h through its compiler include path.
+        if (candidate / "fftw3.h").is_file():
             return candidate
+        if (candidate / "fftw" / "fftw3.h").is_file():
+            return candidate / "fftw"
     pytest.skip(
         "OpenMP and FFTW headers are required for the SETTLE pair probe"
     )

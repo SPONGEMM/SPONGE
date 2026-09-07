@@ -72,11 +72,10 @@ struct QUANTUM_CHEMISTRY
     // 外部入口
     void Initial(CONTROLLER* controller, const int atom_numbers,
                  const VECTOR* crd, const char* module_name = NULL);
-    void Solve_SCF(const VECTOR* crd, const VECTOR box_length,
+    void Solve_SCF(const VECTOR* crd, Boundary boundary,
                    bool need_energy = true, int md_step = -1);
-    void Compute_Gradient(VECTOR* frc, const VECTOR* crd,
-                          const VECTOR box_length, int need_virial = 0,
-                          LTMatrix3* atom_virial = NULL);
+    void Compute_Gradient(VECTOR* frc, const VECTOR* crd, Boundary boundary,
+                          int need_virial = 0, LTMatrix3* atom_virial = NULL);
 
     // 外部查询与输出
     void Step_Print(CONTROLLER* controller);
@@ -110,12 +109,12 @@ struct QUANTUM_CHEMISTRY
     void Cart2Sph_Single_Matrix(float* d_cart, float* d_sph);
 
     // 坐标更新
-    void Update_Coordinates_From_MD(const VECTOR* crd, const VECTOR box_length);
+    void Update_Coordinates_From_MD(const VECTOR* crd, Boundary boundary);
 
     // 积分
     void Compute_OneE_Integrals();
     void Compute_ECP_Matrix();
-    void Compute_Nuclear_Repulsion(const VECTOR box_length);
+    void Compute_Nuclear_Repulsion(Boundary boundary);
     void Compute_Analytical_Norms();
     void Build_Shell_Pair_Bounds();
     void Prepare_Integrals();

@@ -2,6 +2,8 @@
 
 #include "cmap/cmap.h"
 
+int CONTROLLER::MPI_rank = 0;
+
 struct GridIndexCase
 {
     int resolution;

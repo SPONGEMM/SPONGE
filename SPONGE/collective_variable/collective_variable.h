@@ -59,8 +59,8 @@ struct COLLECTIVE_VARIABLE_PROTOTYPE
     virtual void Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
                          int atom_numbers, const char* module_name) = 0;
     // 子类计算CV的具体实现细节
-    virtual void Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                         const LTMatrix3 rcell, int need, int step) = 0;
+    virtual void Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                         int need, int step) = 0;
 };
 
 // 所有CV的列表
@@ -101,8 +101,8 @@ struct COLLECTIVE_VARIABLE_CONTROLLER : public CONTROLLER
     // 每步打印CV信息
     void Step_Print();
     // 为打印计算
-    void Compute_CV_For_Print(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                              LTMatrix3 rcell, int steps, int interval,
+    void Compute_CV_For_Print(int atom_numbers, VECTOR* crd,
+                              const Boundary boundary, int steps, int interval,
                               bool print_zeroth_frame);
     // 通过CV的名字获取一个新建立的CV结构体
     COLLECTIVE_VARIABLE_PROTOTYPE* get_CV(const char* cv_name);

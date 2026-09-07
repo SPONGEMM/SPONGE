@@ -165,9 +165,10 @@ struct VECTOR
         return vec;
     }
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(
-        const UNSIGNED_INT_VECTOR uvec_a, const UNSIGNED_INT_VECTOR uvec_b,
-        const VECTOR scaler)
+    friend __device__ __host__ __forceinline__ VECTOR
+    Get_Mesh_Index_Displacement(const UNSIGNED_INT_VECTOR uvec_a,
+                                const UNSIGNED_INT_VECTOR uvec_b,
+                                const VECTOR scaler)
     {
         VECTOR dr;
         dr.x = ((int)(uvec_a.uint_x - uvec_b.uint_x)) * scaler.x;
@@ -176,7 +177,7 @@ struct VECTOR
         return dr;
     }
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(
+    friend __device__ __host__ __forceinline__ VECTOR Get_Displacement(
         const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length)
     {
         VECTOR dr;
@@ -187,9 +188,9 @@ struct VECTOR
         return dr;
     }
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(
-        const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length,
-        const VECTOR box_length_inverse)
+    friend __device__ __host__ __forceinline__ VECTOR
+    Get_Displacement(const VECTOR vec_a, const VECTOR vec_b,
+                     const VECTOR box_length, const VECTOR box_length_inverse)
     {
         VECTOR dr;
         dr = vec_a - vec_b;
@@ -319,20 +320,6 @@ struct LTMatrix3
         return {vec.x * mat.a11 + vec.y * mat.a21 + vec.z * mat.a31,
                 vec.y * mat.a22 + vec.z * mat.a32, vec.z * mat.a33};
     }
-    friend __host__ __device__ __forceinline__ VECTOR Get_Periodic_Displacement(
-        VECTOR a, VECTOR b, LTMatrix3 cell, LTMatrix3 rcell)
-    {
-        VECTOR dr = a - b;
-        return dr - floorf(dr * rcell + 0.5f) * cell;
-    }
-
-    friend __host__ __device__ __forceinline__ VECTOR
-    Get_Periodic_Coordinate(VECTOR a, LTMatrix3 cell, LTMatrix3 rcell)
-    {
-        VECTOR dr = a;
-        return dr - floorf(dr * rcell) * cell;
-    }
-
     friend __device__ __host__ __forceinline__ LTMatrix3
     Get_Virial_From_Force_Dis(const VECTOR& veca, const VECTOR& vecb)
     {

@@ -657,13 +657,13 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Print_Initial()
 }
 
 void COLLECTIVE_VARIABLE_CONTROLLER::Compute_CV_For_Print(
-    int atom_numbers, VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell, int steps,
+    int atom_numbers, VECTOR* crd, const Boundary boundary, int steps,
     int interval, bool print_zeroth_frame)
 {
     if (!((print_zeroth_frame || steps) && (steps % interval == 0))) return;
     for (int i = 0; i < print_cv_list.size(); i++)
     {
-        print_cv_list[i]->Compute(atom_numbers, crd, cell, rcell,
+        print_cv_list[i]->Compute(atom_numbers, crd, boundary,
                                   CV_NEED_CPU_VALUE, steps);
     }
 }

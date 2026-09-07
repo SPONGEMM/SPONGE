@@ -89,7 +89,7 @@ struct VECTOR
         return vec;
     }
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(const UNSIGNED_INT_VECTOR uvec_a, const UNSIGNED_INT_VECTOR uvec_b, const VECTOR scaler)
+    friend __device__ __host__ __forceinline__ VECTOR Get_Mesh_Index_Displacement(const UNSIGNED_INT_VECTOR uvec_a, const UNSIGNED_INT_VECTOR uvec_b, const VECTOR scaler)
     {
         VECTOR dr;
         dr.x = ((int)(uvec_a.uint_x - uvec_b.uint_x)) * scaler.x;
@@ -99,7 +99,7 @@ struct VECTOR
     }
 
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length)
+    friend __device__ __host__ __forceinline__ VECTOR Get_Displacement(const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length)
     {
         VECTOR dr;
         dr = vec_a - vec_b;
@@ -109,7 +109,7 @@ struct VECTOR
         return dr;
     }
 
-    friend __device__ __host__ __forceinline__ VECTOR Get_Periodic_Displacement(const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length, const VECTOR box_length_inverse)
+    friend __device__ __host__ __forceinline__ VECTOR Get_Displacement(const VECTOR vec_a, const VECTOR vec_b, const VECTOR box_length, const VECTOR box_length_inverse)
     {
         VECTOR dr;
         dr = vec_a - vec_b;

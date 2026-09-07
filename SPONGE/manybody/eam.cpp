@@ -162,9 +162,9 @@ static __device__ __forceinline__ SADfloat<N> EAM_Interpolate(float* table,
 }
 
 static __global__ void EAM_Calculate_Rho_CUDA(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, int* atom_types,
-    float* rho_table, int ntypes, int nr, float dr, float cut, float* d_rho)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const ATOM_GROUP* nl, int* atom_types, float* rho_table, int ntypes, int nr,
+    float dr, float cut, float* d_rho)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -178,7 +178,8 @@ static __global__ void EAM_Calculate_Rho_CUDA(
             int type_j = atom_types[atom_j];
 
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij = norm3df(drij.x, drij.y, drij.z);
             if (rij < cut)
             {
@@ -243,10 +244,10 @@ static __global__ void EAM_Calculate_DF_Rho_CUDA(
 template <bool need_energy, bool need_virial>
 static __global__ void EAM_Calculate_Force_CUDA(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    int* atom_types, float* rho_table, float* phi_table, int ntypes, int nr,
-    float dr, float cut, float* d_rho, float* d_df_drho, float* atom_energy,
-    LTMatrix3* atom_virial, float* d_energy_sum)
+    const Boundary boundary, const ATOM_GROUP* nl, int* atom_types,
+    float* rho_table, float* phi_table, int ntypes, int nr, float dr, float cut,
+    float* d_rho, float* d_df_drho, float* atom_energy, LTMatrix3* atom_virial,
+    float* d_energy_sum)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -263,7 +264,8 @@ static __global__ void EAM_Calculate_Force_CUDA(
             int type_j = atom_types[atom_j];
 
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij_val = norm3df(drij.x, drij.y, drij.z);
             if (rij_val < cut)
             {
@@ -307,9 +309,8 @@ static __global__ void EAM_Calculate_Force_CUDA(
 
 void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial)
+    const Boundary boundary, const ATOM_GROUP* nl, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
 
@@ -325,7 +326,7 @@ void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
     int ntypes = this->atom_type_numbers;
 
     Launch_Device_Kernel(EAM_Calculate_Rho_CUDA, blocks, threads, 0, NULL,
-                         atom_numbers, crd, cell, rcell, nl, atom_type_local,
+                         atom_numbers, crd, boundary, nl, atom_type_local,
                          rho_table, ntypes, nr_local, dr_local, cut_local,
                          d_rho_local);
 
@@ -359,7 +360,7 @@ void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
         force_kernel = EAM_Calculate_Force_CUDA<false, true>;
     }
     Launch_Device_Kernel(force_kernel, blocks, threads, 0, NULL, atom_numbers,
-                         crd, frc, cell, rcell, nl, atom_type_local, rho_table,
+                         crd, frc, boundary, nl, atom_type_local, rho_table,
                          phi_table, ntypes, nr_local, dr_local, cut_local,
                          d_rho_local, d_df_drho_local, atom_energy, atom_virial,
                          d_energy_sum_local);

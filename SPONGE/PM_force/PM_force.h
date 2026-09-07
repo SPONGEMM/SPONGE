@@ -150,13 +150,13 @@ struct Particle_Mesh
     };
 
     // 初始化PME系统（PME信息）
-    void Initial(CONTROLLER* controller, int atom_numbers, LTMatrix3 cell,
-                 LTMatrix3 rcell, VECTOR box_length, float cutoff,
+    void Initial(CONTROLLER* controller, int atom_numbers,
+                 const Boundary boundary, VECTOR box_length, float cutoff,
                  int no_direct_interaction_virtual_atom_numbers,
                  const char* module_name = NULL);
 
     // 重初始化PME系统（PME信息）
-    void Reinitial(CONTROLLER* controller, LTMatrix3 cell, LTMatrix3 rcell,
+    void Reinitial(CONTROLLER* controller, const Boundary boundary,
                    VECTOR box_length, const char* module_name = NULL);
     // 清除内存
     void Clear();
@@ -167,31 +167,31 @@ struct Particle_Mesh
 
     // 计算exclude能量和能量，并加到每个原子上
     void PME_Excluded_Force_With_Atom_Energy(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        const float* charge, const int* excluded_list_start,
-        const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
-        int need_energy, float* atom_ene, LTMatrix3* atom_virial);
+        const VECTOR* crd, const Boundary boundary, const float* charge,
+        const int* excluded_list_start, const int* excluded_list,
+        const int* excluded_atom_numbers, VECTOR* frc, int need_energy,
+        float* atom_ene, LTMatrix3* atom_virial);
     // 计算倒空间力，并计算自能和倒空间的能量，并结合其他部分计算出PME部分给出的总维里（需要先计算其他部分）
     void PME_Reciprocal_Force_With_Energy_And_Virial(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        const float* charge, VECTOR* force, int need_virial, int need_energy,
-        LTMatrix3* d_virial, float* d_potential, int step);
+        const VECTOR* crd, const Boundary boundary, const float* charge,
+        VECTOR* force, int need_virial, int need_energy, LTMatrix3* d_virial,
+        float* d_potential, int step);
 
-    void Update_Box(LTMatrix3 cell, LTMatrix3 rcell, LTMatrix3 g, float dt);
+    void Update_Box(const Boundary boundary, LTMatrix3 g, float dt);
     void Step_Print(CONTROLLER* controller);
 
     void Get_Local(CONTROLLER* controller, int step, VECTOR box_length,
                    float* pme_charge);
     void MPI_PME_Excluded_Force_With_Atom_Energy(
         const int N, const int* id1, const int* id2, const VECTOR* crd,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const float* charge,
+        const Boundary boundary, const float* charge,
         const int* excluded_list_start, const int* excluded_list,
         const int* excluded_atom_numbers, VECTOR* frc, int need_energy,
         float* atom_ene, int need_virial, LTMatrix3* atom_virial);
     void MPI_PME_Reciprocal_Force_With_Energy_And_Virial(
-        VECTOR* frc, const VECTOR* crd, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const float* charge, int need_virial,
-        int need_energy, LTMatrix3* d_virial, float* d_potential, int step);
+        VECTOR* frc, const VECTOR* crd, const Boundary boundary,
+        const float* charge, int need_virial, int need_energy,
+        LTMatrix3* d_virial, float* d_potential, int step);
 
     void Domain_Decomposition(CONTROLLER* controller, VECTOR box_length,
                               INT_VECTOR pp_split_num);
@@ -202,7 +202,7 @@ struct Particle_Mesh
                    int* atom_local, bool atom_number_label, bool charge_label,
                    bool crd_label, bool id_label);
     void Get_Ghost(CONTROLLER* controller, VECTOR* pme_crd, float* pme_charge,
-                   LTMatrix3 cell, LTMatrix3 rcell);
+                   const Boundary boundary);
     void Update_Ghost(CONTROLLER* controller, VECTOR* pme_crd);
     void Send_Recv_Force(CONTROLLER* controller, VECTOR* frc, VECTOR* pp_frc,
                          int pp_atom_numbers);
@@ -210,9 +210,9 @@ struct Particle_Mesh
 };
 
 __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
-                              const int PME_Nin, const LTMatrix3 cell,
-                              const LTMatrix3 rcell, const int atom_numbers,
-                              const int fftx, const int ffty, const int fftz,
+                              const int PME_Nin, const Boundary boundary,
+                              const int atom_numbers, const int fftx,
+                              const int ffty, const int fftz,
                               UNSIGNED_INT_VECTOR* PME_uxyz, VECTOR* PME_frxyz,
                               VECTOR* force_backup);
 

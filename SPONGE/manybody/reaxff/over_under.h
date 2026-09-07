@@ -93,8 +93,8 @@ struct REAXFF_OVER_UNDER
 
     // Calculation
     void Calculate_Over_Under_Energy_And_Force(
-        int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-        const LTMatrix3 rcell,
+        int atom_numbers, const VECTOR* crd, VECTOR* frc,
+        const Boundary boundary,
         REAXFF_BOND_ORDER* bo_module,  // Access to bond order data
         const int need_atom_energy, float* atom_energy, const int need_virial,
         LTMatrix3* atom_virial);

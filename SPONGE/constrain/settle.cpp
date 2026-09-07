@@ -4,8 +4,8 @@
 
 static __global__ void remember_triangle_BA_CA(
     const int num_triangle_local, const CONSTRAIN_TRIANGLE* triangles,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    VECTOR* last_triangle_BA, VECTOR* last_triangle_CA)
+    const VECTOR* crd, Boundary boundary, VECTOR* last_triangle_BA,
+    VECTOR* last_triangle_CA)
 {
     CONSTRAIN_TRIANGLE triangle;
 #ifdef USE_GPU
@@ -17,17 +17,16 @@ static __global__ void remember_triangle_BA_CA(
 #endif
     {
         triangle = triangles[triangle_i];
-        last_triangle_BA[triangle_i] = Get_Periodic_Displacement(
-            crd[triangle.atom_B], crd[triangle.atom_A], cell, rcell);
-        last_triangle_CA[triangle_i] = Get_Periodic_Displacement(
-            crd[triangle.atom_C], crd[triangle.atom_A], cell, rcell);
+        last_triangle_BA[triangle_i] = Get_Displacement(
+            crd[triangle.atom_B], crd[triangle.atom_A], boundary);
+        last_triangle_CA[triangle_i] = Get_Displacement(
+            crd[triangle.atom_C], crd[triangle.atom_A], boundary);
     }
 }
 
 static __global__ void remember_pair_AB(const int num_task_local,
                                         const CONSTRAIN_PAIR* pairs,
-                                        const VECTOR* crd, const LTMatrix3 cell,
-                                        const LTMatrix3 rcell,
+                                        const VECTOR* crd, Boundary boundary,
                                         VECTOR* last_pair_AB)
 {
     CONSTRAIN_PAIR pair;
@@ -40,8 +39,8 @@ static __global__ void remember_pair_AB(const int num_task_local,
 #endif
     {
         pair = pairs[pair_i];
-        last_pair_AB[pair_i] = Get_Periodic_Displacement(
-            crd[pair.atom_j_serial], crd[pair.atom_i_serial], cell, rcell);
+        last_pair_AB[pair_i] = Get_Displacement(
+            crd[pair.atom_j_serial], crd[pair.atom_i_serial], boundary);
     }
 }
 
@@ -215,7 +214,7 @@ static __device__ void SETTLE_DO_TRIANGLE(
 
 static __global__ void settle_triangle(
     int num_task_local, CONSTRAIN_TRIANGLE* triangles, const float* d_mass,
-    VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell, VECTOR* last_triangle_BA,
+    VECTOR* crd, Boundary boundary, VECTOR* last_triangle_BA,
     VECTOR* last_triangle_CA, float dt, float exp_gamma,
     float half_exp_gamma_plus_half, VECTOR* vel, LTMatrix3* virial_tensor)
 {
@@ -233,8 +232,8 @@ static __global__ void settle_triangle(
     {
         triangle = triangles[triangle_i];
         rA = crd[triangle.atom_A];
-        rB = Get_Periodic_Displacement(crd[triangle.atom_B], rA, cell, rcell);
-        rC = Get_Periodic_Displacement(crd[triangle.atom_C], rA, cell, rcell);
+        rB = Get_Displacement(crd[triangle.atom_B], rA, boundary);
+        rC = Get_Displacement(crd[triangle.atom_C], rA, boundary);
         mA = d_mass[triangle.atom_A];
         mB = d_mass[triangle.atom_B];
         mC = d_mass[triangle.atom_C];
@@ -406,7 +405,7 @@ static __device__ __forceinline__ void Settle_Fail_Invalid_Pair(
 
 static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
                                    const int* atom_local, const float* d_mass,
-                                   VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell,
+                                   VECTOR* crd, Boundary boundary,
                                    VECTOR* last_pair_AB, float dt,
                                    float exp_gamma,
                                    float half_exp_gamma_plus_half, VECTOR* vel,
@@ -426,8 +425,8 @@ static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
     {
         pair = pairs[pair_i];
 
-        r1 = Get_Periodic_Displacement(crd[pair.atom_j_serial],
-                                       crd[pair.atom_i_serial], cell, rcell);
+        r1 = Get_Displacement(crd[pair.atom_j_serial], crd[pair.atom_i_serial],
+                              boundary);
         r2 = last_pair_AB[pair_i];
         mA = d_mass[pair.atom_i_serial];
         mB = d_mass[pair.atom_j_serial];
@@ -755,8 +754,7 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
     }
 }
 
-void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
-                                       const LTMatrix3 rcell)
+void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary)
 {
     if (!is_initialized) return;
 
@@ -764,15 +762,14 @@ void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
                          (num_pair_local + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
-                         d_pairs_local, crd, cell, rcell, last_pair_AB);
+                         d_pairs_local, crd, boundary, last_pair_AB);
 
     Launch_Device_Kernel(
         remember_triangle_BA_CA,
         (num_triangle_local + CONTROLLER::device_max_thread - 1) /
             CONTROLLER::device_max_thread,
         CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-        d_triangles_local, crd, cell, rcell, last_triangle_BA,
-        last_triangle_CA);
+        d_triangles_local, crd, boundary, last_triangle_BA, last_triangle_CA);
 }
 
 static __global__ void get_local_device(int triangle_numbers, int pair_numbers,
@@ -842,9 +839,9 @@ void SETTLE::Get_Local(const int* atom_local_id, const char* atom_local_label,
 }
 
 void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
-                       const float* d_mass, VECTOR* crd, const LTMatrix3 cell,
-                       const LTMatrix3 rcell, VECTOR* vel,
-                       const int need_pressure, LTMatrix3* d_stress)
+                       const float* d_mass, VECTOR* crd, Boundary boundary,
+                       VECTOR* vel, const int need_pressure,
+                       LTMatrix3* d_stress)
 {
     if (!is_initialized) return;
 #ifndef GPU_ARCH_NAME
@@ -857,7 +854,7 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
                          (num_pair_local + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
-                         d_pairs_local, atom_local, d_mass, crd, cell, rcell,
+                         d_pairs_local, atom_local, d_mass, crd, boundary,
                          last_pair_AB, constrain->dt, constrain->v_factor,
                          constrain->x_factor, vel,
                          virial_tensor + triangle_numbers, invalid_pair_buffer);
@@ -867,8 +864,8 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
     {
         const CONSTRAIN_PAIR pair = d_pairs_local[invalid_pair];
         const VECTOR r2 = last_pair_AB[invalid_pair];
-        const VECTOR r1 = Get_Periodic_Displacement(
-            crd[pair.atom_j_serial], crd[pair.atom_i_serial], cell, rcell);
+        const VECTOR r1 = Get_Displacement(crd[pair.atom_j_serial],
+                                           crd[pair.atom_i_serial], boundary);
         const float r1r1 = r1 * r1;
         const float r1r2 = r1 * r2;
         const float r2r2 = r2 * r2;
@@ -902,7 +899,7 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
         (num_triangle_local + CONTROLLER::device_max_thread - 1) /
             CONTROLLER::device_max_thread,
         CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-        d_triangles_local, d_mass, crd, cell, rcell, last_triangle_BA,
+        d_triangles_local, d_mass, crd, boundary, last_triangle_BA,
         last_triangle_CA, constrain->dt, constrain->v_factor,
         constrain->x_factor, vel, virial_tensor);
 
@@ -916,21 +913,22 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
                               CONTROLLER::device_max_thread - 1) /
                                  CONTROLLER::device_max_thread,
                              blockSize, 0, NULL, num_triangle_local,
-                             virial_tensor, d_stress, rcell);
+                             virial_tensor, d_stress, boundary.rcell);
         Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
                              (num_triangle_local + num_pair_local +
                               CONTROLLER::device_max_thread - 1) /
                                  CONTROLLER::device_max_thread,
                              blockSize, 0, NULL, num_pair_local,
-                             virial_tensor + triangle_numbers, d_stress, rcell);
+                             virial_tensor + triangle_numbers, d_stress,
+                             boundary.rcell);
     }
 }
 
 static __device__ __host__ __forceinline__ bool
 compute_velocity_constraint_correction_settle(
-    const int atom_i, const int atom_j, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* mass_inverse, const VECTOR* vel,
-    VECTOR* correction_i, VECTOR* correction_j, const float relative_tolerance,
+    const int atom_i, const int atom_j, const VECTOR* crd, Boundary boundary,
+    const float* mass_inverse, const VECTOR* vel, VECTOR* correction_i,
+    VECTOR* correction_j, const float relative_tolerance,
     bool* constraint_violated)
 {
     if (constraint_violated != NULL) *constraint_violated = false;
@@ -938,8 +936,7 @@ compute_velocity_constraint_correction_settle(
     float mass_j_inverse = mass_inverse[atom_j];
     if (mass_i_inverse == 0.0f && mass_j_inverse == 0.0f) return false;
 
-    VECTOR dr =
-        Get_Periodic_Displacement(crd[atom_i], crd[atom_j], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
     float dr2 = dr * dr;
     if (dr2 < 1e-12f)
     {
@@ -972,9 +969,8 @@ compute_velocity_constraint_correction_settle(
 
 static __global__ void project_velocity_to_settle_pairs(
     const int pair_numbers, const CONSTRAIN_PAIR* pairs, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const float* mass_inverse,
-    const VECTOR* vel, VECTOR* delta_vel, const float relative_tolerance,
-    int* violation)
+    Boundary boundary, const float* mass_inverse, const VECTOR* vel,
+    VECTOR* delta_vel, const float relative_tolerance, int* violation)
 {
 #ifdef USE_GPU
     int pair_i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -988,9 +984,8 @@ static __global__ void project_velocity_to_settle_pairs(
         VECTOR correction_i, correction_j;
         bool constraint_violated = false;
         if (compute_velocity_constraint_correction_settle(
-                cp.atom_i_serial, cp.atom_j_serial, crd, cell, rcell,
-                mass_inverse, vel, &correction_i, &correction_j,
-                relative_tolerance,
+                cp.atom_i_serial, cp.atom_j_serial, crd, boundary, mass_inverse,
+                vel, &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
         {
             atomicAdd(&delta_vel[cp.atom_i_serial].x, correction_i.x);
@@ -1006,9 +1001,9 @@ static __global__ void project_velocity_to_settle_pairs(
 
 static __global__ void project_velocity_to_settle_triangles(
     const int triangle_numbers, const CONSTRAIN_TRIANGLE* triangles,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const float* mass_inverse, const VECTOR* vel, VECTOR* delta_vel,
-    const float relative_tolerance, int* violation)
+    const VECTOR* crd, Boundary boundary, const float* mass_inverse,
+    const VECTOR* vel, VECTOR* delta_vel, const float relative_tolerance,
+    int* violation)
 {
 #ifdef USE_GPU
     int tri_i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1022,7 +1017,7 @@ static __global__ void project_velocity_to_settle_triangles(
         VECTOR correction_i, correction_j;
         bool constraint_violated = false;
         if (compute_velocity_constraint_correction_settle(
-                tri.atom_A, tri.atom_B, crd, cell, rcell, mass_inverse, vel,
+                tri.atom_A, tri.atom_B, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
         {
@@ -1035,7 +1030,7 @@ static __global__ void project_velocity_to_settle_triangles(
         }
         if (constraint_violated && violation != NULL) atomicExch(violation, 1);
         if (compute_velocity_constraint_correction_settle(
-                tri.atom_A, tri.atom_C, crd, cell, rcell, mass_inverse, vel,
+                tri.atom_A, tri.atom_C, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
         {
@@ -1048,7 +1043,7 @@ static __global__ void project_velocity_to_settle_triangles(
         }
         if (constraint_violated && violation != NULL) atomicExch(violation, 1);
         if (compute_velocity_constraint_correction_settle(
-                tri.atom_B, tri.atom_C, crd, cell, rcell, mass_inverse, vel,
+                tri.atom_B, tri.atom_C, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
         {
@@ -1087,8 +1082,7 @@ static __global__ void apply_settle_velocity_correction(
 
 bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
                                                      const float* mass_inverse,
-                                                     const LTMatrix3 cell,
-                                                     const LTMatrix3 rcell,
+                                                     Boundary boundary,
                                                      bool update_coordinates)
 {
     if (!is_initialized || local_atom_numbers <= 0) return true;
@@ -1126,7 +1120,7 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
                 (num_pair_local + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
-                d_pairs_local, crd, cell, rcell, mass_inverse, vel,
+                d_pairs_local, crd, boundary, mass_inverse, vel,
                 d_delta_vel_local, relative_tolerance, d_violation);
         }
         if (num_triangle_local > 0 && d_triangles_local != NULL)
@@ -1136,7 +1130,7 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
                 (num_triangle_local + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-                d_triangles_local, crd, cell, rcell, mass_inverse, vel,
+                d_triangles_local, crd, boundary, mass_inverse, vel,
                 d_delta_vel_local, relative_tolerance, d_violation);
         }
         if (!update_coordinates)
