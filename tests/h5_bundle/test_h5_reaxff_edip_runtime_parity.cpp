@@ -302,17 +302,20 @@ void Write_Focused_EDIP_H5_Trajectory(const std::filesystem::path& path)
                           H5P_DEFAULT, positions.data()) >= 0);
 }
 
-void Remove_H5_Exclusions(const std::filesystem::path& path)
+void Remove_H5_EDIP_Blockers(const std::filesystem::path& path)
 {
     if (!std::filesystem::exists(path))
     {
         return;
     }
     HighFive::File file(path.string(), HighFive::File::ReadWrite);
-    if (file.exist("/topology/exclusions"))
+    for (const char* name :
+         {"/topology/exclusions", "/forcefield/virtual_atom"})
     {
-        REQUIRE_TRUE(
-            H5Ldelete(file.getId(), "/topology/exclusions", H5P_DEFAULT) >= 0);
+        if (file.exist(name))
+        {
+            REQUIRE_TRUE(H5Ldelete(file.getId(), name, H5P_DEFAULT) >= 0);
+        }
     }
 }
 
@@ -320,7 +323,16 @@ void Activate_Focused_EDIP_Interaction(const std::filesystem::path& root)
 {
     Write_Focused_EDIP_Legacy_Trajectory(root / "traj.dat");
     Write_Focused_EDIP_H5_Trajectory(root / "trajectory.spg.h5md");
-    Remove_H5_Exclusions(root / "topology.spgt.h5");
+    Remove_H5_EDIP_Blockers(root / "topology.spgt.h5");
+
+    // The generic two-atom I/O fixture has a coincident virtual site.
+    // Keep both atoms independent in this nonzero EDIP interaction test.
+    const auto sidecar_virtual_atoms =
+        root / "legacy_sidecars" / "virtual_atom_in_file" / "virtual_atom.txt";
+    if (std::filesystem::exists(sidecar_virtual_atoms))
+    {
+        Write_Text(sidecar_virtual_atoms, "");
+    }
 
     const auto sidecar_exclusions =
         root / "legacy_sidecars" / "exclude_in_file" / "exclude.txt";
@@ -366,7 +378,7 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
         {"output_h5_trajectory_path", "output_h5_trajectory_vds",
          "output_h5_restart_path", "output_h5_observable_path", "rerun_start",
          "rerun_strip", "rerun_frame_limit", "rerun_need_box_update",
-         "input_h5_restart_load", "exclude_in_file"});
+         "input_h5_restart_load", "exclude_in_file", "virtual_atom_in_file"});
     Append_If_Missing(&mdin, "mdinfo", "mdinfo = \"mdinfo.txt\"");
     Append_If_Missing(&mdin, "mdout", "mdout = \"mdout.txt\"");
     Append_If_Missing(&mdin, "rerun_start", "rerun_start = 0");
@@ -411,6 +423,8 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
 void Require_Focused_EDIP_Interaction(const PreparedCase& test_case)
 {
     REQUIRE_TRUE(!Has_Key_Line(Read_Text(test_case.mdin), "exclude_in_file"));
+    REQUIRE_TRUE(
+        !Has_Key_Line(Read_Text(test_case.mdin), "virtual_atom_in_file"));
     const auto& expected = Focused_EDIP_Positions();
 
     const auto legacy_trajectory = test_case.root / "traj.dat";
@@ -440,6 +454,7 @@ void Require_Focused_EDIP_Interaction(const PreparedCase& test_case)
     {
         HighFive::File file(topology.string(), HighFive::File::ReadOnly);
         REQUIRE_TRUE(!file.exist("/topology/exclusions"));
+        REQUIRE_TRUE(!file.exist("/forcefield/virtual_atom"));
     }
 
     const auto sidecar_exclusions =
