@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "../utils/float_classification.hpp"
 #include "load/amber.hpp"
 #include "load/gromacs.hpp"
 #include "load/native.hpp"
@@ -359,7 +360,8 @@ bool Read_H5_Distance_Constraints(CONTROLLER* controller,
                         << ", " << atom_b << "] at row " << pair;
                 throw std::runtime_error(message.str());
             }
-            if (!std::isfinite(distances[pair]) || distances[pair] <= 0.0f)
+            if (!SpongeFloat::Is_Finite(distances[pair]) ||
+                distances[pair] <= 0.0f)
             {
                 std::ostringstream message;
                 message << distance_path

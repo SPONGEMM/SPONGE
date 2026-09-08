@@ -5,6 +5,7 @@
 
 #include "constrain/settle.h"
 #include "constrain/shake.h"
+#include "utils/float_classification.hpp"
 
 unsigned int CONTROLLER::device_max_thread = 64;
 
@@ -75,7 +76,7 @@ bool Check_Velocity_Only_Result(const char* name,
         return Fail("velocity-only projection changed coordinates");
     const float residual =
         Maximum_Relative_Residual(projected_coordinates, projected_velocities);
-    if (!std::isfinite(residual) || residual > 2e-5f)
+    if (!SpongeFloat::Is_Finite(residual) || residual > 2e-5f)
     {
         std::fprintf(stderr, "%s residual %.9g exceeds tolerance\n", name,
                      static_cast<double>(residual));
@@ -112,7 +113,8 @@ bool Check_Roundoff_Floor_Result(const char* name,
         const float roundoff_floor =
             8.0f * FLT_EPSILON * sqrtf(displacement_squared) * velocity_scale;
         const float tolerance = fmaxf(relative_limit, roundoff_floor);
-        if (!std::isfinite(projection) || !std::isfinite(tolerance) ||
+        if (!SpongeFloat::Is_Finite(projection) ||
+            !SpongeFloat::Is_Finite(tolerance) ||
             std::fabs(projection) > tolerance)
         {
             std::fprintf(stderr,

@@ -1,5 +1,6 @@
 ﻿#include "Andersen_thermostat.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/random/restart_rng_state.hpp"
 
 static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
@@ -310,7 +311,7 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Set_Target_Temperature(
         return;
     }
     float scale = sqrtf(target_temperature_new / target_temperature);
-    if (!(scale > 0.0f) || !isfinite(scale))
+    if (!(scale > 0.0f) || !SpongeFloat::Is_Finite(scale))
     {
         return;
     }

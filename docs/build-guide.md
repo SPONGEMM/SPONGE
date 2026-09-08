@@ -76,8 +76,31 @@ Automatically adds `-DMPI=ON` and the MPI compiler configuration.
 |----------|----------|-------------|-------|
 | Linux x86_64 | GCC 11 (conda) | MKL | CUDA + MPI requires NCCL |
 | Linux aarch64 | GCC 11 (conda) | OpenBLAS + FFTW | supports SVE/NEON |
-| Windows x64 | MSVC (vs2022) | MKL | may need `pixi run install-msvc` first |
+| Windows x64 CPU | Intel oneAPI 2026.1.1 `icx-cl` | MKL | Requires VS 2022 C++ Build Tools 14.44+ and Windows SDK |
+| Windows x64 CUDA | NVCC + MSVC (vs2022) | CUDA libraries | may need `pixi run install-msvc` first |
 | macOS ARM | Clang 22.1 | OpenBLAS + FFTW | CPU backend only |
+
+Windows CPU builds use Intel oneAPI `icx-cl` for both C and C++.
+`pixi run -e dev-cpu configure` automatically installs the locked compiler
+environment in `tools/oneapi`; Intel packages are kept separate from the
+project's LLVM JIT dependencies. Local builds and CI use the same entry point.
+VS C++ Build Tools and the Windows SDK must be installed separately with
+administrator privileges; the `vs2022_win-64` package only activates them.
+Use VS 2022 C++ toolset 14.44 or newer for the headers and import libraries:
+the prebuilt LLVM 22 libraries require newer STL symbols than toolset 14.39
+provides. Updating only the redistributable runtime does not update these
+build-time libraries.
+The CUDA environments continue to use MSVC as the NVCC host compiler.
+The Windows CPU tasks use a separate `build-<environment>-oneapi` directory,
+so existing MSVC/Clang build caches are not reused. For unit tests, run
+`pixi run -e dev-cpu configure-tests`, `pixi run -e dev-cpu compile`, then
+`pixi run -e dev-cpu test`. Run the normal benchmark tasks after installation.
+To include the opt-in HDF5 runtime tests in PowerShell, set
+`$env:SPONGE_H5_ENABLE_RUNTIME_SMOKE = "1"` before running `test`.
+Windows CPU CI enables these tests with two OpenMP/MKL threads.
+The runtime package includes `intel-cmplr-lib-rt` for Intel math functions;
+OpenMP uses conda-forge's `llvm-openmp` compatibility DLL, shared with MKL.
+End users installing the binary package do not need the compiler environment.
 
 ## Global compile settings
 

@@ -1,5 +1,6 @@
 ﻿#include "Middle_Langevin_MD.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/random/restart_rng_state.hpp"
 
 // liu. J, Middle Langevin 热浴迭代算法
@@ -344,7 +345,7 @@ void MIDDLE_Langevin_INFORMATION::Set_Target_Temperature(
         return;
     }
     float scale = sqrtf(target_temperature_new / target_temperature);
-    if (!(scale > 0.0f) || !isfinite(scale))
+    if (!(scale > 0.0f) || !SpongeFloat::Is_Finite(scale))
     {
         return;
     }

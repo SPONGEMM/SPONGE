@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "../utils/float_classification.hpp"
+
 namespace
 {
 template <typename T>
@@ -95,7 +97,7 @@ std::vector<std::string> Read_Tersoff_Type_Names(HighFive::File* file,
 bool Tersoff_Parameters_Agree(float actual, float expected)
 {
     const float scale = std::max(1.0f, std::fabs(expected));
-    return std::isfinite(actual) && std::isfinite(expected) &&
+    return SpongeFloat::Is_Finite(actual) && SpongeFloat::Is_Finite(expected) &&
            std::fabs(actual - expected) <= 2.0e-5f * scale;
 }
 
@@ -237,7 +239,7 @@ bool Read_H5_Tersoff_Input(CONTROLLER* controller, const char* module_name,
             for (std::size_t parameter = 0; parameter < 14; ++parameter)
             {
                 const float value = parameters_raw[14 * row + parameter];
-                if (!std::isfinite(value))
+                if (!SpongeFloat::Is_Finite(value))
                 {
                     throw std::runtime_error(
                         "/manybody/tersoff/entry/parameters_raw contains a "

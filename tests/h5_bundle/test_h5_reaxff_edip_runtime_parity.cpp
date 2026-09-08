@@ -14,7 +14,9 @@
 #include <string>
 #include <vector>
 
+#include "../../SPONGE/utils/float_classification.hpp"
 #include "h5_input_matrix_fixture.hpp"
+#include "test_shell.hpp"
 #include "utils/h5md/h5md_writer.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
@@ -457,25 +459,6 @@ void Require_Manybody_Not_Scrubbed(const PreparedCase& test_case)
                  Has_Key_Line(mdin, "input_h5_topology_path"));
 }
 
-std::string Shell_Quote(const std::filesystem::path& path)
-{
-    std::string text = path.string();
-    std::string quoted = "'";
-    for (const char c : text)
-    {
-        if (c == '\'')
-        {
-            quoted += "'\\''";
-        }
-        else
-        {
-            quoted += c;
-        }
-    }
-    quoted += "'";
-    return quoted;
-}
-
 void Run_SPONGE(const std::filesystem::path& executable,
                 const PreparedCase& test_case)
 {
@@ -483,7 +466,7 @@ void Run_SPONGE(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret != 0)
     {
         throw TestFailure("SPONGE manybody parity smoke failed for " +
@@ -628,7 +611,7 @@ void Require_Manybody_Results_Nontrivial(
         bool nontrivial = false;
         for (const double value : iter->second)
         {
-            if (std::isfinite(value) && std::fabs(value) > 1.0e-8)
+            if (SpongeFloat::Is_Finite(value) && std::fabs(value) > 1.0e-8)
             {
                 nontrivial = true;
                 break;
@@ -741,7 +724,7 @@ void Require_Reaxff_Eeq_Charge_Snapshot(const std::filesystem::path& h5_path)
     REQUIRE_TRUE(!charges.empty());
     for (const float charge : charges)
     {
-        REQUIRE_TRUE(std::isfinite(charge));
+        REQUIRE_TRUE(SpongeFloat::Is_Finite(charge));
     }
 }
 

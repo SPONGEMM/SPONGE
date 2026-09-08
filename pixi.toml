@@ -103,6 +103,7 @@ cmake = ">=3.24"
 ninja = "*"
 mkl-devel = "*"
 vs2022_win-64 = "*"
+intel-cmplr-lib-rt = "2026.1.1.*"
 tomlplusplus = "*"
 llvmdev = ">=22.1.0,<23"
 clangdev = "22.1.*"
@@ -217,8 +218,10 @@ configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARAL
 compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
 
 [feature.cpu.target.win-64.tasks]
-configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='{{ parallel }}' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_PREFIX_PATH=\"$CONDA_PREFIX\"", args = [{ arg = "parallel", default = "none" }] }
-compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
+configure = { cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action configure -Parallel '{{ parallel }}'", args = [{ arg = "parallel", default = "none" }] }
+configure-tests = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action configure -BuildTests"
+compile = { cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action compile -Jobs {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
+test = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action test"
 
 [feature.cpu.target.osx-arm64.tasks]
 configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='{{ parallel }}' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_PREFIX_PATH=\"$CONDA_PREFIX\"", args = [{ arg = "parallel", default = "none" }] }
