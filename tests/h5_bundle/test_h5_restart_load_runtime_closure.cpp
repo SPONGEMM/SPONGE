@@ -12,6 +12,7 @@
 
 #include "../../SPONGE/utils/float_classification.hpp"
 #include "h5_input_matrix_fixture.hpp"
+#include "test_shell.hpp"
 #include "utils/h5md/h5md_writer.hpp"
 #include "utils/h5md/restart_h5_reader.hpp"
 #include "utils/random/restart_rng_state.hpp"
@@ -54,7 +55,11 @@ void Write_Text(const std::filesystem::path& path, const std::string& text)
 
 void Require_Contains(const std::string& text, const std::string& needle)
 {
-    if (text.find(needle) == std::string::npos)
+    std::string normalized = text;
+#ifdef _WIN32
+    std::replace(normalized.begin(), normalized.end(), '\\', '/');
+#endif
+    if (normalized.find(needle) == std::string::npos)
     {
         throw TestFailure("expected text to contain: " + needle);
     }
@@ -944,27 +949,29 @@ void Require_Portable_Rng_Continuation_Equivalent(
     }
 }
 
-std::string Shell_Quote(const std::filesystem::path& path)
-{
-    std::string text = path.string();
-    std::string quoted = "'";
-    for (const char c : text)
-    {
-        if (c == '\'')
-        {
-            quoted += "'\\''";
-        }
-        else
-        {
-            quoted += c;
-        }
-    }
-    quoted += "'";
-    return quoted;
-}
-
 void Refresh_Restart_State_Hash(const std::filesystem::path& restart_path)
 {
+#ifdef _WIN32
+    // Legacy sidecar text requires native line endings. HDF5 payloads do
+    // not receive the text-mode conversion that Write_Text provides.
+    {
+        HighFive::File file(restart_path.string(), HighFive::File::ReadWrite);
+        const auto path = SpongeH5MD::path::restart_protocol_sidecars;
+        if (file.exist(path))
+        {
+            const auto group = file.getGroup(path);
+            for (const auto& name : group.listObjectNames())
+            {
+                auto dataset = group.getDataSet(name);
+                std::string text;
+                dataset.read(text);
+                Replace_All(&text, "\r\n", "\n");
+                Replace_All(&text, "\n", "\r\n");
+                dataset.write(text);
+            }
+        }
+    }
+#endif
     std::string state_hash;
     {
         SpongeH5MD::RestartH5Reader reader;
@@ -983,12 +990,12 @@ std::filesystem::path Run_SPONGE(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret != 0)
     {
         throw TestFailure("SPONGE restart-load smoke failed for " +
-                          test_case.root.filename().string() + "\n" +
-                          Read_Text(log_path));
+                          test_case.root.filename().string() + " (exit " +
+                          std::to_string(ret) + ")\n" + Read_Text(log_path));
     }
     SpongeH5InputMatrix::Require_Path_Exists(test_case.mdout);
     SpongeH5InputMatrix::Require_Path_Exists(test_case.mdinfo);
@@ -1004,7 +1011,7 @@ void Run_SPONGE_Expect_Failure(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     REQUIRE_TRUE(ret != 0);
     Require_Contains(Read_Text(log_path), expected_error);
 }

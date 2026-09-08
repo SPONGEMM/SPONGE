@@ -7,6 +7,20 @@ endif()
 add_test(NAME test_boundary_policy COMMAND test_boundary_policy)
 set_tests_properties(test_boundary_policy PROPERTIES LABELS "boundary;contract")
 
+if(NOT PARALLEL_BACKEND STREQUAL "cuda")
+  add_executable(test_boundary_openmp test_boundary_openmp.cpp)
+  target_include_directories(test_boundary_openmp
+                             PRIVATE ${PROJECT_ROOT_DIR}/SPONGE)
+  target_link_libraries(test_boundary_openmp PRIVATE OpenMP::OpenMP_CXX)
+  foreach(threads IN ITEMS 1 4)
+    add_test(NAME test_boundary_openmp_${threads} COMMAND test_boundary_openmp)
+    set_tests_properties(
+      test_boundary_openmp_${threads}
+      PROPERTIES ENVIRONMENT "OMP_NUM_THREADS=${threads}" LABELS
+                 "boundary;regression")
+  endforeach()
+endif()
+
 add_test(
   NAME test_boundary_source_contract
   COMMAND ${CMAKE_COMMAND} -P

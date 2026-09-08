@@ -16,6 +16,7 @@
 
 #include "../../SPONGE/utils/float_classification.hpp"
 #include "h5_input_matrix_fixture.hpp"
+#include "test_shell.hpp"
 #include "utils/h5md/h5md_writer.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
@@ -458,25 +459,6 @@ void Require_Manybody_Not_Scrubbed(const PreparedCase& test_case)
                  Has_Key_Line(mdin, "input_h5_topology_path"));
 }
 
-std::string Shell_Quote(const std::filesystem::path& path)
-{
-    std::string text = path.string();
-    std::string quoted = "'";
-    for (const char c : text)
-    {
-        if (c == '\'')
-        {
-            quoted += "'\\''";
-        }
-        else
-        {
-            quoted += c;
-        }
-    }
-    quoted += "'";
-    return quoted;
-}
-
 void Run_SPONGE(const std::filesystem::path& executable,
                 const PreparedCase& test_case)
 {
@@ -484,7 +466,7 @@ void Run_SPONGE(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret != 0)
     {
         throw TestFailure("SPONGE manybody parity smoke failed for " +

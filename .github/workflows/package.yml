@@ -88,6 +88,7 @@ jobs:
             --expose SPONGE \
             --force-reinstall
           command -v SPONGE
+          SPONGE -v
           pixi global uninstall verify-pixi || true
 
       - name: Verify package install with conda

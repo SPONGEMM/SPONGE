@@ -333,6 +333,8 @@ static void Test_Restart_Reader_Round_Trips_Structural_State()
     Require_Box_Close(state.box_edges, {10.0f, 0.0f, 0.0f, 0.0f, 20.0f, 0.0f,
                                         0.0f, 0.0f, 30.0f});
 
+    reader =
+        RestartH5Reader{};  // Release the file before deleting it on Windows.
     std::filesystem::remove_all(dir);
 }
 
@@ -360,6 +362,8 @@ static void Test_Restart_Reader_Allows_No_Velocity_State()
     REQUIRE_TRUE(!state.has_velocity);
     REQUIRE_TRUE(state.velocity_xyz.empty());
 
+    reader =
+        RestartH5Reader{};  // Release the file before deleting it on Windows.
     std::filesystem::remove_all(dir);
 }
 
@@ -394,6 +398,8 @@ static void Test_Restart_Reader_Reports_Unsupported_Dynamic_State_As_Metadata()
                    "read unsupported dynamic state");
     REQUIRE_TRUE(!dynamic_state.has_nose_hoover_chain);
 
+    reader =
+        RestartH5Reader{};  // Release the file before deleting it on Windows.
     std::filesystem::remove_all(dir);
 }
 
@@ -564,6 +570,8 @@ static void Test_Restart_Reader_Round_Trips_Dynamic_And_Protocol_State()
     REQUIRE_EQ(protocol_state.sidecar_text_states[0].text,
                std::string("CV_PAYLOAD"));
 
+    reader =
+        RestartH5Reader{};  // Release the file before deleting it on Windows.
     std::filesystem::remove_all(dir);
 }
 

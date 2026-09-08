@@ -1,5 +1,19 @@
 set(CPP_DIALECT "CXX")
 
+# MSVC miscompiles shared Boundary access in optimized OpenMP CPU kernels. CUDA
+# uses its own backend and retains MSVC as the NVCC host compiler.
+if(WIN32
+   AND NOT
+       (CMAKE_C_COMPILER_ID STREQUAL "IntelLLVM"
+        AND CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM"
+        AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC"))
+  message(
+    FATAL_ERROR
+      "Windows CPU builds require Intel oneAPI icx-cl. Configure a fresh build directory "
+      "with -DCMAKE_C_COMPILER=icx-cl -DCMAKE_CXX_COMPILER=icx-cl, "
+      "or use pixi run -e dev-cpu configure.")
+endif()
+
 add_definitions(-DUSE_CPU)
 find_package(ZLIB REQUIRED)
 find_package(LLVM CONFIG REQUIRED)

@@ -1,0 +1,8 @@
+[workspace]
+name = "sponge-oneapi-compiler"
+channels = ["https://software.repos.intel.com/python/conda/", "conda-forge"]
+platforms = ["win-64"]
+
+[dependencies]
+dpcpp_win-64 = "2026.1.1.*"
+vs2022_win-64 = "19.44.*"
