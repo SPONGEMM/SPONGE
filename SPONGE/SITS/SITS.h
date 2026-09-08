@@ -155,6 +155,7 @@ struct SITS_INFORMATION
     SpongeH5MD::RestartSitsState h5_restart_state;
 
     void Initial(CONTROLLER* controller, int atom_numbers_,
+                 BoundaryPolicy boundary_policy,
                  const char* module_name = NULL);
     void Memory_Allocate();
 

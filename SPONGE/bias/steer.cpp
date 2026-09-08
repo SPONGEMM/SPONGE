@@ -109,7 +109,7 @@ void STEER_CV::Initial(CONTROLLER* controller,
 void STEER_CV::Step_Print(CONTROLLER* controller)
 {
     if (!is_initialized) return;
-    if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+    if (CONTROLLER::MPI_size == 1)
     {
         float ret = 0;
         deviceMemcpy(h_ene, d_ene, sizeof(float) * CV_numbers,
@@ -121,17 +121,17 @@ void STEER_CV::Step_Print(CONTROLLER* controller)
         controller->Step_Print(module_name, ret);
         return;
     }
-    else  // 把最后一个进程号的信息发给0号进程
+    else  // 由拥有全局坐标的 CV rank 将结果发给0号进程
     {
         float ret = 0;
 #ifdef USE_MPI
         if (CONTROLLER::MPI_rank == 0)
         {
-            MPI_Recv(&ret, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 0,
+            MPI_Recv(&ret, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 0,
                      MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             controller->Step_Print(module_name, ret);
         }
-        if (CONTROLLER::MPI_rank == CONTROLLER::MPI_size - 1)
+        if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
         {
             deviceMemcpy(h_ene, d_ene, sizeof(float) * CV_numbers,
                          deviceMemcpyDeviceToHost);
@@ -145,8 +145,8 @@ void STEER_CV::Step_Print(CONTROLLER* controller)
     }
 }
 
-void STEER_CV::Steer(int atom_numbers, VECTOR* crd, const Boundary boundary,
-                     int step, float* d_ene, LTMatrix3* d_virial, VECTOR* frc,
+void STEER_CV::Steer(int atom_numbers, VECTOR* crd, Boundary boundary, int step,
+                     float* d_ene, LTMatrix3* d_virial, VECTOR* frc,
                      int need_potential, int need_pressure)
 {
     if (!is_initialized) return;

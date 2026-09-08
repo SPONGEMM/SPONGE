@@ -1183,7 +1183,8 @@ void Main_Initial(int argc, char* argv[])
                    md_info.no_direct_interaction_virtual_atom_numbers);
         nb14.Initial(&controller, lj.h_LJ_A, lj.h_LJ_B, lj.h_atom_LJ_type);
 
-        sits.Initial(&controller, md_info.atom_numbers);
+        sits.Initial(&controller, md_info.atom_numbers,
+                     md_info.pbc.boundary.policy);
         if (sits.is_initialized && sits.selectively_applied)
         {
             sits_dihedral.Initial(&controller, "sits_dihedral");
@@ -1205,7 +1206,8 @@ void Main_Initial(int argc, char* argv[])
         }
         nb14.Initial(&controller, LJ_NOPBC.h_LJ_A, LJ_NOPBC.h_LJ_B,
                      LJ_NOPBC.h_atom_LJ_type);
-        sits.Initial(&controller, md_info.atom_numbers);
+        sits.Initial(&controller, md_info.atom_numbers,
+                     md_info.pbc.boundary.policy);
     }
 
     bond.Initial(&controller, &md_info.sys.connectivity,
@@ -1542,7 +1544,7 @@ void Main_Calculate_Force()
                            dd.d_energy, md_info.need_pressure, dd.d_virial,
                            dd.frc, &md_info, &dd);
 
-        if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+        if (CONTROLLER::MPI_size == 1)
         {
             vatom.Coordinate_Refresh_CV(dd.crd, boundary);
             if (!use_reaxff_eeq)
@@ -1554,18 +1556,18 @@ void Main_Calculate_Force()
             }
 
             cv_controller.Compute_CV_For_Print(
-                cv_atom_numbers, dd.crd, md_info.pbc.boundary,
-                md_info.sys.steps, md_info.output.write_mdout_interval,
+                cv_atom_numbers, dd.crd, boundary, md_info.sys.steps,
+                md_info.output.write_mdout_interval,
                 md_info.output.print_zeroth_frame);
 
-            steer_cv.Steer(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
-                           md_info.sys.steps, dd.d_energy, dd.d_virial, dd.frc,
+            steer_cv.Steer(cv_atom_numbers, dd.crd, boundary, md_info.sys.steps,
+                           dd.d_energy, dd.d_virial, dd.frc,
                            md_info.need_potential, md_info.need_pressure);
-            restrain_cv.Restraint(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
+            restrain_cv.Restraint(cv_atom_numbers, dd.crd, boundary,
                                   md_info.sys.steps, dd.d_energy, dd.d_virial,
                                   dd.frc, md_info.need_potential,
                                   md_info.need_pressure);
-            meta.Do_Metadynamics(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
+            meta.Do_Metadynamics(cv_atom_numbers, dd.crd, boundary,
                                  md_info.sys.steps, md_info.need_potential,
                                  md_info.need_pressure, dd.frc, dd.d_energy,
                                  dd.d_virial, md_info.sys.h_temperature);
@@ -1599,41 +1601,38 @@ void Main_Calculate_Force()
         }
         vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
-    else
+    else if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
+        pm.reset_global_force(
+            md_info.no_direct_interaction_virtual_atom_numbers);
+        vatom.Coordinate_Refresh_CV(pm.g_crd, boundary);
         if (!use_reaxff_eeq)
         {
-            pm.reset_global_force(
-                md_info.no_direct_interaction_virtual_atom_numbers);
-            vatom.Coordinate_Refresh_CV(pm.g_crd, boundary);
             pm.PME_Reciprocal_Force_With_Energy_And_Virial(
                 md_info.crd, md_info.pbc.boundary, md_info.d_charge,
                 md_info.frc, md_info.need_pressure, md_info.need_potential,
                 md_info.d_atom_virial_tensor, md_info.d_atom_energy,
                 md_info.sys.steps);
-            cv_controller.Compute_CV_For_Print(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
-                md_info.sys.steps, md_info.output.write_mdout_interval,
-                md_info.output.print_zeroth_frame);
-            steer_cv.Steer(cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
-                           md_info.sys.steps, md_info.d_atom_energy,
-                           md_info.d_atom_virial_tensor, pm.g_frc,
-                           md_info.need_potential, md_info.need_pressure);
-            restrain_cv.Restraint(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
-                md_info.sys.steps, md_info.d_atom_energy,
-                md_info.d_atom_virial_tensor, pm.g_frc, md_info.need_potential,
-                md_info.need_pressure);
-            meta.Do_Metadynamics(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
-                md_info.sys.steps, md_info.need_potential,
-                md_info.need_pressure, pm.g_frc, md_info.d_atom_energy,
-                md_info.d_atom_virial_tensor, md_info.sys.h_temperature);
-            vatom.Force_Redistribute_CV(pm.g_crd, boundary, pm.g_frc);
-            pm.add_force_g_to_l(md_info.frc);
-            pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
-                               dd.atom_numbers);
         }
+        cv_controller.Compute_CV_For_Print(cv_atom_numbers, pm.g_crd, boundary,
+                                           md_info.sys.steps,
+                                           md_info.output.write_mdout_interval,
+                                           md_info.output.print_zeroth_frame);
+        steer_cv.Steer(cv_atom_numbers, pm.g_crd, boundary, md_info.sys.steps,
+                       md_info.d_atom_energy, md_info.d_atom_virial_tensor,
+                       pm.g_frc, md_info.need_potential, md_info.need_pressure);
+        restrain_cv.Restraint(cv_atom_numbers, pm.g_crd, boundary,
+                              md_info.sys.steps, md_info.d_atom_energy,
+                              md_info.d_atom_virial_tensor, pm.g_frc,
+                              md_info.need_potential, md_info.need_pressure);
+        meta.Do_Metadynamics(
+            cv_atom_numbers, pm.g_crd, boundary, md_info.sys.steps,
+            md_info.need_potential, md_info.need_pressure, pm.g_frc,
+            md_info.d_atom_energy, md_info.d_atom_virial_tensor,
+            md_info.sys.h_temperature);
+        vatom.Force_Redistribute_CV(pm.g_crd, boundary, pm.g_frc);
+        pm.add_force_g_to_l(md_info.frc);
+        pm.Send_Recv_Force(&controller, md_info.frc, dd.frc, dd.atom_numbers);
     }
     md_info.min.Scale_Force_For_Dynamic_Dt(dd.atom_numbers, dd.d_mass_inverse,
                                            dd.frc, dd.vel, dd.acc);
@@ -1866,9 +1865,9 @@ void Main_Print()
             lj.Step_Print(&controller);
             lj_soft.Step_Print(&controller);
             pm.Step_Print(&controller);
-            sits.Step_Print(&controller, 1.0f / md_info.sys.target_temperature /
-                                             CONSTANT_kB);
         }
+        sits.Step_Print(&controller,
+                        1.0f / md_info.sys.target_temperature / CONSTANT_kB);
         sits_dihedral.Step_Print(&controller, false);
         sits_nb14.Step_Print(&controller, false);
         sits_cmap.Step_Print(&controller, false);
@@ -2154,6 +2153,18 @@ void Main_Process_Management()
             ? 1
             : (CONTROLLER::MPI_size - CONTROLLER::PM_MPI_size -
                CONTROLLER::CC_MPI_size);
+    CONTROLLER::CV_MPI_rank =
+        CONTROLLER::MPI_size == 1
+            ? 0
+            : (CONTROLLER::PM_MPI_size == 1 ? CONTROLLER::PP_MPI_size : -1);
+
+    if (CONTROLLER::MPI_size > 1 && cv_controller.is_initialized &&
+        CONTROLLER::CV_MPI_rank < 0)
+    {
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Process_Management",
+            "Reason:\n\tMPI CV calculations require exactly one PM process\n");
+    }
 
     if (CONTROLLER::MPI_size == 1)
     {
@@ -2237,8 +2248,10 @@ void Main_Process_Management()
     }
 
     controller.printf(
-        "MPI process total: MPI_size=%d, PP_MPI_size=%d, PM_MPI_size=%d\n",
-        CONTROLLER::MPI_size, CONTROLLER::PP_MPI_size, CONTROLLER::PM_MPI_size);
+        "MPI process total: MPI_size=%d, PP_MPI_size=%d, PM_MPI_size=%d, "
+        "CV_MPI_rank=%d\n",
+        CONTROLLER::MPI_size, CONTROLLER::PP_MPI_size, CONTROLLER::PM_MPI_size,
+        CONTROLLER::CV_MPI_rank);
     controller.MPI_printf(
         "MPI process partition: MPI_rank=%d, PP_MPI_rank=%d, "
         "PM_MPI_rank=%d\n",
