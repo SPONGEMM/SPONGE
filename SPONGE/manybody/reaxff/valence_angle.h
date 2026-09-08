@@ -88,8 +88,8 @@ struct REAXFF_VALENCE_ANGLE
     void Initial(CONTROLLER* controller, int atom_numbers,
                  const char* module_name);
     void Calculate_Valence_Angle_Energy_And_Force(
-        int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const ATOM_GROUP* nl,
+        int atom_numbers, const VECTOR* crd, VECTOR* frc,
+        const Boundary boundary, const ATOM_GROUP* nl,
         REAXFF_BOND_ORDER* bo_module, const float* Delta,
         const float* Delta_boc, const float* Delta_val, const float* nlp,
         const float* vlpex, const float* dDelta_lp, float* CdDelta,

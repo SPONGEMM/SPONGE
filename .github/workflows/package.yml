@@ -88,6 +88,11 @@ jobs:
             --expose SPONGE \
             --force-reinstall
           command -v SPONGE
+          # Hosted runners are not guaranteed to provide a CUDA driver.
+          # Validate CUDA package installation here; run GPU smoke tests on GPU runners.
+          if [[ "${{ matrix.feature }}" == cpu* ]]; then
+            SPONGE -v
+          fi
           pixi global uninstall verify-pixi || true
 
       - name: Verify package install with conda

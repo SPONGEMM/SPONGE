@@ -293,7 +293,7 @@ static __global__ void charge_square_kernel(int element_number,
 //--------Particle Mesh Ewald Method----------
 
 void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
-                            LTMatrix3 cell, LTMatrix3 rcell, VECTOR box_length,
+                            const Boundary boundary, VECTOR box_length,
                             float cutoff,
                             int no_direct_interaction_virtual_atom_numbers,
                             const char* module_name)
@@ -380,7 +380,7 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
     Device_Malloc_Safely((void**)&num_ghost_dir_id,
                          sizeof(int) * max_atom_numbers * 6);
 
-    float volume = cell.a11 * cell.a22 * cell.a33;
+    float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
 
     float grid_spacing = 1;
     if (controller->Command_Exist(this->module_name, "grid_spacing"))
@@ -569,7 +569,7 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
                     {
                         kzrp = kz;
                         m = {kxrp, kyrp, kzrp};
-                        m = MultiplyTranspose(m, rcell);
+                        m = MultiplyTranspose(m, boundary.rcell);
                         msq = m * m;
 
                         index = kx * ffty * (fftz / 2 + 1) +
@@ -697,9 +697,9 @@ void Particle_Mesh::Clear()
 
 // 计算每个原子所在的网格点以及其周围64个网格点的索引
 __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
-                              const int PME_Nin, const LTMatrix3 cell,
-                              const LTMatrix3 rcell, const int atom_numbers,
-                              const int fftx, const int ffty, const int fftz,
+                              const int PME_Nin, const Boundary boundary,
+                              const int atom_numbers, const int fftx,
+                              const int ffty, const int fftz,
                               UNSIGNED_INT_VECTOR* PME_uxyz, VECTOR* PME_frxyz,
                               VECTOR* force_backup)
 {
@@ -707,7 +707,7 @@ __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
     {
         force_backup[atom] = {0.0f, 0.0f, 0.0f};
         UNSIGNED_INT_VECTOR* temp_uxyz = &PME_uxyz[atom];
-        VECTOR frac_crd = crd[atom] * rcell;
+        VECTOR frac_crd = crd[atom] * boundary.rcell;
         frac_crd = frac_crd - floorf(frac_crd);
         if (!SpongeFloat::Is_Finite(frac_crd.x) ||
             !SpongeFloat::Is_Finite(frac_crd.y) ||
@@ -919,11 +919,10 @@ __global__ void PME_Energy_Product(const int element_number, const float* list1,
 }
 
 static __global__ void PME_Excluded_Force_With_Atom_Energy_Correction(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* charge, const float pme_beta,
-    const int* excluded_list_start, const int* excluded_list,
-    const int* excluded_atom_numbers, VECTOR* frc, float* atom_ene,
-    float* this_ene, LTMatrix3* atom_virial)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const float* charge, const float pme_beta, const int* excluded_list_start,
+    const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
+    float* atom_ene, float* this_ene, LTMatrix3* atom_virial)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -955,7 +954,8 @@ static __global__ void PME_Excluded_Force_With_Atom_Energy_Correction(
                 r2 = crd[atom_j];
                 charge_j = charge[atom_j];
 
-                dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+                dr = Get_Displacement<BoundaryPolicy::Periodic>(r2, r1,
+                                                                boundary);
                 dr2 = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
                 // 假设剔除表中的原子对距离总是小于cutoff的，正常体系
 
@@ -982,10 +982,10 @@ static __global__ void PME_Excluded_Force_With_Atom_Energy_Correction(
 }
 
 void Particle_Mesh::PME_Excluded_Force_With_Atom_Energy(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const float* charge, const int* excluded_list_start,
-    const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
-    int need_energy, float* atom_ene, LTMatrix3* atom_virial)
+    const VECTOR* crd, const Boundary boundary, const float* charge,
+    const int* excluded_list_start, const int* excluded_list,
+    const int* excluded_atom_numbers, VECTOR* frc, int need_energy,
+    float* atom_ene, LTMatrix3* atom_virial)
 {
     if (is_initialized && calculate_excluded_part)
     {
@@ -997,8 +997,8 @@ void Particle_Mesh::PME_Excluded_Force_With_Atom_Energy(
             PME_Excluded_Force_With_Atom_Energy_Correction,
             (atom_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
-            CONTROLLER::device_max_thread, 0, NULL, atom_numbers, crd, cell,
-            rcell, charge, beta, excluded_list_start, excluded_list,
+            CONTROLLER::device_max_thread, 0, NULL, atom_numbers, crd, boundary,
+            charge, beta, excluded_list_start, excluded_list,
             excluded_atom_numbers, frc, atom_ene, d_correction_atom_energy,
             atom_virial);
     }
@@ -1068,9 +1068,9 @@ static __global__ void PME_Sum_Virial(const int nfft,
 }
 
 void Particle_Mesh::PME_Reciprocal_Force_With_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const float* charge, VECTOR* force, int need_virial, int need_energy,
-    LTMatrix3* d_virial, float* d_potential, int step)
+    const VECTOR* crd, const Boundary boundary, const float* charge,
+    VECTOR* force, int need_virial, int need_energy, LTMatrix3* d_virial,
+    float* d_potential, int step)
 {
     if (is_initialized && calculate_reciprocal_part)
     {
@@ -1088,7 +1088,7 @@ void Particle_Mesh::PME_Reciprocal_Force_With_Energy_And_Virial(
                 (atom_numbers + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, crd, PME_atom_near,
-                PME_Nin, cell, rcell, atom_numbers, fftx, ffty, fftz, PME_uxyz,
+                PME_Nin, boundary, atom_numbers, fftx, ffty, fftz, PME_uxyz,
                 PME_frxyz, force_backup);
 
             dim3 blockSize = {CONTROLLER::device_max_thread / 64, 64};
@@ -1126,11 +1126,11 @@ void Particle_Mesh::PME_Reciprocal_Force_With_Energy_And_Virial(
 
             // 计算势能和力
             blockSize = {8, CONTROLLER::device_max_thread / 8};
-            Launch_Device_Kernel(PME_Final,
-                                 (atom_numbers + blockSize.x - 1) / blockSize.x,
-                                 blockSize, 0, NULL, PME_atom_near, charge,
-                                 PME_FBCFQ, force_backup, PME_frxyz, rcell,
-                                 fftx, ffty, fftz, atom_numbers, PME_Nall);
+            Launch_Device_Kernel(
+                PME_Final, (atom_numbers + blockSize.x - 1) / blockSize.x,
+                blockSize, 0, NULL, PME_atom_near, charge, PME_FBCFQ,
+                force_backup, PME_frxyz, boundary.rcell, fftx, ffty, fftz,
+                atom_numbers, PME_Nall);
 
             Launch_Device_Kernel(
                 device_add_force,
@@ -1251,17 +1251,16 @@ static void Scale_Positions_Device(const LTMatrix3 g, VECTOR* crd, float dt)
     crd[0] = r_dash;
 }
 
-void Particle_Mesh::Update_Box(LTMatrix3 cell, LTMatrix3 rcell, LTMatrix3 g,
-                               float dt)
+void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
 {
-    float volume = cell.a11 * cell.a22 * cell.a33;
+    float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
     float mprefactor = PI * PI / -beta / beta;
     dim3 blockSize = {8, 8, CONTROLLER::device_max_thread / 64};
     dim3 gridSize = {64, 64};
     Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx, ffty,
                          fftz, PME_BC, PME_BC0, PME_Virial_BC, mprefactor,
-                         rcell, volume);
+                         boundary.rcell, volume);
     Scale_Positions_Device(g, &min_corner, dt);
     Scale_Positions_Device(g, &max_corner, dt);
 }
@@ -1744,12 +1743,12 @@ void Particle_Mesh::Create_Stream() { deviceStreamCreate(&pm_stream); }
 void Particle_Mesh::Destroy_Stream() { deviceStreamDestroy(pm_stream); }
 
 static __global__ void MPI_PME_Excluded_Force_With_Atom_Energy_Correction(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* charge, const float pme_beta,
-    const int* excluded_list_start, const int* excluded_list,
-    const int* excluded_atom_numbers, VECTOR* frc, float* atom_ene,
-    float* this_ene, LTMatrix3* atom_virial, int need_energy, int need_virial,
-    const int* local2global, const int* global2local, const float factor)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const float* charge, const float pme_beta, const int* excluded_list_start,
+    const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
+    float* atom_ene, float* this_ene, LTMatrix3* atom_virial, int need_energy,
+    int need_virial, const int* local2global, const int* global2local,
+    const float factor)
 {
     SIMPLE_DEVICE_FOR(local_i, atom_numbers)
     {
@@ -1783,7 +1782,8 @@ static __global__ void MPI_PME_Excluded_Force_With_Atom_Energy_Correction(
                 r2 = crd[local_j];
                 charge_j = charge[local_j];
 
-                dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+                dr = Get_Displacement<BoundaryPolicy::Periodic>(r2, r1,
+                                                                boundary);
                 dr2 = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
                 // 假设剔除表中的原子对距离总是小于cutoff的，正常体系
 
@@ -1818,8 +1818,8 @@ static __global__ void MPI_PME_Excluded_Force_With_Atom_Energy_Correction(
 
 void Particle_Mesh::MPI_PME_Excluded_Force_With_Atom_Energy(
     const int local_atom_numbers, const int* atom_local,
-    const int* atom_local_id, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* charge, const int* excluded_list_start,
+    const int* atom_local_id, const VECTOR* crd, const Boundary boundary,
+    const float* charge, const int* excluded_list_start,
     const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
     int need_energy, float* atom_ene, int need_virial, LTMatrix3* atom_virial)
 {
@@ -1834,7 +1834,7 @@ void Particle_Mesh::MPI_PME_Excluded_Force_With_Atom_Energy(
             (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, local_atom_numbers, crd,
-            cell, rcell, charge, beta, excluded_list_start, excluded_list,
+            boundary, charge, beta, excluded_list_start, excluded_list,
             excluded_atom_numbers, frc, atom_ene, d_correction_atom_energy,
             atom_virial, need_energy, need_virial, atom_local, atom_local_id,
             exclude_factor);

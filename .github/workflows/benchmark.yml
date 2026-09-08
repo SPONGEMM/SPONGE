@@ -53,10 +53,23 @@ jobs:
         run: pixi install -e ${{ matrix.env_name }}
 
       - name: Configure SPONGE-CPU
+        if: runner.os != 'Windows'
         run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Configure Windows CPU with unit tests
+        if: runner.os == 'Windows'
+        run: pixi run -e ${{ matrix.env_name }} configure-tests
 
       - name: Compile SPONGE-CPU
         run: pixi run -e ${{ matrix.env_name }} compile
+
+      - name: Windows CPU unit tests
+        if: runner.os == 'Windows'
+        run: pixi run -e ${{ matrix.env_name }} test
+        env:
+          SPONGE_H5_ENABLE_RUNTIME_SMOKE: "1"
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
 
       - name: Benchmark comparison/lammps
         run: pixi run -e ${{ matrix.env_name }} comp-lammps

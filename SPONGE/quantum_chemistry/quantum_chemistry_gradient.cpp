@@ -32,8 +32,7 @@ static __global__ void QC_Weight_By_Norms_Kernel(int nao, const float* P,
 }
 
 void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
-                                         const VECTOR box_length,
-                                         int need_virial,
+                                         Boundary boundary, int need_virial,
                                          LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
@@ -91,12 +90,11 @@ void QUANTUM_CHEMISTRY::Compute_Gradient(VECTOR* frc, const VECTOR* crd,
     // 2. 核排斥梯度
     {
         const int threads = 256;
-        const VECTOR box_bohr(box_length.x * CONSTANT_ANGSTROM_TO_BOHR,
-                              box_length.y * CONSTANT_ANGSTROM_TO_BOHR,
-                              box_length.z * CONSTANT_ANGSTROM_TO_BOHR);
+        const Boundary boundary_bohr =
+            Scale_Boundary(boundary, CONSTANT_ANGSTROM_TO_BOHR);
         Launch_Device_Kernel(QC_Nuclear_Gradient_Kernel,
                              (natm + threads - 1) / threads, threads, 0, 0,
-                             natm, mol.d_Z, mol.d_atm, mol.d_env, box_bohr,
+                             natm, mol.d_Z, mol.d_atm, mol.d_env, boundary_bohr,
                              grad_ws.d_grad);
     }
 

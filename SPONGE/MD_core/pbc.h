@@ -4,13 +4,10 @@ struct periodic_box_condition_information
 {
     MD_INFORMATION* md_info = NULL;
     bool pbc = false;
+    Boundary boundary;
 
     // 初始化时的盒子，用于判断是否变化合适
     LTMatrix3 cell0;
-    // 盒子的下三角矩阵
-    LTMatrix3 cell;
-    // 倒空间的盒子的下三角矩阵
-    LTMatrix3 rcell;
     // 盒子的质量倒数
     LTMatrix3 cell_mass_inverse;
     // 盒子的动量

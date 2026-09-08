@@ -10,10 +10,10 @@ static __global__ void Calculate_Torsion_Kernel(
     const REAXFF_TORSION_Entry* torsion_entries, int atom_type_numbers,
     const float* bo_s, const float* bo_pi, const float* bo_pi2,
     float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta,
-    const LTMatrix3 cell, const LTMatrix3 rcell, float* atom_energy,
-    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_tor_sum,
-    float* d_energy_cot_sum, const int* bond_count, const int* bond_offset,
-    const int* bond_nbr, const int* bond_idx_arr)
+    const Boundary boundary, float* atom_energy, VECTOR* frc,
+    LTMatrix3* atom_virial, float* d_energy_tor_sum, float* d_energy_cot_sum,
+    const int* bond_count, const int* bond_offset, const int* bond_nbr,
+    const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(j, atom_numbers)
     {
@@ -41,7 +41,8 @@ static __global__ void Calculate_Torsion_Kernel(
                 float bo_jk_pi_val = bo_pi[b_jk];
 
                 VECTOR rk = crd[k];
-                VECTOR djk = Get_Periodic_Displacement(rj, rk, cell, rcell);
+                VECTOR djk = Get_Displacement<BoundaryPolicy::Periodic>(
+                    rj, rk, boundary);
                 float r_jk = norm3df(djk.x, djk.y, djk.z);
                 float delta_k_val = Delta_boc[k];
 
@@ -58,7 +59,8 @@ static __global__ void Calculate_Torsion_Kernel(
                     if (bo_ij_val <= thb_cut) continue;
 
                     VECTOR ri = crd[i];
-                    VECTOR dji = Get_Periodic_Displacement(rj, ri, cell, rcell);
+                    VECTOR dji = Get_Displacement<BoundaryPolicy::Periodic>(
+                        rj, ri, boundary);
                     float r_ij = norm3df(dji.x, dji.y, dji.z);
 
                     for (int pl = 0; pl < bc_k; pl++)
@@ -74,8 +76,8 @@ static __global__ void Calculate_Torsion_Kernel(
                             continue;
 
                         VECTOR rl = crd[l];
-                        VECTOR dkl =
-                            Get_Periodic_Displacement(rk, rl, cell, rcell);
+                        VECTOR dkl = Get_Displacement<BoundaryPolicy::Periodic>(
+                            rk, rl, boundary);
                         float r_kl = norm3df(dkl.x, dkl.y, dkl.z);
 
                         float cos_ijk =
@@ -677,10 +679,10 @@ void REAXFF_TORSION::Initial(CONTROLLER* controller, int atom_numbers,
 }
 
 void REAXFF_TORSION::Calculate_Torsion_Energy_And_Force(
-    int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module,
-    const float* Delta_boc, const int need_atom_energy, float* atom_energy,
-    const int need_virial, LTMatrix3* atom_virial)
+    int atom_numbers, const VECTOR* crd, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module, const float* Delta_boc,
+    const int need_atom_energy, float* atom_energy, const int need_virial,
+    LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
     dim3 blockSize(32);
@@ -694,10 +696,9 @@ void REAXFF_TORSION::Calculate_Torsion_Energy_And_Force(
         d_torsion_info, d_torsion_entries, atom_type_numbers,
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
-        d_CdDelta, cell, rcell, atom_energy, frc,
-        need_virial ? atom_virial : NULL, d_energy_tor_sum, d_energy_cot_sum,
-        bo_module->d_bond_count, bo_module->d_bond_offset,
-        bo_module->d_bond_nbr, bo_module->d_bond_idx);
+        d_CdDelta, boundary, atom_energy, frc, need_virial ? atom_virial : NULL,
+        d_energy_tor_sum, d_energy_cot_sum, bo_module->d_bond_count,
+        bo_module->d_bond_offset, bo_module->d_bond_nbr, bo_module->d_bond_idx);
 }
 
 void REAXFF_TORSION::Step_Print(CONTROLLER* controller)

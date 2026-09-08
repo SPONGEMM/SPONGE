@@ -72,6 +72,20 @@ deviceStream_t main_stream;
 
 namespace
 {
+void Reject_Open_Boundary_Module(const bool is_initialized,
+                                 const char* module_name)
+{
+    if (md_info.pbc.boundary.policy != BoundaryPolicy::Open || !is_initialized)
+        return;
+    std::string reason = "Reason:\n\t";
+    reason += module_name;
+    reason +=
+        " currently requires periodic boundary conditions and a periodic "
+        "neighbor-list backend\n";
+    controller.Throw_SPONGE_Error(spongeErrorConflictingCommand, "Main_Initial",
+                                  reason.c_str());
+}
+
 bool Requests_H5_Dynamic_State(
     const SpongeH5InputContract::RestartLoadPolicy policy)
 {
@@ -1148,25 +1162,25 @@ void Main_Initial(int argc, char* argv[])
         BAROSTAT_IS("berendsen_barostat"))
     {
         press_baro.Initial(&controller, md_info.sys.target_pressure,
-                           md_info.pbc.cell, &Main_Box_Change);
+                           md_info.pbc.boundary.cell, &Main_Box_Change);
     }
     if (BAROSTAT_IS("monte_carlo_barostat"))
     {
         mc_baro.Initial(&controller, md_info.atom_numbers,
                         md_info.sys.target_pressure, md_info.sys.box_length,
-                        md_info.pbc.cell);
+                        md_info.pbc.boundary.cell);
     }
 
     Apply_H5_Dynamic_Restart_State();
+    pairwise_force.Initial(&controller);
 
     if (md_info.pbc.pbc)
     {
         lj.Initial(&controller, md_info.nb.cutoff);
         lj_soft.Initial(&controller, md_info.nb.cutoff);
-        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.cell,
-                   md_info.pbc.rcell, md_info.sys.box_length, md_info.nb.cutoff,
+        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
+                   md_info.sys.box_length, md_info.nb.cutoff,
                    md_info.no_direct_interaction_virtual_atom_numbers);
-        pairwise_force.Initial(&controller);
         nb14.Initial(&controller, lj.h_LJ_A, lj.h_LJ_B, lj.h_atom_LJ_type);
 
         sits.Initial(&controller, md_info.atom_numbers);
@@ -1212,6 +1226,13 @@ void Main_Initial(int argc, char* argv[])
                     &neighbor_list.is_needed_full);
     reaxff.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
                    &neighbor_list.cutoff_full, &neighbor_list.is_needed_full);
+    Reject_Open_Boundary_Module(pairwise_force.is_initialized,
+                                "pairwise_force");
+    Reject_Open_Boundary_Module(sw.is_initialized, "SW");
+    Reject_Open_Boundary_Module(edip.is_initialized, "EDIP");
+    Reject_Open_Boundary_Module(eam.is_initialized, "EAM");
+    Reject_Open_Boundary_Module(tersoff.is_initialized, "TERSOFF");
+    Reject_Open_Boundary_Module(reaxff.is_initialized, "REAXFF");
 
     if (Xponge::system.positional_restraint.present)
     {
@@ -1252,13 +1273,13 @@ void Main_Initial(int argc, char* argv[])
                   md_info.no_direct_interaction_virtual_atom_numbers,
                   cv_controller.cv_vatom_name, md_info.h_mass,
                   &md_info.sys.freedom, &md_info.sys.connectivity);
-    vatom.Coordinate_Refresh(md_info.crd, md_info.pbc.cell, md_info.pbc.rcell);
+    vatom.Coordinate_Refresh(md_info.crd, md_info.pbc.boundary);
 
     if (md_info.pbc.pbc)
     {
         neighbor_list.Initial(&controller, md_info.atom_numbers,
                               md_info.nb.cutoff, md_info.nb.skin,
-                              md_info.pbc.cell, md_info.pbc.rcell);
+                              md_info.pbc.boundary);
     }
     steer_cv.Initial(&controller, &cv_controller);
     restrain_cv.Initial(&controller, &cv_controller);
@@ -1331,12 +1352,13 @@ void Main_Initial(int argc, char* argv[])
 
 void Main_Calculate_Force()
 {
+    const Boundary& boundary = md_info.pbc.boundary;
     bool use_reaxff_eeq = reaxff.eeq.is_initialized;
     const int cv_atom_numbers =
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
-    qc.Solve_SCF(dd.crd, md_info.sys.box_length, true, md_info.sys.steps);
+    qc.Solve_SCF(dd.crd, boundary, true, md_info.sys.steps);
     if (qc.is_initialized && qc.scf_output_file != NULL)
     {
         fflush(qc.scf_output_file);
@@ -1370,12 +1392,12 @@ void Main_Calculate_Force()
         dd.Reset_Force_and_Virial(&md_info);
         // QC 梯度必须在 dd.Reset_Force_and_Virial 之后调用
         if (qc.is_initialized && qc.need_gradient)
-            qc.Compute_Gradient(dd.frc, dd.crd, md_info.sys.box_length,
-                                md_info.need_pressure, dd.d_virial);
+            qc.Compute_Gradient(dd.frc, dd.crd, boundary, md_info.need_pressure,
+                                dd.d_virial);
         dd.Update_Ghost(&controller);
         neighbor_list.Update(
             dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-            md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
+            md_info.pbc.boundary, md_info.sys.steps,
             neighbor_list.CONDITIONAL_UPDATE, md_info.nb.d_excluded_list_start,
             md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
 
@@ -1397,173 +1419,156 @@ void Main_Calculate_Force()
         {
             pm.MPI_PME_Excluded_Force_With_Atom_Energy(
                 dd.atom_numbers, dd.atom_local, dd.atom_local_id, dd.crd,
-                md_info.pbc.cell, md_info.pbc.rcell, dd.d_charge,
-                dd.d_excluded_list_start, dd.d_excluded_list,
-                dd.d_excluded_numbers, dd.frc, md_info.need_potential,
-                dd.d_energy, md_info.need_pressure, dd.d_virial);
+                md_info.pbc.boundary, dd.d_charge, dd.d_excluded_list_start,
+                dd.d_excluded_list, dd.d_excluded_numbers, dd.frc,
+                md_info.need_potential, dd.d_energy, md_info.need_pressure,
+                dd.d_virial);
         }
 
         if (sits.is_initialized && sits.selectively_applied)
         {
             sits_dihedral.Dihedral_Force_With_Atom_Energy_And_Virial(
-                dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                sits.pw_select.select_force[0], md_info.need_potential,
-                sits.pw_select.select_atom_energy[0], md_info.need_pressure,
+                dd.crd, boundary, sits.pw_select.select_force[0],
+                md_info.need_potential, sits.pw_select.select_atom_energy[0],
+                md_info.need_pressure,
                 sits.pw_select.select_atom_virial_tensor[0]);
             sits_nb14.Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
-                dd.crd, dd.d_charge, md_info.pbc.cell, md_info.pbc.rcell,
-                sits.pw_select.select_force[0], md_info.need_potential,
-                sits.pw_select.select_atom_energy[0], md_info.need_pressure,
+                dd.crd, dd.d_charge, boundary, sits.pw_select.select_force[0],
+                md_info.need_potential, sits.pw_select.select_atom_energy[0],
+                md_info.need_pressure,
                 sits.pw_select.select_atom_virial_tensor[0]);
             sits_cmap.CMAP_Force_With_Atom_Energy_And_Virial(
-                dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                sits.pw_select.select_force[0], md_info.need_potential,
-                sits.pw_select.select_atom_energy[0], md_info.need_pressure,
+                dd.crd, boundary, sits.pw_select.select_force[0],
+                md_info.need_potential, sits.pw_select.select_atom_energy[0],
+                md_info.need_pressure,
                 sits.pw_select.select_atom_virial_tensor[0]);
             sits.SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
                 md_info.atom_numbers, dd.atom_numbers,
                 solvent_lj.local_solvent_numbers, dd.ghost_numbers, dd.crd,
-                dd.d_charge, &lj, dd.frc, md_info.pbc.cell, md_info.pbc.rcell,
+                dd.d_charge, &lj, dd.frc, md_info.pbc.boundary,
                 neighbor_list.d_nl, md_info.nb.cutoff, pm.beta,
                 md_info.need_potential, dd.d_energy, md_info.need_pressure,
                 dd.d_virial, pm.d_direct_atom_energy);
             sits.SITS_LJ_Soft_Core_Direct_CF_Force_With_Atom_Energy_And_Virial(
                 md_info.atom_numbers, dd.atom_numbers,
                 solvent_lj.local_solvent_numbers, dd.ghost_numbers, dd.crd,
-                dd.d_charge, &lj_soft, dd.frc, md_info.pbc.cell,
-                md_info.pbc.rcell, neighbor_list.d_nl, md_info.nb.cutoff,
-                pm.beta, md_info.need_potential, dd.d_energy,
-                md_info.need_pressure, dd.d_virial, pm.d_direct_atom_energy);
+                dd.d_charge, &lj_soft, dd.frc, md_info.pbc.boundary,
+                neighbor_list.d_nl, md_info.nb.cutoff, pm.beta,
+                md_info.need_potential, dd.d_energy, md_info.need_pressure,
+                dd.d_virial, pm.d_direct_atom_energy);
         }
         else
         {
             lj.LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
                 md_info.atom_numbers, dd.atom_numbers,
                 solvent_lj.local_solvent_numbers, dd.ghost_numbers, dd.crd,
-                dd.d_charge, dd.frc, md_info.pbc.cell, md_info.pbc.rcell,
-                neighbor_list.d_nl, pm.beta, md_info.need_potential,
-                dd.d_energy, md_info.need_pressure, dd.d_virial,
-                pm.d_direct_atom_energy);
+                dd.d_charge, dd.frc, md_info.pbc.boundary, neighbor_list.d_nl,
+                pm.beta, md_info.need_potential, dd.d_energy,
+                md_info.need_pressure, dd.d_virial, pm.d_direct_atom_energy);
 
             lj_soft.LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
                 md_info.atom_numbers, dd.atom_numbers,
                 solvent_lj.local_solvent_numbers, dd.ghost_numbers, dd.crd,
-                dd.d_charge, dd.frc, md_info.pbc.cell, md_info.pbc.rcell,
-                neighbor_list.d_nl, pm.beta, md_info.need_potential,
-                dd.d_energy, md_info.need_pressure, dd.d_virial,
-                pm.d_direct_atom_energy);
+                dd.d_charge, dd.frc, md_info.pbc.boundary, neighbor_list.d_nl,
+                pm.beta, md_info.need_potential, dd.d_energy,
+                md_info.need_pressure, dd.d_virial, pm.d_direct_atom_energy);
         }
         solvent_lj.LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
             dd.atom_numbers, dd.res_numbers, dd.res_start, dd.crd, dd.d_charge,
-            dd.frc, md_info.pbc.cell, md_info.pbc.rcell, neighbor_list.d_nl,
-            pm.beta, md_info.need_potential, dd.d_energy, md_info.need_pressure,
+            dd.frc, md_info.pbc.boundary, neighbor_list.d_nl, pm.beta,
+            md_info.need_potential, dd.d_energy, md_info.need_pressure,
             dd.d_virial, pm.d_direct_atom_energy);
 
-        lj.Long_Range_Correction(
-            md_info.need_pressure, dd.d_virial, md_info.need_potential,
-            dd.d_energy,
-            md_info.pbc.cell.a11 * md_info.pbc.cell.a22 * md_info.pbc.cell.a33);
+        lj.Long_Range_Correction(md_info.need_pressure, dd.d_virial,
+                                 md_info.need_potential, dd.d_energy,
+                                 md_info.pbc.boundary.cell.a11 *
+                                     md_info.pbc.boundary.cell.a22 *
+                                     md_info.pbc.boundary.cell.a33);
 
-        lj_soft.Long_Range_Correction(
-            md_info.need_pressure, dd.d_virial, md_info.need_potential,
-            dd.d_energy,
-            md_info.pbc.cell.a11 * md_info.pbc.cell.a22 * md_info.pbc.cell.a33);
+        lj_soft.Long_Range_Correction(md_info.need_pressure, dd.d_virial,
+                                      md_info.need_potential, dd.d_energy,
+                                      md_info.pbc.boundary.cell.a11 *
+                                          md_info.pbc.boundary.cell.a22 *
+                                          md_info.pbc.boundary.cell.a33);
         sw.SW_Force_With_Atom_Energy_And_Virial_Full_NL(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.boundary,
+            neighbor_list.full_neighbor_list.d_nl, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial);
         edip.EDIP_Force_With_Atom_Energy_And_Virial_Full_NL(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.boundary,
+            neighbor_list.full_neighbor_list.d_nl, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial);
         eam.EAM_Force_With_Atom_Energy_And_Virial(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.boundary,
+            neighbor_list.full_neighbor_list.d_nl, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial);
         tersoff.TERSOFF_Force_With_Atom_Energy_And_Virial(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.cell,
-            md_info.pbc.rcell, neighbor_list.full_neighbor_list.d_nl,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
-        listed_forces.Compute_Force(dd.atom_numbers, dd.crd, md_info.pbc.cell,
-                                    md_info.pbc.rcell, dd.frc,
+            dd.atom_numbers, dd.crd, dd.frc, md_info.pbc.boundary,
+            neighbor_list.full_neighbor_list.d_nl, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial);
+        listed_forces.Compute_Force(dd.atom_numbers, dd.crd, boundary, dd.frc,
                                     md_info.need_potential, dd.d_energy,
                                     md_info.need_pressure, dd.d_virial);
         pairwise_force.Compute_Force(
-            neighbor_list.d_nl, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-            md_info.nb.cutoff, pm.beta, dd.d_charge, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial, pm.d_direct_atom_energy);
+            neighbor_list.d_nl, dd.crd, md_info.pbc.boundary, md_info.nb.cutoff,
+            pm.beta, dd.d_charge, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial, pm.d_direct_atom_energy);
         angle.Angle_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         urey_bradley.Urey_Bradley_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         bond.Bond_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         cmap.CMAP_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         dihedral.Dihedral_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         improper.Dihedral_Force_With_Atom_Energy_And_Virial(
-            dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, boundary, dd.frc, md_info.need_potential, dd.d_energy,
+            md_info.need_pressure, dd.d_virial);
         nb14.Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
-            dd.crd, dd.d_charge, md_info.pbc.cell, md_info.pbc.rcell, dd.frc,
-            md_info.need_potential, dd.d_energy, md_info.need_pressure,
-            dd.d_virial);
+            dd.crd, dd.d_charge, boundary, dd.frc, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial);
         soft_walls.Compute_Force(dd.atom_numbers, dd.crd, dd.frc,
                                  md_info.need_potential, dd.d_energy);
         plugin.Calculate_Force();
 
-        restrain.Restraint(dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                           md_info.need_potential, dd.d_energy,
-                           md_info.need_pressure, dd.d_virial, dd.frc, &md_info,
-                           &dd);
+        restrain.Restraint(dd.crd, boundary, md_info.need_potential,
+                           dd.d_energy, md_info.need_pressure, dd.d_virial,
+                           dd.frc, &md_info, &dd);
 
         if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
         {
-            vatom.Coordinate_Refresh_CV(dd.crd, md_info.pbc.cell,
-                                        md_info.pbc.rcell);
+            vatom.Coordinate_Refresh_CV(dd.crd, boundary);
             if (!use_reaxff_eeq)
             {
                 pm.PME_Reciprocal_Force_With_Energy_And_Virial(
-                    dd.crd, md_info.pbc.cell, md_info.pbc.rcell, dd.d_charge,
-                    dd.frc, md_info.need_pressure, md_info.need_potential,
-                    dd.d_virial, dd.d_energy, md_info.sys.steps);
+                    dd.crd, md_info.pbc.boundary, dd.d_charge, dd.frc,
+                    md_info.need_pressure, md_info.need_potential, dd.d_virial,
+                    dd.d_energy, md_info.sys.steps);
             }
 
             cv_controller.Compute_CV_For_Print(
-                cv_atom_numbers, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
+                cv_atom_numbers, dd.crd, md_info.pbc.boundary,
                 md_info.sys.steps, md_info.output.write_mdout_interval,
                 md_info.output.print_zeroth_frame);
 
-            steer_cv.Steer(cv_atom_numbers, dd.crd, md_info.pbc.cell,
-                           md_info.pbc.rcell, md_info.sys.steps, dd.d_energy,
-                           dd.d_virial, dd.frc, md_info.need_potential,
-                           md_info.need_pressure);
-            restrain_cv.Restraint(
-                cv_atom_numbers, dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                md_info.sys.steps, dd.d_energy, dd.d_virial, dd.frc,
-                md_info.need_potential, md_info.need_pressure);
-            meta.Do_Metadynamics(cv_atom_numbers, dd.crd, md_info.pbc.cell,
-                                 md_info.pbc.rcell, md_info.sys.steps,
-                                 md_info.need_potential, md_info.need_pressure,
-                                 dd.frc, dd.d_energy, dd.d_virial,
-                                 md_info.sys.h_temperature);
+            steer_cv.Steer(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
+                           md_info.sys.steps, dd.d_energy, dd.d_virial, dd.frc,
+                           md_info.need_potential, md_info.need_pressure);
+            restrain_cv.Restraint(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
+                                  md_info.sys.steps, dd.d_energy, dd.d_virial,
+                                  dd.frc, md_info.need_potential,
+                                  md_info.need_pressure);
+            meta.Do_Metadynamics(cv_atom_numbers, dd.crd, md_info.pbc.boundary,
+                                 md_info.sys.steps, md_info.need_potential,
+                                 md_info.need_pressure, dd.frc, dd.d_energy,
+                                 dd.d_virial, md_info.sys.h_temperature);
             if (meta.is_initialized && meta.potential_update_interval > 0 &&
                 md_info.sys.steps % meta.potential_update_interval == 0)
             {
@@ -1571,8 +1576,7 @@ void Main_Calculate_Force()
                     &controller, meta.h5_object_name.c_str(), "hills",
                     "myhill.log");
             }
-            vatom.Force_Redistribute_CV(dd.crd, md_info.pbc.cell,
-                                        md_info.pbc.rcell, dd.frc);
+            vatom.Force_Redistribute_CV(dd.crd, boundary, dd.frc);
         }
         else
         {
@@ -1593,8 +1597,7 @@ void Main_Calculate_Force()
                 sits.classic_sits.k_numbers);
             sits.classic_sits.h5_nk_pending = 0;
         }
-        vatom.Force_Redistribute(dd.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                                 dd.frc);
+        vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     else
     {
@@ -1602,34 +1605,31 @@ void Main_Calculate_Force()
         {
             pm.reset_global_force(
                 md_info.no_direct_interaction_virtual_atom_numbers);
-            vatom.Coordinate_Refresh_CV(pm.g_crd, md_info.pbc.cell,
-                                        md_info.pbc.rcell);
+            vatom.Coordinate_Refresh_CV(pm.g_crd, boundary);
             pm.PME_Reciprocal_Force_With_Energy_And_Virial(
-                md_info.crd, md_info.pbc.cell, md_info.pbc.rcell,
-                md_info.d_charge, md_info.frc, md_info.need_pressure,
-                md_info.need_potential, md_info.d_atom_virial_tensor,
-                md_info.d_atom_energy, md_info.sys.steps);
+                md_info.crd, md_info.pbc.boundary, md_info.d_charge,
+                md_info.frc, md_info.need_pressure, md_info.need_potential,
+                md_info.d_atom_virial_tensor, md_info.d_atom_energy,
+                md_info.sys.steps);
             cv_controller.Compute_CV_For_Print(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.cell, md_info.pbc.rcell,
+                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
                 md_info.sys.steps, md_info.output.write_mdout_interval,
                 md_info.output.print_zeroth_frame);
-            steer_cv.Steer(cv_atom_numbers, pm.g_crd, md_info.pbc.cell,
-                           md_info.pbc.rcell, md_info.sys.steps,
-                           md_info.d_atom_energy, md_info.d_atom_virial_tensor,
-                           pm.g_frc, md_info.need_potential,
-                           md_info.need_pressure);
+            steer_cv.Steer(cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
+                           md_info.sys.steps, md_info.d_atom_energy,
+                           md_info.d_atom_virial_tensor, pm.g_frc,
+                           md_info.need_potential, md_info.need_pressure);
             restrain_cv.Restraint(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.cell, md_info.pbc.rcell,
+                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
                 md_info.sys.steps, md_info.d_atom_energy,
                 md_info.d_atom_virial_tensor, pm.g_frc, md_info.need_potential,
                 md_info.need_pressure);
             meta.Do_Metadynamics(
-                cv_atom_numbers, pm.g_crd, md_info.pbc.cell, md_info.pbc.rcell,
+                cv_atom_numbers, pm.g_crd, md_info.pbc.boundary,
                 md_info.sys.steps, md_info.need_potential,
                 md_info.need_pressure, pm.g_frc, md_info.d_atom_energy,
                 md_info.d_atom_virial_tensor, md_info.sys.h_temperature);
-            vatom.Force_Redistribute_CV(pm.g_crd, md_info.pbc.cell,
-                                        md_info.pbc.rcell, pm.g_frc);
+            vatom.Force_Redistribute_CV(pm.g_crd, boundary, pm.g_frc);
             pm.add_force_g_to_l(md_info.frc);
             pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
                                dd.atom_numbers);
@@ -1653,9 +1653,9 @@ void Main_Refresh_Local_State(bool rebuild_dd)
 
     neighbor_list.Update(
         dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-        md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
-        neighbor_list.FORCED_UPDATE, md_info.nb.d_excluded_list_start,
-        md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+        md_info.pbc.boundary, md_info.sys.steps, neighbor_list.FORCED_UPDATE,
+        md_info.nb.d_excluded_list_start, md_info.nb.d_excluded_list,
+        md_info.nb.d_excluded_numbers);
 
     middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
     ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
@@ -1704,6 +1704,7 @@ void Main_Refresh_Local_State(bool rebuild_dd)
 
 void Main_Iteration()
 {
+    const Boundary& boundary = md_info.pbc.boundary;
     controller.Get_Time_Recorder("Iteration")->Start();
     if (md_info.need_potential || md_info.need_pressure || md_info.need_kinetic)
     {
@@ -1713,12 +1714,11 @@ void Main_Iteration()
     if (md_info.mode != md_info.RERUN)
     {
         Main_MC_Barostat();
+
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
         {
-            settle.Remember_Last_Coordinates(dd.crd, md_info.pbc.cell,
-                                             md_info.pbc.rcell);
-            shake.Remember_Last_Coordinates(dd.crd, md_info.pbc.cell,
-                                            md_info.pbc.rcell);
+            settle.Remember_Last_Coordinates(dd.crd, boundary);
+            shake.Remember_Last_Coordinates(dd.crd, boundary);
 
             if (md_info.mode == md_info.NVE)
             {
@@ -1761,11 +1761,10 @@ void Main_Iteration()
                     ad_thermo.MD_Iteration_Leap_Frog(dd.vel, dd.crd, dd.frc,
                                                      dd.acc, md_info.dt);
                     settle.Project_Velocity_To_Constraint_Manifold(
-                        dd.vel, dd.crd, dd.d_mass_inverse, md_info.pbc.cell,
-                        md_info.pbc.rcell);
+                        dd.vel, dd.crd, dd.d_mass_inverse, boundary);
                     shake.Project_Velocity_To_Constraint_Manifold(
-                        dd.vel, dd.crd, dd.d_mass_inverse, md_info.pbc.cell,
-                        md_info.pbc.rcell, dd.atom_numbers);
+                        dd.vel, dd.crd, dd.d_mass_inverse, boundary,
+                        dd.atom_numbers);
                     constrain.v_factor = FLT_MIN;
                     constrain.x_factor = 0.5;
                 }
@@ -1786,11 +1785,11 @@ void Main_Iteration()
             }
 
             settle.Do_SETTLE(&controller, dd.atom_local, dd.d_mass, dd.crd,
-                             md_info.pbc.cell, md_info.pbc.rcell, dd.vel,
-                             md_info.need_pressure, md_info.sys.d_stress);
+                             boundary, dd.vel, md_info.need_pressure,
+                             md_info.sys.d_stress);
             shake.Constrain(dd.atom_numbers, dd.crd, dd.vel, dd.d_mass_inverse,
-                            dd.d_mass, md_info.pbc.cell, md_info.pbc.rcell,
-                            md_info.need_pressure, md_info.sys.d_stress);
+                            dd.d_mass, boundary, md_info.need_pressure,
+                            md_info.sys.d_stress);
             hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
         }
         if (md_info.need_pressure && !mc_baro.is_initialized)
@@ -1799,9 +1798,9 @@ void Main_Iteration()
                                  dd.d_mass, dd.d_virial, main_stream);
             md_info.sys.Get_Density();
             press_baro.Regulate_Pressure(
-                md_info.sys.steps, md_info.sys.h_stress, md_info.pbc.cell,
-                md_info.dt, md_info.sys.target_pressure,
-                md_info.sys.target_temperature);
+                md_info.sys.steps, md_info.sys.h_stress,
+                md_info.pbc.boundary.cell, md_info.dt,
+                md_info.sys.target_pressure, md_info.sys.target_temperature);
         }
     }
     else
@@ -1817,7 +1816,7 @@ void Main_Iteration()
 
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
-        vatom.Coordinate_Refresh(dd.crd, md_info.pbc.cell, md_info.pbc.rcell);
+        vatom.Coordinate_Refresh(dd.crd, boundary);
         if ((md_info.sys.steps + 1) % dd.update_interval == 0 ||
             md_info.mode == md_info.RERUN)
         {
@@ -1832,7 +1831,7 @@ void Main_Iteration()
             {
                 neighbor_list.Update(
                     dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-                    md_info.pbc.cell, md_info.pbc.rcell, md_info.sys.steps,
+                    md_info.pbc.boundary, md_info.sys.steps,
                     neighbor_list.FORCED_UPDATE,
                     md_info.nb.d_excluded_list_start,
                     md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
@@ -2101,7 +2100,7 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
         if (CONTROLLER::PM_MPI_rank < CONTROLLER::PM_MPI_size &&
             CONTROLLER::PM_MPI_rank != -1)
         {
-            pm.Update_Box(md_info.pbc.cell, md_info.pbc.rcell, g, md_info.dt);
+            pm.Update_Box(md_info.pbc.boundary, g, md_info.dt);
         }
     }
     return md_info.sys.Get_Volume();
@@ -2121,10 +2120,10 @@ void Main_Box_Change_Largely()
     }
     neighbor_list.Clear();
     neighbor_list.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
-                          md_info.nb.skin, md_info.pbc.cell, md_info.pbc.rcell);
+                          md_info.nb.skin, md_info.pbc.boundary);
     pm.Clear();
-    pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.cell,
-               md_info.pbc.rcell, md_info.sys.box_length, md_info.nb.cutoff,
+    pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
+               md_info.sys.box_length, md_info.nb.cutoff,
                md_info.no_direct_interaction_virtual_atom_numbers);
     dd.Free_Buffer();
     dd.Domain_Decomposition(&controller, &md_info);

@@ -15,14 +15,13 @@ struct NEIGHBOR_LIST
     bool is_needed_full = false;
 
     void Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
-                 float skin, LTMatrix3 cell, LTMatrix3 rcell);
+                 float skin, const Boundary boundary);
     void Update(int* atom_local, int local_atom_numbers, int ghost_numbers,
-                VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell, int step,
-                int update, int* excluded_list_start = NULL,
-                int* excluded_list = NULL,
+                VECTOR* crd, const Boundary boundary, int step, int update,
+                int* excluded_list_start = NULL, int* excluded_list = NULL,
                 int* excluded_numbers = NULL);  // 这里用NULL先不考虑排除表
-    void Check_Overflow(CONTROLLER* controller, int steps, const LTMatrix3 cell,
-                        const LTMatrix3 rcell, LTMatrix3* cell0);
+    void Check_Overflow(CONTROLLER* controller, int steps,
+                        const Boundary boundary, LTMatrix3* cell0);
     void Clear();
 
     float cutoff;
@@ -82,8 +81,8 @@ struct NEIGHBOR_LIST
         VECTOR* d_grid_ghost_crd = NULL;
         // 初始化格点信息
         void Initial(CONTROLLER* controller, int max_atom_in_grid_numbers,
-                     int max_ghost_in_grid_numbers, LTMatrix3 cell,
-                     LTMatrix3 rcell, float grid_length);
+                     int max_ghost_in_grid_numbers, const Boundary boundary,
+                     float grid_length);
         // 释放内存
         void Clear();
     } grids;
@@ -100,10 +99,10 @@ struct NEIGHBOR_LIST
         // 上次更新的坐标，用于判断是否需要更新
         VECTOR* old_crd = NULL;
         void Initial(CONTROLLER* controller, int atom_numbers);
-        void Check(int atom_numbers, float skin, VECTOR* crd, LTMatrix3 cell,
-                   LTMatrix3 rcell);
+        void Check(int atom_numbers, float skin, VECTOR* crd,
+                   const Boundary boundary);
         void Update(int* atom_local, int local_atom_numbers, int ghost_numbers,
-                    int need_copy, VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell,
+                    int need_copy, VECTOR* crd, const Boundary boundary,
                     NEIGHBOR_LIST::GRIDS* grids, int max_atom_in_grid_numbers,
                     int max_ghost_in_grid_numbers, int max_neighbor_numbers,
                     float grid_length, int* d_neighbor_grid_overflow,

@@ -33,16 +33,13 @@ struct SHAKE
                        const char* module_name = NULL);
 
     // 记录更新前的距离
-    void Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
-                                   const LTMatrix3 rcell);
+    void Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary);
     // 将速度投影到SHAKE约束流形
     bool Project_Velocity_To_Constraint_Manifold(
-        VECTOR* vel, VECTOR* crd, const float* mass_inverse,
-        const LTMatrix3 cell, const LTMatrix3 rcell, int local_atom_numbers,
-        bool update_coordinates = true);
+        VECTOR* vel, VECTOR* crd, const float* mass_inverse, Boundary boundary,
+        int local_atom_numbers, bool update_coordinates = true);
     // 进行约束迭代
     void Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                    const float* mass_inverse, const float* d_mass,
-                   const LTMatrix3 cell, const LTMatrix3 rcell,
-                   int need_pressure, LTMatrix3* d_stress);
+                   Boundary boundary, int need_pressure, LTMatrix3* d_stress);
 };

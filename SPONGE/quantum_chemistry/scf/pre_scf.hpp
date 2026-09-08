@@ -6,7 +6,7 @@
 // 从 MD 坐标更新 QC 的原子环境与壳层中心（含周期边界修正）
 static __global__ void QC_Update_Env_From_Crd_Kernel(
     const int natm, const int* atom_local, const VECTOR* crd, const int* atm,
-    float* env, const float to_bohr, const VECTOR box_length)
+    float* env, const float to_bohr, Boundary boundary)
 {
     SIMPLE_DEVICE_FOR(i, natm)
     {
@@ -16,7 +16,7 @@ static __global__ void QC_Update_Env_From_Crd_Kernel(
         const VECTOR prev(env[ptr_coord + 0] / to_bohr,
                           env[ptr_coord + 1] / to_bohr,
                           env[ptr_coord + 2] / to_bohr);
-        const VECTOR dr = Get_Periodic_Displacement(r, prev, box_length);
+        const VECTOR dr = Get_Displacement(r, prev, boundary);
         env[ptr_coord + 0] = (prev.x + dr.x) * to_bohr;
         env[ptr_coord + 1] = (prev.y + dr.y) * to_bohr;
         env[ptr_coord + 2] = (prev.z + dr.z) * to_bohr;
@@ -50,13 +50,13 @@ static __global__ void QC_Update_Centers_From_Env_Kernel(const int nbas,
 }
 
 void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
-                                                   const VECTOR box_length)
+                                                   Boundary boundary)
 {
     const int threads = 256;
     Launch_Device_Kernel(QC_Update_Env_From_Crd_Kernel,
                          (mol.natm + threads - 1) / threads, threads, 0, 0,
                          mol.natm, d_atom_local, crd, mol.d_atm, mol.d_env,
-                         CONSTANT_ANGSTROM_TO_BOHR, box_length);
+                         CONSTANT_ANGSTROM_TO_BOHR, boundary);
     Launch_Device_Kernel(QC_Update_Centers_From_Env_Kernel,
                          (mol.nbas + threads - 1) / threads, threads, 0, 0,
                          mol.nbas, mol.d_bas, mol.d_atm, mol.d_env,
@@ -70,10 +70,10 @@ void QUANTUM_CHEMISTRY::Update_Coordinates_From_MD(const VECTOR* crd,
     if (scf_ws.ri.enabled)
     {
         auto& ri = scf_ws.ri;
-        Launch_Device_Kernel(
-            QC_Update_Env_From_Crd_Kernel, (mol.natm + threads - 1) / threads,
-            threads, 0, 0, mol.natm, d_atom_local, crd, ri.d_aux_atm,
-            ri.d_aux_env, CONSTANT_ANGSTROM_TO_BOHR, box_length);
+        Launch_Device_Kernel(QC_Update_Env_From_Crd_Kernel,
+                             (mol.natm + threads - 1) / threads, threads, 0, 0,
+                             mol.natm, d_atom_local, crd, ri.d_aux_atm,
+                             ri.d_aux_env, CONSTANT_ANGSTROM_TO_BOHR, boundary);
         Launch_Device_Kernel(QC_Update_Centers_From_Env_Kernel,
                              (ri.naux_bas + threads - 1) / threads, threads, 0,
                              0, ri.naux_bas, ri.d_aux_bas, ri.d_aux_atm,
@@ -173,7 +173,7 @@ void QUANTUM_CHEMISTRY::Compute_ECP_Matrix()
 // 累加核间库仑排斥能，结果写入设备侧 d_nuc_energy_dev
 static __global__ void QC_Accumulate_Nuclear_Repulsion_Kernel(
     const int natm, const int* z_nuc, const int* atm, const float* env,
-    double* e_nuc, const VECTOR box_length)
+    double* e_nuc, Boundary boundary)
 {
     SIMPLE_DEVICE_FOR(i, natm)
     {
@@ -186,7 +186,7 @@ static __global__ void QC_Accumulate_Nuclear_Repulsion_Kernel(
             const int ptr_j = atm[j * 6 + 1];
             const double zj = (double)z_nuc[j];
             const VECTOR rj(env[ptr_j + 0], env[ptr_j + 1], env[ptr_j + 2]);
-            const VECTOR dr = Get_Periodic_Displacement(ri, rj, box_length);
+            const VECTOR dr = Get_Displacement(ri, rj, boundary);
             const double r = sqrt((double)dr.x * dr.x + (double)dr.y * dr.y +
                                   (double)dr.z * dr.z);
             local += zi * zj / fmax(r, 1e-12);
@@ -195,17 +195,16 @@ static __global__ void QC_Accumulate_Nuclear_Repulsion_Kernel(
     }
 }
 
-void QUANTUM_CHEMISTRY::Compute_Nuclear_Repulsion(const VECTOR box_length)
+void QUANTUM_CHEMISTRY::Compute_Nuclear_Repulsion(Boundary boundary)
 {
     deviceMemset(scf_ws.core.d_nuc_energy_dev, 0, sizeof(double));
     const int threads = 256;
-    const VECTOR box_bohr(box_length.x * CONSTANT_ANGSTROM_TO_BOHR,
-                          box_length.y * CONSTANT_ANGSTROM_TO_BOHR,
-                          box_length.z * CONSTANT_ANGSTROM_TO_BOHR);
+    const Boundary boundary_bohr =
+        Scale_Boundary(boundary, CONSTANT_ANGSTROM_TO_BOHR);
     Launch_Device_Kernel(QC_Accumulate_Nuclear_Repulsion_Kernel,
                          (mol.natm + threads - 1) / threads, threads, 0, 0,
                          mol.natm, mol.d_Z, mol.d_atm, mol.d_env,
-                         scf_ws.core.d_nuc_energy_dev, box_bohr);
+                         scf_ws.core.d_nuc_energy_dev, boundary_bohr);
 }
 
 // 积分预处理

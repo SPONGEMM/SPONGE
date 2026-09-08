@@ -99,17 +99,16 @@ void UREY_BRADLEY::Initial(CONTROLLER* controller, char* module_name)
 }
 
 void UREY_BRADLEY::Urey_Bradley_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* frc,
-    int need_atom_energy, float* atom_energy, int need_virial,
-    LTMatrix3* atom_virial)
+    const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+    float* atom_energy, int need_virial, LTMatrix3* atom_virial)
 {
     if (is_initialized)
     {
         bond.Bond_Force_With_Atom_Energy_And_Virial(
-            crd, cell, rcell, frc, need_atom_energy, atom_energy, need_virial,
+            crd, boundary, frc, need_atom_energy, atom_energy, need_virial,
             atom_virial);
         angle.Angle_Force_With_Atom_Energy_And_Virial(
-            crd, cell, rcell, frc, need_atom_energy, atom_energy, need_virial,
+            crd, boundary, frc, need_atom_energy, atom_energy, need_virial,
             atom_virial);
     }
 }

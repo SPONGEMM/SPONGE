@@ -3,9 +3,9 @@
 #include "velocity_projection.h"
 
 static __global__ void Constrain_Force_Cycle(
-    const int constrain_pair_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const CONSTRAIN_PAIR* constrain_pair,
-    const VECTOR* pair_dr, VECTOR* test_frc)
+    const int constrain_pair_numbers, const VECTOR* crd, Boundary boundary,
+    const CONSTRAIN_PAIR* constrain_pair, const VECTOR* pair_dr,
+    VECTOR* test_frc)
 {
 #ifdef USE_GPU
     int pair_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -17,8 +17,8 @@ static __global__ void Constrain_Force_Cycle(
     {
         CONSTRAIN_PAIR cp = constrain_pair[pair_i];
         VECTOR dr0 = pair_dr[pair_i];
-        VECTOR dr = Get_Periodic_Displacement(
-            crd[cp.atom_i_serial], crd[cp.atom_j_serial], cell, rcell);
+        VECTOR dr = Get_Displacement(crd[cp.atom_i_serial],
+                                     crd[cp.atom_j_serial], boundary);
         float r_1 = rnorm3df(dr.x, dr.y, dr.z);
         float frc_abs = 0.5 * (dr * dr - cp.constant_r * cp.constant_r) /
                         (dr * dr0) * cp.constrain_k;
@@ -57,9 +57,7 @@ static __global__ void Refresh_Coordinate(const int atom_numbers,
 }
 
 static __global__ void Last_Crd_To_dr(const int constrain_pair_numbers,
-                                      const VECTOR* atom_crd,
-                                      const LTMatrix3 cell,
-                                      const LTMatrix3 rcell,
+                                      const VECTOR* atom_crd, Boundary boundary,
                                       const CONSTRAIN_PAIR* constrain_pair,
                                       VECTOR* pair_dr)
 {
@@ -72,9 +70,8 @@ static __global__ void Last_Crd_To_dr(const int constrain_pair_numbers,
 #endif
     {
         CONSTRAIN_PAIR cp = constrain_pair[pair_i];
-        pair_dr[pair_i] =
-            Get_Periodic_Displacement(atom_crd[cp.atom_i_serial],
-                                      atom_crd[cp.atom_j_serial], cell, rcell);
+        pair_dr[pair_i] = Get_Displacement(
+            atom_crd[cp.atom_i_serial], atom_crd[cp.atom_j_serial], boundary);
     }
 }
 
@@ -181,8 +178,7 @@ void SHAKE::Initial_SHAKE(CONTROLLER* controller, CONSTRAIN* constrain,
     }
 }
 
-void SHAKE::Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
-                                      const LTMatrix3 rcell)
+void SHAKE::Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary)
 {
     if (is_initialized)
     {
@@ -192,15 +188,15 @@ void SHAKE::Remember_Last_Coordinates(const VECTOR* crd, const LTMatrix3 cell,
             (constrain->num_pair_local + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, constrain->num_pair_local,
-            crd, cell, rcell, constrain->constrain_pair_local, last_pair_dr);
+            crd, boundary, constrain->constrain_pair_local, last_pair_dr);
     }
 }
 
 static __device__ __host__ __forceinline__ bool
 compute_velocity_constraint_correction_shake(
-    const int atom_i, const int atom_j, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* mass_inverse, const VECTOR* vel,
-    VECTOR* correction_i, VECTOR* correction_j, const float relative_tolerance,
+    const int atom_i, const int atom_j, const VECTOR* crd, Boundary boundary,
+    const float* mass_inverse, const VECTOR* vel, VECTOR* correction_i,
+    VECTOR* correction_j, const float relative_tolerance,
     bool* constraint_violated)
 {
     if (constraint_violated != NULL) *constraint_violated = false;
@@ -208,8 +204,7 @@ compute_velocity_constraint_correction_shake(
     float mass_j_inverse = mass_inverse[atom_j];
     if (mass_i_inverse == 0.0f && mass_j_inverse == 0.0f) return false;
 
-    VECTOR dr =
-        Get_Periodic_Displacement(crd[atom_i], crd[atom_j], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
     float dr2 = dr * dr;
     if (dr2 < 1e-12f)
     {
@@ -242,9 +237,8 @@ compute_velocity_constraint_correction_shake(
 
 static __global__ void project_velocity_to_shake_pairs(
     const int pair_numbers, const CONSTRAIN_PAIR* pairs, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const float* mass_inverse,
-    const VECTOR* vel, VECTOR* delta_vel, const float relative_tolerance,
-    int* violation)
+    Boundary boundary, const float* mass_inverse, const VECTOR* vel,
+    VECTOR* delta_vel, const float relative_tolerance, int* violation)
 {
 #ifdef USE_GPU
     int pair_i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -258,9 +252,8 @@ static __global__ void project_velocity_to_shake_pairs(
         VECTOR correction_i, correction_j;
         bool constraint_violated = false;
         if (compute_velocity_constraint_correction_shake(
-                cp.atom_i_serial, cp.atom_j_serial, crd, cell, rcell,
-                mass_inverse, vel, &correction_i, &correction_j,
-                relative_tolerance,
+                cp.atom_i_serial, cp.atom_j_serial, crd, boundary, mass_inverse,
+                vel, &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
         {
             atomicAdd(&delta_vel[cp.atom_i_serial].x, correction_i.x);
@@ -296,9 +289,11 @@ static __global__ void apply_shake_velocity_correction(
     }
 }
 
-bool SHAKE::Project_Velocity_To_Constraint_Manifold(
-    VECTOR* vel, VECTOR* crd, const float* mass_inverse, const LTMatrix3 cell,
-    const LTMatrix3 rcell, int local_atom_numbers, bool update_coordinates)
+bool SHAKE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
+                                                    const float* mass_inverse,
+                                                    Boundary boundary,
+                                                    int local_atom_numbers,
+                                                    bool update_coordinates)
 {
     if (!is_initialized || local_atom_numbers <= 0 ||
         constrain->num_pair_local <= 0)
@@ -333,8 +328,8 @@ bool SHAKE::Project_Velocity_To_Constraint_Manifold(
             (constrain->num_pair_local + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, constrain->num_pair_local,
-            constrain->constrain_pair_local, crd, cell, rcell, mass_inverse,
-            vel, constrain_frc, relative_tolerance, d_violation);
+            constrain->constrain_pair_local, crd, boundary, mass_inverse, vel,
+            constrain_frc, relative_tolerance, d_violation);
         if (!update_coordinates)
         {
             int violation = 0;
@@ -359,9 +354,9 @@ bool SHAKE::Project_Velocity_To_Constraint_Manifold(
 }
 
 static __global__ void Constrain_Force_Cycle_With_Virial(
-    const int constrain_pair_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const CONSTRAIN_PAIR* constrain_pair,
-    const VECTOR* pair_dr, VECTOR* test_frc, LTMatrix3* d_pair_virial)
+    const int constrain_pair_numbers, const VECTOR* crd, Boundary boundary,
+    const CONSTRAIN_PAIR* constrain_pair, const VECTOR* pair_dr,
+    VECTOR* test_frc, LTMatrix3* d_pair_virial)
 {
 #ifdef USE_GPU
     int pair_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -373,8 +368,8 @@ static __global__ void Constrain_Force_Cycle_With_Virial(
     {
         CONSTRAIN_PAIR cp = constrain_pair[pair_i];
         VECTOR dr0 = pair_dr[pair_i];
-        VECTOR dr = Get_Periodic_Displacement(
-            crd[cp.atom_i_serial], crd[cp.atom_j_serial], cell, rcell);
+        VECTOR dr = Get_Displacement(crd[cp.atom_i_serial],
+                                     crd[cp.atom_j_serial], boundary);
         float r_1 = rnorm3df(dr.x, dr.y, dr.z);
         float frc_abs = 0.5 * (dr * dr - cp.constant_r * cp.constant_r) /
                         (dr * dr0) * cp.constrain_k;
@@ -425,8 +420,7 @@ static __global__ void Sum_Virial_Tensor_To_Stress(
 
 void SHAKE::Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                       const float* mass_inverse, const float* d_mass,
-                      const LTMatrix3 cell, const LTMatrix3 rcell,
-                      int need_pressure, LTMatrix3* d_stress)
+                      Boundary boundary, int need_pressure, LTMatrix3* d_stress)
 {
     if (is_initialized)
     {
@@ -454,8 +448,8 @@ void SHAKE::Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                                       CONTROLLER::device_max_thread - 1) /
                                          CONTROLLER::device_max_thread,
                                      CONTROLLER::device_max_thread, 0, NULL,
-                                     constrain->num_pair_local, test_crd, cell,
-                                     rcell, constrain->constrain_pair_local,
+                                     constrain->num_pair_local, test_crd,
+                                     boundary, constrain->constrain_pair_local,
                                      last_pair_dr, constrain_frc,
                                      d_pair_virial);
             }
@@ -466,8 +460,8 @@ void SHAKE::Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                                       CONTROLLER::device_max_thread - 1) /
                                          CONTROLLER::device_max_thread,
                                      CONTROLLER::device_max_thread, 0, NULL,
-                                     constrain->num_pair_local, test_crd, cell,
-                                     rcell, constrain->constrain_pair_local,
+                                     constrain->num_pair_local, test_crd,
+                                     boundary, constrain->constrain_pair_local,
                                      last_pair_dr, constrain_frc);
             }
         }
@@ -483,8 +477,9 @@ void SHAKE::Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                                      CONTROLLER::device_max_thread,
                                  blockSize, 0, NULL, constrain->num_pair_local,
                                  d_stress, d_pair_virial,
-                                 1 / constrain->dt / constrain->dt * rcell.a11 *
-                                     rcell.a22 * rcell.a33);
+                                 1 / constrain->dt / constrain->dt *
+                                     boundary.rcell.a11 * boundary.rcell.a22 *
+                                     boundary.rcell.a33);
         }
 
         Launch_Device_Kernel(

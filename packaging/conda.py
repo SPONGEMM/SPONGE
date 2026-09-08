@@ -61,6 +61,7 @@ RUNTIME_DEPENDENCIES = {
         ],
         "win-64": [
             "mkl >=2025,<2026",
+            "intel-cmplr-lib-rt >=2026.1.1,<2027",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
             "vc14_runtime",

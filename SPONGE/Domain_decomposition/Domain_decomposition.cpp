@@ -515,12 +515,12 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
             get_atom_and_residues, 1, 1, 0, NULL, dom_dec_split_num,
             md_info->ug.ug_numbers, md_info->ug.d_ug, md_info->crd,
             md_info->vel, md_info->d_mass, md_info->d_mass_inverse,
-            md_info->d_charge, md_info->pbc.rcell, md_info->pbc.cell,
-            min_corner, dom_box_length, this->res_start, this->res_len,
-            this->d_res_numbers, this->atom_local, this->atom_local_label,
-            this->atom_local_id, this->d_atom_numbers, this->crd, this->vel,
-            this->d_mass, this->d_mass_inverse, this->d_charge,
-            md_info->sys.box_length);
+            md_info->d_charge, md_info->pbc.boundary.rcell,
+            md_info->pbc.boundary.cell, min_corner, dom_box_length,
+            this->res_start, this->res_len, this->d_res_numbers,
+            this->atom_local, this->atom_local_label, this->atom_local_id,
+            this->d_atom_numbers, this->crd, this->vel, this->d_mass,
+            this->d_mass_inverse, this->d_charge, md_info->sys.box_length);
     }
     else
     {
@@ -528,12 +528,12 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
             get_atom_and_residues_single_domain, 1, 1, 0, NULL,
             dom_dec_split_num, md_info->ug.ug_numbers, md_info->ug.d_ug,
             md_info->crd, md_info->vel, md_info->d_mass,
-            md_info->d_mass_inverse, md_info->d_charge, md_info->pbc.rcell,
-            md_info->pbc.cell, min_corner, dom_box_length, this->res_start,
-            this->res_len, this->d_res_numbers, this->atom_local,
-            this->atom_local_label, this->atom_local_id, this->d_atom_numbers,
-            this->crd, this->vel, this->d_mass, this->d_mass_inverse,
-            this->d_charge, md_info->atom_numbers);
+            md_info->d_mass_inverse, md_info->d_charge,
+            md_info->pbc.boundary.rcell, md_info->pbc.boundary.cell, min_corner,
+            dom_box_length, this->res_start, this->res_len, this->d_res_numbers,
+            this->atom_local, this->atom_local_label, this->atom_local_id,
+            this->d_atom_numbers, this->crd, this->vel, this->d_mass,
+            this->d_mass_inverse, this->d_charge, md_info->atom_numbers);
     }
 
     deviceMemcpy(&this->atom_numbers, d_atom_numbers, sizeof(int),
@@ -677,8 +677,9 @@ void DOMAIN_INFORMATION::Get_Ghost(CONTROLLER* controller,
 
     Launch_Device_Kernel(plan_decider, (max_res_numbers + 255) / 256, 256, 0,
                          NULL, res_numbers, res_start, res_len, crd,
-                         md_info->pbc.rcell, md_info->pbc.cell, min_corner,
-                         max_corner, cutoff, box_length, plan);
+                         md_info->pbc.boundary.rcell,
+                         md_info->pbc.boundary.cell, min_corner, max_corner,
+                         cutoff, box_length, plan);
 
     deviceMemset(d_num_ghost_dir, 0, sizeof(int) * 6);
     deviceMemset(d_num_ghost_res_dir, 0, sizeof(int) * 6);
@@ -1166,13 +1167,13 @@ void DOMAIN_INFORMATION::Exchange_Particles(CONTROLLER* controller,
         Device_Malloc_Safely((void**)&vel_buffer,
                              sizeof(VECTOR) * (atom_numbers));
 
-        Launch_Device_Kernel(manage_buffer_and_rerange, 1, 1, 0, NULL,
-                             d_pass_num_dir, d_pass_res_dir, res_numbers,
-                             res_start, res_len, atom_local, atom_local_label,
-                             atom_local_id, atom_buffer, crd, vel, crd_buffer,
-                             vel_buffer, res_len_buffer, d_charge, d_mass,
-                             d_mass_inverse, min_corner, max_corner,
-                             md_info->pbc.rcell, dir, md_info->sys.box_length);
+        Launch_Device_Kernel(
+            manage_buffer_and_rerange, 1, 1, 0, NULL, d_pass_num_dir,
+            d_pass_res_dir, res_numbers, res_start, res_len, atom_local,
+            atom_local_label, atom_local_id, atom_buffer, crd, vel, crd_buffer,
+            vel_buffer, res_len_buffer, d_charge, d_mass, d_mass_inverse,
+            min_corner, max_corner, md_info->pbc.boundary.rcell, dir,
+            md_info->sys.box_length);
 
         deviceMemcpy(&pass_num_dir, d_pass_num_dir, sizeof(int),
                      deviceMemcpyDeviceToHost);

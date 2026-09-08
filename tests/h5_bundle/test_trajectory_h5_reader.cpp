@@ -171,6 +171,8 @@ static void Test_Trajectory_Reader_Reads_Metadata_And_Frame()
     REQUIRE_TRUE(!reader.Read_Frame(2, &frame));
     REQUIRE_TRUE(reader.Last_Error().find("out of range") != std::string::npos);
 
+    reader = TrajectoryH5Reader{};  // Release the file before deleting it on
+                                    // Windows.
     std::filesystem::remove_all(dir);
 }
 
@@ -204,6 +206,8 @@ static void Test_Trajectory_Reader_Reads_Vds_Wrapper()
     REQUIRE_TRUE(frame.box_edges[4] == 22.0f);
     REQUIRE_TRUE(frame.box_edges[8] == 32.0f);
 
+    reader = TrajectoryH5Reader{};  // Release the file before deleting it on
+                                    // Windows.
     std::filesystem::remove_all(dir);
 }
 
@@ -256,6 +260,7 @@ static void Test_Trajectory_Reader_Refreshes_Swmr_Frames()
 
     Require_Writer(writer.Finalize(), writer, "finalize SWMR writer");
     Require_Writer(writer.Close(), writer, "close SWMR writer");
+    reader = TrajectoryH5Reader{};
     std::filesystem::remove_all(dir);
 }
 

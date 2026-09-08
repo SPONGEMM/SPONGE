@@ -191,6 +191,14 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     {
         return;
     }
+    if (md_info->pbc.boundary.policy == BoundaryPolicy::Open)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "SPONGE_PLUGIN::Initial",
+            "Reason:\n\tplugins currently require periodic boundary "
+            "conditions because plugin API v2 does not expose a boundary "
+            "policy\n");
+    }
 
     controller->printf("START INITIALIZING SPONGE PLUGIN:\n");
     plugin_numbers = 0;

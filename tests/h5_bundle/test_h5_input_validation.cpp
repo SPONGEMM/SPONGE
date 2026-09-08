@@ -409,6 +409,7 @@ static void Test_Positional_Restraint_Reader_Loads_Named_Object()
     REQUIRE_TRUE(state.has_calc_virial_default);
     REQUIRE_TRUE(state.calc_virial_default);
     REQUIRE_TRUE(!std::filesystem::exists(dir / "materialized"));
+    reader = {};
     std::filesystem::remove_all(dir);
 }
 
@@ -1263,6 +1264,7 @@ static void Test_Custom_Force_Reader_Loads_Native_Definitions()
     REQUIRE_TRUE(std::fabs(bond_soft.parameter_values[5] - 0.25f) < 1e-6f);
     REQUIRE_TRUE(std::fabs(bond_soft.parameter_values[6] - 0.5f) < 1e-6f);
 
+    reader = {};
     std::filesystem::remove_all(dir);
 }
 
@@ -1299,6 +1301,7 @@ static void Test_EDIP_Reader_Loads_Dense_Runtime_Definition()
     REQUIRE_TRUE(std::fabs(definition.triple_parameters.back() - 17.0f) <
                  1e-6f);
 
+    reader = {};
     std::filesystem::remove_all(dir);
 }
 
@@ -1364,6 +1367,8 @@ static void Test_Protocol_Reader_Loads_Native_Hard_Wall()
     REQUIRE_TRUE(invalid_reader.Last_Error().find(
                      "low bound must be smaller") != std::string::npos);
 
+    reader = {};
+    invalid_reader = {};
     std::filesystem::remove_all(dir);
 }
 

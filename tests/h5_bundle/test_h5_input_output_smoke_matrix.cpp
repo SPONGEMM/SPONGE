@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "h5_input_matrix_fixture.hpp"
+#include "test_shell.hpp"
 #include "utils/h5md/h5_legacy_sidecar.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
 
@@ -816,25 +817,6 @@ void Require_H5_Observable_Stream_Matches_Mdout(
     }
 }
 
-std::string Shell_Quote(const std::filesystem::path& path)
-{
-    std::string text = path.string();
-    std::string quoted = "'";
-    for (const char c : text)
-    {
-        if (c == '\'')
-        {
-            quoted += "'\\''";
-        }
-        else
-        {
-            quoted += c;
-        }
-    }
-    quoted += "'";
-    return quoted;
-}
-
 void Copy_Directory_Contents(const std::filesystem::path& source,
                              const std::filesystem::path& destination)
 {
@@ -1512,7 +1494,7 @@ void Run_SPONGE(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret != 0)
     {
         throw TestFailure("SPONGE smoke failed for " +
@@ -1550,7 +1532,7 @@ void Run_SPONGE_Expect_Failure(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret == 0)
     {
         throw TestFailure("SPONGE smoke unexpectedly succeeded for " +

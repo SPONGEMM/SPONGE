@@ -34,12 +34,6 @@ struct LTMatrix3
             vec.y * mat.a22 + vec.z * mat.a32,
             vec.z * mat.a33 };
     }
-    friend __host__ __device__ __forceinline__
-        VECTOR Get_Periodic_Displacement(VECTOR a, VECTOR b, LTMatrix3 cell, LTMatrix3 rcell)
-    {
-        VECTOR dr = a - b;
-        return dr - floorf(dr * rcell + 0.5f) * cell;
-    }
     friend __device__ __host__ __forceinline__ LTMatrix3 Get_Virial_From_Force_Dis(const VECTOR& veca, const VECTOR& vecb)
     {
         LTMatrix3 mat;

@@ -20,8 +20,7 @@ struct FULL_NEIGHBOR_LIST
 
     void Build_From_Half_With_Cutoff(const ATOM_GROUP* half_nl,
                                      int atom_numbers, const VECTOR* crd,
-                                     const LTMatrix3 cell,
-                                     const LTMatrix3 rcell, float cutoff);
+                                     const Boundary boundary, float cutoff);
 
     void Clear();
 };

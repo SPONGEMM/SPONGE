@@ -45,13 +45,13 @@ struct PAIRWISE_FORCE
     void Real_Initial(CONTROLLER* controller);
     void Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
                    char* atom_local_label, int* atom_local_id);
-    void Compute_Force(ATOM_GROUP* nl, const VECTOR* crd, LTMatrix3 cell,
-                       LTMatrix3 rcell, float cutoff, float pme_beta,
+    void Compute_Force(ATOM_GROUP* nl, const VECTOR* crd,
+                       const Boundary boundary, float cutoff, float pme_beta,
                        float* charge, VECTOR* frc, int need_energy,
                        float* atom_energy, int need_virial,
                        LTMatrix3* atom_virial, float* pme_direct_atom_energy);
-    float Get_Energy(ATOM_GROUP* nl, const VECTOR* crd, LTMatrix3 cell,
-                     LTMatrix3 rcell, float cutoff, float pme_beta,
-                     float* charge, float* pme_direct_atom_energy);
+    float Get_Energy(ATOM_GROUP* nl, const VECTOR* crd, const Boundary boundary,
+                     float cutoff, float pme_beta, float* charge,
+                     float* pme_direct_atom_energy);
     void Step_Print(CONTROLLER* controller);
 };

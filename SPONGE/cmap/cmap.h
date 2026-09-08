@@ -75,9 +75,8 @@ struct CMAP
 
     // 能量和力计算
     void CMAP_Force_With_Atom_Energy_And_Virial(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        VECTOR* frc, int need_potential, float* atom_energy, int need_pressure,
-        LTMatrix3* atom_virial);
+        const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_potential,
+        float* atom_energy, int need_pressure, LTMatrix3* atom_virial);
 
     void Step_Print(CONTROLLER* controller, bool print_sum = true);
     /*

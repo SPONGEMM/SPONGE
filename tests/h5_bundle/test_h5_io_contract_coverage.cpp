@@ -116,7 +116,9 @@ void Require_Manifest_Entry_Fields(const std::string& entry,
         const auto source_path = Manifest_String_Field(entry, "source_path");
         REQUIRE_TRUE(!source_key.empty());
         const std::filesystem::path manifest_source(source_path);
-        REQUIRE_TRUE(manifest_source.is_absolute());
+        // Checked-in manifests may record POSIX absolute paths on Windows.
+        REQUIRE_TRUE(manifest_source.is_absolute() ||
+                     (!source_path.empty() && source_path.front() == '/'));
         REQUIRE_TRUE(
             std::filesystem::exists(legacy_root / manifest_source.filename()));
     }

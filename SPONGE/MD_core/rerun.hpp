@@ -298,8 +298,8 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
         // 通过盒子变化计算g
         LTMatrix3 new_cell = md_info->pbc.Get_Cell(md_info->sys.box_length,
                                                    md_info->sys.box_angle);
-        g = (1 / md_info->dt) *
-            (new_cell * inv(md_info->pbc.cell) - LTMatrix3(1, 0, 1, 0, 0, 1));
+        g = (1 / md_info->dt) * (new_cell * inv(md_info->pbc.boundary.cell) -
+                                 LTMatrix3(1, 0, 1, 0, 0, 1));
     }
     deviceMemcpy(this->md_info->crd, this->md_info->coordinate,
                  sizeof(VECTOR) * this->md_info->atom_numbers,

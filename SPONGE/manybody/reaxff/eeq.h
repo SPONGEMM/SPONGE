@@ -68,11 +68,10 @@ struct REAXFF_EEQ
     void Initial(CONTROLLER* controller, int atom_numbers,
                  const char* parameter_in_file, const char* type_in_file);
     void Calculate_Charges(int atom_numbers, float* d_charge,
-                           const VECTOR* d_crd, const LTMatrix3 cell,
-                           const LTMatrix3 rcell, const ATOM_GROUP* fnl_d_nl,
-                           float cutoff, float* d_energy = NULL,
-                           VECTOR* frc = NULL, int need_virial = 0,
-                           LTMatrix3* atom_virial = NULL);
+                           const VECTOR* d_crd, const Boundary boundary,
+                           const ATOM_GROUP* fnl_d_nl, float cutoff,
+                           float* d_energy = NULL, VECTOR* frc = NULL,
+                           int need_virial = 0, LTMatrix3* atom_virial = NULL);
     void Step_Print(CONTROLLER* controller);
     void Capture_Charges(const float* d_charge,
                          std::vector<float>* elementary_charges,

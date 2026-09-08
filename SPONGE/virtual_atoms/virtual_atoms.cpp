@@ -5,8 +5,7 @@
 
 static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_0* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -28,8 +27,7 @@ static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
 
 static __global__ void v1_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_1* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -44,16 +42,14 @@ static __global__ void v1_Coordinate_Refresh(const int virtual_numbers,
         int atom_1 = v_temp.from_1;
         int atom_2 = v_temp.from_2;
         float a = v_temp.a;
-        VECTOR rv1 = a * Get_Periodic_Displacement(crd[atom_2], crd[atom_1],
-                                                   cell, rcell);
+        VECTOR rv1 = a * Get_Displacement(crd[atom_2], crd[atom_1], boundary);
         crd[atom_v] = crd[atom_1] + rv1;
     }
 }
 
 static __global__ void v2_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_2* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -75,8 +71,8 @@ static __global__ void v2_Coordinate_Refresh(const int virtual_numbers,
         const VECTOR r2 = crd[atom_2];
         const VECTOR r3 = crd[atom_3];
 
-        VECTOR rv1 = a * Get_Periodic_Displacement(r2, r1, cell, rcell) +
-                     b * Get_Periodic_Displacement(r3, r1, cell, rcell);
+        VECTOR rv1 = a * Get_Displacement(r2, r1, boundary) +
+                     b * Get_Displacement(r3, r1, boundary);
 
         crd[atom_v] = crd[atom_1] + rv1;
     }
@@ -84,8 +80,7 @@ static __global__ void v2_Coordinate_Refresh(const int virtual_numbers,
 
 static __global__ void v3_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_3* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -106,8 +101,8 @@ static __global__ void v3_Coordinate_Refresh(const int virtual_numbers,
         const VECTOR r2 = crd[atom_2];
         const VECTOR r3 = crd[atom_3];
 
-        VECTOR r21 = Get_Periodic_Displacement(r2, r1, cell, rcell);
-        VECTOR r32 = Get_Periodic_Displacement(r3, r2, cell, rcell);
+        VECTOR r21 = Get_Displacement(r2, r1, boundary);
+        VECTOR r32 = Get_Displacement(r3, r2, boundary);
 
         VECTOR temp = r21 + k * r32;
         temp = d * rnorm3df(temp.x, temp.y, temp.z) * temp;
@@ -157,9 +152,10 @@ static __global__ void v4_Coordinate_Refresh(const int atom_numbers,
 #endif
 }
 
-static __global__ void v0_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_0* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v0_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_0* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -183,9 +179,10 @@ static __global__ void v0_Force_Redistribute(
     }
 }
 
-static __global__ void v1_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_1* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v1_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_1* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -216,9 +213,10 @@ static __global__ void v1_Force_Redistribute(
     }
 }
 
-static __global__ void v2_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_2* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v2_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_2* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -257,7 +255,7 @@ static __global__ void v2_Force_Redistribute(
 
 static __global__ void v2_Force_Redistribute_No_Atomic(
     const int virtual_numbers, const VIRTUAL_TYPE_2* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+    Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -292,9 +290,10 @@ static __global__ void v2_Force_Redistribute_No_Atomic(
     }
 }
 
-static __global__ void v3_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_3* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v3_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_3* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -318,9 +317,9 @@ static __global__ void v3_Force_Redistribute(
         const VECTOR r3 = crd[atom_3];
         const VECTOR rv = crd[atom_v];
 
-        VECTOR r21 = Get_Periodic_Displacement(r2, r1, cell, rcell);
-        VECTOR r32 = Get_Periodic_Displacement(r3, r2, cell, rcell);
-        VECTOR rv1 = Get_Periodic_Displacement(rv, r1, cell, rcell);
+        VECTOR r21 = Get_Displacement(r2, r1, boundary);
+        VECTOR r32 = Get_Displacement(r3, r2, boundary);
+        VECTOR rv1 = Get_Displacement(rv, r1, boundary);
 
         VECTOR temp = r21 + k * r32;
         float factor = d * rnorm3df(temp.x, temp.y, temp.z);
@@ -939,8 +938,7 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
     }
 }
 
-void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, Boundary boundary)
 {
     if (is_initialized)
     {
@@ -960,7 +958,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v0_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v0_numbers, v0_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v1_numbers = local_state_ready
                                        ? temp_vl->v1_info.local_numbers
@@ -974,7 +972,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v1_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v1_numbers, v1_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v2_numbers = local_state_ready
                                        ? temp_vl->v2_info.local_numbers
@@ -988,7 +986,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v2_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v2_numbers, v2_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v3_numbers = local_state_ready
                                        ? temp_vl->v3_info.local_numbers
@@ -1002,14 +1000,13 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v3_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v3_numbers, v3_info,
-                    crd, cell, rcell);
+                    crd, boundary);
         }
     }
 }
 
 void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
-                                             const LTMatrix3 cell,
-                                             const LTMatrix3 rcell, VECTOR* frc)
+                                             Boundary boundary, VECTOR* frc)
 {
     if (is_initialized)
     {
@@ -1026,7 +1023,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v0_info.local_numbers,
                                      temp_vl->v0_info.l_virtual_type_0, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc);
             }
             if (temp_vl->v1_info.local_numbers > 0)
             {
@@ -1037,7 +1034,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v1_info.local_numbers,
                                      temp_vl->v1_info.l_virtual_type_1, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc);
             }
             if (temp_vl->v3_info.local_numbers > 0)
             {
@@ -1048,7 +1045,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v3_info.local_numbers,
                                      temp_vl->v3_info.l_virtual_type_3, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc);
             }
 
             if (temp_vl->v2_info.local_numbers > 0)
@@ -1062,7 +1059,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                          CONTROLLER::device_max_thread, 0, NULL,
                                          temp_vl->v2_info.local_numbers,
                                          temp_vl->v2_info.l_virtual_type_2, crd,
-                                         cell, rcell, frc);
+                                         boundary, frc);
                 }
                 else
                 {
@@ -1073,16 +1070,14 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                          CONTROLLER::device_max_thread, 0, NULL,
                                          temp_vl->v2_info.local_numbers,
                                          temp_vl->v2_info.l_virtual_type_2, crd,
-                                         cell, rcell, frc);
+                                         boundary, frc);
                 }
             }
         }
     }
 }
 
-void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd,
-                                                const LTMatrix3 cell,
-                                                const LTMatrix3 rcell)
+void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd, Boundary boundary)
 {
     if (is_initialized)
     {
@@ -1105,9 +1100,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd,
 }
 
 void VIRTUAL_INFORMATION::Force_Redistribute_CV(const VECTOR* crd,
-                                                const LTMatrix3 cell,
-                                                const LTMatrix3 rcell,
-                                                VECTOR* frc)
+                                                Boundary boundary, VECTOR* frc)
 {
     if (is_initialized)
     {

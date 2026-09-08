@@ -43,7 +43,7 @@ void Fill_H5MD_Box_Edges(MD_INFORMATION* md_info, float box_edges[9])
             md_info->mode == md_info->RERUN
                 ? md_info->pbc.Get_Cell(md_info->sys.box_length,
                                         md_info->sys.box_angle)
-                : md_info->pbc.cell;
+                : md_info->pbc.boundary.cell;
         box_edges[0] = cell.a11;
         box_edges[1] = 0.0f;
         box_edges[2] = 0.0f;

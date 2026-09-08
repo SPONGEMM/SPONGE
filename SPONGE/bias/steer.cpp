@@ -145,10 +145,9 @@ void STEER_CV::Step_Print(CONTROLLER* controller)
     }
 }
 
-void STEER_CV::Steer(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                     LTMatrix3 rcell, int step, float* d_ene,
-                     LTMatrix3* d_virial, VECTOR* frc, int need_potential,
-                     int need_pressure)
+void STEER_CV::Steer(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                     int step, float* d_ene, LTMatrix3* d_virial, VECTOR* frc,
+                     int need_potential, int need_pressure)
 {
     if (!is_initialized) return;
     COLLECTIVE_VARIABLE_PROTOTYPE* cv;
@@ -157,7 +156,7 @@ void STEER_CV::Steer(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
     for (int i = 0; i < CV_numbers; i++)
     {
         cv = cv_list[i];
-        cv->Compute(atom_numbers, crd, cell, rcell, need, step);
+        cv->Compute(atom_numbers, crd, boundary, need, step);
         if (!need_pressure)
         {
             Launch_Device_Kernel(
