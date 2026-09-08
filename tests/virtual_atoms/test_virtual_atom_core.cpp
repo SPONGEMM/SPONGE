@@ -72,6 +72,14 @@ bool Check_Graph()
     };
     ok &= expect_failure("self dependency", {Record(1, 4, {4, 0}, {0.5f})},
                          "depends on itself");
+    ok &= expect_failure("type 2 self dependency",
+                         {Record(2, 1, {0, 1, 0}, {0.5f, 0.5f})},
+                         "depends on itself");
+    // Repeated sources are valid; the target must not be one of them.
+    VirtualAtomGraph repeated_source_graph;
+    ok &= Build_Virtual_Atom_Graph({Record(2, 1, {0, 0, 0}, {0.5f, 0.5f})}, 2,
+                                   &repeated_source_graph, &error);
+    ok &= repeated_source_graph.atom_levels == std::vector<int>({0, 1});
     ok &= expect_failure(
         "cycle", {Record(1, 4, {5, 0}, {0.5f}), Record(1, 5, {4, 1}, {0.5f})},
         "cycle");

@@ -743,8 +743,10 @@ void Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
     const auto boxes =
         Read_Float_Vector(file, "/particles/all/box/edges/value");
 
+    // The two-atom I/O fixture uses type 2 with sources {0, 0, 0}.
+    // Its target (atom 1) coincides with atom 0 after coordinate refresh.
     const std::vector<float> expected_position = {
-        1.5f, 2.5f, 3.5f, 3.0f, 4.0f, 5.0f,
+        1.5f, 2.5f, 3.5f, 1.5f, 2.5f, 3.5f,
     };
     const std::vector<float> expected_box = {
         10.0f, 0.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, 30.0f,
