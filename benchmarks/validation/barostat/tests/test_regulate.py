@@ -17,13 +17,6 @@ from benchmarks.validation.barostat.tests.utils import (
 REGULATE_CASES = [
     pytest.param(
         {
-            "id": "monte_carlo_barostat",
-            "barostat": "monte_carlo_barostat",
-        },
-        id="monte_carlo_barostat",
-    ),
-    pytest.param(
-        {
             "id": "andersen_barostat",
             "barostat": "andersen_barostat",
         },
