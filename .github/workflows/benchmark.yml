@@ -74,9 +74,6 @@ jobs:
       - name: Benchmark comparison/lammps
         run: pixi run -e ${{ matrix.env_name }} comp-lammps
 
-      - name: Benchmark comparison/pyscf
-        run: pixi run -e ${{ matrix.env_name }} comp-pyscf
-
       - name: Benchmark comparison/amber
         run: pixi run -e ${{ matrix.env_name }} comp-amber
 

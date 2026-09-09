@@ -233,37 +233,6 @@ class ObservableH5Writer
             module_writer.Write_Metadynamics_Diagnostic(name, component, text));
     }
 
-    bool Write_Qc_Scf_Output(const std::string& text)
-    {
-        ModuleH5MappingWriter module_writer(&writer_);
-        return Mark_Dirty_If(module_writer.Write_Qc_Scf_Output(text));
-    }
-
-    bool Ensure_Qc_Observables(bool include_spin_square)
-    {
-        ModuleH5MappingWriter module_writer(&writer_);
-        std::vector<std::string> value_paths = {
-            Qc_Observable_Value_Path("energy")};
-        if (include_spin_square)
-        {
-            value_paths.push_back(Qc_Observable_Value_Path("spin_square"));
-        }
-        return module_writer.Ensure_Qc_Observables(include_spin_square) &&
-               stream_watermarks_.Define("qc") &&
-               writer_.Write_Output_Stream_Descriptor(
-                   "qc", "module_frames", module_path::qc_step,
-                   module_path::qc_time, value_paths, true);
-    }
-
-    bool Append_Qc_Frame(const int64_t step, const double time, double energy,
-                         const double* spin_square = nullptr)
-    {
-        ModuleH5MappingWriter module_writer(&writer_);
-        return Complete_Stream_Frame_If(
-            module_writer.Append_Qc_Frame(step, time, energy, spin_square),
-            "qc");
-    }
-
     bool Ensure_Reaxff_Energy_Terms(const std::vector<std::string>& terms)
     {
         reaxff_terms_ = terms;

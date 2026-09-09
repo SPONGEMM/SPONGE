@@ -158,14 +158,11 @@ gromacs = "*"
 lammps = "*"
 
 [feature.ref-gen.target.linux-64.pypi-dependencies]
-pyscf = ">=2.12.1,<3"
 xponge = "*"
 ase = "*"
 
 [feature.dev.tasks]
 comp-lammps = "python -X utf8 -m pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-perf-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/perf_*.py -s --tb=short"
 comp-amber = "python -X utf8 -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
 comp-gromacs = "python -X utf8 -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
 vali-thermostat = "python -X utf8 -m pytest benchmarks/validation/thermostat/tests -s --tb=short"
@@ -251,8 +248,6 @@ configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='hip
 compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
 
 [feature.ref-gen.target.linux-64.tasks]
-ref-gen-pyscf = "python benchmarks/comparison/reference/pyscf/generate.py"
-ref-check-pyscf = "python benchmarks/comparison/reference/pyscf/generate.py --check"
 ref-gen-amber = "python benchmarks/comparison/reference/amber/generate.py"
 ref-check-amber = "python benchmarks/comparison/reference/amber/generate.py --check"
 ref-gen-gromacs = "python benchmarks/comparison/reference/gromacs/generate.py"

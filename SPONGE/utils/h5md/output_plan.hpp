@@ -157,8 +157,8 @@ inline std::string Derive_Shards_Root(const std::string& trajectory_path)
 
 inline LegacyOutputPlan Resolve_Legacy_Output_Plan(CONTROLLER* controller)
 {
-    static constexpr std::array<const char*, 8> legacy_keys = {
-        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst", "qc_scf_output"};
+    static constexpr std::array<const char*, 7> legacy_keys = {
+        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst"};
 
     LegacyOutputPlan plan;
     plan.default_enabled =

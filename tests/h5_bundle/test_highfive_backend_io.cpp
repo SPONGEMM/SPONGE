@@ -764,9 +764,6 @@ static void Test_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
         REQUIRE_TRUE(
             writer.Append_Metadynamics_Scalar_Frame(10, 0.5, 6.0, 7.0, 8.0));
-        REQUIRE_TRUE(writer.Ensure_Qc_Observables(true));
-        double spin_square = 0.75;
-        REQUIRE_TRUE(writer.Append_Qc_Frame(10, 0.5, -22.0, &spin_square));
         REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
         REQUIRE_TRUE(writer.Append_Reaxff_Frame(
             10, 0.5, {{"bond", 9.0}, {"angle", 10.0}}));
@@ -799,8 +796,6 @@ static void Test_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(file.exist(module_path::nhc_velocity_value));
         REQUIRE_TRUE(file.exist(Sits_Nk_Value_Path("traj_sits")));
         REQUIRE_TRUE(file.exist(Metadynamics_Scalar_Value_Path("meta")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("energy")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("spin_square")));
         REQUIRE_TRUE(file.exist(Reaxff_Term_Value_Path("bond")));
         REQUIRE_TRUE(file.exist(Reaxff_Term_Value_Path("angle")));
         REQUIRE_TRUE(file.exist(path::mdinfo_text));
@@ -849,14 +844,6 @@ static void Test_Trajectory_Writer_With_Real_Backend()
         metad_meta = Read_Flat_Dataset<double>(
             file.getDataSet(Metadynamics_Scalar_Value_Path("meta")));
         REQUIRE_EQ(metad_meta[0], 6.0);
-        std::vector<double> qc_energy;
-        std::vector<double> qc_spin;
-        qc_energy = Read_Flat_Dataset<double>(
-            file.getDataSet(Qc_Observable_Value_Path("energy")));
-        qc_spin = Read_Flat_Dataset<double>(
-            file.getDataSet(Qc_Observable_Value_Path("spin_square")));
-        REQUIRE_EQ(qc_energy[0], -22.0);
-        REQUIRE_EQ(qc_spin[0], 0.75);
         std::vector<double> reaxff_bond;
         std::vector<double> reaxff_angle;
         reaxff_bond = Read_Flat_Dataset<double>(
@@ -1499,9 +1486,6 @@ static void Test_Observable_Writer_With_Real_Backend()
             writer.Define_Observable_Stream({"temperature"}, {"TEMP"}));
         REQUIRE_TRUE(
             writer.Append_Observable_Frame(10, 0.1, {{"temperature", 300.0}}));
-        REQUIRE_TRUE(writer.Ensure_Qc_Observables(true));
-        double spin_square = 0.5;
-        REQUIRE_TRUE(writer.Append_Qc_Frame(10, 0.1, -12.0, &spin_square));
         REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
         float nhc_coordinates[2] = {0.1f, 0.2f};
         float nhc_velocities[2] = {0.3f, 0.4f};
@@ -1517,10 +1501,9 @@ static void Test_Observable_Writer_With_Real_Backend()
         REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
         REQUIRE_TRUE(writer.Append_Reaxff_Frame(
             14, 0.5, {{"bond", 4.0}, {"angle", 5.0}}));
-        REQUIRE_TRUE(writer.Write_Qc_Scf_Output("SCF LOG"));
         REQUIRE_TRUE(writer.Write_Mdinfo_Text("OBSERVABLE MDINFO"));
         REQUIRE_TRUE(writer.Write_Legacy_Sidecar_Paths(
-            {"mdout", "qc_scf_output"}, {"legacy.mdout", "qc.log"}));
+            {"mdout", "mdinfo"}, {"legacy.mdout", "mdinfo.log"}));
         REQUIRE_TRUE(
             writer.Write_Provenance_String("launch_id", "observable-launch"));
         REQUIRE_TRUE(writer.Finalize());
@@ -1534,9 +1517,6 @@ static void Test_Observable_Writer_With_Real_Backend()
         REQUIRE_TRUE(file.exist("/parameters"));
         REQUIRE_TRUE(!file.exist("/particles"));
         REQUIRE_TRUE(file.exist(Observable_Value_Path("temperature")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("energy")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("spin_square")));
-        REQUIRE_TRUE(file.exist(Qc_Scf_Output_Path()));
         REQUIRE_TRUE(file.exist(module_path::nhc_coordinate_value));
         REQUIRE_TRUE(file.exist(module_path::nhc_velocity_value));
         REQUIRE_TRUE(file.exist(Sits_Nk_Value_Path("obs_sits")));
@@ -1549,10 +1529,6 @@ static void Test_Observable_Writer_With_Real_Backend()
         REQUIRE_TRUE(file.exist(path::legacy_sidecar_keys));
         REQUIRE_TRUE(file.exist(Sponge_Provenance_Path("launch_id")));
         REQUIRE_EQ(file.getDataSet(Observable_Value_Path("temperature"))
-                       .getSpace()
-                       .getDimensions()[0],
-                   static_cast<std::size_t>(1));
-        REQUIRE_EQ(file.getDataSet(Qc_Observable_Value_Path("spin_square"))
                        .getSpace()
                        .getDimensions()[0],
                    static_cast<std::size_t>(1));
@@ -1597,18 +1573,6 @@ static void Test_Observable_Writer_With_Real_Backend()
         REQUIRE_EQ(
             Read_Float64_Vector(file, Observable_Time_Path("temperature"))[0],
             0.1);
-        REQUIRE_EQ(
-            Read_Int64_Vector(file, Qc_Observable_Step_Path("energy"))[0],
-            static_cast<int64_t>(10));
-        REQUIRE_EQ(
-            Read_Float64_Vector(file, Qc_Observable_Time_Path("energy"))[0],
-            0.1);
-        REQUIRE_EQ(
-            Read_Int64_Vector(file, Qc_Observable_Step_Path("spin_square"))[0],
-            static_cast<int64_t>(10));
-        REQUIRE_EQ(Read_Float64_Vector(
-                       file, Qc_Observable_Time_Path("spin_square"))[0],
-                   0.1);
         REQUIRE_EQ(Read_Int64_Vector(file, module_path::nhc_coordinate_step)[0],
                    static_cast<int64_t>(11));
         REQUIRE_EQ(
@@ -1663,8 +1627,8 @@ static void Test_Observable_Writer_With_Real_Backend()
             Read_String_Vector(file, path::legacy_sidecar_keys);
         const auto legacy_paths =
             Read_String_Vector(file, path::legacy_sidecar_paths);
-        REQUIRE_EQ(legacy_keys[1], std::string("qc_scf_output"));
-        REQUIRE_EQ(legacy_paths[1], std::string("qc.log"));
+        REQUIRE_EQ(legacy_keys[1], std::string("mdinfo"));
+        REQUIRE_EQ(legacy_paths[1], std::string("mdinfo.log"));
         REQUIRE_EQ(Read_String(file, Sponge_Provenance_Path("launch_id")),
                    std::string("observable-launch"));
         REQUIRE_EQ(Read_String(file, path::output_status),
@@ -2130,13 +2094,11 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
         REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("sits_a", 3));
         REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
-        REQUIRE_TRUE(writer.Ensure_Qc_Observables(true));
         REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
         REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic("meta0", "hills",
                                                           "HILLS TEXT"));
-        REQUIRE_TRUE(writer.Write_Qc_Scf_Output("VDS QC SCF"));
         REQUIRE_TRUE(writer.Write_Legacy_Sidecar_Paths(
-            {"myhill", "qc_scf_output"}, {"myhill.dat", "qc_scf.log"}));
+            {"myhill", "mdinfo"}, {"myhill.dat", "mdinfo.log"}));
 
         float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         float position_0[3] = {1, 0, 0};
@@ -2155,8 +2117,6 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(writer.Append_Sits_Nk_Frame(10, 0.1, "sits_a", sits_0, 3));
         REQUIRE_TRUE(
             writer.Append_Metadynamics_Scalar_Frame(10, 0.1, 1.0, 2.0, 3.0));
-        double spin_square_0 = 0.11;
-        REQUIRE_TRUE(writer.Append_Qc_Frame(10, 0.1, -10.0, &spin_square_0));
         REQUIRE_TRUE(writer.Append_Particle_Frame(20, 0.2, position_1, box));
         REQUIRE_TRUE(
             writer.Append_Observable_Frame(20, 0.2, {{"temperature", 301.0}}));
@@ -2165,8 +2125,6 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(writer.Append_Sits_Nk_Frame(20, 0.2, "sits_a", sits_1, 3));
         REQUIRE_TRUE(
             writer.Append_Metadynamics_Scalar_Frame(20, 0.2, 4.0, 5.0, 6.0));
-        double spin_square_1 = 0.22;
-        REQUIRE_TRUE(writer.Append_Qc_Frame(20, 0.2, -20.0, &spin_square_1));
         REQUIRE_TRUE(writer.Append_Reaxff_Frame(
             20, 0.2, {{"bond", 2.5}, {"angle", 4.5}}));
 
@@ -2250,13 +2208,6 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
         REQUIRE_TRUE(file.exist(Metadynamics_Scalar_Time_Path("rct")));
         REQUIRE_TRUE(
             file.exist(Metadynamics_Diagnostic_Path("meta0", "hills")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("energy")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Step_Path("energy")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Time_Path("energy")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Value_Path("spin_square")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Step_Path("spin_square")));
-        REQUIRE_TRUE(file.exist(Qc_Observable_Time_Path("spin_square")));
-        REQUIRE_TRUE(file.exist(Qc_Scf_Output_Path()));
         REQUIRE_TRUE(file.exist(Reaxff_Term_Value_Path("bond")));
         REQUIRE_TRUE(file.exist(Reaxff_Term_Step_Path("bond")));
         REQUIRE_TRUE(file.exist(Reaxff_Term_Time_Path("bond")));
@@ -2406,33 +2357,6 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
             Read_String(file, Metadynamics_Diagnostic_Path("meta0", "hills")),
             std::string("HILLS TEXT"));
 
-        std::vector<double> qc_energy;
-        std::vector<double> qc_spin_square;
-        qc_energy = Read_Flat_Dataset<double>(
-            file.getDataSet(Qc_Observable_Value_Path("energy")));
-        qc_spin_square = Read_Flat_Dataset<double>(
-            file.getDataSet(Qc_Observable_Value_Path("spin_square")));
-        REQUIRE_EQ(qc_energy[0], -10.0);
-        REQUIRE_EQ(qc_energy[1], -20.0);
-        REQUIRE_EQ(qc_spin_square[0], 0.11);
-        REQUIRE_EQ(qc_spin_square[1], 0.22);
-        const auto qc_steps =
-            Read_Int64_Vector(file, Qc_Observable_Step_Path("energy"));
-        const auto qc_times =
-            Read_Float64_Vector(file, Qc_Observable_Time_Path("energy"));
-        REQUIRE_EQ(qc_steps[0], static_cast<int64_t>(10));
-        REQUIRE_EQ(qc_steps[1], static_cast<int64_t>(20));
-        REQUIRE_EQ(qc_times[0], 0.1);
-        REQUIRE_EQ(qc_times[1], 0.2);
-        REQUIRE_EQ(
-            Read_Int64_Vector(file, Qc_Observable_Step_Path("spin_square"))[1],
-            static_cast<int64_t>(20));
-        REQUIRE_EQ(Read_Float64_Vector(
-                       file, Qc_Observable_Time_Path("spin_square"))[1],
-                   0.2);
-        REQUIRE_EQ(Read_String(file, Qc_Scf_Output_Path()),
-                   std::string("VDS QC SCF"));
-
         std::vector<double> reaxff_bond;
         std::vector<double> reaxff_angle;
         reaxff_bond = Read_Flat_Dataset<double>(
@@ -2517,19 +2441,14 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
             std::string("trajectory.spg.shards/segment_000001.spg.h5md"));
         REQUIRE_TRUE(manifest_byte_sizes[0] > 0);
         REQUIRE_TRUE(manifest_byte_sizes[1] > 0);
-        const auto qc_value_paths = Read_String_Vector(
-            file, "/parameters/sponge/output/streams/qc/value_paths");
-        REQUIRE_EQ(qc_value_paths.size(), static_cast<std::size_t>(2));
-        REQUIRE_EQ(qc_value_paths[0], Qc_Observable_Value_Path("energy"));
-        REQUIRE_EQ(qc_value_paths[1], Qc_Observable_Value_Path("spin_square"));
         const auto legacy_keys =
             Read_String_Vector(file, path::legacy_sidecar_keys);
         const auto legacy_paths =
             Read_String_Vector(file, path::legacy_sidecar_paths);
         REQUIRE_EQ(legacy_keys[0], std::string("myhill"));
-        REQUIRE_EQ(legacy_keys[1], std::string("qc_scf_output"));
+        REQUIRE_EQ(legacy_keys[1], std::string("mdinfo"));
         REQUIRE_EQ(legacy_paths[0], std::string("myhill.dat"));
-        REQUIRE_EQ(legacy_paths[1], std::string("qc_scf.log"));
+        REQUIRE_EQ(legacy_paths[1], std::string("mdinfo.log"));
         const auto output_frame_count =
             Read_Int64_Vector(file, path::output_frame_count);
         const auto last_step =

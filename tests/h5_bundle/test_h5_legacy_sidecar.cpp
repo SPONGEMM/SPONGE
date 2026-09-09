@@ -258,9 +258,9 @@ static void Test_Accepts_Relative_Existing_Path_For_Same_Sidecar()
 {
     const auto dir = Unique_Temp_Dir("same_path");
     std::filesystem::create_directories(dir / "legacy_sidecars" /
-                                        "qc_type_in_file");
+                                        "charge_in_file");
     const auto sidecar_path =
-        dir / "legacy_sidecars" / "qc_type_in_file" / "qc_type.txt";
+        dir / "legacy_sidecars" / "charge_in_file" / "charge.txt";
     {
         std::ofstream out(sidecar_path);
         out << "1\n0 H\n";
@@ -271,11 +271,11 @@ static void Test_Accepts_Relative_Existing_Path_For_Same_Sidecar()
     try
     {
         FakeController controller;
-        controller.Set_Command("qc_type_in_file",
-                               "legacy_sidecars/qc_type_in_file/qc_type.txt",
+        controller.Set_Command("charge_in_file",
+                               "legacy_sidecars/charge_in_file/charge.txt",
                                1);
         std::vector<SpongeH5MD::LegacySidecarBinding> sidecars = {
-            {"qc_type_in_file", sidecar_path.string()},
+            {"charge_in_file", sidecar_path.string()},
         };
         std::string error;
 
@@ -283,8 +283,8 @@ static void Test_Accepts_Relative_Existing_Path_For_Same_Sidecar()
             &controller, sidecars,
             SpongeH5MD::H5_Topology_Sidecar_Command_Keys(), "topology",
             &error));
-        REQUIRE_EQ(std::string(controller.Command("qc_type_in_file")),
-                   std::string("legacy_sidecars/qc_type_in_file/qc_type.txt"));
+        REQUIRE_EQ(std::string(controller.Command("charge_in_file")),
+                   std::string("legacy_sidecars/charge_in_file/charge.txt"));
     }
     catch (...)
     {

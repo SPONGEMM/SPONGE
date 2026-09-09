@@ -28,7 +28,7 @@ pixi run -e dev-cpu ctest --test-dir build-h5-tests --output-on-failure
 | `test_output_route_helpers` | H5 output routing helper contracts: mdout name sanitization/global uniqueness, numeric parsing, ReaxFF key recognition, output key lookup, and optional text sidecar reads. |
 | `test_h5md_writers_with_mock_backend` | Public H5MD/restart/VDS path constants including SPONGE parameter roots/leaves, `H5MDWriter` common roots/schema/output metadata, trajectory writer dataset type/shape contracts, observable-only writer dataset type/shape contracts, observable-only module proxy paths, restart writer dataset type/shape contracts, optional particle-field disabled branches, failure status, restart module state, restart metad text components, legacy sidecar provenance. |
 | `test_completion_tracker` | Output completion state machine and manifest validator behavior. |
-| `test_module_h5_mappings_with_mock_backend` | NHC, SITS, metadynamics, QC, ReaxFF path constants, H5 mapping paths, module dataset type/shape/chunk contracts, and module-level error behavior. |
+| `test_module_h5_mappings_with_mock_backend` | NHC, SITS, metadynamics, ReaxFF path constants, H5 mapping paths, module dataset type/shape/chunk contracts, and module-level error behavior. |
 | `test_vds_trajectory_writer_with_mock_backend` | VDS wrapper/shard rotation, manifest counters, particle/observable/module VDS source mapping, optional particle-field disabled branches, repair metadata, repair finalize behavior, wrapper diagnostics/provenance. |
 | `test_highfive_backend_io` | Real HighFive/HDF5 backend behavior: backend factory, nested output paths, groups, datasets, appends, repeated dataset definitions, string-array metadata overwrite, hard links and repeated hard-link calls, element-level step/time paths, optional particle-field disabled branches, observable-only layout, invalid operations, restart single-frame state, zero-frame VDS finalize, complete-prefix VDS repair, and HDF5 VDS readback. |
 
@@ -81,11 +81,11 @@ pixi run -e dev-cpu ctest --test-dir build-h5-tests --output-on-failure
 | Restart SITS dynamic state components | `test_h5md_writers_with_mock_backend`, `test_highfive_backend_io` |
 | Restart SITS/metad dynamic state path builders | `test_h5md_writers_with_mock_backend`, `test_highfive_backend_io` |
 | Restart metad hills/history/edge/potential/direct text components | `test_h5md_writers_with_mock_backend`, `test_highfive_backend_io` |
-| NHC/SITS/metad/QC/ReaxFF path constants and observable mapping | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend`, `test_highfive_backend_io` |
+| NHC/SITS/metad/ReaxFF path constants and observable mapping | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend`, `test_highfive_backend_io` |
 | NHC coordinate/velocity and SITS module dynamic root path builders | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend` |
 | Generic module scalar observable value/step/time leaf path builders | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend` |
-| Metadynamics/QC/ReaxFF dynamic leaf path builders | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend`, `test_highfive_backend_io` |
-| NHC/SITS/metad/QC/ReaxFF module dataset type/shape/chunk contracts | `test_module_h5_mappings_with_mock_backend` |
+| Metadynamics/ReaxFF dynamic leaf path builders | `test_module_h5_mappings_with_mock_backend`, `test_vds_trajectory_writer_with_mock_backend`, `test_highfive_backend_io` |
+| NHC/SITS/metad/ReaxFF module dataset type/shape/chunk contracts | `test_module_h5_mappings_with_mock_backend` |
 | Writer failure marks output failed | `test_h5md_writers_with_mock_backend`, `test_completion_tracker` |
 | VDS shard rotation and manifest ranges | `test_vds_trajectory_writer_with_mock_backend` |
 | VDS zero-frame finalize behavior | `test_vds_trajectory_writer_with_mock_backend`, `test_highfive_backend_io` |
@@ -206,9 +206,7 @@ checking:
 
 - `/particles` is absent;
 - ordinary observable datasets exist and have the expected frame count;
-- QC module observable datasets exist;
-- NHC, SITS, metadynamics, QC, and ReaxFF observable `step/time` paths are readable;
-- QC SCF log is stored under `/parameters/sponge/qc`;
+- NHC, SITS, metadynamics, and ReaxFF observable `step/time` paths are readable;
 - mdinfo, legacy sidecar provenance, and launch provenance are stored under `/parameters/sponge`.
 
 ## Path-constant contract coverage
@@ -236,7 +234,7 @@ Covered groups include:
 - VDS shard manifest paths;
 - particle element `value/step/time` paths;
 - restart state and restart extension paths;
-- module paths for NHC, SITS, metadynamics, QC, and ReaxFF;
+- module paths for NHC, SITS, metadynamics, and ReaxFF;
 - SITS dynamic `nk` path builders.
 
 ## Build-only aggregate target
@@ -259,7 +257,6 @@ reads module-specific virtual datasets from the wrapper:
 - NHC coordinate stream;
 - SITS `nk` stream;
 - metadynamics `meta` stream;
-- QC energy stream;
 - ReaxFF energy term stream.
 
 This complements the mock-backend VDS tests by checking that module VDS datasets

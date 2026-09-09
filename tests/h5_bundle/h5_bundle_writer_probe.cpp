@@ -44,21 +44,19 @@ SpongeH5OutputPlan::ResolvedOutputPlan Make_Plan(
 }
 
 template <typename Writer>
-bool Define_Streams(Writer& writer, bool include_qc)
+bool Define_Streams(Writer& writer)
 {
     return Require(writer.Define_Particle_Datasets(1, false, false), writer,
                    "define particles") &&
            Require(writer.Define_Observable_Stream({"temperature"}, {"TEMP"}),
                    writer, "define observables") &&
            Require(writer.Ensure_Metadynamics_Scalars(), writer,
-                   "define metadynamics") &&
-           (!include_qc ||
-            Require(writer.Ensure_Qc_Observables(false), writer, "define qc"));
+                   "define metadynamics");
 }
 
 template <typename Writer>
 bool Append_Frame(Writer& writer, int64_t step, double time, float position_x,
-                  double temperature, bool include_qc)
+                  double temperature)
 {
     float position[3] = {position_x, 0.0f, 0.0f};
     float box[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
@@ -70,10 +68,7 @@ bool Append_Frame(Writer& writer, int64_t step, double time, float position_x,
            Require(
                writer.Append_Metadynamics_Scalar_Frame(
                    step, time, position_x, position_x + 1.0, position_x + 2.0),
-               writer, "append metadynamics") &&
-           (!include_qc ||
-            Require(writer.Append_Qc_Frame(step, time, -temperature, nullptr),
-                    writer, "append qc"));
+               writer, "append metadynamics");
 }
 
 bool Write_Single(const std::filesystem::path& prefix, bool live)
@@ -84,9 +79,9 @@ bool Write_Single(const std::filesystem::path& prefix, bool live)
     if (!Require(writer.Open_Single_File(plan, SpongeH5MD::kOutputSchemaVersion,
                                          kBundleId, "single"),
                  writer, "open single file") ||
-        !Define_Streams(writer, true) ||
+        !Define_Streams(writer) ||
         !Require(writer.Start_Swmr_Write(), writer, "start SWMR") ||
-        !Append_Frame(writer, 10, 0.1, 1.0f, 300.0, true) ||
+        !Append_Frame(writer, 10, 0.1, 1.0f, 300.0) ||
         !Require(writer.Publish(), writer, "publish first frame"))
     {
         return false;
@@ -112,7 +107,7 @@ bool Write_Single(const std::filesystem::path& prefix, bool live)
         }
     }
 
-    return Append_Frame(writer, 20, 0.2, 2.0f, 301.0, true) &&
+    return Append_Frame(writer, 20, 0.2, 2.0f, 301.0) &&
            Require(writer.Finalize(), writer, "finalize single file") &&
            Require(writer.Close(), writer, "close single file");
 }
@@ -125,9 +120,9 @@ bool Write_Vds(const std::filesystem::path& prefix)
     return Require(
                writer.Open(plan, SpongeH5MD::kOutputSchemaVersion, kBundleId),
                writer, "open VDS") &&
-           Define_Streams(writer, false) &&
-           Append_Frame(writer, 10, 0.1, 1.0f, 300.0, false) &&
-           Append_Frame(writer, 20, 0.2, 2.0f, 301.0, false) &&
+           Define_Streams(writer) &&
+           Append_Frame(writer, 10, 0.1, 1.0f, 300.0) &&
+           Append_Frame(writer, 20, 0.2, 2.0f, 301.0) &&
            Require(writer.Finalize(), writer, "finalize VDS");
 }
 }  // namespace

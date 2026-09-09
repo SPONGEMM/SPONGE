@@ -1,26 +1,9 @@
 version: 7
 platforms:
 - name: linux-64
-  virtual-packages:
-  - __unix=0=0
-  - __linux=4.18
-  - __glibc=2.28
-  - __archspec=0=x86_64
 - name: linux-aarch64
-  virtual-packages:
-  - __unix=0=0
-  - __linux=4.18
-  - __glibc=2.28
-  - __archspec=0=aarch64
 - name: osx-arm64
-  virtual-packages:
-  - __unix=0=0
-  - __osx=13.0
-  - __archspec=0=m1
 - name: win-64
-  virtual-packages:
-  - __win=10.0
-  - __archspec=0=x86_64
 environments:
   cpu:
     channels:
@@ -4102,8 +4085,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       - pypi: https://files.pythonhosted.org/packages/37/4a/4a11bb95a216e67aab9e503b5695f8e34f02e2aa3700339b9b111ff55c27/Xponge-1.4.4.tar.gz
       - pypi: https://files.pythonhosted.org/packages/3e/9b/9b55b4d4855743de61ba91566d03b2560285ed8fc0387b9cf914795d4abf/ase-3.27.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/8b/12/48c9b68186f8dc12e4220821ae4d3079844d657141b68f6ed7c426c134aa/pyscf-2.12.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-      - pypi: https://files.pythonhosted.org/packages/d9/69/4402ea66272dacc10b298cca18ed73e1c0791ff2ae9ed218d3859f9698ac/h5py-3.15.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       linux-aarch64:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/_openmp_mutex-4.5-20_gnu.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/bzip2-1.0.8-h4777abc_9.conda
@@ -18568,34 +18549,6 @@ packages:
   - skia-pathops>=0.5.0 ; extra == 'all'
   - uharfbuzz>=0.45.0 ; extra == 'all'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/8b/12/48c9b68186f8dc12e4220821ae4d3079844d657141b68f6ed7c426c134aa/pyscf-2.12.1-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-  name: pyscf
-  version: 2.12.1
-  sha256: 025a98c21a9014f1efae21a11f0f80ce14b9a2232cf2d3d934d83691b97b999f
-  requires_dist:
-  - numpy>=1.13,!=1.16,!=1.17
-  - scipy>=1.6.0
-  - h5py>=2.7
-  - setuptools
-  - pyscf-forge ; extra == 'forge'
-  - pyberny>=0.6.2 ; extra == 'geomopt'
-  - geometric>=0.9.7.2 ; extra == 'geomopt'
-  - pyscf-qsdopt ; extra == 'geomopt'
-  - pyscf-doci ; extra == 'doci'
-  - pyscf-properties ; extra == 'properties'
-  - pyscf-semiempirical ; extra == 'semiempirical'
-  - cppe ; extra == 'cppe'
-  - pyqmc ; extra == 'pyqmc'
-  - basis-set-exchange ; extra == 'bse'
-  - pyscf-dispersion ; extra == 'dispersion'
-  - coupled-cluster-py ; extra == 'ccpy'
-  - pyscf[bse,ccpy,cppe,dispersion,doci,forge,geomopt,properties,pyqmc,semiempirical] ; extra == 'all'
-  - pyscf-cornell-shci ; extra == 'cornell-shci'
-  - pyscf-nao ; extra == 'nao'
-  - pyscf-fciqmc ; extra == 'fciqmcscf'
-  - pyscf-tblis ; extra == 'tblis'
-  - pyscf-icmpspt ; extra == 'icmpspt'
-  - pyscf-shciscf ; extra == 'shciscf'
 - pypi: https://files.pythonhosted.org/packages/8e/6d/41991e503e51fc1134502694c5fa7a1671501a17ffa12716a4a9151af3df/scipy-1.15.3-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
   name: scipy
   version: 1.15.3
@@ -19152,13 +19105,6 @@ packages:
   - ruff>=0.12.0 ; extra == 'dev'
   - cython-lint>=0.12.2 ; extra == 'dev'
   requires_python: '>=3.12'
-- pypi: https://files.pythonhosted.org/packages/d9/69/4402ea66272dacc10b298cca18ed73e1c0791ff2ae9ed218d3859f9698ac/h5py-3.15.1-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
-  name: h5py
-  version: 3.15.1
-  sha256: 121b2b7a4c1915d63737483b7bff14ef253020f617c2fb2811f67a4bed9ac5e8
-  requires_dist:
-  - numpy>=1.21.2
-  requires_python: '>=3.10'
 - pypi: https://files.pythonhosted.org/packages/dd/87/64cfa18a7a1621d17b7f4502b2b0ed8a135a90c3db51ea590ee99043e76b/fonttools-4.63.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl
   name: fonttools
   version: 4.63.0

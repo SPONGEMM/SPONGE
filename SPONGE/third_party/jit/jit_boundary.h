@@ -12,14 +12,6 @@ struct Boundary
     LTMatrix3 rcell;
 };
 
-__host__ __device__ __forceinline__ Boundary
-Scale_Boundary(Boundary boundary, float coordinate_scale)
-{
-    boundary.cell = coordinate_scale * boundary.cell;
-    boundary.rcell = (1.0f / coordinate_scale) * boundary.rcell;
-    return boundary;
-}
-
 template <BoundaryPolicy policy>
 __host__ __device__ __forceinline__ VECTOR
 Get_Displacement(VECTOR a, VECTOR b, const Boundary& boundary)

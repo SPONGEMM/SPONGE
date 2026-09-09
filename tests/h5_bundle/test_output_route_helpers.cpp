@@ -85,9 +85,9 @@ static void Test_Reaxff_Output_Key_Recognition()
 
 static void Test_Output_Key_Exists()
 {
-    const std::vector<std::string> keys = {"TEMP", "QC", "REAXFF_BOND"};
+    const std::vector<std::string> keys = {"TEMP", "LJ", "REAXFF_BOND"};
     REQUIRE_TRUE(Output_Key_Exists(keys, "TEMP"));
-    REQUIRE_TRUE(Output_Key_Exists(keys, "QC"));
+    REQUIRE_TRUE(Output_Key_Exists(keys, "LJ"));
     REQUIRE_TRUE(!Output_Key_Exists(keys, "PRESS"));
     REQUIRE_TRUE(!Output_Key_Exists(keys, nullptr));
     REQUIRE_TRUE(!Output_Key_Exists({}, "TEMP"));

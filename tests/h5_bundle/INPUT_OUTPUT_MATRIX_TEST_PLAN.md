@@ -159,7 +159,7 @@ ctest --test-dir build-h5-tests \
      enough.
    - For bundled output, keep explicit `mdout` and `mdinfo` files for
      comparison but do not retain default legacy trajectory or restart sidecar
-     outputs such as `crd`, `box`, `vel`, `frc`, `rst`, or `qc_scf_output`.
+     outputs such as `crd`, `box`, `vel`, `frc`, or `rst`.
    - Run:
 
 ```bash
@@ -238,7 +238,7 @@ Required fixture groups:
   - Broad rerun-mode case generated from a legacy sample that exercises the
     complete converter contract.
   - Must include topology, restart, rerun trajectory, protocol state, protocol
-    sidecars, SITS, metadynamics, custom pairwise/listed force payloads, QC, and
+    sidecars, SITS, metadynamics, custom pairwise/listed force payloads, and
     ReaxFF coverage where supported by the converter.
   - Must include both sidecar-preserving and sidecar-stripped bundled input
     forms.
@@ -256,8 +256,8 @@ Required cross-family equivalence checks:
   basename and expected fixture layout, not by requiring the original absolute
   generation path to still exist.
 - Typed native datasets that replace legacy text files must be checked against
-  legacy semantics, not only against H5 presence. For example, `qc_type.txt`
-  and `/qc/type` must encode the same type count, atom type ids, and symbols.
+  legacy semantics, not only against H5 presence. For example, `mass.txt`
+  and `/atoms/mass` must encode the same atom count and masses.
 
 The input file groups should be constructed as follows:
 
@@ -686,7 +686,7 @@ Required coverage buckets:
 - SITS state and sidecars.
 - Metadynamics state and sidecars.
 - Custom pairwise/listed force payloads.
-- QC/ReaxFF sidecars.
+- ReaxFF sidecars.
 - Rerun trajectory input.
 - Legacy sidecar key/path tables.
 - Bundled output trajectory/restart/observable paths.
@@ -720,13 +720,11 @@ Recommended order:
 
 1. Topology core terms: mass, charge, LJ, bonds, angles, dihedrals, NB14,
    exclusions.
-2. QC type mapping, including legacy `qc_type.txt` override behavior and
-   `/qc/type` semantic equivalence.
-3. Custom pairwise/listed force payloads.
-4. Enhanced sampling and protocol sidecars: CV, restraints, SITS,
+2. Custom pairwise/listed force payloads.
+3. Enhanced sampling and protocol sidecars: CV, restraints, SITS,
    metadynamics, steering, soft walls.
-5. Many-body and specialized force fields: EAM, SW, EDIP, TERSOFF, ReaxFF.
-6. Dynamic/protocol restart state such as Nose-Hoover chain, hills, and
+4. Many-body and specialized force fields: EAM, SW, EDIP, TERSOFF, ReaxFF.
+5. Dynamic/protocol restart state such as Nose-Hoover chain, hills, and
    restart-embedded sidecar text.
    The current runtime closure target is
    `test_h5_restart_load_runtime_closure.cpp`, which covers supported dynamic

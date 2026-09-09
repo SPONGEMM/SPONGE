@@ -33,7 +33,7 @@ Rerun 的新帧元数据通过原有 Main_Box_Change 路径应用。不重写 I/
 
 主计算入口用 const Boundary& 引用持有者；盒子更新后，后续调用自然读取新值。
 CPU/CUDA/HIP kernel 按值接收调用时的参数，不能把主机引用作为设备指针；
-模块不跨步缓存边界副本。QC 的 Scale_Boundary 仅生成长度单位换算的局部值，不反写模拟盒子。
+模块不跨步缓存边界副本。
 
 ## 位移、映射和网格索引
 
@@ -88,7 +88,6 @@ MPI 按原有同步调度在各 rank 更新盒子，不引入跨进程 boundary 
 | SITS | 选择性周期分量传 Boundary；PR2 允许全体系 NOPBC |
 | custom_force/listed_forces、pairwise_force | JIT ABI 同步迁移；pairwise 仍依赖周期近邻表 |
 | manybody/SW、EDIP、EAM、Tersoff、reaxff 子模块 | 固定 Periodic 位移，Open 明确拒绝 |
-| quantum_chemistry/scf/pre_scf、gradient/grad_nuclear | 实际策略及局部单位换算 |
 | plugin | API v2 无边界约定，NOPBC 拒绝；不升级 ABI |
 | NO_PBC/LJ、Coulomb、generalized_Born | 保留直接笛卡尔计算和专用后端 |
 | barostat | 仍仅 PBC；几何和 MC 逆缩放修复在 PR4 |
