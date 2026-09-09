@@ -83,9 +83,8 @@ void Write_Metadata_Files(const std::filesystem::path& topology_path,
                      std::string("h2_atoms"));
         Write_Scalar(file, "/topology/topology_hash", std::string("h2_top"));
         Write_Scalar(file, "/topology/forcefield_hash", std::string("h2_ff"));
-        Write_String_Vector(
-            file, SpongeH5MD::path::legacy_sidecar_keys,
-            {"mass_in_file", "charge_in_file"});
+        Write_String_Vector(file, SpongeH5MD::path::legacy_sidecar_keys,
+                            {"mass_in_file", "charge_in_file"});
         Write_String_Vector(file, SpongeH5MD::path::legacy_sidecar_paths,
                             {mass.string(), charge.string()});
     }

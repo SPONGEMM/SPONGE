@@ -392,12 +392,11 @@ void Require_Rerun_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"temperature",           "LJ_short",      "LJ_long",
-         "LJ",          "LJ_soft",     "LJ_soft_short", "LJ_soft_long",
-         "PM",          "custom_pair", "nb14_LJ",       "nb14_EE",
-         "bond",        "angle",       "urey_bradley",  "dihedral",
-         "custom_bond", "SW",          "EAM",           "restrain",
-         "z_wall",      "distance"});
+        {"temperature",   "LJ_short",     "LJ_long", "LJ",           "LJ_soft",
+         "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",  "nb14_LJ",
+         "nb14_EE",       "bond",         "angle",   "urey_bradley", "dihedral",
+         "custom_bond",   "SW",           "EAM",     "restrain",     "z_wall",
+         "distance"});
 }
 
 void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
@@ -405,12 +404,11 @@ void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"frame",        "temperature",           "LJ_short",
-         "LJ_long",      "LJ",          "LJ_soft",     "LJ_soft_short",
-         "LJ_soft_long", "PM",          "custom_pair", "nb14_LJ",
-         "nb14_EE",      "bond",        "angle",       "urey_bradley",
-         "dihedral",     "custom_bond", "SW",          "EAM",
-         "z_wall",       "distance"});
+        {"frame",    "temperature",   "LJ_short",     "LJ_long", "LJ",
+         "LJ_soft",  "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",
+         "nb14_LJ",  "nb14_EE",       "bond",         "angle",   "urey_bradley",
+         "dihedral", "custom_bond",   "SW",           "EAM",     "z_wall",
+         "distance"});
 }
 
 void Require_Pure_Bundled_Rerun_Mdout_Core_Equivalent(
@@ -1881,13 +1879,12 @@ void Validate_Runtime_Smoke_Preparation()
         {
             const auto mdin = Read_Text(prepared.mdin);
             for (const auto& key :
-                 {"mass_in_file", "charge_in_file",
-                  "cv_in_file", "restrain_in_file", "SITS_in_file"})
+                 {"mass_in_file", "charge_in_file", "cv_in_file",
+                  "restrain_in_file", "SITS_in_file"})
             {
                 REQUIRE_TRUE(!Has_Key_Line(mdin, key));
             }
-            for (const auto& key :
-                 {"mass_in_file", "charge_in_file"})
+            for (const auto& key : {"mass_in_file", "charge_in_file"})
             {
                 const auto sidecar_path = Legacy_Sidecar_Path_For_Key(
                     prepared.root / "topology.spgt.h5", key);

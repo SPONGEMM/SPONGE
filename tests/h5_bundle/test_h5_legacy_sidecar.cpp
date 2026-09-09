@@ -272,8 +272,7 @@ static void Test_Accepts_Relative_Existing_Path_For_Same_Sidecar()
     {
         FakeController controller;
         controller.Set_Command("charge_in_file",
-                               "legacy_sidecars/charge_in_file/charge.txt",
-                               1);
+                               "legacy_sidecars/charge_in_file/charge.txt", 1);
         std::vector<SpongeH5MD::LegacySidecarBinding> sidecars = {
             {"charge_in_file", sidecar_path.string()},
         };

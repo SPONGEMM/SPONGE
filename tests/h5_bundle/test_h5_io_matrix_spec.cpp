@@ -841,8 +841,7 @@ void Test_Bundled_With_Sidecar_Fixtures_Carry_Sidecar_Tables()
         {
             REQUIRE_TRUE(
                 Sidecar_Key_Set(source / "topology.spgt.h5") ==
-                std::set<std::string>(
-                    {"mass_in_file", "charge_in_file"}));
+                std::set<std::string>({"mass_in_file", "charge_in_file"}));
             REQUIRE_TRUE(
                 Sidecar_Key_Set(source / "protocol.spgp.h5") ==
                 std::set<std::string>(

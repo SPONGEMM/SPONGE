@@ -649,7 +649,8 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
         CONTROLLER controller;
         controller.Set(SpongeH5OutputContract::kObservablePathKey,
                        "analysis.obs.spg.h5md");
-        for (std::size_t i = 0; i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
+        for (std::size_t i = 0;
+             i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
         {
             controller.Set(legacy_keys[i], legacy_paths[i]);
         }
@@ -658,7 +659,8 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
             SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(&controller);
         REQUIRE_TRUE(!legacy.default_enabled);
         REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(7));
-        for (std::size_t i = 0; i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
+        for (std::size_t i = 0;
+             i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
         {
             REQUIRE_TRUE(legacy.Enabled(legacy_keys[i]));
             REQUIRE_TRUE(legacy.Explicitly_Requested(legacy_keys[i]));

@@ -84,13 +84,13 @@ def test_real_registry_and_case_matrix_are_symmetric():
     assert summary["contract_count"] == len(contracts)
     assert summary["status_counts"] == {
         "deferred": 0,
-        "supported": 96,
+        "supported": 91,
         "unsupported": 1,
     }
     assert summary["evidence_class_counts"] == {
         "inventory": 1,
         "conversion": 0,
-        "runtime_behavior": 77,
+        "runtime_behavior": 72,
         "continuation": 14,
         "failure_semantics": 5,
     }
@@ -248,14 +248,14 @@ def test_evidence_report_merges_cases_and_recomputes_coverage(tmp_path):
     assert set(report["cases"]) == {case.name for case in cases}
     assert report["registry_summary"]["status_counts"] == {
         "deferred": 0,
-        "supported": 96,
+        "supported": 91,
         "unsupported": 1,
     }
     coverage = report["coverage"]
     assert coverage["covered_supported_contract_count"] > 0
     assert coverage["missing_supported_contracts"]
     assert 0.0 < coverage["supported_coverage_fraction"] < 1.0
-    assert coverage["status_coverage"]["supported"]["contract_count"] == 96
+    assert coverage["status_coverage"]["supported"]["contract_count"] == 91
     assert coverage["status_coverage"]["deferred"]["contract_count"] == 0
     assert coverage["status_coverage"]["unsupported"]["contract_count"] == 1
     assert set(coverage["evidence_class_coverage"]) == {
@@ -333,13 +333,13 @@ def test_complete_report_requires_and_accepts_every_supported_contract(
         for payload in coverage["evidence_class_coverage"].values()
     )
     assert coverage["status_coverage"]["supported"] == {
-        "contract_count": 96,
+        "contract_count": 91,
         "contract_ids": sorted(
             contract_id
             for contract_id, contract in contracts.items()
             if contract.status == "supported"
         ),
-        "evidenced_contract_count": 96,
+        "evidenced_contract_count": 91,
         "evidenced_contracts": sorted(
             contract_id
             for contract_id, contract in contracts.items()
