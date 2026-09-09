@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <highfive/highfive.hpp>
 #include <memory>
 #include <numeric>
@@ -1225,6 +1226,19 @@ class TopologyNativeH5Reader
             return Fail(
                 "native virtual atom record arity does not match its "
                 "type");
+        }
+        for (float parameter : record.parameter)
+        {
+            std::uint32_t bits = 0;
+            static_assert(sizeof(bits) == sizeof(parameter),
+                          "float must be 32 bit");
+            std::memcpy(&bits, &parameter, sizeof(bits));
+            if ((bits & 0x7f800000u) == 0x7f800000u)
+            {
+                return Fail(
+                    "native virtual atom record contains a non-finite "
+                    "parameter");
+            }
         }
         return true;
     }
