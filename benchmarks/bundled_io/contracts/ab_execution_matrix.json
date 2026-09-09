@@ -19,7 +19,7 @@
     "feature_family": [
       "core",
       "manybody",
-      "qc",
+
       "sits",
       "metadynamics",
       "positional_restraint",
@@ -47,7 +47,6 @@
     {"constraint": "SHAKE", "ensemble": "nvt"},
     {"constraint": "SETTLE", "ensemble": "npt"},
     {"backend": "cpu", "mpi_ranks": 1, "feature_family": "manybody"},
-    {"backend": "cpu", "mpi_ranks": 1, "feature_family": "qc"},
     {"backend": "cpu", "mpi_ranks": 1, "feature_family": "sits"},
     {"backend": "cpu", "mpi_ranks": 1, "feature_family": "metadynamics"},
     {"backend": "cpu", "mpi_ranks": 1, "feature_family": "positional_restraint"},
@@ -61,7 +60,6 @@
     {"backend": "cpu", "mpi_ranks": 2, "feature_family": "constraint"},
     {"backend": "cpu", "feature_family": "sits", "vds": true},
     {"backend": "gpu", "mpi_ranks": 1, "feature_family": "manybody"},
-    {"backend": "gpu", "mpi_ranks": 1, "feature_family": "qc"},
     {"backend": "gpu", "mpi_ranks": 1, "feature_family": "sits"},
     {"backend": "gpu", "mpi_ranks": 1, "feature_family": "metadynamics"},
     {"backend": "gpu", "mpi_ranks": 1, "feature_family": "positional_restraint"},
@@ -326,9 +324,10 @@
       "case_ids": ["feature_reaxff_cpu_omp1_rank1", "normal_reaxff_payload_sensitivity"],
       "reason": ""
     },
+
     {
-      "scenario_id": "feature_qc_cpu_omp1_rank1",
-      "feature_family": "qc",
+      "scenario_id": "feature_core_rerun_cpu_omp1_rank1",
+      "feature_family": "core",
       "vds": false,
       "ensemble": "rerun",
       "thermostat": "none",
@@ -341,7 +340,7 @@
       "comparison": "deterministic",
       "tier": "medium",
       "status": "executable",
-      "case_ids": ["feature_qc_cpu_omp1_rank1", "rerun_qc_type_typed_unrestricted_vds_off"],
+      "case_ids": ["feature_core_rerun_cpu_omp1_rank1", "normal_core_topology_payload_sensitivity"],
       "reason": ""
     },
     {
@@ -560,14 +559,15 @@
       "comparison": "deterministic", "tier": "production", "status": "executable",
       "case_ids": ["feature_reaxff_gpu_omp1_rank1", "normal_reaxff_payload_sensitivity"], "reason": ""
     },
+
     {
-      "scenario_id": "feature_qc_gpu_omp1_rank1",
-      "feature_family": "qc", "vds": false,
+      "scenario_id": "feature_core_rerun_gpu_omp1_rank1",
+      "feature_family": "core", "vds": false,
       "ensemble": "rerun", "thermostat": "none", "barostat": "none",
       "box_geometry": "orthogonal", "constraint": "unconstrained",
       "backend": "gpu", "omp_threads": 1, "mpi_ranks": 1,
       "comparison": "deterministic", "tier": "production", "status": "executable",
-      "case_ids": ["feature_qc_gpu_omp1_rank1", "rerun_qc_type_typed_unrestricted_vds_off"], "reason": ""
+      "case_ids": ["feature_core_rerun_gpu_omp1_rank1", "normal_core_topology_payload_sensitivity"], "reason": ""
     },
     {
       "scenario_id": "feature_sits_gpu_omp1_rank1_vds",

@@ -16,7 +16,7 @@ description: >
 ## 先判断 benchmark 属于哪一类
 
 - `comparison`
-  用于和外部程序对比结果，例如 AMBER、GROMACS、LAMMPS、PySCF。
+  用于和外部程序对比结果，例如 AMBER、GROMACS、LAMMPS。
 - `validation`
   用于验证 SPONGE 自身功能正确性、物理合理性、回归稳定性。
 - `performance`

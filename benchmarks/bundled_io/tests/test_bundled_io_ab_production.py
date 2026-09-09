@@ -197,7 +197,6 @@ FULL_CONTRACT_INPUT_REQUIRED_PATHS = {
         "/manybody/tersoff/atom_type",
         "/manybody/reaxff/parameters",
         "/manybody/reaxff/type",
-        "/qc/type",
     },
     "protocol.spgp.h5": {
         "/cv/config/section/name",
@@ -574,9 +573,6 @@ RERUN_INPUT_SEMANTIC_SPECS = (
         "input.protocol.cv_restraint.sidecar", ("restrain_cv",), 1.0e-6
     ),
     InputSemanticSpec("input.protocol.cv", ("distance",), 1.0e-6),
-    InputSemanticSpec("input.qc.energy", ("QC",), 1.0e-6),
-    InputSemanticSpec("input.qc.spin_square", ("QC_S_sq",), 1.0e-4),
-    InputSemanticSpec("input.qc.type", ("QC", "QC_S_sq"), 1.0e-4),
 )
 
 
@@ -1867,7 +1863,6 @@ def _cases_for_profile() -> list[AbCase]:
                 "input.protocol.soft_wall",
                 "input.protocol.cv_restraint",
                 "input.protocol.cv",
-                "input.qc.energy",
             ),
             assertion_ids=(
                 "full_contract_input_inventory",
@@ -1905,7 +1900,6 @@ def _cases_for_profile() -> list[AbCase]:
                 "input.protocol.soft_wall",
                 "input.protocol.cv_restraint",
                 "input.protocol.cv",
-                "input.qc.energy",
             ),
             assertion_ids=(
                 "full_contract_input_inventory",
@@ -1943,7 +1937,6 @@ def _cases_for_profile() -> list[AbCase]:
                 "input.protocol.soft_wall.sidecar",
                 "input.protocol.cv_restraint.sidecar",
                 "input.protocol.cv",
-                "input.qc.energy",
             ),
             assertion_ids=(
                 "full_contract_input_inventory",
@@ -1981,80 +1974,11 @@ def _cases_for_profile() -> list[AbCase]:
                 "input.protocol.soft_wall.sidecar",
                 "input.protocol.cv_restraint.sidecar",
                 "input.protocol.cv",
-                "input.qc.energy",
             ),
             assertion_ids=(
                 "full_contract_input_inventory",
                 "mdout_deterministic_equivalence",
                 "h5_rerun_semantic_equivalence",
-                "input_semantic_equivalence",
-            ),
-        ),
-        AbCase(
-            name="rerun_qc_unrestricted_sidecar_vds_off",
-            fixture_case="full_contract_rerun",
-            legacy_subdir="legacy_input",
-            bundled_subdir="bundled_input_with_legacy_sidecar/bundle",
-            mode="rerun",
-            vds=False,
-            statistical_md=False,
-            restart_load_policy="structural",
-            contract_ids=(
-                "output.legacy.mdout",
-                "output.legacy.qc_scf_output",
-                "input.qc.spin_square",
-                "input.qc.scf_text",
-            ),
-            assertion_ids=(
-                "mdout_deterministic_equivalence",
-                "h5_rerun_semantic_equivalence",
-                "qc_scf_exact_equivalence",
-                "input_semantic_equivalence",
-            ),
-        ),
-        AbCase(
-            name="rerun_qc_unrestricted_sidecar_vds_on",
-            fixture_case="full_contract_rerun",
-            legacy_subdir="legacy_input",
-            bundled_subdir="bundled_input_with_legacy_sidecar/bundle",
-            mode="rerun",
-            vds=True,
-            statistical_md=False,
-            restart_load_policy="structural",
-            contract_ids=(
-                "output.legacy.mdout",
-                "output.legacy.qc_scf_output",
-                "input.qc.spin_square",
-                "input.qc.scf_text",
-            ),
-            assertion_ids=(
-                "mdout_deterministic_equivalence",
-                "h5_rerun_semantic_equivalence",
-                "qc_scf_exact_equivalence",
-                "input_semantic_equivalence",
-            ),
-        ),
-        AbCase(
-            name="rerun_qc_type_typed_unrestricted_vds_off",
-            fixture_case="full_contract_rerun",
-            legacy_subdir="legacy_input",
-            bundled_subdir="bundled_input_with_legacy_sidecar/bundle",
-            mode="rerun",
-            vds=False,
-            statistical_md=False,
-            restart_load_policy="structural",
-            contract_ids=(
-                "output.legacy.mdout",
-                "output.legacy.qc_scf_output",
-                "input.qc.spin_square",
-                "input.qc.scf_text",
-                "input.qc.type",
-                "input.qc.energy",
-            ),
-            assertion_ids=(
-                "mdout_deterministic_equivalence",
-                "h5_rerun_semantic_equivalence",
-                "qc_scf_exact_equivalence",
                 "input_semantic_equivalence",
             ),
         ),
@@ -7073,10 +6997,6 @@ def _prepare_case_pair(
 
     legacy_dir = _copy_case(case, "legacy", case.legacy_subdir, case_root)
     bundled_dir = _copy_case(case, "bundled", case.bundled_subdir, case_root)
-    if "input.qc.spin_square" in case.contract_ids:
-        _prepare_unrestricted_qc_inputs(legacy_dir, bundled_dir)
-    if "input.qc.type" in case.contract_ids:
-        _prepare_pure_typed_qc_input(bundled_dir)
     _prepare_full_contract_nb14_owner(case, bundled_dir)
     _prepare_full_contract_eam_owner(case, bundled_dir)
     _prepare_full_contract_positional_restraint_owner(case, bundled_dir)
@@ -7298,153 +7218,6 @@ def _prepare_full_contract_cv_restraint_owner(
             )
         del protocol["/restraint/cv"]
         del protocol["/restraint/config"]
-
-
-def _prepare_unrestricted_qc_inputs(
-    legacy_dir: Path,
-    bundled_dir: Path,
-) -> None:
-    qc_type_paths = [legacy_dir / "qc_type.txt"]
-    bundled_qc_sidecar = (
-        bundled_dir / "legacy_sidecars" / "qc_type_in_file" / "qc_type.txt"
-    )
-    if bundled_qc_sidecar.exists():
-        qc_type_paths.append(bundled_qc_sidecar)
-    for qc_type_path in qc_type_paths:
-        lines = qc_type_path.read_text(encoding="utf-8").splitlines()
-        if not lines or lines[0].split() != ["2", "0", "1"]:
-            raise AssertionError(
-                f"unrestricted QC fixture has unexpected header: {qc_type_path}"
-            )
-        lines[0] = "2 0 3"
-        qc_type_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-    topology_path = bundled_dir / "topology.spgt.h5"
-    with h5py.File(topology_path, "r+") as topology:
-        required = {
-            "/qc/type/count",
-            "/qc/type/atom_index",
-            "/qc/type/symbol",
-            "/qc/type/charge",
-            "/qc/type/multiplicity",
-        }
-        missing = sorted(path for path in required if path not in topology)
-        if missing:
-            raise AssertionError(
-                f"unrestricted QC bundled fixture is incomplete: {missing}"
-            )
-        if int(topology["/qc/type/count"][()]) != 2:
-            raise AssertionError(
-                "unrestricted QC fixture must contain two atoms"
-            )
-        if topology["/qc/type/atom_index"][...].tolist() != [0, 1]:
-            raise AssertionError("unrestricted QC fixture atom indices changed")
-        if topology["/qc/type/symbol"].asstr()[...].tolist() != ["H", "N"]:
-            raise AssertionError("unrestricted QC fixture symbols changed")
-        if int(topology["/qc/type/charge"][()]) != 0:
-            raise AssertionError("unrestricted QC fixture charge changed")
-        multiplicity = topology["/qc/type/multiplicity"]
-        if int(multiplicity[()]) != 1:
-            raise AssertionError(
-                "unrestricted QC fixture source multiplicity must be one"
-            )
-        multiplicity[...] = 3
-
-        sidecar_root = "/parameters/sponge/files/legacy_sidecars"
-        if sidecar_root in topology:
-            keys = topology[f"{sidecar_root}/key"].asstr()[...].tolist()
-            paths = topology[f"{sidecar_root}/path"].asstr()[...].tolist()
-            bindings = dict(zip(keys, paths, strict=True))
-            expected_sidecar = "legacy_sidecars/qc_type_in_file/qc_type.txt"
-            if bindings.get("qc_type_in_file") != expected_sidecar:
-                raise AssertionError(
-                    "unrestricted QC bundle does not bind the expected sidecar"
-                )
-            if "residue_in_file" in keys:
-                raise AssertionError(
-                    "unrestricted QC fixture retains a duplicate residue "
-                    "sidecar owner"
-                )
-
-
-def _prepare_pure_typed_qc_input(bundled_dir: Path) -> None:
-    topology_path = bundled_dir / "topology.spgt.h5"
-    sidecar_root = "/parameters/sponge/files/legacy_sidecars"
-    with h5py.File(topology_path, "r+") as topology:
-        sidecars = topology[sidecar_root]
-        keys = sidecars["key"].asstr()[...].tolist()
-        paths = sidecars["path"].asstr()[...].tolist()
-        if "residue_in_file" in keys:
-            raise AssertionError(
-                "typed QC fixture retains a duplicate residue sidecar owner"
-            )
-        retained = [
-            (key, path)
-            for key, path in zip(keys, paths, strict=True)
-            if key != "qc_type_in_file"
-        ]
-        if len(retained) != len(keys) - 1:
-            raise AssertionError(
-                "typed QC fixture did not remove exactly the QC binding"
-            )
-        del sidecars["key"]
-        del sidecars["path"]
-        string_dtype = h5py.string_dtype(encoding="utf-8")
-        sidecars.create_dataset(
-            "key", data=[item[0] for item in retained], dtype=string_dtype
-        )
-        sidecars.create_dataset(
-            "path", data=[item[1] for item in retained], dtype=string_dtype
-        )
-    qc_sidecar = bundled_dir / "legacy_sidecars" / "qc_type_in_file"
-    if not qc_sidecar.exists():
-        raise AssertionError("typed QC fixture lost its source QC sidecar")
-    shutil.rmtree(qc_sidecar)
-    if (bundled_dir / "legacy_sidecars" / "residue_in_file").exists():
-        raise AssertionError(
-            "typed QC fixture retains duplicate residue sidecar data"
-        )
-    _validate_pure_typed_qc_route(bundled_dir)
-
-
-def _validate_pure_typed_qc_route(bundled_dir: Path) -> None:
-    mdin = (bundled_dir / "mdin.bundled.spg.toml").read_text(encoding="utf-8")
-    if _has_key_line(mdin, "qc_type_in_file"):
-        raise AssertionError("typed QC route retained qc_type_in_file")
-    if (bundled_dir / "legacy_sidecars" / "qc_type_in_file").exists():
-        raise AssertionError("typed QC route retained qc_type sidecar data")
-    if (bundled_dir / "legacy_sidecars" / "residue_in_file").exists():
-        raise AssertionError(
-            "typed QC route retained duplicate residue sidecar"
-        )
-
-    topology_path = bundled_dir / "topology.spgt.h5"
-    sidecar_root = "/parameters/sponge/files/legacy_sidecars"
-    with h5py.File(topology_path, "r") as topology:
-        keys = topology[f"{sidecar_root}/key"].asstr()[...].tolist()
-        if {"qc_type_in_file", "residue_in_file"}.intersection(keys):
-            raise AssertionError(
-                "typed QC route retained a removed sidecar binding"
-            )
-        if "/atoms/residue_index" not in topology:
-            raise AssertionError("typed QC route lost typed residue ownership")
-        count = int(topology["/qc/type/count"][()])
-        charge = int(topology["/qc/type/charge"][()])
-        multiplicity = int(topology["/qc/type/multiplicity"][()])
-        atom_index = topology["/qc/type/atom_index"][...].tolist()
-        symbols = topology["/qc/type/symbol"].asstr()[...].tolist()
-    if (
-        count != 2
-        or charge != 0
-        or multiplicity != 3
-        or atom_index != [0, 1]
-        or symbols != ["H", "N"]
-    ):
-        raise AssertionError(
-            "typed QC payload changed: "
-            f"count={count}, charge={charge}, multiplicity={multiplicity}, "
-            f"atom_index={atom_index}, symbols={symbols}"
-        )
 
 
 def _prepare_restart_absent_inputs(legacy_dir: Path, bundled_dir: Path) -> None:
@@ -12084,8 +11857,6 @@ def _prepare_mdin(
         "vel",
         "frc",
         "rst",
-        "qc_restricted",
-        "qc_scf_print_iter",
         "rerun_output_crd",
         "rerun_output_box",
         "rerun_output_vel",
@@ -12200,10 +11971,6 @@ def _prepare_mdin(
             f'output_h5_observable_path = "{OBSERVABLE_REL.as_posix()}"',
         ]
     )
-    if "input.qc.spin_square" in case.contract_ids:
-        additions.append("qc_restricted = 0")
-    if "input.qc.scf_text" in case.contract_ids:
-        additions.append("qc_scf_print_iter = 1")
     if case.mode == "normal":
         additions.append(f'output_h5_restart_path = "{RESTART_REL.as_posix()}"')
     mdin_path.write_text(
@@ -13121,16 +12888,6 @@ def _compare_outputs(
             _compare_cmap_materialization(run.legacy_dir, run.bundled_dir)
             for run in runs
         ]
-    if "output.legacy.qc_scf_output" in case.contract_ids:
-        qc_scf = _compare_qc_scf_output(case, runs)
-        comparison["qc_scf_output"] = qc_scf
-        evidence.append(
-            AssertionEvidence(
-                assertion_id="qc_scf_exact_equivalence",
-                evidence_level="E3",
-                details=qc_scf,
-            )
-        )
     return comparison, _attach_finite_scan(case, evidence, finite_scan)
 
 
@@ -13462,15 +13219,6 @@ def _compare_input_semantics(
                 replica_result["oracle"] = (
                     _compare_focused_cv_restraint_behavior(case, run)
                 )
-            elif spec.contract_id == "input.qc.type":
-                replica_result["oracle"] = _compare_typed_qc_type(case, run)
-            elif (
-                spec.contract_id == "input.qc.energy"
-                and case.name == "rerun_qc_type_typed_unrestricted_vds_off"
-            ):
-                replica_result["oracle"] = _compare_typed_qc_energy_payload(
-                    case, run
-                )
             elif spec.contract_id == "input.custom.pairwise":
                 replica_result["force"] = _compare_focused_custom_pair_forces(
                     case, run
@@ -13675,7 +13423,6 @@ def _compare_nonzero_dt_input_evolution(
         for file_name in (
             "mdout.txt",
             "mdinfo.txt",
-            "qc_scf.txt",
             "run.stdout",
             "run.stderr",
         ):
@@ -17720,296 +17467,6 @@ def _normalize_line_endings(text: str) -> str:
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
-def _compare_typed_qc_type(case: AbCase, run: AbRun) -> dict[str, object]:
-    materialized = run.bundled_dir / ".sponge_h5_native_qc" / "qc_type.txt"
-    expected_text = "2 0 3\n0 H\n1 N\n"
-    if not materialized.is_file():
-        raise AssertionError(f"{case.name} did not materialize typed QC input")
-    if materialized.read_text(encoding="utf-8") != expected_text:
-        raise AssertionError(f"{case.name} materialized QC payload changed")
-
-    baseline_rows = _read_mdout(run.bundled_dir / "mdout.txt")["rows"]
-    baseline_qc = [row["QC"] for row in baseline_rows]
-    baseline_spin = [row["QC_S_sq"] for row in baseline_rows]
-    if not baseline_qc or len(baseline_qc) != len(baseline_spin):
-        raise AssertionError(
-            f"{case.name} baseline QC observables are incomplete"
-        )
-
-    control_dir = run.bundled_dir.parent / "bundled_qc_singlet_control"
-    if control_dir.exists():
-        shutil.rmtree(control_dir)
-    shutil.copytree(run.bundled_dir, control_dir)
-    for path in (
-        control_dir / "output",
-        control_dir / ".sponge_h5_native_qc",
-    ):
-        if path.exists():
-            shutil.rmtree(path)
-    (control_dir / "output").mkdir()
-    for file_name in (
-        "mdout.txt",
-        "mdinfo.txt",
-        "qc_scf.txt",
-        "run.stdout",
-        "run.stderr",
-    ):
-        path = control_dir / file_name
-        if path.exists():
-            path.unlink()
-
-    topology_path = control_dir / "topology.spgt.h5"
-    with h5py.File(topology_path, "r+") as topology:
-        multiplicity = topology["/qc/type/multiplicity"]
-        if int(multiplicity[()]) != 3:
-            raise AssertionError(f"{case.name} QC control lost multiplicity")
-        multiplicity[...] = 1
-
-    outcome = _run_sponge_process(control_dir, _mdin_name(control_dir))
-    if outcome.returncode != 0:
-        raise AssertionError(
-            f"{case.name} multiplicity=1 control failed with code "
-            f"{outcome.returncode}\n{outcome.stdout}\n{outcome.stderr}"
-        )
-    control_rows = _read_mdout(control_dir / "mdout.txt")["rows"]
-    control_qc = [row["QC"] for row in control_rows]
-    control_spin = [row["QC_S_sq"] for row in control_rows]
-    if len(control_qc) != len(baseline_qc) or any(
-        not math.isfinite(value) for value in (*control_qc, *control_spin)
-    ):
-        raise AssertionError(f"{case.name} QC control observables are invalid")
-    maximum_qc_delta = max(
-        abs(baseline - control)
-        for baseline, control in zip(baseline_qc, control_qc, strict=True)
-    )
-    maximum_spin_delta = max(
-        abs(baseline - control)
-        for baseline, control in zip(baseline_spin, control_spin, strict=True)
-    )
-    if max(maximum_qc_delta, maximum_spin_delta) <= 1.0e-3:
-        raise AssertionError(
-            f"{case.name} typed multiplicity did not change QC behavior"
-        )
-    result = {
-        "route": "typed_h5_qc_type",
-        "materialized_path": str(materialized.relative_to(run.bundled_dir)),
-        "baseline_multiplicity": 3,
-        "control_multiplicity": 1,
-        "baseline_qc": baseline_qc,
-        "control_qc": control_qc,
-        "baseline_spin_square": baseline_spin,
-        "control_spin_square": control_spin,
-        "maximum_qc_delta": maximum_qc_delta,
-        "maximum_spin_square_delta": maximum_spin_delta,
-        "exit_code": outcome.returncode,
-    }
-    shutil.rmtree(control_dir)
-    return result
-
-
-def _compare_typed_qc_energy_payload(
-    case: AbCase, run: AbRun
-) -> dict[str, object]:
-    materialized = run.bundled_dir / ".sponge_h5_native_qc" / "qc_type.txt"
-    if not materialized.is_file():
-        raise AssertionError(f"{case.name} did not materialize typed QC input")
-    baseline_rows = _read_mdout(run.bundled_dir / "mdout.txt")["rows"]
-    baseline_qc = [row.get("QC", math.nan) for row in baseline_rows]
-    _require_finite_values(case, "typed QC energy baseline", baseline_qc)
-    baseline_scf = _normalize_line_endings(
-        (run.bundled_dir / "qc_scf.txt").read_text(encoding="utf-8")
-    )
-    if not baseline_scf:
-        raise AssertionError(f"{case.name} typed QC baseline SCF text is empty")
-
-    control_dir = run.bundled_dir.parent / "bundled_qc_symbol_hh_control"
-    if control_dir.exists():
-        shutil.rmtree(control_dir)
-    shutil.copytree(run.bundled_dir, control_dir)
-    for path in (
-        control_dir / "output",
-        control_dir / ".sponge_h5_native_qc",
-    ):
-        if path.exists():
-            shutil.rmtree(path)
-    (control_dir / "output").mkdir()
-    for file_name in (
-        "mdout.txt",
-        "mdinfo.txt",
-        "qc_scf.txt",
-        "run.stdout",
-        "run.stderr",
-    ):
-        path = control_dir / file_name
-        if path.exists():
-            path.unlink()
-
-    mutation_path = "/qc/type/symbol"
-    with h5py.File(control_dir / "topology.spgt.h5", "r+") as topology:
-        symbols = topology[mutation_path]
-        original_symbols = symbols.asstr()[...].tolist()
-        if original_symbols != ["H", "N"]:
-            raise AssertionError(
-                f"{case.name} QC symbol payload changed: {original_symbols}"
-            )
-        symbols[1] = "H"
-
-    outcome = _run_sponge_process(control_dir, _mdin_name(control_dir))
-    if outcome.returncode != 0:
-        raise AssertionError(
-            f"{case.name} H-H QC control failed with code "
-            f"{outcome.returncode}\n{outcome.stdout}\n{outcome.stderr}"
-        )
-    control_rows = _read_mdout(control_dir / "mdout.txt")["rows"]
-    control_qc = [row.get("QC", math.nan) for row in control_rows]
-    _require_finite_values(case, "H-H QC energy control", control_qc)
-    if len(control_qc) != len(baseline_qc):
-        raise AssertionError(f"{case.name} H-H QC control frame count changed")
-    maximum_qc_delta = max(
-        abs(baseline - control)
-        for baseline, control in zip(baseline_qc, control_qc, strict=True)
-    )
-    if maximum_qc_delta <= 1.0e-3:
-        raise AssertionError(
-            f"{case.name} QC symbol payload did not change QC energy"
-        )
-    control_scf = _normalize_line_endings(
-        (control_dir / "qc_scf.txt").read_text(encoding="utf-8")
-    )
-    if not control_scf or control_scf == baseline_scf:
-        raise AssertionError(
-            f"{case.name} QC symbol payload did not change SCF output"
-        )
-    materialized_control = control_dir / ".sponge_h5_native_qc" / "qc_type.txt"
-    expected_control_text = "2 0 3\n0 H\n1 H\n"
-    if (
-        materialized_control.read_text(encoding="utf-8")
-        != expected_control_text
-    ):
-        raise AssertionError(
-            f"{case.name} H-H QC control did not consume the typed payload"
-        )
-    result = {
-        "route": "typed_h5_qc_type_symbol",
-        "mutation_path": mutation_path,
-        "symbols": [original_symbols, ["H", "H"]],
-        "baseline_qc": baseline_qc,
-        "control_qc": control_qc,
-        "maximum_qc_delta": maximum_qc_delta,
-        "scf_text_changed": True,
-        "control_materialized_path": str(
-            materialized_control.relative_to(control_dir)
-        ),
-    }
-    shutil.rmtree(control_dir)
-    return result
-
-
-def _compare_qc_scf_output(
-    case: AbCase, runs: Sequence[AbRun]
-) -> dict[str, object]:
-    dataset = "/parameters/sponge/qc/scf_output"
-    comparison_method = "normalized_line_endings_then_exact"
-    for run in runs:
-        legacy_text = _normalize_line_endings(
-            (run.legacy_dir / "qc_scf.txt").read_text(encoding="utf-8")
-        )
-        bundled_text = _normalize_line_endings(
-            (run.bundled_dir / "qc_scf.txt").read_text(encoding="utf-8")
-        )
-        if not legacy_text or not bundled_text:
-            raise AssertionError(
-                f"{case.name} replica {run.replica_index} QC SCF output is empty"
-            )
-        if case.name == "rerun_qc_type_typed_unrestricted_vds_off":
-            _assert_qc_scf_traces_close(
-                case, run.replica_index, legacy_text, bundled_text
-            )
-            comparison_method = "step_iteration_identity_and_numeric_tolerance"
-        elif legacy_text != bundled_text:
-            raise AssertionError(
-                f"{case.name} replica {run.replica_index} QC SCF text differs"
-            )
-        for name, path in _output_h5_files(case, run.bundled_dir).items():
-            if name == "restart":
-                continue
-            h5_values = _h5_string_values(path, dataset)
-            if (
-                len(h5_values) != 1
-                or _normalize_line_endings(h5_values[0]) != bundled_text
-            ):
-                raise AssertionError(
-                    f"{case.name} replica {run.replica_index} {name} QC SCF "
-                    "dataset differs from explicit legacy output"
-                )
-    return {
-        "method": comparison_method,
-        "dataset": dataset,
-        "replicas": len(runs),
-    }
-
-
-def _assert_qc_scf_traces_close(
-    case: AbCase, replica_index: int, legacy_text: str, bundled_text: str
-) -> None:
-    pattern = re.compile(
-        r"^Step\s+(\d+)\s+\|\s+SCF Iter\s+(\d+)\s+\|\s+"
-        r"E\(Ha\)=([+-]?[0-9.eE+-]+)\s+\|\s+dE\(Ha\)=([+-]?[0-9.eE+-]+)$"
-    )
-
-    def parse(branch: str, text: str) -> list[tuple[int, int, float, float]]:
-        rows = []
-        for line in text.splitlines():
-            match = pattern.match(line)
-            if match is None:
-                raise AssertionError(
-                    f"{case.name} replica {replica_index} {branch} has "
-                    f"unrecognized QC SCF line: {line!r}"
-                )
-            rows.append(
-                (
-                    int(match.group(1)),
-                    int(match.group(2)),
-                    float(match.group(3)),
-                    float(match.group(4)),
-                )
-            )
-        return rows
-
-    legacy_rows = parse("legacy", legacy_text)
-    bundled_rows = parse("bundled", bundled_text)
-    if len(legacy_rows) != len(bundled_rows):
-        raise AssertionError(
-            f"{case.name} replica {replica_index} QC SCF row count differs"
-        )
-    for row_index, (legacy, bundled) in enumerate(
-        zip(legacy_rows, bundled_rows, strict=True)
-    ):
-        if legacy[:2] != bundled[:2]:
-            raise AssertionError(
-                f"{case.name} replica {replica_index} QC SCF step/iteration "
-                f"differs at row {row_index}: {legacy[:2]} != {bundled[:2]}"
-            )
-        for field, legacy_value, bundled_value in zip(
-            ("energy", "delta"), legacy[2:], bundled[2:], strict=True
-        ):
-            if not (
-                math.isfinite(legacy_value)
-                and math.isfinite(bundled_value)
-                and math.isclose(
-                    legacy_value,
-                    bundled_value,
-                    rel_tol=1.0e-4,
-                    abs_tol=2.0e-3,
-                )
-            ):
-                raise AssertionError(
-                    f"{case.name} replica {replica_index} QC SCF {field} "
-                    f"differs at row {row_index}: "
-                    f"{legacy_value} != {bundled_value}"
-                )
-
-
 MDINFO_CONTRACT_KEYS = {
     "mode",
     "skin",
@@ -18846,11 +18303,6 @@ def _compare_mdout_deterministically(
         relative_tolerance, absolute_tolerance = _deterministic_tolerance(
             column
         )
-        if case.name == "rerun_qc_type_typed_unrestricted_vds_off":
-            if column == "QC":
-                relative_tolerance, absolute_tolerance = 1.0e-3, 1.0
-            elif column == "QC_S_sq":
-                relative_tolerance, absolute_tolerance = 2.0e-3, 5.0e-3
         _assert_numeric_sequences_close(
             f"{case.name} deterministic mdout {column}",
             legacy_values,

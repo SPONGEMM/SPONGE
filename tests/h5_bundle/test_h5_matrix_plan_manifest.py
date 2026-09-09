@@ -834,7 +834,6 @@ def require_sidecar_preparation_locks_success_paths(smoke_text):
             "!Has_Key_Line(mdin, key)",
             '"mass_in_file"',
             '"charge_in_file"',
-            '"qc_type_in_file"',
             '"cv_in_file"',
             '"restrain_in_file"',
             '"SITS_in_file"',
@@ -849,10 +848,10 @@ def require_sidecar_preparation_locks_success_paths(smoke_text):
         prep_body,
         [
             "same_key_same_path",
-            "qc_type_in_file = ",
-            "legacy_sidecars/qc_type_in_file/qc_type.txt",
+            "SITS_in_file = ",
+            "legacy_sidecars/SITS_in_file/sits.txt",
             "Legacy_Sidecar_Path_For_Key(",
-            '"qc_type_in_file"',
+            '"SITS_in_file"',
         ],
     )
     require_tokens(
@@ -884,7 +883,6 @@ def require_normal_preparation_locks_bundled_output_sidecar_defaults(
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "vel"))',
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "frc"))',
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "rst"))',
-            'REQUIRE_TRUE(!Has_Key_Line(mdin, "qc_scf_output"))',
             "output_h5_restart_path",
             "output_h5_trajectory_path",
             "output_h5_observable_path",

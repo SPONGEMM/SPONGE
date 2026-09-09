@@ -35,10 +35,6 @@ static constexpr const char* metad_step = "/observables/all/metadynamics/step";
 static constexpr const char* metad_time = "/observables/all/metadynamics/time";
 static constexpr const char* metad_parameter_root =
     "/parameters/sponge/metadynamics";
-static constexpr const char* qc_root = "/observables/all/qc";
-static constexpr const char* qc_step = "/observables/all/qc/step";
-static constexpr const char* qc_time = "/observables/all/qc/time";
-static constexpr const char* qc_parameter_root = "/parameters/sponge/qc";
 static constexpr const char* reaxff_root = "/observables/all/reaxff";
 static constexpr const char* reaxff_step = "/observables/all/reaxff/step";
 static constexpr const char* reaxff_time = "/observables/all/reaxff/time";
@@ -129,31 +125,6 @@ inline std::string Metadynamics_Diagnostic_Path(const std::string& name,
                                                 const std::string& component)
 {
     return Metadynamics_Diagnostic_Root(name) + "/" + component;
-}
-
-inline std::string Qc_Observable_Root(const std::string& name)
-{
-    return std::string(module_path::qc_root) + "/" + name;
-}
-
-inline std::string Qc_Observable_Value_Path(const std::string& name)
-{
-    return Scalar_Observable_Value_Path(Qc_Observable_Root(name));
-}
-
-inline std::string Qc_Observable_Step_Path(const std::string& name)
-{
-    return Scalar_Observable_Step_Path(Qc_Observable_Root(name));
-}
-
-inline std::string Qc_Observable_Time_Path(const std::string& name)
-{
-    return Scalar_Observable_Time_Path(Qc_Observable_Root(name));
-}
-
-inline std::string Qc_Scf_Output_Path()
-{
-    return std::string(module_path::qc_parameter_root) + "/scf_output";
 }
 
 inline std::string Reaxff_Term_Root(const std::string& term)
@@ -356,69 +327,6 @@ class ModuleH5MappingWriter
                                  const std::string& text)
     {
         return Write_Metadynamics_Diagnostic(name, "edge", text);
-    }
-
-    bool Ensure_Qc_Observables(bool include_spin_square)
-    {
-        if (!writer_->Ensure_Group(module_path::qc_root)) return false;
-        if (!writer_->Create_Dataset(
-                {module_path::qc_step, DataType::int64, {{0}, {0}, {0}}, true}))
-        {
-            return false;
-        }
-        if (!writer_->Create_Dataset({module_path::qc_time,
-                                      DataType::float64,
-                                      {{0}, {0}, {0}},
-                                      true}))
-        {
-            return false;
-        }
-        if (!Create_Scalar_Observable_With_Axis(Qc_Observable_Root("energy"),
-                                                module_path::qc_step,
-                                                module_path::qc_time))
-        {
-            return false;
-        }
-        if (include_spin_square)
-        {
-            return Create_Scalar_Observable_With_Axis(
-                Qc_Observable_Root("spin_square"), module_path::qc_step,
-                module_path::qc_time);
-        }
-        return true;
-    }
-
-    bool Append_Qc_Frame(const int64_t step, const double time, double energy,
-                         const double* spin_square = nullptr)
-    {
-        if (!writer_->Append_Int64(module_path::qc_step, &step, 1))
-        {
-            return false;
-        }
-        if (!writer_->Append_Float64(module_path::qc_time, &time, 1))
-        {
-            return false;
-        }
-        if (!writer_->Append_Float64(Qc_Observable_Value_Path("energy"),
-                                     &energy, 1))
-        {
-            return false;
-        }
-        if (spin_square != nullptr)
-        {
-            return writer_->Append_Float64(
-                Qc_Observable_Value_Path("spin_square"), spin_square, 1);
-        }
-        return true;
-    }
-
-    bool Write_Qc_Scf_Output(const std::string& text)
-    {
-        if (!writer_->Ensure_Group(module_path::qc_parameter_root))
-        {
-            return false;
-        }
-        return writer_->Write_String(Qc_Scf_Output_Path(), text);
     }
 
     bool Ensure_Reaxff_Energy_Terms(const std::vector<std::string>& terms)

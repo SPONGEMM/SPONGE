@@ -374,9 +374,6 @@ def test_ab_production_harness_has_executable_contract_coverage():
         "rerun_full_contract_pure_vds_on",
         "rerun_full_contract_sidecar_vds_off",
         "rerun_full_contract_sidecar_vds_on",
-        "rerun_qc_unrestricted_sidecar_vds_off",
-        "rerun_qc_unrestricted_sidecar_vds_on",
-        "rerun_qc_type_typed_unrestricted_vds_off",
         "rerun_restart_absent_same_bootstrap_vds_off",
         "rerun_boundary_start0_strip0_limit1_vds_off",
         "rerun_boundary_start1_strip0_unlimited_no_velocity_vds_on",
@@ -765,7 +762,6 @@ def test_remaining_function_contracts_have_independent_payload_cases():
         ),
         "input.protocol.soft_wall.sidecar": "normal_soft_wall_sidecar_nonzero",
         "input.protocol.cv": "normal_steering_cv_typed_nonzero",
-        "input.qc.energy": "rerun_qc_type_typed_unrestricted_vds_off",
         "input.manybody.reaxff": "normal_reaxff_payload_sensitivity",
         "input.manybody.edip": "normal_edip_nonzero",
     }
@@ -1474,7 +1470,7 @@ def test_output_behavior_closure_keeps_family_module_restart_and_repair_gates():
         MODULE_TEST: {
             "Test_Nhc_And_Sits_Mappings",
             "Test_Metadynamics_And_Diagnostics",
-            "Test_Qc_And_Reaxff_Mappings",
+            "Test_Reaxff_Mappings",
         },
         HIGHFIVE_TEST: {
             "Test_Trajectory_Optional_Particle_Fields_With_Real_Backend",
@@ -3022,108 +3018,9 @@ def test_input_semantic_registry_uses_owned_observables_not_initialization_logs(
     )
 
 
-def test_unrestricted_qc_gate_requires_nontrivial_spin_and_nonempty_scf_text():
-    contracts = load_contract_registry()
-    cases = {
-        case.name: case
-        for case in _cases_for_profile()
-        if case.name.startswith("rerun_qc_unrestricted_sidecar_vds_")
-    }
-    sidecar_case_ids = {
-        "rerun_qc_unrestricted_sidecar_vds_off",
-        "rerun_qc_unrestricted_sidecar_vds_on",
-    }
-    all_case_ids = sidecar_case_ids | {
-        "rerun_qc_type_typed_unrestricted_vds_off"
-    }
-
-    assert set(cases) == sidecar_case_ids
-    assert {case.vds for case in cases.values()} == {False, True}
-    for case in cases.values():
-        assert case.fixture_case == "full_contract_rerun"
-        assert case.bundled_subdir == (
-            "bundled_input_with_legacy_sidecar/bundle"
-        )
-        assert case.restart_load_policy == "structural"
-        assert not case.statistical_md
-        assert case.contract_ids == (
-            "output.legacy.mdout",
-            "output.legacy.qc_scf_output",
-            "input.qc.spin_square",
-            "input.qc.scf_text",
-        )
-        assert case.assertion_ids == (
-            "mdout_deterministic_equivalence",
-            "h5_rerun_semantic_equivalence",
-            "qc_scf_exact_equivalence",
-            "input_semantic_equivalence",
-        )
-
-    spin_spec = next(
-        spec
-        for spec in RERUN_INPUT_SEMANTIC_SPECS
-        if spec.contract_id == "input.qc.spin_square"
-    )
-    assert spin_spec == InputSemanticSpec(
-        "input.qc.spin_square", ("QC_S_sq",), 1.0e-4
-    )
-    with pytest.raises(AssertionError, match="all trivial"):
-        assert_module_semantics(
-            "QC spin-square",
-            [{"QC_S_sq": 0.0}],
-            [{"QC_S_sq": 0.0}],
-            spin_spec,
-            deterministic=True,
-        )
-
-    spin_contract = contracts["input.qc.spin_square"]
-    assert spin_contract.status == "supported"
-    assert set(spin_contract.case_ids) == all_case_ids
-    assert spin_contract.assertion_ids == (
-        "input_semantic_equivalence",
-        "h5_rerun_semantic_equivalence",
-    )
-    for contract_id in ("input.qc.scf_text", "output.legacy.qc_scf_output"):
-        contract = contracts[contract_id]
-        assert contract.status == "supported"
-        assert set(contract.case_ids) == all_case_ids
-        assert contract.assertion_ids == ("qc_scf_exact_equivalence",)
-
-
-def test_typed_qc_type_case_requires_type_sensitive_runtime_behavior():
-    contracts = load_contract_registry()
-    case = next(
-        case
-        for case in _cases_for_profile()
-        if case.name == "rerun_qc_type_typed_unrestricted_vds_off"
-    )
-    spec = next(
-        spec
-        for spec in RERUN_INPUT_SEMANTIC_SPECS
-        if spec.contract_id == "input.qc.type"
-    )
-
-    assert case.fixture_case == "full_contract_rerun"
-    assert case.vds is False
-    assert case.statistical_md is False
-    assert case.contract_ids == (
-        "output.legacy.mdout",
-        "output.legacy.qc_scf_output",
-        "input.qc.spin_square",
-        "input.qc.scf_text",
-        "input.qc.type",
-        "input.qc.energy",
-    )
-    assert spec == InputSemanticSpec("input.qc.type", ("QC", "QC_S_sq"), 1.0e-4)
-    contract = contracts["input.qc.type"]
-    assert contract.status == "supported"
-    assert contract.case_ids == (case.name,)
-    assert contract.assertion_ids == ("input_semantic_equivalence",)
-
-
-def test_h5_string_reader_preserves_multiline_scf_text(tmp_path):
-    path = tmp_path / "qc.obs.spg.h5md"
-    dataset = "/parameters/sponge/qc/scf_output"
+def test_h5_string_reader_preserves_multiline_diagnostic_text(tmp_path):
+    path = tmp_path / "meta.obs.spg.h5md"
+    dataset = "/parameters/sponge/metadynamics/meta0/hills"
     expected = "Step 0\n  indented continuation\nStep 1\n"
     with h5py.File(path, "w") as h5:
         h5.create_dataset(
@@ -3146,7 +3043,6 @@ def test_input_semantic_contract_inventory_is_explicit_and_evidence_gated():
             "constraint_geometry_equivalence"
         ),
         "input.protocol.constraint": "constraint_geometry_equivalence",
-        "input.qc.scf_text": "qc_scf_exact_equivalence",
     }
     runtime_spec_ids = {
         spec.contract_id
@@ -3346,7 +3242,6 @@ def test_execution_matrix_enumerates_every_required_axis_and_risk_pair():
     assert set(matrix.required_axes["feature_family"]) == {
         "core",
         "manybody",
-        "qc",
         "sits",
         "metadynamics",
         "positional_restraint",

@@ -39,7 +39,6 @@
 #include "neighbor_list/full_neighbor_list.h"
 #include "neighbor_list/neighbor_list.h"
 #include "plugin/plugin.h"
-#include "quantum_chemistry/quantum_chemistry.h"
 #include "restrain/restrain.h"
 #include "thermostat/Andersen_thermostat.h"
 #include "thermostat/Berendsen_thermostat.h"

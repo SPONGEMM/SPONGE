@@ -217,7 +217,7 @@ void Enable_Meta_In_Restart_Protocol_Sidecar(
 void Isolate_NHC_Dynamic_Runtime_Inputs(const std::filesystem::path& root)
 {
     const auto topology = root / "topology.spgt.h5";
-    for (const char* object_path : {"/forcefield", "/manybody", "/qc"})
+    for (const char* object_path : {"/forcefield", "/manybody"})
     {
         Delete_H5_Object_If_Exists(topology, object_path);
     }
@@ -233,7 +233,7 @@ void Isolate_NHC_Dynamic_Runtime_Inputs(const std::filesystem::path& root)
 void Isolate_Sits_Protocol_Runtime_Inputs(const std::filesystem::path& root)
 {
     const auto topology = root / "topology.spgt.h5";
-    for (const char* object_path : {"/forcefield", "/manybody", "/qc"})
+    for (const char* object_path : {"/forcefield", "/manybody"})
     {
         Delete_H5_Object_If_Exists(topology, object_path);
     }
@@ -393,7 +393,7 @@ void Isolate_Positional_Restraint_Runtime_Inputs(
     const std::filesystem::path& root)
 {
     const auto topology = root / "topology.spgt.h5";
-    for (const char* object_path : {"/forcefield", "/manybody", "/qc"})
+    for (const char* object_path : {"/forcefield", "/manybody"})
     {
         Delete_H5_Object_If_Exists(topology, object_path);
     }
@@ -411,7 +411,7 @@ void Isolate_And_Install_Native_CV_Runtime_Inputs(
     const std::filesystem::path& root)
 {
     const auto topology = root / "topology.spgt.h5";
-    for (const char* object_path : {"/forcefield", "/manybody", "/qc"})
+    for (const char* object_path : {"/forcefield", "/manybody"})
     {
         Delete_H5_Object_If_Exists(topology, object_path);
     }
@@ -482,7 +482,7 @@ void Isolate_And_Install_Native_Metadynamics_Runtime_Inputs(
     const std::filesystem::path& root)
 {
     const auto topology = root / "topology.spgt.h5";
-    for (const char* object_path : {"/forcefield", "/manybody", "/qc"})
+    for (const char* object_path : {"/forcefield", "/manybody"})
     {
         Delete_H5_Object_If_Exists(topology, object_path);
     }
@@ -1553,7 +1553,6 @@ void Run_Restart_Load_Runtime_Closure(
                      "START INITIALIZING PAIRWISE FORCE FROM NATIVE H5");
     Require_Contains(Read_Text(pure_protocol_custom_force_log),
                      "START INITIALIZING LISTED FORCES FROM NATIVE H5");
-    Require_Contains(Read_Text(pure_protocol_custom_force_log), "QC =");
     Require_Contains(
         Read_Text(pure_protocol_custom_force_log),
         "START INITIALIZING STILLINGER WEBER FORCE FROM NATIVE H5");

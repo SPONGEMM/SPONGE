@@ -20,7 +20,6 @@ FULL_CONTRACT_IDS = {
     "topology.charge",
     "topology.residue",
     "topology.bond",
-    "topology.qc_type",
     "topology.REAXFF",
     "topology.REAXFF_type",
     "protocol.cv",
@@ -59,7 +58,6 @@ CORE_NORMAL_IDS = {
     "restart.box",
     "topology.mass",
     "topology.charge",
-    "topology.qc_type",
     "protocol.cv",
     "protocol.restrain",
     "protocol.SITS",
@@ -100,7 +98,6 @@ REQUIRED_FULL_BUNDLE_PATHS = {
         "/forcefield/custom_force/listed/data/custom_bond",
         "/manybody/reaxff/parameters",
         "/manybody/reaxff/type",
-        "/qc/type",
     },
     "protocol.spgp.h5": {
         "/cv",

@@ -113,25 +113,6 @@ static void Test_Module_Path_Constants()
     REQUIRE_EQ(Metadynamics_Diagnostic_Path("meta0", "hills"),
                std::string("/parameters/sponge/metadynamics/meta0/hills"));
 
-    REQUIRE_EQ(std::string(module_path::qc_root),
-               std::string("/observables/all/qc"));
-    REQUIRE_EQ(std::string(module_path::qc_step),
-               std::string("/observables/all/qc/step"));
-    REQUIRE_EQ(std::string(module_path::qc_time),
-               std::string("/observables/all/qc/time"));
-    REQUIRE_EQ(std::string(module_path::qc_parameter_root),
-               std::string("/parameters/sponge/qc"));
-    REQUIRE_EQ(Qc_Observable_Root("energy"),
-               std::string("/observables/all/qc/energy"));
-    REQUIRE_EQ(Qc_Observable_Value_Path("energy"),
-               std::string("/observables/all/qc/energy/value"));
-    REQUIRE_EQ(Qc_Observable_Step_Path("energy"),
-               std::string("/observables/all/qc/energy/step"));
-    REQUIRE_EQ(Qc_Observable_Time_Path("energy"),
-               std::string("/observables/all/qc/energy/time"));
-    REQUIRE_EQ(Qc_Scf_Output_Path(),
-               std::string("/parameters/sponge/qc/scf_output"));
-
     REQUIRE_EQ(std::string(module_path::reaxff_root),
                std::string("/observables/all/reaxff"));
     REQUIRE_EQ(std::string(module_path::reaxff_step),
@@ -260,16 +241,11 @@ static void Test_Metadynamics_And_Diagnostics()
     REQUIRE_TRUE(log->groups.count(Metadynamics_Diagnostic_Root("meta0")) != 0);
 }
 
-static void Test_Qc_And_Reaxff_Mappings()
+static void Test_Reaxff_Mappings()
 {
     auto log = std::make_shared<BackendLog>();
     auto writer = Open_Writer(log);
     ModuleH5MappingWriter module(writer.get());
-
-    REQUIRE_TRUE(module.Ensure_Qc_Observables(true));
-    double spin_square = 0.75;
-    REQUIRE_TRUE(module.Append_Qc_Frame(3, 0.3, -10.0, &spin_square));
-    REQUIRE_TRUE(module.Write_Qc_Scf_Output("SCF LOG"));
 
     REQUIRE_TRUE(module.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
     REQUIRE_TRUE(
@@ -280,26 +256,6 @@ static void Test_Qc_And_Reaxff_Mappings()
     REQUIRE_TRUE(module.Write_Reaxff_Eeq_Charge_Snapshot(charges.data(),
                                                          charges.size()));
 
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("energy")) != 0);
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("spin_square")) !=
-                 0);
-    Require_Dataset_Spec(*log, module_path::qc_step, DataType::int64, {0}, {0},
-                         {0}, true);
-    Require_Dataset_Spec(*log, module_path::qc_time, DataType::float64, {0},
-                         {0}, {0}, true);
-    Require_Dataset_Spec(*log, Qc_Observable_Value_Path("energy"),
-                         DataType::float64, {0}, {0}, {0}, true);
-    Require_Dataset_Spec(*log, Qc_Observable_Value_Path("spin_square"),
-                         DataType::float64, {0}, {0}, {0}, true);
-    REQUIRE_TRUE(Has_Hard_Link(*log, module_path::qc_step,
-                               Qc_Observable_Step_Path("energy")));
-    REQUIRE_TRUE(Has_Hard_Link(*log, module_path::qc_time,
-                               Qc_Observable_Time_Path("energy")));
-    REQUIRE_TRUE(Has_Hard_Link(*log, module_path::qc_step,
-                               Qc_Observable_Step_Path("spin_square")));
-    REQUIRE_TRUE(Has_Hard_Link(*log, module_path::qc_time,
-                               Qc_Observable_Time_Path("spin_square")));
-    REQUIRE_EQ(log->strings[Qc_Scf_Output_Path()], std::string("SCF LOG"));
     REQUIRE_TRUE(log->datasets.count(Reaxff_Term_Value_Path("bond")) != 0);
     REQUIRE_TRUE(log->datasets.count(Reaxff_Term_Value_Path("angle")) != 0);
     Require_Dataset_Spec(*log, module_path::reaxff_step, DataType::int64, {0},
@@ -329,25 +285,6 @@ static void Test_Qc_And_Reaxff_Mappings()
     REQUIRE_EQ(module.Last_Error(), std::string("missing ReaxFF term: angle"));
 }
 
-static void Test_Qc_Optional_Spin_Square_Path()
-{
-    auto log = std::make_shared<BackendLog>();
-    auto writer = Open_Writer(log);
-    ModuleH5MappingWriter module(writer.get());
-
-    REQUIRE_TRUE(module.Ensure_Qc_Observables(false));
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("energy")) != 0);
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("spin_square")) ==
-                 0);
-    Require_Dataset_Spec(*log, module_path::qc_step, DataType::int64, {0}, {0},
-                         {0}, true);
-    Require_Dataset_Spec(*log, module_path::qc_time, DataType::float64, {0},
-                         {0}, {0}, true);
-    Require_Dataset_Spec(*log, Qc_Observable_Value_Path("energy"),
-                         DataType::float64, {0}, {0}, {0}, true);
-    REQUIRE_TRUE(log->groups.count(module_path::qc_root) != 0);
-}
-
 int main()
 {
     return Run_Test(
@@ -356,7 +293,6 @@ int main()
             Test_Module_Path_Constants();
             Test_Nhc_And_Sits_Mappings();
             Test_Metadynamics_And_Diagnostics();
-            Test_Qc_And_Reaxff_Mappings();
-            Test_Qc_Optional_Spin_Square_Path();
+            Test_Reaxff_Mappings();
         });
 }

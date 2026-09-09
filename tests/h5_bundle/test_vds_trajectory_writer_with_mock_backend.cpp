@@ -24,7 +24,6 @@ static void Append_Full_Frame(VdsTrajectoryH5Writer& writer, int64_t step)
     float nhc[2] = {0.1f, 0.2f};
     float sits[3] = {1.0f, 2.0f, 3.0f};
     const double time = static_cast<double>(step) * 0.01;
-    const double spin_square = static_cast<double>(step) * 0.001;
 
     REQUIRE_TRUE(
         writer.Append_Particle_Frame(step, time, position, box, velocity));
@@ -35,7 +34,6 @@ static void Append_Full_Frame(VdsTrajectoryH5Writer& writer, int64_t step)
     REQUIRE_TRUE(writer.Append_Sits_Nk_Frame(step, time, "sits_a", sits, 3));
     REQUIRE_TRUE(
         writer.Append_Metadynamics_Scalar_Frame(step, time, 1.0, 2.0, 3.0));
-    REQUIRE_TRUE(writer.Append_Qc_Frame(step, time, -10.0, &spin_square));
     REQUIRE_TRUE(writer.Append_Reaxff_Frame(step, time,
                                             {{"bond", 1.25}, {"angle", 2.25}}));
 }
@@ -69,11 +67,9 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
     REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("sits_a", 3));
     REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
-    REQUIRE_TRUE(writer.Ensure_Qc_Observables(true));
     REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
     REQUIRE_TRUE(
         writer.Write_Metadynamics_Diagnostic("meta0", "hills", "HILLS"));
-    REQUIRE_TRUE(writer.Write_Qc_Scf_Output("SCF LOG"));
     REQUIRE_TRUE(writer.Write_Legacy_Sidecar_Paths(
         {"crd", "mdout"}, {"legacy.crd", "legacy.out"}));
 
@@ -106,8 +102,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_EQ(writer.Manifest()[1].sits_nk_frame_count, 1);
     REQUIRE_EQ(writer.Manifest()[0].metadynamics_scalar_frame_count, 2);
     REQUIRE_EQ(writer.Manifest()[1].metadynamics_scalar_frame_count, 1);
-    REQUIRE_EQ(writer.Manifest()[0].qc_frame_count, 2);
-    REQUIRE_EQ(writer.Manifest()[1].qc_frame_count, 1);
     REQUIRE_EQ(writer.Manifest()[0].reaxff_frame_count, 2);
     REQUIRE_EQ(writer.Manifest()[1].reaxff_frame_count, 1);
     REQUIRE_EQ(writer.Total_Trajectory_Frame_Count(),
@@ -162,12 +156,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
                      Metadynamics_Scalar_Value_Path("rbias")) != 0);
     REQUIRE_TRUE(wrapper.virtual_datasets.count(
                      Metadynamics_Scalar_Value_Path("rct")) != 0);
-    REQUIRE_TRUE(wrapper.virtual_datasets.count(module_path::qc_step) != 0);
-    REQUIRE_TRUE(wrapper.virtual_datasets.count(module_path::qc_time) != 0);
-    REQUIRE_TRUE(wrapper.virtual_datasets.count(
-                     Qc_Observable_Value_Path("energy")) != 0);
-    REQUIRE_TRUE(wrapper.virtual_datasets.count(
-                     Qc_Observable_Value_Path("spin_square")) != 0);
     REQUIRE_TRUE(wrapper.virtual_datasets.count(module_path::reaxff_step) != 0);
     REQUIRE_TRUE(wrapper.virtual_datasets.count(module_path::reaxff_time) != 0);
     REQUIRE_TRUE(
@@ -214,14 +202,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     Require_Dataset_Spec(wrapper, Metadynamics_Scalar_Value_Path("rbias"),
                          DataType::float64, {3}, {3}, {3}, false);
     Require_Dataset_Spec(wrapper, Metadynamics_Scalar_Value_Path("rct"),
-                         DataType::float64, {3}, {3}, {3}, false);
-    Require_Dataset_Spec(wrapper, module_path::qc_step, DataType::int64, {3},
-                         {3}, {3}, false);
-    Require_Dataset_Spec(wrapper, module_path::qc_time, DataType::float64, {3},
-                         {3}, {3}, false);
-    Require_Dataset_Spec(wrapper, Qc_Observable_Value_Path("energy"),
-                         DataType::float64, {3}, {3}, {3}, false);
-    Require_Dataset_Spec(wrapper, Qc_Observable_Value_Path("spin_square"),
                          DataType::float64, {3}, {3}, {3}, false);
     Require_Dataset_Spec(wrapper, module_path::reaxff_step, DataType::int64,
                          {3}, {3}, {3}, false);
@@ -332,15 +312,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_EQ(metad_sources[0].dataset_path,
                Metadynamics_Scalar_Value_Path("meta"));
     REQUIRE_EQ(metad_sources[1].virtual_start[0], static_cast<std::size_t>(2));
-    const auto& qc_sources =
-        wrapper.virtual_datasets.at(Qc_Observable_Value_Path("energy"));
-    REQUIRE_EQ(qc_sources.size(), static_cast<std::size_t>(2));
-    REQUIRE_EQ(qc_sources[0].file_path,
-               std::string("prod.spg.shards/segment_000000.spg.h5md"));
-    REQUIRE_EQ(qc_sources[1].file_path,
-               std::string("prod.spg.shards/segment_000001.spg.h5md"));
-    REQUIRE_EQ(qc_sources[0].dataset_path, Qc_Observable_Value_Path("energy"));
-    REQUIRE_EQ(qc_sources[1].virtual_start[0], static_cast<std::size_t>(2));
     const auto& reaxff_sources =
         wrapper.virtual_datasets.at(Reaxff_Term_Value_Path("bond"));
     REQUIRE_EQ(reaxff_sources.size(), static_cast<std::size_t>(2));
@@ -363,14 +334,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
                                Metadynamics_Scalar_Step_Path("rct")));
     REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::metad_time,
                                Metadynamics_Scalar_Time_Path("rct")));
-    REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::qc_step,
-                               Qc_Observable_Step_Path("energy")));
-    REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::qc_time,
-                               Qc_Observable_Time_Path("energy")));
-    REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::qc_step,
-                               Qc_Observable_Step_Path("spin_square")));
-    REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::qc_time,
-                               Qc_Observable_Time_Path("spin_square")));
     REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::reaxff_step,
                                Reaxff_Term_Step_Path("bond")));
     REQUIRE_TRUE(Has_Hard_Link(*factory.logs[0], module_path::reaxff_time,
@@ -392,8 +355,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_EQ(
         wrapper.strings.at(Metadynamics_Diagnostic_Path("meta0", "hills")),
         std::string("HILLS"));
-    REQUIRE_EQ(wrapper.strings.at(Qc_Scf_Output_Path()),
-               std::string("SCF LOG"));
     REQUIRE_EQ(wrapper.string_arrays.at(path::legacy_sidecar_keys)[1],
                std::string("mdout"));
     REQUIRE_EQ(wrapper.string_arrays.at(path::legacy_sidecar_paths)[0],
@@ -409,7 +370,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_TRUE(wrapper.datasets.count(path::shard_manifest_sits_count) != 0);
     REQUIRE_TRUE(
         wrapper.datasets.count(path::shard_manifest_metadynamics_count) != 0);
-    REQUIRE_TRUE(wrapper.datasets.count(path::shard_manifest_qc_count) != 0);
     REQUIRE_TRUE(wrapper.datasets.count(path::shard_manifest_reaxff_count) !=
                  0);
     REQUIRE_TRUE(wrapper.datasets.count(path::shard_manifest_step_start) != 0);
@@ -441,8 +401,6 @@ static void Test_Vds_Wrapper_And_Module_Virtual_Datasets()
     REQUIRE_EQ(
         wrapper.append_counts.at(path::shard_manifest_metadynamics_count),
         static_cast<int64_t>(2));
-    REQUIRE_EQ(wrapper.append_counts.at(path::shard_manifest_qc_count),
-               static_cast<int64_t>(2));
     REQUIRE_EQ(wrapper.append_counts.at(path::shard_manifest_reaxff_count),
                static_cast<int64_t>(2));
     REQUIRE_EQ(wrapper.append_counts.at(path::shard_manifest_step_start),
@@ -779,9 +737,6 @@ static void Test_Vds_Precondition_Errors()
         writer.Last_Error(),
         std::string(
             "metadynamics scalar layout must be defined before appending"));
-    REQUIRE_TRUE(!writer.Append_Qc_Frame(1, 0.0, -1.0));
-    REQUIRE_EQ(writer.Last_Error(),
-               std::string("QC layout must be defined before appending"));
     REQUIRE_TRUE(!writer.Append_Reaxff_Frame(1, 0.0, {{"bond", 1.0}}));
     REQUIRE_EQ(writer.Last_Error(),
                std::string("ReaxFF layout must be defined before appending"));
@@ -842,7 +797,6 @@ static void Test_Vds_Finalizes_Module_Frames_Before_First_Particle_Frame()
     REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
     REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("sits_a", 3));
     REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
-    REQUIRE_TRUE(writer.Ensure_Qc_Observables(true));
     REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
 
     float nhc[2] = {0.1f, 0.2f};
@@ -850,10 +804,8 @@ static void Test_Vds_Finalizes_Module_Frames_Before_First_Particle_Frame()
     for (int64_t step = 0; step < 2; ++step)
     {
         const double time = static_cast<double>(step) * 0.01;
-        const double spin_square = static_cast<double>(step) * 0.001;
         REQUIRE_TRUE(writer.Append_Reaxff_Frame(
             step, time, {{"bond", 1.25}, {"angle", 2.25}}));
-        REQUIRE_TRUE(writer.Append_Qc_Frame(step, time, -10.0, &spin_square));
         REQUIRE_TRUE(
             writer.Append_Metadynamics_Scalar_Frame(step, time, 1.0, 2.0, 3.0));
         REQUIRE_TRUE(
@@ -874,7 +826,6 @@ static void Test_Vds_Finalizes_Module_Frames_Before_First_Particle_Frame()
     REQUIRE_EQ(entry.nhc_frame_count, static_cast<int64_t>(2));
     REQUIRE_EQ(entry.sits_nk_frame_count, static_cast<int64_t>(2));
     REQUIRE_EQ(entry.metadynamics_scalar_frame_count, static_cast<int64_t>(2));
-    REQUIRE_EQ(entry.qc_frame_count, static_cast<int64_t>(2));
     REQUIRE_EQ(entry.reaxff_frame_count, static_cast<int64_t>(2));
     REQUIRE_EQ(entry.step_start, static_cast<int64_t>(0));
     REQUIRE_EQ(entry.step_end, static_cast<int64_t>(1));
@@ -887,8 +838,6 @@ static void Test_Vds_Finalizes_Module_Frames_Before_First_Particle_Frame()
                  0);
     REQUIRE_TRUE(wrapper.virtual_datasets.count(
                      Metadynamics_Scalar_Value_Path("meta")) != 0);
-    REQUIRE_TRUE(wrapper.virtual_datasets.count(
-                     Qc_Observable_Value_Path("energy")) != 0);
     REQUIRE_TRUE(
         wrapper.virtual_datasets.count(Reaxff_Term_Value_Path("bond")) != 0);
 }
@@ -960,8 +909,6 @@ static void Test_Vds_Open_Precondition_Errors()
         VdsTrajectoryH5Writer writer(&factory);
         REQUIRE_TRUE(
             !writer.Write_Metadynamics_Diagnostic("meta0", "hills", "HILLS"));
-        REQUIRE_EQ(writer.Last_Error(), std::string("VDS wrapper is not open"));
-        REQUIRE_TRUE(!writer.Write_Qc_Scf_Output("SCF"));
         REQUIRE_EQ(writer.Last_Error(), std::string("VDS wrapper is not open"));
         REQUIRE_TRUE(
             !writer.Write_Legacy_Sidecar_Paths({"mdout"}, {"legacy.out"}));

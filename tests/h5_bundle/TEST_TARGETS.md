@@ -121,7 +121,7 @@ where all terminal shards finalize cleanly.
 - observable-only `.obs.spg.h5md` via `ObservableH5Writer`
 - VDS wrapper `.spg.h5md` via `VdsTrajectoryH5Writer`
 
-The real-backend coverage includes backend factory behavior, nested output path creation, nested group idempotence, repeated dataset definition semantics, string-array metadata overwrite semantics, repeated hard-link calls, ordinary observable paths through dynamic helpers, SPONGE provenance paths through dynamic helpers, NHC, SITS nk, restart SITS dynamic state components through dynamic helpers, metad scalar/diagnostic paths through dynamic helpers, restart metad text components through dynamic helpers, QC observables/SCF text through dynamic helpers, ReaxFF multi-term observables through dynamic helpers, optional particle-field disabled branches, zero-frame VDS finalize behavior, complete-prefix VDS repair behavior, legacy sidecar provenance, output status/error metadata, and restart single-state invariants.
+The real-backend coverage includes backend factory behavior, nested output path creation, nested group idempotence, repeated dataset definition semantics, string-array metadata overwrite semantics, repeated hard-link calls, ordinary observable paths through dynamic helpers, SPONGE provenance paths through dynamic helpers, NHC, SITS nk, restart SITS dynamic state components through dynamic helpers, metad scalar/diagnostic paths through dynamic helpers, restart metad text components through dynamic helpers, ReaxFF multi-term observables through dynamic helpers, optional particle-field disabled branches, zero-frame VDS finalize behavior, complete-prefix VDS repair behavior, legacy sidecar provenance, output status/error metadata, and restart single-state invariants.
 
 These additions are source-level only until the h5 bundle CTest targets are configured, compiled, and executed.
 
@@ -150,10 +150,10 @@ behavior tests:
   disabled branches, restart extension roots, restart SITS dynamic state
   components, and restart metad text components.
 - `test_module_h5_mappings_with_mock_backend` locks module extension paths for
-  NHC, SITS, metadynamics, QC, ReaxFF, generic scalar observable leaf path
+  NHC, SITS, metadynamics, ReaxFF, generic scalar observable leaf path
   builders, the NHC coordinate/velocity dynamic root path builders, the SITS
   module/`nk` path builders, and
-  metadynamics/QC/ReaxFF dynamic leaf path builders, and module dataset
+  metadynamics/ReaxFF dynamic leaf path builders, and module dataset
   type/shape/chunk contracts.
 - `test_vds_trajectory_writer_with_mock_backend` locks VDS wrapper metadata paths
   for chunk size, manifest path/status arrays, optional particle-field disabled

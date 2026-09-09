@@ -704,7 +704,6 @@ static void Test_Observable_Only_Module_Proxy_Paths()
     REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
     REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("obs_sits", 3));
     REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
-    REQUIRE_TRUE(writer.Ensure_Qc_Observables(false));
     REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond"}));
 
     float nhc[2] = {0.1f, 0.2f};
@@ -713,11 +712,9 @@ static void Test_Observable_Only_Module_Proxy_Paths()
     REQUIRE_TRUE(writer.Append_Sits_Nk_Frame(3, 0.15, "obs_sits", sits, 3));
     REQUIRE_TRUE(
         writer.Append_Metadynamics_Scalar_Frame(3, 0.15, 1.0, 2.0, 3.0));
-    REQUIRE_TRUE(writer.Append_Qc_Frame(3, 0.15, -4.0));
     REQUIRE_TRUE(writer.Append_Reaxff_Frame(3, 0.15, {{"bond", 5.0}}));
     REQUIRE_TRUE(
         writer.Write_Metadynamics_Diagnostic("meta0", "hills", "HILLS"));
-    REQUIRE_TRUE(writer.Write_Qc_Scf_Output("SCF LOG"));
 
     REQUIRE_TRUE(log->groups.count("/particles") == 0);
     REQUIRE_TRUE(log->datasets.count(module_path::nhc_coordinate_value) != 0);
@@ -731,9 +728,6 @@ static void Test_Observable_Only_Module_Proxy_Paths()
                  0);
     REQUIRE_TRUE(log->datasets.count(Metadynamics_Scalar_Value_Path("rct")) !=
                  0);
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("energy")) != 0);
-    REQUIRE_TRUE(log->datasets.count(Qc_Observable_Value_Path("spin_square")) ==
-                 0);
     REQUIRE_TRUE(log->datasets.count(Reaxff_Term_Value_Path("bond")) != 0);
     REQUIRE_TRUE(Has_Hard_Link(*log, module_path::nhc_step,
                                module_path::nhc_coordinate_step));
@@ -741,8 +735,6 @@ static void Test_Observable_Only_Module_Proxy_Paths()
                                module_path::nhc_coordinate_time));
     REQUIRE_TRUE(Has_Hard_Link(*log, module_path::metad_step,
                                Metadynamics_Scalar_Step_Path("rbias")));
-    REQUIRE_TRUE(Has_Hard_Link(*log, module_path::qc_time,
-                               Qc_Observable_Time_Path("energy")));
     REQUIRE_TRUE(Has_Hard_Link(*log, module_path::reaxff_step,
                                Reaxff_Term_Step_Path("bond")));
     REQUIRE_EQ(log->append_counts[module_path::nhc_coordinate_value],
@@ -753,11 +745,8 @@ static void Test_Observable_Only_Module_Proxy_Paths()
                static_cast<int64_t>(1));
     REQUIRE_EQ(log->append_counts[Sits_Nk_Time_Path("obs_sits")],
                static_cast<int64_t>(1));
-    REQUIRE_EQ(log->append_counts[Qc_Observable_Value_Path("energy")],
-               static_cast<int64_t>(1));
     REQUIRE_EQ(log->strings[Metadynamics_Diagnostic_Path("meta0", "hills")],
                std::string("HILLS"));
-    REQUIRE_EQ(log->strings[Qc_Scf_Output_Path()], std::string("SCF LOG"));
 }
 
 static void Test_Trajectory_Append_Failure_Marks_Failed()

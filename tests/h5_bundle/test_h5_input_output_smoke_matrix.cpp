@@ -161,9 +161,8 @@ void Require_Text_Equivalent(const std::filesystem::path& lhs,
                 REQUIRE_EQ(lhs_tokens[j], rhs_tokens[j]);
                 continue;
             }
-            const bool qc_column = column == "QC" || column == "QC_S_sq";
             const bool cmap_column = column == "cmap";
-            const double relative_tolerance = qc_column ? 1.0e-2 : 1.0e-4;
+            const double relative_tolerance = 1.0e-4;
             const double tolerance =
                 (cmap_column ? 1.0e-2 : 1.0e-6) +
                 relative_tolerance *
@@ -358,8 +357,7 @@ void Require_Mdout_Columns_Equivalent(const std::filesystem::path& lhs,
         {
             const double lhs_value = lhs_iter->second[lhs_offset + i];
             const double rhs_value = rhs_iter->second[i];
-            const bool qc_column = column == "QC" || column == "QC_S_sq";
-            const double relative_tolerance = qc_column ? 1.0e-2 : 1.0e-4;
+            const double relative_tolerance = 1.0e-4;
             const double tolerance =
                 1.0e-6 + relative_tolerance * std::max(std::fabs(lhs_value),
                                                        std::fabs(rhs_value));
@@ -394,12 +392,11 @@ void Require_Rerun_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"temperature", "QC",          "LJ_short",      "LJ_long",
-         "LJ",          "LJ_soft",     "LJ_soft_short", "LJ_soft_long",
-         "PM",          "custom_pair", "nb14_LJ",       "nb14_EE",
-         "bond",        "angle",       "urey_bradley",  "dihedral",
-         "custom_bond", "SW",          "EAM",           "restrain",
-         "z_wall",      "distance"});
+        {"temperature",   "LJ_short",     "LJ_long", "LJ",           "LJ_soft",
+         "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",  "nb14_LJ",
+         "nb14_EE",       "bond",         "angle",   "urey_bradley", "dihedral",
+         "custom_bond",   "SW",           "EAM",     "restrain",     "z_wall",
+         "distance"});
 }
 
 void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
@@ -407,12 +404,11 @@ void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"frame",        "temperature", "QC",          "LJ_short",
-         "LJ_long",      "LJ",          "LJ_soft",     "LJ_soft_short",
-         "LJ_soft_long", "PM",          "custom_pair", "nb14_LJ",
-         "nb14_EE",      "bond",        "angle",       "urey_bradley",
-         "dihedral",     "custom_bond", "SW",          "EAM",
-         "z_wall",       "distance"});
+        {"frame",    "temperature",   "LJ_short",     "LJ_long", "LJ",
+         "LJ_soft",  "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",
+         "nb14_LJ",  "nb14_EE",       "bond",         "angle",   "urey_bradley",
+         "dihedral", "custom_bond",   "SW",           "EAM",     "z_wall",
+         "distance"});
 }
 
 void Require_Pure_Bundled_Rerun_Mdout_Core_Equivalent(
@@ -1329,7 +1325,6 @@ void Require_Normal_Prepared_Mdin(const PreparedCase& prepared,
         REQUIRE_TRUE(!Has_Key_Line(mdin, "vel"));
         REQUIRE_TRUE(!Has_Key_Line(mdin, "frc"));
         REQUIRE_TRUE(!Has_Key_Line(mdin, "rst"));
-        REQUIRE_TRUE(!Has_Key_Line(mdin, "qc_scf_output"));
         Require_Contains(mdin, "output_h5_restart_path = " +
                                    Toml_Relative_Path(prepared.root,
                                                       output_paths.h5_restart));
@@ -1884,13 +1879,12 @@ void Validate_Runtime_Smoke_Preparation()
         {
             const auto mdin = Read_Text(prepared.mdin);
             for (const auto& key :
-                 {"mass_in_file", "charge_in_file", "qc_type_in_file",
-                  "cv_in_file", "restrain_in_file", "SITS_in_file"})
+                 {"mass_in_file", "charge_in_file", "cv_in_file",
+                  "restrain_in_file", "SITS_in_file"})
             {
                 REQUIRE_TRUE(!Has_Key_Line(mdin, key));
             }
-            for (const auto& key :
-                 {"mass_in_file", "charge_in_file", "qc_type_in_file"})
+            for (const auto& key : {"mass_in_file", "charge_in_file"})
             {
                 const auto sidecar_path = Legacy_Sidecar_Path_For_Key(
                     prepared.root / "topology.spgt.h5", key);
@@ -1921,11 +1915,11 @@ void Validate_Runtime_Smoke_Preparation()
         if (spec.kind == SidecarSmokeKind::same_key_same_path)
         {
             Require_Contains(Read_Text(prepared.mdin),
-                             "qc_type_in_file = "
-                             "\"legacy_sidecars/qc_type_in_file/qc_type.txt\"");
-            const auto qc_type_sidecar_path = Legacy_Sidecar_Path_For_Key(
-                prepared.root / "topology.spgt.h5", "qc_type_in_file");
-            REQUIRE_TRUE(std::filesystem::exists(qc_type_sidecar_path));
+                             "SITS_in_file = "
+                             "\"legacy_sidecars/SITS_in_file/sits.txt\"");
+            const auto sits_sidecar_path = Legacy_Sidecar_Path_For_Key(
+                prepared.root / "protocol.spgp.h5", "SITS_in_file");
+            REQUIRE_TRUE(std::filesystem::exists(sits_sidecar_path));
         }
         if (spec.kind == SidecarSmokeKind::pure_bundled_without_sidecar_files)
         {

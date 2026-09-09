@@ -54,10 +54,6 @@ REQUIRED_INPUT_SEMANTIC_CONTRACTS = frozenset(
         "input.protocol.sits.nk_typed_restart",
         "input.bias.metadynamics",
         "input.bias.nhc",
-        "input.qc.type",
-        "input.qc.energy",
-        "input.qc.spin_square",
-        "input.qc.scf_text",
     }
 )
 

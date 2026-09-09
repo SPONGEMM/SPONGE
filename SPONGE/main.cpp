@@ -65,7 +65,6 @@ EDIP_INFORMATION edip;
 EAM_INFORMATION eam;
 TERSOFF_INFORMATION tersoff;
 REAXFF reaxff;
-QUANTUM_CHEMISTRY qc;
 SPONGE_PLUGIN plugin;
 
 deviceStream_t main_stream;
@@ -1114,7 +1113,6 @@ void Main_Initial(int argc, char* argv[])
     md_info.Initial(&controller);
     controller.Step_Print_Initial("potential", "%.2f");
     controller.Step_Print_Initial("eff_pot", "%.7e");
-    qc.Initial(&controller, md_info.atom_numbers, md_info.crd);
     cv_controller.atom_numbers = md_info.atom_numbers;
     plugin.Initial(&md_info, &controller, &cv_controller, &neighbor_list);
 
@@ -1327,15 +1325,13 @@ void Main_Initial(int argc, char* argv[])
             ? sits.classic_sits.k_numbers
             : 0);
     md_info.output.Initial_H5_Metadynamics(&controller, meta.is_initialized);
-    md_info.output.Initial_H5_Qc(&controller, qc.is_initialized);
     md_info.output.Initial_H5_Reaxff(
         &controller, reaxff.is_initialized,
         reaxff.eeq.is_initialized
             ? static_cast<std::size_t>(reaxff.eeq.atom_numbers)
             : static_cast<std::size_t>(0));
     md_info.output.Prepare_H5_Swmr_Layout(
-        &controller, meta.is_initialized ? meta.h5_object_name.c_str() : NULL,
-        qc.is_initialized);
+        &controller, meta.is_initialized ? meta.h5_object_name.c_str() : NULL);
     if (meta.is_initialized)
     {
         md_info.output.Write_H5_Metadynamics_Diagnostic_File(
@@ -1360,13 +1356,6 @@ void Main_Calculate_Force()
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
-    qc.Solve_SCF(dd.crd, boundary, true, md_info.sys.steps);
-    if (qc.is_initialized && qc.scf_output_file != NULL)
-    {
-        fflush(qc.scf_output_file);
-        md_info.output.Write_H5_Qc_Scf_Output_File(&controller,
-                                                   qc.scf_output_file_name);
-    }
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;
@@ -1392,10 +1381,6 @@ void Main_Calculate_Force()
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         dd.Reset_Force_and_Virial(&md_info);
-        // QC 梯度必须在 dd.Reset_Force_and_Virial 之后调用
-        if (qc.is_initialized && qc.need_gradient)
-            qc.Compute_Gradient(dd.frc, dd.crd, boundary, md_info.need_pressure,
-                                dd.d_virial);
         dd.Update_Ghost(&controller);
         neighbor_list.Update(
             dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
@@ -1901,11 +1886,6 @@ void Main_Print()
         controller.Step_Print("potential", dd.h_sum_ene_total);
 
         restrain.Step_Print(&controller);
-        if (qc.is_initialized)
-        {
-            qc.Step_Print(&controller);
-            md_info.output.Append_H5_Qc_Frame(&controller);
-        }
         cv_controller.Step_Print();
         plugin.Mdout_Print();
         steer_cv.Step_Print(&controller);

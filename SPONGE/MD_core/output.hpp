@@ -966,54 +966,6 @@ void MD_INFORMATION::trajectory_output::Initial_H5_Metadynamics(
     h5_metadynamics_scalar_enabled = enabled;
 }
 
-void MD_INFORMATION::trajectory_output::Initial_H5_Qc(CONTROLLER* controller,
-                                                      int is_initialized)
-{
-    if (!is_initialized || CONTROLLER::MPI_rank != 0)
-    {
-        return;
-    }
-    if (!H5MD_Output_Key_Exists(controller, "QC"))
-    {
-        return;
-    }
-    h5_qc_spin_square_enabled = H5MD_Output_Key_Exists(controller, "QC_S_sq");
-    bool enabled = false;
-    if (h5_trajectory_enabled)
-    {
-        bool ok = h5_trajectory_vds_enabled
-                      ? h5_vds_trajectory_writer->Ensure_Qc_Observables(
-                            h5_qc_spin_square_enabled)
-                      : h5_trajectory_writer->Ensure_Qc_Observables(
-                            h5_qc_spin_square_enabled);
-        if (!ok)
-        {
-            const std::string error =
-                h5_trajectory_vds_enabled
-                    ? h5_vds_trajectory_writer->Last_Error()
-                    : h5_trajectory_writer->Last_Error();
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Initial_H5_Qc",
-                error.c_str());
-        }
-        enabled = true;
-    }
-    if (h5_observable_enabled)
-    {
-        if (!h5_observable_writer->Ensure_Qc_Observables(
-                h5_qc_spin_square_enabled))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Initial_H5_Qc",
-                h5_observable_writer->Last_Error().c_str());
-        }
-        enabled = true;
-    }
-    h5_qc_scalar_enabled = enabled;
-}
-
 void MD_INFORMATION::trajectory_output::Initial_H5_Reaxff(
     CONTROLLER* controller, int is_initialized, std::size_t eeq_atom_count)
 {
@@ -1109,8 +1061,7 @@ void MD_INFORMATION::trajectory_output::Initial_H5_Reaxff(
 }
 
 void MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout(
-    CONTROLLER* controller, const char* metadynamics_module_name,
-    int qc_is_initialized)
+    CONTROLLER* controller, const char* metadynamics_module_name)
 {
     if (CONTROLLER::MPI_rank != 0) return;
     const char* components[] = {"hills", "history", "edge", "direct_export",
@@ -1137,25 +1088,6 @@ void MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout(
                     "MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout",
                     h5_observable_writer->Last_Error().c_str());
             }
-        }
-    }
-    if (qc_is_initialized)
-    {
-        if (h5_trajectory_enabled && !h5_trajectory_vds_enabled &&
-            !h5_trajectory_writer->Write_Qc_Scf_Output(""))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout",
-                h5_trajectory_writer->Last_Error().c_str());
-        }
-        if (h5_observable_enabled &&
-            !h5_observable_writer->Write_Qc_Scf_Output(""))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout",
-                h5_observable_writer->Last_Error().c_str());
         }
     }
 }
@@ -1464,71 +1396,6 @@ void MD_INFORMATION::trajectory_output::Write_H5_Reaxff_Eeq_Charge_Snapshot(
     }
 }
 
-void MD_INFORMATION::trajectory_output::Append_H5_Qc_Frame(
-    CONTROLLER* controller)
-{
-    if (!h5_qc_scalar_enabled || CONTROLLER::MPI_rank != 0) return;
-    double energy = 0.0;
-    if (!Parse_H5MD_Output_Double(controller->outputs_content["QC"], &energy))
-    {
-        controller->Throw_SPONGE_Error(
-            spongeErrorValueErrorCommand,
-            "MD_INFORMATION::trajectory_output::Append_H5_Qc_Frame",
-            "cannot convert QC mdout value to H5 observable");
-    }
-    double spin_square = 0.0;
-    const double* spin_square_ptr = NULL;
-    if (h5_qc_spin_square_enabled)
-    {
-        if (!Parse_H5MD_Output_Double(controller->outputs_content["QC_S_sq"],
-                                      &spin_square))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Append_H5_Qc_Frame",
-                "cannot convert QC_S_sq mdout value to H5 observable");
-        }
-        spin_square_ptr = &spin_square;
-    }
-    if (h5_trajectory_enabled)
-    {
-        bool ok =
-            h5_trajectory_vds_enabled
-                ? (h5_vds_trajectory_writer->Total_Trajectory_Frame_Count() == 0
-                       ? true
-                       : h5_vds_trajectory_writer->Append_Qc_Frame(
-                             md_info->sys.steps,
-                             md_info->sys.Get_Current_Time(false), energy,
-                             spin_square_ptr))
-                : h5_trajectory_writer->Append_Qc_Frame(
-                      md_info->sys.steps, md_info->sys.Get_Current_Time(false),
-                      energy, spin_square_ptr);
-        if (!ok)
-        {
-            const std::string error =
-                h5_trajectory_vds_enabled
-                    ? h5_vds_trajectory_writer->Last_Error()
-                    : h5_trajectory_writer->Last_Error();
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Append_H5_Qc_Frame",
-                error.c_str());
-        }
-    }
-    if (h5_observable_enabled)
-    {
-        if (!h5_observable_writer->Append_Qc_Frame(
-                md_info->sys.steps, md_info->sys.Get_Current_Time(false),
-                energy, spin_square_ptr))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Append_H5_Qc_Frame",
-                h5_observable_writer->Last_Error().c_str());
-        }
-    }
-}
-
 void MD_INFORMATION::trajectory_output::Append_H5_Metadynamics_Scalar_Frame(
     CONTROLLER* controller, double meta, double rbias, double rct)
 {
@@ -1622,49 +1489,6 @@ void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
                 spongeErrorValueErrorCommand,
                 "MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_"
                 "Diagnostic_File",
-                h5_observable_writer->Last_Error().c_str());
-        }
-    }
-}
-
-void MD_INFORMATION::trajectory_output::Write_H5_Qc_Scf_Output_File(
-    CONTROLLER* controller, const char* file_name)
-{
-    if ((!h5_trajectory_enabled && !h5_observable_enabled) ||
-        CONTROLLER::MPI_rank != 0)
-    {
-        return;
-    }
-    std::string text;
-    if (!Read_H5MD_Text_File_If_Present(file_name, &text))
-    {
-        return;
-    }
-    if (h5_trajectory_enabled)
-    {
-        bool ok = h5_trajectory_vds_enabled
-                      ? h5_vds_trajectory_writer->Write_Qc_Scf_Output(text)
-                      : h5_trajectory_writer->Write_Qc_Scf_Output(text);
-        if (!ok)
-        {
-            const std::string error =
-                h5_trajectory_vds_enabled
-                    ? h5_vds_trajectory_writer->Last_Error()
-                    : h5_trajectory_writer->Last_Error();
-            controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
-                                           "MD_INFORMATION::trajectory_output::"
-                                           "Write_H5_Qc_Scf_Output_File",
-                                           error.c_str());
-        }
-    }
-    if (h5_observable_enabled)
-    {
-        if (!h5_observable_writer->Write_Qc_Scf_Output(text))
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorValueErrorCommand,
-                "MD_INFORMATION::trajectory_output::Write_H5_Qc_Scf_Output_"
-                "File",
                 h5_observable_writer->Last_Error().c_str());
         }
     }

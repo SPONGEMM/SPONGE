@@ -35,8 +35,6 @@ struct trajectory_output
     std::string h5_sits_module_name;
     std::size_t h5_sits_k_count = 0;
     bool h5_metadynamics_scalar_enabled = false;
-    bool h5_qc_scalar_enabled = false;
-    bool h5_qc_spin_square_enabled = false;
     bool h5_reaxff_energy_enabled = false;
     bool h5_reaxff_eeq_snapshot_enabled = false;
     std::size_t h5_reaxff_eeq_atom_count = 0;
@@ -67,12 +65,10 @@ struct trajectory_output
     void Initial_H5_Sits_Nk(CONTROLLER* controller, const char* module_name,
                             std::size_t k_count);
     void Initial_H5_Metadynamics(CONTROLLER* controller, int is_initialized);
-    void Initial_H5_Qc(CONTROLLER* controller, int is_initialized);
     void Initial_H5_Reaxff(CONTROLLER* controller, int is_initialized,
                            std::size_t eeq_atom_count);
     void Prepare_H5_Swmr_Layout(CONTROLLER* controller,
-                                const char* metadynamics_module_name,
-                                int qc_is_initialized);
+                                const char* metadynamics_module_name);
     void Start_H5_Swmr(CONTROLLER* controller);
     void Append_H5_Trajectory_Frame(CONTROLLER* controller);
     void Append_H5_Observable_Frame(CONTROLLER* controller);
@@ -87,7 +83,6 @@ struct trajectory_output
     void Append_H5_Metadynamics_Scalar_Frame(CONTROLLER* controller,
                                              double meta, double rbias,
                                              double rct);
-    void Append_H5_Qc_Frame(CONTROLLER* controller);
     void Append_H5_Reaxff_Frame(CONTROLLER* controller);
     void Write_H5_Reaxff_Eeq_Charge_Snapshot(CONTROLLER* controller,
                                              const float* values,
@@ -96,8 +91,6 @@ struct trajectory_output
                                                const char* module_name,
                                                const char* component,
                                                const char* file_name);
-    void Write_H5_Qc_Scf_Output_File(CONTROLLER* controller,
-                                     const char* file_name);
     void Publish_Output(CONTROLLER* controller);
     void Publish_H5_Output(CONTROLLER* controller);
     void Finalize_H5_Trajectory(CONTROLLER* controller);
