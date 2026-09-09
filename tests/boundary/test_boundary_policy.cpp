@@ -22,6 +22,19 @@ bool Check_Vector(const char* label, const VECTOR actual, const VECTOR expected)
               << expected.y << ", " << expected.z << ")\n";
     return false;
 }
+
+bool Check_Matrix(const char* label, const LTMatrix3 actual,
+                  const LTMatrix3 expected)
+{
+    if (Near(actual.a11, expected.a11) && Near(actual.a21, expected.a21) &&
+        Near(actual.a22, expected.a22) && Near(actual.a31, expected.a31) &&
+        Near(actual.a32, expected.a32) && Near(actual.a33, expected.a33))
+    {
+        return true;
+    }
+    std::cerr << label << " mismatch\n";
+    return false;
+}
 }  // namespace
 
 #ifdef USE_CUDA
@@ -114,6 +127,41 @@ int main()
     ok &= Check_Vector("mesh index displacement",
                        Get_Mesh_Index_Displacement(mesh_a, mesh_b, mesh_scale),
                        {1.5f, 4.0f, 10.0f});
+
+    const float deg_to_rad = 0.01745329251994329577f;
+    const float alpha = 70.0f * deg_to_rad;
+    const float beta = 80.0f * deg_to_rad;
+    const float gamma = 100.0f * deg_to_rad;
+    const float za = std::sqrt(
+        1.0f - std::cos(alpha) * std::cos(alpha) -
+        std::cos(beta) * std::cos(beta) - std::cos(gamma) * std::cos(gamma) +
+        2.0f * std::cos(alpha) * std::cos(beta) * std::cos(gamma));
+    const LTMatrix3 triclinic_cell(
+        10.0f, 11.0f * std::cos(gamma), 11.0f * std::sin(gamma),
+        12.0f * std::cos(beta),
+        12.0f / std::sin(gamma) *
+            (std::cos(alpha) - std::cos(beta) * std::cos(gamma)),
+        12.0f / std::sin(gamma) * za);
+    const LTMatrix3 triclinic_rcell =
+        Invert_Lower_Triangular_Cell(triclinic_cell);
+    ok &= Check_Matrix("triclinic inverse", triclinic_cell * triclinic_rcell,
+                       {1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f});
+
+    VECTOR lengths;
+    VECTOR angles;
+    Get_Cell_Lengths_And_Angles(triclinic_cell, &lengths, &angles);
+    ok &= Check_Vector("triclinic lengths", lengths, {10.0f, 11.0f, 12.0f});
+    ok &= Check_Vector("triclinic angles", angles, {alpha, beta, gamma});
+
+    LTMatrix3 nearly_orthogonal(100.0f, 5.0e-4f, 100.0f, -5.0e-4f, 5.0e-4f,
+                                100.0f);
+    nearly_orthogonal = Normalize_Near_Orthogonal_Cell(nearly_orthogonal);
+    ok &= Check_Matrix("near-orthogonal normalization", nearly_orthogonal,
+                       {100.0f, 0.0f, 100.0f, 0.0f, 0.0f, 100.0f});
+    ok &= Check_Matrix(
+        "near-orthogonal inverse",
+        nearly_orthogonal * Invert_Lower_Triangular_Cell(nearly_orthogonal),
+        {1.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f});
 
 #ifdef USE_CUDA
     ok &= Check_Device_Boundary();

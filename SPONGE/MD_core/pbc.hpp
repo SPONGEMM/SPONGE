@@ -77,25 +77,8 @@ void MD_INFORMATION::periodic_box_condition_information::PBC_Check()
         c / sinf(gamma) * (cosf(alpha) - cosf(beta) * cosf(gamma));
     boundary.cell.a33 = c / sinf(gamma) * za;
 
-    boundary.rcell.a11 = 1.0f / boundary.cell.a11;
-    boundary.rcell.a22 = 1.0f / boundary.cell.a22;
-    boundary.rcell.a33 = 1.0f / boundary.cell.a33;
-    boundary.rcell.a21 = -boundary.rcell.a11 / tanf(gamma);
-    boundary.rcell.a31 =
-        (cosf(alpha) / tanf(gamma) - cosf(beta) / sinf(gamma)) / za / a;
-    boundary.rcell.a32 =
-        (cosf(beta) / tanf(gamma) - cosf(alpha) / sinf(gamma)) / za / b;
-
-    boundary.cell.a21 = fabsf(boundary.cell.a21) < 1e-3 ? 0 : boundary.cell.a21;
-    boundary.cell.a31 = fabsf(boundary.cell.a31) < 1e-3 ? 0 : boundary.cell.a31;
-    boundary.cell.a32 = fabsf(boundary.cell.a32) < 1e-3 ? 0 : boundary.cell.a32;
-
-    boundary.rcell.a21 =
-        fabsf(boundary.rcell.a21) < 1e-3 ? 0 : boundary.rcell.a21;
-    boundary.rcell.a31 =
-        fabsf(boundary.rcell.a31) < 1e-3 ? 0 : boundary.rcell.a31;
-    boundary.rcell.a32 =
-        fabsf(boundary.rcell.a32) < 1e-3 ? 0 : boundary.rcell.a32;
+    boundary.cell = Normalize_Near_Orthogonal_Cell(boundary.cell);
+    boundary.rcell = Invert_Lower_Triangular_Cell(boundary.cell);
 }
 
 void MD_INFORMATION::periodic_box_condition_information::Update_Box(LTMatrix3 g)
@@ -116,33 +99,11 @@ void MD_INFORMATION::periodic_box_condition_information::Update_Box(LTMatrix3 g)
     boundary.cell.a32 =
         boundary.cell.a32 +
         md_info->dt * (boundary.cell.a32 * g.a22 + boundary.cell.a33 * g.a32);
-    VECTOR va = {boundary.cell.a11, 0, 0};
-    VECTOR vb = {boundary.cell.a21, boundary.cell.a22, 0};
-    VECTOR vc = {boundary.cell.a31, boundary.cell.a32, boundary.cell.a33};
-    float a = sqrtf(va * va);
-    float b = sqrtf(vb * vb);
-    float c = sqrtf(vc * vc);
-    float alpha = acos(va * vb / a / b);
-    float beta = acos(va * vc / a / c);
-    float gamma = acos(vc * vb / c / b);
-    float za = sqrtf(1 - cosf(alpha) * cosf(alpha) - cosf(beta) * cosf(beta) -
-                     cosf(gamma) * cosf(gamma) +
-                     2 * cosf(alpha) * cosf(beta) * cosf(gamma));
-    boundary.rcell.a11 = 1.0f / boundary.cell.a11;
-    boundary.rcell.a22 = 1.0f / boundary.cell.a22;
-    boundary.rcell.a33 = 1.0f / boundary.cell.a33;
-    boundary.rcell.a21 = -boundary.rcell.a11 / tanf(gamma);
-    boundary.rcell.a31 =
-        (cosf(alpha) / tanf(gamma) - cosf(beta) / sinf(gamma)) / za / a;
-    boundary.rcell.a32 =
-        (cosf(beta) / tanf(gamma) - cosf(alpha) / sinf(gamma)) / za / b;
-
-    md_info->sys.box_length.x = a;
-    md_info->sys.box_length.y = b;
-    md_info->sys.box_length.z = c;
-    md_info->sys.box_angle.x = alpha * CONSTANT_RAD_TO_DEG;
-    md_info->sys.box_angle.y = beta * CONSTANT_RAD_TO_DEG;
-    md_info->sys.box_angle.z = gamma * CONSTANT_RAD_TO_DEG;
+    VECTOR angles;
+    Get_Cell_Lengths_And_Angles(boundary.cell, &md_info->sys.box_length,
+                                &angles);
+    md_info->sys.box_angle = CONSTANT_RAD_TO_DEG * angles;
+    boundary.rcell = Invert_Lower_Triangular_Cell(boundary.cell);
 }
 
 bool MD_INFORMATION::periodic_box_condition_information::Check_Change_Large()
