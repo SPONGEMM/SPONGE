@@ -485,8 +485,10 @@ void Run_SPONGE(const std::filesystem::path& executable,
     if (ret != 0)
     {
         throw TestFailure("SPONGE manybody parity smoke failed for " +
-                          test_case.root.filename().string() + "\n" +
-                          Read_Text(log_path));
+                          test_case.root.filename().string() +
+                          " (process status " + std::to_string(ret) +
+                          ")\nRetained case: " + test_case.root.string() +
+                          "\n" + Read_Text(log_path));
     }
     SpongeH5InputMatrix::Require_Path_Exists(test_case.mdout);
     SpongeH5InputMatrix::Require_Path_Exists(test_case.mdinfo);
