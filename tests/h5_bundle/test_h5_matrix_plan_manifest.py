@@ -834,7 +834,6 @@ def require_sidecar_preparation_locks_success_paths(smoke_text):
             "!Has_Key_Line(mdin, key)",
             '"mass_in_file"',
             '"charge_in_file"',
-            '"charge_in_file"',
             '"cv_in_file"',
             '"restrain_in_file"',
             '"SITS_in_file"',
