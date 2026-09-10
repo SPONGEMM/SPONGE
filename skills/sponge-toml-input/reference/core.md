@@ -46,6 +46,18 @@
 
 温度和压力支持 schedule（分步/线性变化），详见 [thermostat.md](thermostat.md) 和 [barostat.md](barostat.md)。
 
+## 初始速度
+
+默认情况下，SPONGE 保留当前输入格式所提供的速度。需要显式生成热初速时使用：
+
+```toml
+[initial_velocity]
+mode = "maxwell"
+seed = 202607220001
+```
+
+`mode = "maxwell"` 按第 0 步目标温度采样速度，去除质心平动，对约束体系执行不改变坐标的 SHAKE/SETTLE 速度投影，再按最终体系自由度精确定温。`seed` 必填，范围为 `0..INT64_MAX`，且不与恒温器 seed 共用。该模式只用于动力学模拟，不支持 minimization 或 rerun。
+
 ## 工作目录
 
 | 参数 | 类型 | 默认值 | 说明 |

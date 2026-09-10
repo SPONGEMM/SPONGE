@@ -6,6 +6,7 @@
 #include "Lennard_Jones_force/Lennard_Jones_force.h"
 #include "Lennard_Jones_force/solvent_LJ.h"
 #include "MD_core/MD_core.h"
+#include "MD_core/initial_velocity.h"
 #include "NO_PBC/Coulomb_Force_No_PBC.h"
 #include "NO_PBC/Lennard_Jones_force_No_PBC.h"
 #include "NO_PBC/generalized_Born.h"
