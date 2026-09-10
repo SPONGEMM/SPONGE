@@ -1571,11 +1571,8 @@ void Main_Calculate_Force()
         }
         else
         {
-            if (!use_reaxff_eeq)
-            {
-                pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
-                                   dd.atom_numbers);
-            }
+            pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
+                               dd.atom_numbers);
         }
         sits.Update_And_Enhance(
             md_info.sys.steps, md_info.sys.d_potential, md_info.need_pressure,
