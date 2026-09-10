@@ -74,7 +74,6 @@ void Write_Metadata_Files(const std::filesystem::path& topology_path,
 {
     const auto mass = std::filesystem::absolute(source_dir / "mass.txt");
     const auto charge = std::filesystem::absolute(source_dir / "charge.txt");
-    const auto qc_type = std::filesystem::absolute(source_dir / "qc_type.txt");
     {
         HighFive::File file(topology_path.string(), HighFive::File::Overwrite);
         Write_Scalar(file, "/schema/version", std::string("1"));
@@ -84,11 +83,10 @@ void Write_Metadata_Files(const std::filesystem::path& topology_path,
                      std::string("h2_atoms"));
         Write_Scalar(file, "/topology/topology_hash", std::string("h2_top"));
         Write_Scalar(file, "/topology/forcefield_hash", std::string("h2_ff"));
-        Write_String_Vector(
-            file, SpongeH5MD::path::legacy_sidecar_keys,
-            {"mass_in_file", "charge_in_file", "qc_type_in_file"});
+        Write_String_Vector(file, SpongeH5MD::path::legacy_sidecar_keys,
+                            {"mass_in_file", "charge_in_file"});
         Write_String_Vector(file, SpongeH5MD::path::legacy_sidecar_paths,
-                            {mass.string(), charge.string(), qc_type.string()});
+                            {mass.string(), charge.string()});
     }
     {
         HighFive::File file(protocol_path.string(), HighFive::File::Overwrite);
@@ -182,7 +180,6 @@ void Write_Source_Sidecars(const std::filesystem::path& source_dir)
     std::filesystem::create_directories(source_dir);
     Write_Text(source_dir / "mass.txt", "2\n1.008\n1.008\n");
     Write_Text(source_dir / "charge.txt", "2\n0.0\n0.0\n");
-    Write_Text(source_dir / "qc_type.txt", "2 0 1\n0 H\n1 H\n");
 }
 
 void Write_Mdin_Files(const std::filesystem::path& output_dir,
@@ -190,7 +187,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
 {
     const auto mass = std::filesystem::absolute(source_dir / "mass.txt");
     const auto charge = std::filesystem::absolute(source_dir / "charge.txt");
-    const auto qc_type = std::filesystem::absolute(source_dir / "qc_type.txt");
 
     Write_Text(output_dir / "h5_structural.mdin.toml",
                "md_name = \"h2 h5 structural smoke\"\n"
@@ -203,9 +199,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                    "\"\n"
                    "charge_in_file = \"" +
                    charge.string() +
-                   "\"\n"
-                   "qc_type_in_file = \"" +
-                   qc_type.string() +
                    "\"\n"
                    "thermostat = \"middle_langevin\"\n"
                    "target_temperature = 300\n"
@@ -253,9 +246,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                    "charge_in_file = \"" +
                    charge.string() +
                    "\"\n"
-                   "qc_type_in_file = \"" +
-                   qc_type.string() +
-                   "\"\n"
                    "mdinfo = \"rerun_mdinfo.txt\"\n"
                    "mdout = \"rerun_mdout.txt\"\n"
                    "write_mdout_interval = 1\n"
@@ -278,9 +268,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                    "charge_in_file = \"" +
                    charge.string() +
                    "\"\n"
-                   "qc_type_in_file = \"" +
-                   qc_type.string() +
-                   "\"\n"
                    "mdinfo = \"rerun_eof_mdinfo.txt\"\n"
                    "mdout = \"rerun_eof_mdout.txt\"\n"
                    "write_mdout_interval = 1\n"
@@ -300,9 +287,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                    "\"\n"
                    "charge_in_file = \"" +
                    charge.string() +
-                   "\"\n"
-                   "qc_type_in_file = \"" +
-                   qc_type.string() +
                    "\"\n"
                    "thermostat = \"middle_langevin\"\n"
                    "target_temperature = 300\n"
@@ -331,9 +315,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                    "charge_in_file = \"" +
                    charge.string() +
                    "\"\n"
-                   "qc_type_in_file = \"" +
-                   qc_type.string() +
-                   "\"\n"
                    "thermostat = \"middle_langevin\"\n"
                    "target_temperature = 300\n"
                    "mdinfo = \"restart_output_mdinfo.txt\"\n"
@@ -359,9 +340,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
             "\"\n"
             "charge_in_file = \"" +
             charge.string() +
-            "\"\n"
-            "qc_type_in_file = \"" +
-            qc_type.string() +
             "\"\n"
             "thermostat = \"middle_langevin\"\n"
             "target_temperature = 300\n"

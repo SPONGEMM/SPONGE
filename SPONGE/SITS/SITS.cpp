@@ -1,5 +1,6 @@
 ﻿#include "SITS.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
 #include "sits_h5_input.hpp"
 
@@ -8,10 +9,10 @@ template <bool need_force, bool need_energy, bool need_virial,
 static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
     const int local_atom_numbers, const int solvent_numbers,
     const ATOM_GROUP* nl, float* atom_ene_LJ, const VECTOR_LJ* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const float* LJ_type_A,
-    const float* LJ_type_B, const int* atom_sys_mark, const float cutoff,
-    VECTOR* frc, VECTOR* frc_enhancing, const float pme_beta,
-    float* atom_energy, float* atom_energy_enhancing, LTMatrix3* atom_virial,
+    const Boundary boundary, const float* LJ_type_A, const float* LJ_type_B,
+    const int* atom_sys_mark, const float cutoff, VECTOR* frc,
+    VECTOR* frc_enhancing, const float pme_beta, float* atom_energy,
+    float* atom_energy_enhancing, LTMatrix3* atom_virial,
     LTMatrix3* atom_virial_enhancing, float* atom_direct_cf_energy,
     const float pwwp_factor)
 {
@@ -41,7 +42,8 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -132,15 +134,15 @@ static __global__ void
 Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
     const int local_atom_numbers, const int solvent_numbers,
     const ATOM_GROUP* nl, float* atom_ene_LJ, const VECTOR_LJ_SOFT_TYPE* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const int* atom_sys_mark,
-    const float* LJ_type_AA, const float* LJ_type_AB, const float* LJ_type_BA,
-    const float* LJ_type_BB, const float cutoff, VECTOR* frc,
-    VECTOR* frc_enhancing, const float pme_beta, float* atom_energy,
-    float* atom_energy_enhancing, LTMatrix3* atom_virial,
-    LTMatrix3* atom_virial_enhancing, float* atom_direct_cf_energy,
-    float* atom_du_dlambda_lj, float* atom_du_dlambda_direct,
-    float* atom_du_dlambda_enhancing, const float lambda, const float alpha,
-    const float p, const float input_sigma_6, const float input_sigma_6_min,
+    const Boundary boundary, const int* atom_sys_mark, const float* LJ_type_AA,
+    const float* LJ_type_AB, const float* LJ_type_BA, const float* LJ_type_BB,
+    const float cutoff, VECTOR* frc, VECTOR* frc_enhancing,
+    const float pme_beta, float* atom_energy, float* atom_energy_enhancing,
+    LTMatrix3* atom_virial, LTMatrix3* atom_virial_enhancing,
+    float* atom_direct_cf_energy, float* atom_du_dlambda_lj,
+    float* atom_du_dlambda_direct, float* atom_du_dlambda_enhancing,
+    const float lambda, const float alpha, const float p,
+    const float input_sigma_6, const float input_sigma_6_min,
     const float pwwp_factor)
 {
     float lambda_ = 1.0 - lambda;
@@ -176,7 +178,8 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ_SOFT_TYPE r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -986,7 +989,7 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
                 for (int i = 0; i < k_numbers; ++i)
                 {
                     const float value = h5_nk->second[i];
-                    if (!(value > 0.0f) || !std::isfinite(value))
+                    if (!(value > 0.0f) || !SpongeFloat::Is_Finite(value))
                     {
                         controller->Throw_SPONGE_Error(
                             spongeErrorValueErrorCommand,
@@ -1009,7 +1012,8 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
                 for (int i = 0; i < k_numbers; ++i)
                 {
                     if (fscanf(nk_read_file, "%f", beta_lin + i) != 1 ||
-                        !(beta_lin[i] > 0.0f) || !std::isfinite(beta_lin[i]))
+                        !(beta_lin[i] > 0.0f) ||
+                        !SpongeFloat::Is_Finite(beta_lin[i]))
                     {
                         fclose(nk_read_file);
                         controller->Throw_SPONGE_Error(
@@ -1272,6 +1276,7 @@ void CLASSIC_SITS_INFORMATION::SITS_Write_Nk_Norm()
 }
 
 void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
+                               const BoundaryPolicy boundary_policy,
                                const char* given_module_name)
 {
     if (given_module_name == NULL)
@@ -1444,6 +1449,14 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                 "SITS_atom_in_file or SITS_atom_numbers\n");
         }
 
+        if (boundary_policy == BoundaryPolicy::Open && selectively_applied)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "SITS_INFORMATION::Initial",
+                "Reason:\n\tselective SITS requires periodic boundary "
+                "conditions; NOPBC supports only full-system ITS/ALL\n");
+        }
+
         classic_sits.Initial(controller, this);
 
         h_factor = 1.0f;
@@ -1503,8 +1516,9 @@ bool SITS_INFORMATION::Export_H5_Restart_State(
                  deviceMemcpyDeviceToHost);
     for (std::size_t index = 0; index < count; ++index)
     {
-        if (!(nk[index] > 0.0f) || !std::isfinite(nk[index]) ||
-            !std::isfinite(log_norm[index]) || !std::isfinite(log_nk[index]))
+        if (!(nk[index] > 0.0f) || !SpongeFloat::Is_Finite(nk[index]) ||
+            !SpongeFloat::Is_Finite(log_norm[index]) ||
+            !SpongeFloat::Is_Finite(log_nk[index]))
         {
             return fail(
                 "SITS restart state contains a non-finite or "
@@ -1579,7 +1593,7 @@ bool SITS_INFORMATION::Apply_H5_Restart_State(
         }
         for (const float value : log_norm_state->second)
         {
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
             {
                 return fail("H5 SITS log_norm values must be finite");
             }
@@ -1589,7 +1603,7 @@ bool SITS_INFORMATION::Apply_H5_Restart_State(
     std::vector<float> log_nk_inverse_values(nk_values.size());
     for (std::size_t i = 0; i < nk_values.size(); ++i)
     {
-        if (!std::isfinite(log_nk_values[i]))
+        if (!SpongeFloat::Is_Finite(log_nk_values[i]))
         {
             return fail("H5 SITS log_nk values must be finite");
         }
@@ -1704,10 +1718,9 @@ void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
     const float* charge, LENNARD_JONES_INFORMATION* lj_info, VECTOR* md_frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const float cutoff, const float pme_beta, const int need_potential,
-    float* atom_energy, const int need_pressure, LTMatrix3* atom_virial,
-    float* coulomb_atom_ene)
+    const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+    const float pme_beta, const int need_potential, float* atom_energy,
+    const int need_pressure, LTMatrix3* atom_virial, float* coulomb_atom_ene)
 {
     if (is_initialized && lj_info->is_initialized)
     {
@@ -1760,7 +1773,7 @@ void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
             solvent_numbers, nl, lj_info->d_LJ_energy_atom,
-            lj_info->crd_with_LJ_parameters_local, cell, rcell, lj_info->d_LJ_A,
+            lj_info->crd_with_LJ_parameters_local, boundary, lj_info->d_LJ_A,
             lj_info->d_LJ_B, atom_sys_mark_local, cutoff, md_frc,
             pw_select.select_force[0], pme_beta, atom_energy,
             pw_select.select_atom_energy[0], atom_virial,
@@ -1774,9 +1787,9 @@ void SITS_INFORMATION::
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
         const float* charge, LJ_SOFT_CORE* lj_info, VECTOR* md_frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-        const float cutoff, const float pme_beta, const int need_potential,
-        float* atom_energy, const int need_pressure, LTMatrix3* atom_virial,
+        const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+        const float pme_beta, const int need_potential, float* atom_energy,
+        const int need_pressure, LTMatrix3* atom_virial,
         float* coulomb_atom_ene)
 {
     if (is_initialized && lj_info->is_initialized)
@@ -1829,7 +1842,7 @@ void SITS_INFORMATION::
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
             solvent_numbers, nl, lj_info->d_LJ_energy_atom,
-            lj_info->crd_with_LJ_parameters_local, cell, rcell,
+            lj_info->crd_with_LJ_parameters_local, boundary,
             atom_sys_mark_local, lj_info->d_LJ_AA, lj_info->d_LJ_AB,
             lj_info->d_LJ_BA, lj_info->d_LJ_BB, cutoff, md_frc,
             pw_select.select_force[0], pme_beta, atom_energy,

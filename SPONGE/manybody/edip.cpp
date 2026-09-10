@@ -260,9 +260,9 @@ template <bool need_energy, bool need_virial>
 static __global__
     __launch_bounds__(1024) void EDIP_Force_With_Full_Neighbor_CUDA(
         const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, float* z, float* dE_dz,
-        const ATOM_GROUP* nl, float* atom_energy, LTMatrix3* atom_virial,
-        int* atom_types, float* parameters, const int atom_type_numbers,
+        const Boundary boundary, float* z, float* dE_dz, const ATOM_GROUP* nl,
+        float* atom_energy, LTMatrix3* atom_virial, int* atom_types,
+        float* parameters, const int atom_type_numbers,
         const int pair_type_numbers, float* this_energy)
 {
 #ifdef USE_GPU
@@ -298,7 +298,7 @@ static __global__
             zj = z[atom_j];
             type_j = atom_types[atom_j];
             rj = crd[atom_j];
-            drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            drij = Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             rij = norm3df(drij.x, drij.y, drij.z);
             pair_index_1 = type_i * atom_type_numbers + type_j;
             a1 = parameters[8 * pair_index_1 + 2];
@@ -336,7 +336,8 @@ static __global__
                 atom_k = nl_i.atom_serial[k];
                 type_k = atom_types[atom_k];
                 rk = crd[atom_k];
-                drik = Get_Periodic_Displacement(ri, rk, cell, rcell);
+                drik = Get_Displacement<BoundaryPolicy::Periodic>(ri, rk,
+                                                                  boundary);
                 rik = norm3df(drik.x, drik.y, drik.z);
                 pair_index_2 = type_i * atom_type_numbers + type_k;
                 a2 = parameters[8 * pair_index_2 + 2];
@@ -407,8 +408,8 @@ static __global__
 }
 
 static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
-                             const LTMatrix3 cell, const LTMatrix3 rcell,
-                             const ATOM_GROUP* nl, const float* parameters,
+                             const Boundary boundary, const ATOM_GROUP* nl,
+                             const float* parameters,
                              const int atom_type_numbers, const int* atom_types,
                              float* z)
 {
@@ -437,7 +438,8 @@ static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
             alpha = parameters[8 * type_j];
             c = parameters[8 * type_j + 1];
             a = parameters[8 * type_j + 2];
-            dr = Get_Periodic_Displacement(crd[atom_j], ri, cell, rcell);
+            dr = Get_Displacement<BoundaryPolicy::Periodic>(crd[atom_j], ri,
+                                                            boundary);
             r = norm3df(dr.x, dr.y, dr.z);
             if (r < c)
             {
@@ -456,10 +458,10 @@ static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
 
 template <bool need_virial>
 static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float* parameters,
-    const int atom_type_numbers, const int* atom_types, const float* dE_dz,
-    VECTOR* frc, LTMatrix3* atom_virial)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const ATOM_GROUP* nl, const float* parameters, const int atom_type_numbers,
+    const int* atom_types, const float* dE_dz, VECTOR* frc,
+    LTMatrix3* atom_virial)
 {
 #ifdef USE_GPU
     int atom_i = threadIdx.y + blockDim.y * blockIdx.x, atom_j;
@@ -492,7 +494,8 @@ static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
             alpha = parameters[8 * type_j];
             c = parameters[8 * type_j + 1];
             a = parameters[8 * type_j + 2];
-            dr = Get_Periodic_Displacement(ri, crd[atom_j], cell, rcell);
+            dr = Get_Displacement<BoundaryPolicy::Periodic>(ri, crd[atom_j],
+                                                            boundary);
             r.val = norm3df(dr.x, dr.y, dr.z);
             if (r < a && r > c)
             {
@@ -513,7 +516,7 @@ static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
 
 void EDIP_INFORMATION::EDIP_Force_With_Atom_Energy_And_Virial_Full_NL(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* fnl_d_nl,
+    const Boundary boundary, const ATOM_GROUP* fnl_d_nl,
     const int need_atom_energy, float* atom_energy, const int need_virial,
     LTMatrix3* atom_virial)
 {
@@ -551,15 +554,15 @@ void EDIP_INFORMATION::EDIP_Force_With_Atom_Energy_And_Virial_Full_NL(
 
     deviceMemset(this->z, 0, sizeof(float) * atom_numbers * 2);
     Launch_Device_Kernel(Get_Z, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         cell, rcell, fnl_d_nl, this->d_parameters,
+                         boundary, fnl_d_nl, this->d_parameters,
                          this->atom_type_numbers, this->d_atom_type, this->z);
     Launch_Device_Kernel(f1, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         frc, cell, rcell, z, dE_dz, fnl_d_nl, atom_energy,
+                         frc, boundary, z, dE_dz, fnl_d_nl, atom_energy,
                          atom_virial, this->d_atom_type, this->d_parameters,
                          this->atom_type_numbers, this->pair_type_numbers,
                          this->d_energy_atom);
     Launch_Device_Kernel(f2, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         cell, rcell, fnl_d_nl, this->d_parameters,
+                         boundary, fnl_d_nl, this->d_parameters,
                          this->atom_type_numbers, this->d_atom_type,
                          this->dE_dz, frc, atom_virial);
 }

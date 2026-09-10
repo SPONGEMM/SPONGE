@@ -581,8 +581,6 @@ static constexpr const char* shard_manifest_sits_count =
     "/parameters/sponge/output/shard_manifest/stream_counts/sits";
 static constexpr const char* shard_manifest_metadynamics_count =
     "/parameters/sponge/output/shard_manifest/stream_counts/metadynamics";
-static constexpr const char* shard_manifest_qc_count =
-    "/parameters/sponge/output/shard_manifest/stream_counts/qc";
 static constexpr const char* shard_manifest_reaxff_count =
     "/parameters/sponge/output/shard_manifest/stream_counts/reaxff";
 static constexpr const char* shard_manifest_step_start =

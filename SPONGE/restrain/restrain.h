@@ -79,8 +79,7 @@ struct RESTRAIN_INFORMATION
                           float* h_sum_mass, VECTOR* h_sum_pos, VECTOR* h_com);
 
     // 计算Restrain的能量、力和维里
-    void Restraint(const VECTOR* crd, const LTMatrix3 cell,
-                   const LTMatrix3 rcell, int need_potential,
+    void Restraint(const VECTOR* crd, Boundary boundary, int need_potential,
                    float* atom_energy, int need_pressure,
                    LTMatrix3* atom_virial, VECTOR* frc, MD_INFORMATION* md_info,
                    DOMAIN_INFORMATION* dd);

@@ -11,9 +11,11 @@ void MD_INFORMATION::periodic_box_condition_information::Initial(
             "pbc",
             "MD_INFORMATION::periodic_box_condition_information::Initial");
     }
+    this->boundary.policy =
+        this->pbc ? BoundaryPolicy::Periodic : BoundaryPolicy::Open;
     this->No_PBC_Check(controller);
     this->PBC_Check();
-    this->cell0 = cell;
+    this->cell0 = boundary.cell;
 }
 
 void MD_INFORMATION::periodic_box_condition_information::No_PBC_Check(
@@ -51,16 +53,6 @@ void MD_INFORMATION::periodic_box_condition_information::No_PBC_Check(
             "MD_INFORMATION::periodic_box_condition_information::No_PBC_Check",
             "NPT mode can not be used for NOPBC");
     }
-    if (!(controller->Command_Exist("SITS", "atom_numbers") &&
-          (strcmp(controller->Command("SITS", "atom_numbers"), "ITS") == 0 ||
-           strcmp(controller->Command("SITS", "atom_numbers"), "ALL") == 0)) &&
-        controller->Command_Exist("SITS", "mode"))
-    {
-        controller->Throw_SPONGE_Error(
-            spongeErrorConflictingCommand,
-            "MD_INFORMATION::periodic_box_condition_information::No_PBC_Check",
-            "SITS can not be used for NOPBC now");
-    }
 }
 
 void MD_INFORMATION::periodic_box_condition_information::PBC_Check()
@@ -77,70 +69,48 @@ void MD_INFORMATION::periodic_box_condition_information::PBC_Check()
                      cosf(gamma) * cosf(gamma) +
                      2 * cosf(alpha) * cosf(beta) * cosf(gamma));
 
-    cell.a11 = a;
-    cell.a21 = b * cosf(gamma);
-    cell.a22 = b * sinf(gamma);
-    cell.a31 = c * cosf(beta);
-    cell.a32 = c / sinf(gamma) * (cosf(alpha) - cosf(beta) * cosf(gamma));
-    cell.a33 = c / sinf(gamma) * za;
+    boundary.cell.a11 = a;
+    boundary.cell.a21 = b * cosf(gamma);
+    boundary.cell.a22 = b * sinf(gamma);
+    boundary.cell.a31 = c * cosf(beta);
+    boundary.cell.a32 =
+        c / sinf(gamma) * (cosf(alpha) - cosf(beta) * cosf(gamma));
+    boundary.cell.a33 = c / sinf(gamma) * za;
 
-    rcell.a11 = 1.0f / cell.a11;
-    rcell.a22 = 1.0f / cell.a22;
-    rcell.a33 = 1.0f / cell.a33;
-    rcell.a21 = -rcell.a11 / tanf(gamma);
-    rcell.a31 = (cosf(alpha) / tanf(gamma) - cosf(beta) / sinf(gamma)) / za / a;
-    rcell.a32 = (cosf(beta) / tanf(gamma) - cosf(alpha) / sinf(gamma)) / za / b;
-
-    cell.a21 = fabsf(cell.a21) < 1e-3 ? 0 : cell.a21;
-    cell.a31 = fabsf(cell.a31) < 1e-3 ? 0 : cell.a31;
-    cell.a32 = fabsf(cell.a32) < 1e-3 ? 0 : cell.a32;
-
-    rcell.a21 = fabsf(rcell.a21) < 1e-3 ? 0 : rcell.a21;
-    rcell.a31 = fabsf(rcell.a31) < 1e-3 ? 0 : rcell.a31;
-    rcell.a32 = fabsf(rcell.a32) < 1e-3 ? 0 : rcell.a32;
+    boundary.cell = Normalize_Near_Orthogonal_Cell(boundary.cell);
+    boundary.rcell = Invert_Lower_Triangular_Cell(boundary.cell);
 }
 
 void MD_INFORMATION::periodic_box_condition_information::Update_Box(LTMatrix3 g)
 {
-    cell.a11 = cell.a11 + md_info->dt * cell.a11 * g.a11;
-    cell.a22 = cell.a22 + md_info->dt * cell.a22 * g.a22;
-    cell.a33 = cell.a33 + md_info->dt * cell.a33 * g.a33;
-    cell.a21 = cell.a21 + md_info->dt * (cell.a21 * g.a11 + cell.a22 * g.a21);
-    cell.a31 = cell.a31 + md_info->dt * (cell.a31 * g.a11 + cell.a32 * g.a21 +
-                                         cell.a33 * g.a31);
-    cell.a32 = cell.a32 + md_info->dt * (cell.a32 * g.a22 + cell.a33 * g.a32);
-    VECTOR va = {cell.a11, 0, 0};
-    VECTOR vb = {cell.a21, cell.a22, 0};
-    VECTOR vc = {cell.a31, cell.a32, cell.a33};
-    float a = sqrtf(va * va);
-    float b = sqrtf(vb * vb);
-    float c = sqrtf(vc * vc);
-    float alpha = acos(va * vb / a / b);
-    float beta = acos(va * vc / a / c);
-    float gamma = acos(vc * vb / c / b);
-    float za = sqrtf(1 - cosf(alpha) * cosf(alpha) - cosf(beta) * cosf(beta) -
-                     cosf(gamma) * cosf(gamma) +
-                     2 * cosf(alpha) * cosf(beta) * cosf(gamma));
-    rcell.a11 = 1.0f / cell.a11;
-    rcell.a22 = 1.0f / cell.a22;
-    rcell.a33 = 1.0f / cell.a33;
-    rcell.a21 = -rcell.a11 / tanf(gamma);
-    rcell.a31 = (cosf(alpha) / tanf(gamma) - cosf(beta) / sinf(gamma)) / za / a;
-    rcell.a32 = (cosf(beta) / tanf(gamma) - cosf(alpha) / sinf(gamma)) / za / b;
-
-    md_info->sys.box_length.x = a;
-    md_info->sys.box_length.y = b;
-    md_info->sys.box_length.z = c;
-    md_info->sys.box_angle.x = alpha * CONSTANT_RAD_TO_DEG;
-    md_info->sys.box_angle.y = beta * CONSTANT_RAD_TO_DEG;
-    md_info->sys.box_angle.z = gamma * CONSTANT_RAD_TO_DEG;
+    boundary.cell.a11 =
+        boundary.cell.a11 + md_info->dt * boundary.cell.a11 * g.a11;
+    boundary.cell.a22 =
+        boundary.cell.a22 + md_info->dt * boundary.cell.a22 * g.a22;
+    boundary.cell.a33 =
+        boundary.cell.a33 + md_info->dt * boundary.cell.a33 * g.a33;
+    boundary.cell.a21 =
+        boundary.cell.a21 +
+        md_info->dt * (boundary.cell.a21 * g.a11 + boundary.cell.a22 * g.a21);
+    boundary.cell.a31 =
+        boundary.cell.a31 +
+        md_info->dt * (boundary.cell.a31 * g.a11 + boundary.cell.a32 * g.a21 +
+                       boundary.cell.a33 * g.a31);
+    boundary.cell.a32 =
+        boundary.cell.a32 +
+        md_info->dt * (boundary.cell.a32 * g.a22 + boundary.cell.a33 * g.a32);
+    VECTOR angles;
+    Get_Cell_Lengths_And_Angles(boundary.cell, &md_info->sys.box_length,
+                                &angles);
+    md_info->sys.box_angle = CONSTANT_RAD_TO_DEG * angles;
+    boundary.rcell = Invert_Lower_Triangular_Cell(boundary.cell);
 }
 
 bool MD_INFORMATION::periodic_box_condition_information::Check_Change_Large()
 {
     bool result = false;
     float grid_length = 0.5f * (md_info->nb.cutoff + md_info->nb.skin);
-    float* cell = (float*)&this->cell;
+    float* cell = (float*)&this->boundary.cell;
     float* cell0 = (float*)&this->cell0;
     int i1, i0;
     float f1, f0;
@@ -157,7 +127,7 @@ bool MD_INFORMATION::periodic_box_condition_information::Check_Change_Large()
     }
     if (result)
     {
-        this->cell0 = this->cell;
+        this->cell0 = this->boundary.cell;
     }
     return result;
 }

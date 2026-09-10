@@ -41,7 +41,6 @@ inline const std::set<std::string>& H5_Topology_Sidecar_Command_Keys()
         "TERSOFF_in_file",
         "REAXFF_in_file",
         "REAXFF_type_in_file",
-        "qc_type_in_file",
     };
     return keys;
 }

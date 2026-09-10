@@ -53,16 +53,61 @@ jobs:
         run: pixi install -e ${{ matrix.env_name }}
 
       - name: Configure SPONGE-CPU
+        if: runner.os != 'Windows'
         run: pixi run -e ${{ matrix.env_name }} configure
+
+      - name: Configure Windows CPU with unit tests
+        if: runner.os == 'Windows'
+        run: pixi run -e ${{ matrix.env_name }} configure-tests
 
       - name: Compile SPONGE-CPU
         run: pixi run -e ${{ matrix.env_name }} compile
 
+      - name: Enable Windows SPONGE crash diagnostics
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $dumpDirectory = Join-Path $env:RUNNER_TEMP 'sponge-crash-dumps'
+          New-Item -ItemType Directory -Force -Path $dumpDirectory | Out-Null
+          $dumpKey = 'HKLM:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps\SPONGE.exe'
+          New-Item -Force -Path $dumpKey | Out-Null
+          New-ItemProperty -Path $dumpKey -Name DumpFolder -Value $dumpDirectory -PropertyType ExpandString -Force | Out-Null
+          New-ItemProperty -Path $dumpKey -Name DumpType -Value 2 -PropertyType DWord -Force | Out-Null
+
+      - name: Windows CPU unit tests
+        if: runner.os == 'Windows'
+        run: pixi run -e ${{ matrix.env_name }} test
+        env:
+          SPONGE_H5_ENABLE_RUNTIME_SMOKE: "1"
+          OMP_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+
+      - name: Collect Windows CPU failure diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $diagnostics = Join-Path $env:RUNNER_TEMP 'sponge-cpu-diagnostics'
+          New-Item -ItemType Directory -Force -Path $diagnostics | Out-Null
+          Get-ChildItem -Path $env:TEMP -Directory -Filter 'sponge_h5_bundle_*' | Copy-Item -Destination $diagnostics -Recurse -Force
+          Get-WinEvent -FilterHashtable @{LogName='Application'; StartTime=(Get-Date).AddHours(-1)} -ErrorAction SilentlyContinue |
+            Where-Object { $_.Id -in 1000, 1001 } |
+            Format-List TimeCreated, Id, ProviderName, Message |
+            Out-File (Join-Path $diagnostics 'application-errors.txt')
+
+      - name: Upload Windows CPU failure diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-cpu-failure-${{ github.run_attempt }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/sponge-cpu-diagnostics
+            ${{ runner.temp }}/sponge-crash-dumps
+            build-dev-cpu-oneapi/Testing/Temporary
+            build-dev-cpu-oneapi/SPONGE.exe
+
       - name: Benchmark comparison/lammps
         run: pixi run -e ${{ matrix.env_name }} comp-lammps
-
-      - name: Benchmark comparison/pyscf
-        run: pixi run -e ${{ matrix.env_name }} comp-pyscf
 
       - name: Benchmark comparison/amber
         run: pixi run -e ${{ matrix.env_name }} comp-amber
@@ -72,6 +117,9 @@ jobs:
 
       - name: Benchmark validation/cv
         run: pixi run -e ${{ matrix.env_name }} vali-cv
+
+      - name: Benchmark validation/nopbc
+        run: pixi run -e ${{ matrix.env_name }} vali-nopbc
 
       - name: Benchmark validation/thermostat
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat
@@ -288,6 +336,9 @@ jobs:
 
       - name: Benchmark validation/cv (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-cv --mpi 2
+
+      - name: Benchmark validation/nopbc rejection (MPI np=2)
+        run: pixi run -e ${{ matrix.env_name }} vali-nopbc-mpi
 
       - name: Benchmark validation/thermostat (MPI np=2)
         run: pixi run -e ${{ matrix.env_name }} vali-thermostat --mpi 2

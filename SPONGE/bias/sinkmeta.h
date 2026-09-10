@@ -90,10 +90,10 @@ struct META
     void Initial(CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                  char* module_name = NULL);
-    void Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                         LTMatrix3 rcell, int step, int need_potential,
-                         int need_pressure, VECTOR* frc, float* d_potential,
-                         LTMatrix3* d_virial, float sys_temp);
+    void Do_Metadynamics(int atom_numbers, VECTOR* crd, Boundary boundary,
+                         int step, int need_potential, int need_pressure,
+                         VECTOR* frc, float* d_potential, LTMatrix3* d_virial,
+                         float sys_temp);
     void Step_Print(CONTROLLER* controller);
     void Write_Potential(void);
     void Write_Directly(void);

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "../float_classification.hpp"
 #include "protocol_cv_h5.hpp"
 
 namespace SpongeH5MD
@@ -436,7 +437,7 @@ class ProtocolMetadynamicsH5Reader
 
     static void Require_Finite(double value, const std::string& path)
     {
-        if (!std::isfinite(value))
+        if (!SpongeFloat::Is_Finite(value))
             throw std::runtime_error(path + " contains a non-finite value");
     }
 

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "h5_input_matrix_fixture.hpp"
+#include "test_shell.hpp"
 #include "utils/h5md/h5_legacy_sidecar.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
 
@@ -160,9 +161,8 @@ void Require_Text_Equivalent(const std::filesystem::path& lhs,
                 REQUIRE_EQ(lhs_tokens[j], rhs_tokens[j]);
                 continue;
             }
-            const bool qc_column = column == "QC" || column == "QC_S_sq";
             const bool cmap_column = column == "cmap";
-            const double relative_tolerance = qc_column ? 1.0e-2 : 1.0e-4;
+            const double relative_tolerance = 1.0e-4;
             const double tolerance =
                 (cmap_column ? 1.0e-2 : 1.0e-6) +
                 relative_tolerance *
@@ -357,8 +357,7 @@ void Require_Mdout_Columns_Equivalent(const std::filesystem::path& lhs,
         {
             const double lhs_value = lhs_iter->second[lhs_offset + i];
             const double rhs_value = rhs_iter->second[i];
-            const bool qc_column = column == "QC" || column == "QC_S_sq";
-            const double relative_tolerance = qc_column ? 1.0e-2 : 1.0e-4;
+            const double relative_tolerance = 1.0e-4;
             const double tolerance =
                 1.0e-6 + relative_tolerance * std::max(std::fabs(lhs_value),
                                                        std::fabs(rhs_value));
@@ -393,12 +392,11 @@ void Require_Rerun_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"temperature", "QC",          "LJ_short",      "LJ_long",
-         "LJ",          "LJ_soft",     "LJ_soft_short", "LJ_soft_long",
-         "PM",          "custom_pair", "nb14_LJ",       "nb14_EE",
-         "bond",        "angle",       "urey_bradley",  "dihedral",
-         "custom_bond", "SW",          "EAM",           "restrain",
-         "z_wall",      "distance"});
+        {"temperature",   "LJ_short",     "LJ_long", "LJ",           "LJ_soft",
+         "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",  "nb14_LJ",
+         "nb14_EE",       "bond",         "angle",   "urey_bradley", "dihedral",
+         "custom_bond",   "SW",           "EAM",     "restrain",     "z_wall",
+         "distance"});
 }
 
 void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
@@ -406,12 +404,11 @@ void Require_Rerun_Selection_Mdout_Equivalent(const std::filesystem::path& lhs,
 {
     Require_Mdout_Columns_Equivalent(
         lhs, rhs,
-        {"frame",        "temperature", "QC",          "LJ_short",
-         "LJ_long",      "LJ",          "LJ_soft",     "LJ_soft_short",
-         "LJ_soft_long", "PM",          "custom_pair", "nb14_LJ",
-         "nb14_EE",      "bond",        "angle",       "urey_bradley",
-         "dihedral",     "custom_bond", "SW",          "EAM",
-         "z_wall",       "distance"});
+        {"frame",    "temperature",   "LJ_short",     "LJ_long", "LJ",
+         "LJ_soft",  "LJ_soft_short", "LJ_soft_long", "PM",      "custom_pair",
+         "nb14_LJ",  "nb14_EE",       "bond",         "angle",   "urey_bradley",
+         "dihedral", "custom_bond",   "SW",           "EAM",     "z_wall",
+         "distance"});
 }
 
 void Require_Pure_Bundled_Rerun_Mdout_Core_Equivalent(
@@ -524,7 +521,9 @@ std::filesystem::path Resolve_Vds_Shard_Path(
 void Require_VDS_Shards_Are_Complete(
     const std::filesystem::path& wrapper_path,
     const std::vector<std::int64_t>& expected_steps,
-    const std::vector<double>& expected_times)
+    const std::vector<double>& expected_times,
+    const std::vector<std::int64_t>& expected_shard_step_starts,
+    const std::vector<double>& expected_shard_time_starts)
 {
     SpongeH5InputMatrix::Require_Path_Exists(wrapper_path);
     HighFive::File file(wrapper_path.string(), HighFive::File::ReadOnly);
@@ -599,6 +598,8 @@ void Require_VDS_Shards_Are_Complete(
 
     const std::size_t shard_count = indices.size();
     REQUIRE_TRUE(shard_count > 0);
+    REQUIRE_EQ(expected_shard_step_starts.size(), shard_count);
+    REQUIRE_EQ(expected_shard_time_starts.size(), shard_count);
     REQUIRE_EQ(paths.size(), shard_count);
     REQUIRE_EQ(statuses.size(), shard_count);
     REQUIRE_EQ(frame_starts.size(), shard_count);
@@ -627,9 +628,10 @@ void Require_VDS_Shards_Are_Complete(
         const std::size_t last_frame =
             first_frame + static_cast<std::size_t>(frame_counts[i]) - 1;
         REQUIRE_TRUE(last_frame < expected_steps.size());
-        REQUIRE_EQ(step_starts[i], expected_steps[first_frame]);
+        // A shard can open on an observable before its first particle frame.
+        REQUIRE_EQ(step_starts[i], expected_shard_step_starts[i]);
         REQUIRE_EQ(step_ends[i], expected_steps[last_frame]);
-        REQUIRE_TRUE(std::fabs(time_starts[i] - expected_times[first_frame]) <
+        REQUIRE_TRUE(std::fabs(time_starts[i] - expected_shard_time_starts[i]) <
                      1.0e-12);
         REQUIRE_TRUE(std::fabs(time_ends[i] - expected_times[last_frame]) <
                      1.0e-12);
@@ -737,8 +739,10 @@ void Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
     const auto boxes =
         Read_Float_Vector(file, "/particles/all/box/edges/value");
 
+    // The two-atom I/O fixture uses type 2 with sources {0, 0, 0}.
+    // Its target (atom 1) coincides with atom 0 after coordinate refresh.
     const std::vector<float> expected_position = {
-        1.5f, 2.5f, 3.5f, 3.0f, 4.0f, 5.0f,
+        1.5f, 2.5f, 3.5f, 1.5f, 2.5f, 3.5f,
     };
     const std::vector<float> expected_box = {
         10.0f, 0.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, 30.0f,
@@ -809,40 +813,6 @@ void Require_H5_Observable_Stream_Matches_Mdout(
         Require_Double_Vector_Close(h5_values, mdout_column->second,
                                     "observable " + original_columns[i]);
     }
-}
-
-void Require_H5_Observable_Stream_Has_Frames(
-    const std::filesystem::path& path,
-    const std::vector<std::int64_t>& expected_steps,
-    const std::vector<double>& expected_times)
-{
-    HighFive::File file(path.string(), HighFive::File::ReadOnly);
-    REQUIRE_TRUE(file.exist(SpongeH5MD::path::observables_all_step));
-    REQUIRE_TRUE(file.exist(SpongeH5MD::path::observables_all_time));
-    const auto steps =
-        Read_Int64_Vector(file, SpongeH5MD::path::observables_all_step);
-    const auto times =
-        Read_Float64_Vector(file, SpongeH5MD::path::observables_all_time);
-    Require_Frame_Sequence(steps, times, expected_steps, expected_times);
-}
-
-std::string Shell_Quote(const std::filesystem::path& path)
-{
-    std::string text = path.string();
-    std::string quoted = "'";
-    for (const char c : text)
-    {
-        if (c == '\'')
-        {
-            quoted += "'\\''";
-        }
-        else
-        {
-            quoted += c;
-        }
-    }
-    quoted += "'";
-    return quoted;
 }
 
 void Copy_Directory_Contents(const std::filesystem::path& source,
@@ -1034,9 +1004,20 @@ struct PreparedCase
     std::filesystem::path h5_observable;
 };
 
-void Install_Valid_Native_EAM_Atom_Types(
-    const std::filesystem::path& topology_h5)
+void Install_Valid_EAM_Atom_Types(const std::filesystem::path& root)
 {
+    // The synthetic funcfl fixture has one element. Its serialized type 1
+    // is out of range during simulation.
+    // Normalize every runtime representation, including legacy and sidecar
+    // input.
+    for (const auto& relative :
+         {"eam_atom_type.txt",
+          "legacy_sidecars/EAM_atom_type_in_file/eam_atom_type.txt"})
+    {
+        const auto path = root / relative;
+        if (std::filesystem::exists(path)) Write_Text(path, "0\n0\n");
+    }
+    const auto topology_h5 = root / "topology.spgt.h5";
     if (!std::filesystem::exists(topology_h5)) return;
     HighFive::File file(topology_h5.string(), HighFive::File::ReadWrite);
     if (!file.exist("/manybody/eam/atom_type")) return;
@@ -1208,7 +1189,7 @@ PreparedCase Prepare_Case(const std::filesystem::path& temp_root,
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
-    Install_Valid_Native_EAM_Atom_Types(prepared.root / "topology.spgt.h5");
+    Install_Valid_EAM_Atom_Types(prepared.root);
     const auto output_paths =
         SpongeH5InputMatrix::Normal_Output_Paths(prepared.root);
     std::filesystem::create_directories(output_paths.output_dir);
@@ -1272,7 +1253,7 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
-    Install_Valid_Native_EAM_Atom_Types(prepared.root / "topology.spgt.h5");
+    Install_Valid_EAM_Atom_Types(prepared.root);
     const auto output_paths =
         SpongeH5InputMatrix::Rerun_Output_Paths(prepared.root);
     std::filesystem::create_directories(output_paths.output_dir);
@@ -1344,7 +1325,6 @@ void Require_Normal_Prepared_Mdin(const PreparedCase& prepared,
         REQUIRE_TRUE(!Has_Key_Line(mdin, "vel"));
         REQUIRE_TRUE(!Has_Key_Line(mdin, "frc"));
         REQUIRE_TRUE(!Has_Key_Line(mdin, "rst"));
-        REQUIRE_TRUE(!Has_Key_Line(mdin, "qc_scf_output"));
         Require_Contains(mdin, "output_h5_restart_path = " +
                                    Toml_Relative_Path(prepared.root,
                                                       output_paths.h5_restart));
@@ -1511,7 +1491,7 @@ void Run_SPONGE(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret != 0)
     {
         throw TestFailure("SPONGE smoke failed for " +
@@ -1549,7 +1529,7 @@ void Run_SPONGE_Expect_Failure(const std::filesystem::path& executable,
     const std::string command = Shell_Quote(executable) + " -mdin " +
                                 Shell_Quote(test_case.mdin) + " > " +
                                 Shell_Quote(log_path) + " 2>&1";
-    const int ret = std::system(command.c_str());
+    const int ret = Run_Test_Shell_Command(command);
     if (ret == 0)
     {
         throw TestFailure("SPONGE smoke unexpectedly succeeded for " +
@@ -1899,13 +1879,12 @@ void Validate_Runtime_Smoke_Preparation()
         {
             const auto mdin = Read_Text(prepared.mdin);
             for (const auto& key :
-                 {"mass_in_file", "charge_in_file", "qc_type_in_file",
-                  "cv_in_file", "restrain_in_file", "SITS_in_file"})
+                 {"mass_in_file", "charge_in_file", "cv_in_file",
+                  "restrain_in_file", "SITS_in_file"})
             {
                 REQUIRE_TRUE(!Has_Key_Line(mdin, key));
             }
-            for (const auto& key :
-                 {"mass_in_file", "charge_in_file", "qc_type_in_file"})
+            for (const auto& key : {"mass_in_file", "charge_in_file"})
             {
                 const auto sidecar_path = Legacy_Sidecar_Path_For_Key(
                     prepared.root / "topology.spgt.h5", key);
@@ -1936,11 +1915,11 @@ void Validate_Runtime_Smoke_Preparation()
         if (spec.kind == SidecarSmokeKind::same_key_same_path)
         {
             Require_Contains(Read_Text(prepared.mdin),
-                             "qc_type_in_file = "
-                             "\"legacy_sidecars/qc_type_in_file/qc_type.txt\"");
-            const auto qc_type_sidecar_path = Legacy_Sidecar_Path_For_Key(
-                prepared.root / "topology.spgt.h5", "qc_type_in_file");
-            REQUIRE_TRUE(std::filesystem::exists(qc_type_sidecar_path));
+                             "SITS_in_file = "
+                             "\"legacy_sidecars/SITS_in_file/sits.txt\"");
+            const auto sits_sidecar_path = Legacy_Sidecar_Path_For_Key(
+                prepared.root / "protocol.spgp.h5", "SITS_in_file");
+            REQUIRE_TRUE(std::filesystem::exists(sits_sidecar_path));
         }
         if (spec.kind == SidecarSmokeKind::pure_bundled_without_sidecar_files)
         {
@@ -2295,9 +2274,6 @@ void Run_Rerun_Mode_Matrix(const std::filesystem::path& sponge_executable)
         const std::vector<double> observable_times =
             h5_rerun_input ? std::vector<double>{1.0, 1.001}
                            : std::vector<double>{0.0, 0.001};
-        const std::vector<double> vds_trajectory_observable_times =
-            h5_rerun_input ? std::vector<double>{1.001}
-                           : std::vector<double>{0.001};
         SpongeH5InputMatrix::Require_Path_Exists(sidecar_bundled.h5_trajectory);
         Require_H5_Trajectory_Has_Frames(sidecar_bundled.h5_trajectory, {1},
                                          trajectory_times);
@@ -2305,18 +2281,16 @@ void Run_Rerun_Mode_Matrix(const std::filesystem::path& sponge_executable)
             sidecar_bundled.h5_trajectory, 0);
         if (spec.vds)
         {
+            // Step 0 observables open the shard before particle step 1.
             Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory, {1},
-                                            trajectory_times);
-            Require_H5_Observable_Stream_Has_Frames(
-                sidecar_bundled.h5_trajectory, {1},
-                vds_trajectory_observable_times);
+                                            trajectory_times, {0},
+                                            {observable_times.front()});
         }
-        else
-        {
-            Require_H5_Observable_Stream_Matches_Mdout(
-                sidecar_bundled.h5_trajectory, sidecar_bundled.mdout, {0, 1},
-                observable_times);
-        }
+        // VDS and single-file outputs both retain the initial observable frame,
+        // including its values, even though no particle frame exists at step 0.
+        Require_H5_Observable_Stream_Matches_Mdout(
+            sidecar_bundled.h5_trajectory, sidecar_bundled.mdout, {0, 1},
+            observable_times);
         SpongeH5InputMatrix::Require_Path_Exists(sidecar_bundled.h5_observable);
         Require_H5_Observable_Stream_Matches_Mdout(
             sidecar_bundled.h5_observable, sidecar_bundled.mdout, {0, 1},

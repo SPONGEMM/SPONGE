@@ -137,22 +137,7 @@
       "sidecar_key": "charge_in_file",
       "sidecar_path": "legacy_sidecars/charge_in_file/charge.txt"
     },
-    {
-      "bundle_file": "topology.spgt.h5",
-      "bundle_path": "/qc/type",
-      "comparison_rule": "typed",
-      "component": "topology",
-      "contract_id": "topology.qc_type",
-      "direction": "input",
-      "message": "legacy topology payload materialized as typed HDF5 datasets",
-      "override_policy": "forbidden",
-      "payload_kind": "file",
-      "source_key": "qc_type_in_file",
-      "source_path": "/home/youmans/sidereus/SPONGE/tests/h5_bundle/fixtures/input_matrix/core_structural/legacy_input/qc_type.txt",
-      "status": "typed_converted",
-      "sidecar_key": "qc_type_in_file",
-      "sidecar_path": "legacy_sidecars/qc_type_in_file/qc_type.txt"
-    },
+
     {
       "bundle_file": "restart.spgr.h5",
       "bundle_path": "/parameters/restart/protocol_sidecars/cv_in_file",

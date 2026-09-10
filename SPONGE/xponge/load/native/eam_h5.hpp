@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "../../../utils/float_classification.hpp"
+
 namespace SpongeH5MD
 {
 class NativeEAMH5Materializer
@@ -70,8 +72,9 @@ class NativeEAMH5Materializer
                     "native EAM atom_type_count, nrho, and nr must be "
                     "positive");
             }
-            if (!std::isfinite(drho) || drho <= 0.0f || !std::isfinite(dr) ||
-                dr <= 0.0f || !std::isfinite(cut) || cut <= 0.0f)
+            if (!SpongeFloat::Is_Finite(drho) || drho <= 0.0f ||
+                !SpongeFloat::Is_Finite(dr) || dr <= 0.0f ||
+                !SpongeFloat::Is_Finite(cut) || cut <= 0.0f)
             {
                 return Fail(
                     "native EAM drho, dr, and cut must be positive "
@@ -375,7 +378,7 @@ class NativeEAMH5Materializer
     {
         for (float value : values)
         {
-            if (!std::isfinite(value))
+            if (!SpongeFloat::Is_Finite(value))
             {
                 throw std::runtime_error(path + " contains a non-finite value");
             }

@@ -44,9 +44,9 @@ template <bool need_force, bool need_energy, bool need_virial,
           bool need_coulomb>
 static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
     const int local_atom_numbers, const int solvent_numbers,
-    const ATOM_GROUP* nl, const VECTOR_LJ* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* LJ_type_A, const float* LJ_type_B,
-    const float cutoff, VECTOR* frc, const float pme_beta, float* atom_energy,
+    const ATOM_GROUP* nl, const VECTOR_LJ* crd, const Boundary boundary,
+    const float* LJ_type_A, const float* LJ_type_B, const float cutoff,
+    VECTOR* frc, const float pme_beta, float* atom_energy,
     LTMatrix3* atom_virial, float* atom_direct_cf_energy, float* atom_LJ_ene)
 {
 #ifdef USE_GPU
@@ -74,7 +74,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -325,10 +326,10 @@ void LENNARD_JONES_INFORMATION::Parameter_Host_To_Device()
 void LENNARD_JONES_INFORMATION::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-    const float* charge, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial, float* atom_direct_pme_energy)
+    const float* charge, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial,
+    float* atom_direct_pme_energy)
 {
     if (is_initialized)
     {
@@ -376,8 +377,8 @@ void LENNARD_JONES_INFORMATION::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
-            d_LJ_A, d_LJ_B, cutoff, frc, pme_beta, atom_energy, atom_virial,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary, d_LJ_A,
+            d_LJ_B, cutoff, frc, pme_beta, atom_energy, atom_virial,
             atom_direct_pme_energy, d_LJ_energy_atom);
     }
 }

@@ -313,7 +313,6 @@ void Test_Bundled_Input_With_Sidecar_Injects_Allowed_Keys()
     const auto topology_sidecars = Read_Sidecars(topology_path);
     REQUIRE_TRUE(Has_Key(topology_sidecars, "mass_in_file"));
     REQUIRE_TRUE(Has_Key(topology_sidecars, "charge_in_file"));
-    REQUIRE_TRUE(Has_Key(topology_sidecars, "qc_type_in_file"));
     Require_All_Sidecar_Paths_Resolved(topology_sidecars);
     Require_All_Sidecar_Paths_In_Bundle_Tree(bundle, topology_sidecars);
     Require_All_Sidecar_Keys_Are_Allowed(
@@ -387,7 +386,7 @@ void Test_Legacy_Sidecar_Override_Conflict()
 
     CONTROLLER relative_same_path_controller;
     relative_same_path_controller.Set(
-        "qc_type_in_file", "legacy_sidecars/qc_type_in_file/qc_type.txt");
+        "charge_in_file", "legacy_sidecars/charge_in_file/charge.txt");
     {
         const ScopedCurrentPath cwd(bundle);
         REQUIRE_TRUE(SpongeH5MD::Inject_Legacy_Sidecar_Commands_From_H5(
@@ -396,8 +395,8 @@ void Test_Legacy_Sidecar_Override_Conflict()
             &error));
     }
     REQUIRE_EQ(
-        std::string(relative_same_path_controller.Command("qc_type_in_file")),
-        "legacy_sidecars/qc_type_in_file/qc_type.txt");
+        std::string(relative_same_path_controller.Command("charge_in_file")),
+        "legacy_sidecars/charge_in_file/charge.txt");
 
     CONTROLLER conflict_controller;
     conflict_controller.Set("mass_in_file",
@@ -439,8 +438,7 @@ void Test_Full_Contract_Sidecar_Key_Sets_Are_Injectable()
         "EDIP_in_file",
         "TERSOFF_in_file",
         "REAXFF_in_file",
-        "REAXFF_type_in_file",
-        "qc_type_in_file"};
+        "REAXFF_type_in_file"};
     REQUIRE_TRUE(Sidecar_Key_Set(topology_sidecars) == expected_topology_keys);
     Require_All_Sidecar_Paths_Resolved(topology_sidecars);
     Require_All_Sidecar_Paths_In_Bundle_Tree(bundle, topology_sidecars);
@@ -553,7 +551,6 @@ void Test_Full_Contract_Sidecars_Match_Legacy_Source_Files()
         {"TERSOFF_in_file", "tersoff.txt"},
         {"REAXFF_in_file", "reaxff.txt"},
         {"REAXFF_type_in_file", "reaxff_type.txt"},
-        {"qc_type_in_file", "qc_type.txt"},
         {"cv_in_file", "cv.txt"},
         {"constrain_in_file", "constrain.txt"},
         {"restrain_in_file", "restrain.txt"},

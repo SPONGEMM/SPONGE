@@ -8,9 +8,8 @@ REGISTER_CV_STRUCTURE(CV_POSITION, "scaled_position_y", 4);
 REGISTER_CV_STRUCTURE(CV_POSITION, "scaled_position_z", 5);
 
 static __global__ void position_x_get_all(const int atom, const VECTOR* crd,
-                                          const LTMatrix3 cell,
-                                          const LTMatrix3 rcell, float* value,
-                                          VECTOR* crd_grads, LTMatrix3* virial)
+                                          float* value, VECTOR* crd_grads,
+                                          LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     value[0] = this_crd.x;
@@ -20,9 +19,8 @@ static __global__ void position_x_get_all(const int atom, const VECTOR* crd,
 }
 
 static __global__ void position_y_get_all(const int atom, const VECTOR* crd,
-                                          const LTMatrix3 cell,
-                                          const LTMatrix3 rcell, float* value,
-                                          VECTOR* crd_grads, LTMatrix3* virial)
+                                          float* value, VECTOR* crd_grads,
+                                          LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     value[0] = this_crd.y;
@@ -32,9 +30,8 @@ static __global__ void position_y_get_all(const int atom, const VECTOR* crd,
 }
 
 static __global__ void position_z_get_all(const int atom, const VECTOR* crd,
-                                          const LTMatrix3 cell,
-                                          const LTMatrix3 rcell, float* value,
-                                          VECTOR* crd_grads, LTMatrix3* virial)
+                                          float* value, VECTOR* crd_grads,
+                                          LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     value[0] = this_crd.z;
@@ -44,8 +41,8 @@ static __global__ void position_z_get_all(const int atom, const VECTOR* crd,
 }
 
 static __global__ void scaled_position_x_get_all(
-    const int atom, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+    const int atom, const VECTOR* crd, const LTMatrix3 rcell, float* value,
+    VECTOR* crd_grads, LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     this_crd = this_crd * rcell;
@@ -54,8 +51,8 @@ static __global__ void scaled_position_x_get_all(
 }
 
 static __global__ void scaled_position_y_get_all(
-    const int atom, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+    const int atom, const VECTOR* crd, const LTMatrix3 rcell, float* value,
+    VECTOR* crd_grads, LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     this_crd = this_crd * rcell;
@@ -65,8 +62,8 @@ static __global__ void scaled_position_y_get_all(
 }
 
 static __global__ void scaled_position_z_get_all(
-    const int atom, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+    const int atom, const VECTOR* crd, const LTMatrix3 rcell, float* value,
+    VECTOR* crd_grads, LTMatrix3* virial)
 {
     VECTOR this_crd = crd[atom];
     this_crd = this_crd * rcell;
@@ -80,46 +77,48 @@ void CV_POSITION::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
                           int atom_numbers, const char* module_name)
 {
     atom = manager->Ask_For_Int_Parameter(module_name, "atom", 1, 2);
+    supports_open_boundary = strncmp(type_name, "scaled_position_", 16) != 0;
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_POSITION::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                          const LTMatrix3 rcell, int need, int step)
+void CV_POSITION::Compute(int atom_numbers, VECTOR* crd,
+                          const Boundary boundary, int need, int step)
 {
+    Validate_Boundary(boundary);
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need != CV_NEED_NONE)
     {
         if (strcmp(type_name, "position_x") == 0)
         {
             Launch_Device_Kernel(position_x_get_all, 1, 1, 0, NULL, *atom, crd,
-                                 cell, rcell, d_value, crd_grads, virial);
+                                 d_value, crd_grads, virial);
         }
         else if (strcmp(type_name, "position_y") == 0)
         {
             Launch_Device_Kernel(position_y_get_all, 1, 1, 0, NULL, *atom, crd,
-                                 cell, rcell, d_value, crd_grads, virial);
+                                 d_value, crd_grads, virial);
         }
         else if (strcmp(type_name, "position_z") == 0)
         {
             Launch_Device_Kernel(position_z_get_all, 1, 1, 0, NULL, *atom, crd,
-                                 cell, rcell, d_value, crd_grads, virial);
+                                 d_value, crd_grads, virial);
         }
         else if (strcmp(type_name, "scaled_position_x") == 0)
         {
             Launch_Device_Kernel(scaled_position_x_get_all, 1, 1, 0, NULL,
-                                 *atom, crd, cell, rcell, d_value, crd_grads,
+                                 *atom, crd, boundary.rcell, d_value, crd_grads,
                                  virial);
         }
         else if (strcmp(type_name, "scaled_position_y") == 0)
         {
             Launch_Device_Kernel(scaled_position_y_get_all, 1, 1, 0, NULL,
-                                 *atom, crd, cell, rcell, d_value, crd_grads,
+                                 *atom, crd, boundary.rcell, d_value, crd_grads,
                                  virial);
         }
         else if (strcmp(type_name, "scaled_position_z") == 0)
         {
             Launch_Device_Kernel(scaled_position_z_get_all, 1, 1, 0, NULL,
-                                 *atom, crd, cell, rcell, d_value, crd_grads,
+                                 *atom, crd, boundary.rcell, d_value, crd_grads,
                                  virial);
         }
         deviceMemcpy(&value, d_value, sizeof(float), deviceMemcpyDeviceToHost);
@@ -161,12 +160,15 @@ static __global__ void box_length_z_get_all(const LTMatrix3 cell, float* value,
 void CV_BOX_LENGTH::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
                             int atom_numbers, const char* module_name)
 {
+    supports_open_boundary = false;
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_BOX_LENGTH::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                            const LTMatrix3 rcell, int need, int step)
+void CV_BOX_LENGTH::Compute(int atom_numbers, VECTOR* crd,
+                            const Boundary boundary, int need, int step)
 {
+    Validate_Boundary(boundary);
+    const LTMatrix3 cell = boundary.cell;
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need != CV_NEED_NONE)
     {
@@ -199,11 +201,11 @@ REGISTER_CV_STRUCTURE(CV_DISTANCE, "displacement_y", 2);
 REGISTER_CV_STRUCTURE(CV_DISTANCE, "displacement_z", 3);
 
 static __global__ void distance_get_all(const int atom0, const int atom1,
-                                        const VECTOR* crd, const LTMatrix3 cell,
-                                        const LTMatrix3 rcell, float* value,
+                                        const VECTOR* crd,
+                                        const Boundary boundary, float* value,
                                         VECTOR* crd_grads, LTMatrix3* virial)
 {
-    VECTOR dr = Get_Periodic_Displacement(crd[atom1], crd[atom0], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom1], crd[atom0], boundary);
     float dr_abs = norm3df(dr.x, dr.y, dr.z);
     float dr_1 = 1.0f / dr_abs;
     VECTOR drdx = dr_1 * dr;
@@ -213,11 +215,13 @@ static __global__ void distance_get_all(const int atom0, const int atom1,
     virial[0] = Get_Virial_From_Force_Dis(dr, drdx);
 }
 
-static __global__ void displacement_x_get_all(
-    const int atom0, const int atom1, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+static __global__ void displacement_x_get_all(const int atom0, const int atom1,
+                                              const VECTOR* crd,
+                                              const Boundary boundary,
+                                              float* value, VECTOR* crd_grads,
+                                              LTMatrix3* virial)
 {
-    VECTOR dr = Get_Periodic_Displacement(crd[atom1], crd[atom0], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom1], crd[atom0], boundary);
     value[0] = dr.x;
     VECTOR drdx = {1.0f, 0.0f, 0.0f};
     crd_grads[atom1] = drdx;
@@ -225,11 +229,13 @@ static __global__ void displacement_x_get_all(
     virial[0] = Get_Virial_From_Force_Dis(dr, drdx);
 }
 
-static __global__ void displacement_y_get_all(
-    const int atom0, const int atom1, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+static __global__ void displacement_y_get_all(const int atom0, const int atom1,
+                                              const VECTOR* crd,
+                                              const Boundary boundary,
+                                              float* value, VECTOR* crd_grads,
+                                              LTMatrix3* virial)
 {
-    VECTOR dr = Get_Periodic_Displacement(crd[atom1], crd[atom0], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom1], crd[atom0], boundary);
     value[0] = dr.y;
     VECTOR drdx = {0.0f, 1.0f, 0.0f};
     crd_grads[atom1] = drdx;
@@ -237,11 +243,13 @@ static __global__ void displacement_y_get_all(
     virial[0] = Get_Virial_From_Force_Dis(dr, drdx);
 }
 
-static __global__ void displacement_z_get_all(
-    const int atom0, const int atom1, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float* value, VECTOR* crd_grads, LTMatrix3* virial)
+static __global__ void displacement_z_get_all(const int atom0, const int atom1,
+                                              const VECTOR* crd,
+                                              const Boundary boundary,
+                                              float* value, VECTOR* crd_grads,
+                                              LTMatrix3* virial)
 {
-    VECTOR dr = Get_Periodic_Displacement(crd[atom1], crd[atom0], cell, rcell);
+    VECTOR dr = Get_Displacement(crd[atom1], crd[atom0], boundary);
     value[0] = dr.z;
     VECTOR drdx = {0.0f, 0.0f, 1.0f};
     crd_grads[atom1] = drdx;
@@ -256,27 +264,27 @@ void CV_DISTANCE::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_DISTANCE::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                          const LTMatrix3 rcell, int need, int step)
+void CV_DISTANCE::Compute(int atom_numbers, VECTOR* crd,
+                          const Boundary boundary, int need, int step)
 {
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need != CV_NEED_NONE)
     {
         if (strcmp(type_name, "distance") == 0)
             Launch_Device_Kernel(distance_get_all, 1, 1, 0, NULL, atom[0],
-                                 atom[1], crd, cell, rcell, d_value, crd_grads,
+                                 atom[1], crd, boundary, d_value, crd_grads,
                                  virial);
-        else if (strcmp(type_name, "displacement_x"))
+        else if (strcmp(type_name, "displacement_x") == 0)
             Launch_Device_Kernel(displacement_x_get_all, 1, 1, 0, NULL, atom[0],
-                                 atom[1], crd, cell, rcell, d_value, crd_grads,
+                                 atom[1], crd, boundary, d_value, crd_grads,
                                  virial);
-        else if (strcmp(type_name, "displacement_y"))
+        else if (strcmp(type_name, "displacement_y") == 0)
             Launch_Device_Kernel(displacement_y_get_all, 1, 1, 0, NULL, atom[0],
-                                 atom[1], crd, cell, rcell, d_value, crd_grads,
+                                 atom[1], crd, boundary, d_value, crd_grads,
                                  virial);
-        else if (strcmp(type_name, "displacement_z"))
+        else if (strcmp(type_name, "displacement_z") == 0)
             Launch_Device_Kernel(displacement_z_get_all, 1, 1, 0, NULL, atom[0],
-                                 atom[1], crd, cell, rcell, d_value, crd_grads,
+                                 atom[1], crd, boundary, d_value, crd_grads,
                                  virial);
         deviceMemcpy(&value, d_value, sizeof(float), deviceMemcpyDeviceToHost);
     }
@@ -287,13 +295,12 @@ REGISTER_CV_STRUCTURE(CV_ANGLE, "angle", 0);
 
 static __global__ void angle_get_all(const int atom0, const int atom1,
                                      const int atom2, const VECTOR* crd,
-                                     const LTMatrix3 cell,
-                                     const LTMatrix3 rcell, float* value,
+                                     const Boundary boundary, float* value,
                                      VECTOR* crd_grads, LTMatrix3* virial)
 {
     VECTOR r1 = crd[atom1];
-    VECTOR r0 = Get_Periodic_Displacement(crd[atom0], r1, cell, rcell);
-    VECTOR r2 = Get_Periodic_Displacement(crd[atom2], r1, cell, rcell);
+    VECTOR r0 = Get_Displacement(crd[atom0], r1, boundary);
+    VECTOR r2 = Get_Displacement(crd[atom2], r1, boundary);
     SADvector<6> dr01(r0, 0, 1, 2);
     SADvector<6> dr21(r2, 3, 4, 5);
     SADfloat<6> temp = 1.0f / (dr01 * dr01) / (dr21 * dr21);
@@ -320,14 +327,14 @@ void CV_ANGLE::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_ANGLE::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                       const LTMatrix3 rcell, int need, int step)
+void CV_ANGLE::Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                       int need, int step)
 {
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need != CV_NEED_NONE)
     {
         Launch_Device_Kernel(angle_get_all, 1, 1, 0, NULL, atom[0], atom[1],
-                             atom[2], crd, cell, rcell, d_value, crd_grads,
+                             atom[2], crd, boundary, d_value, crd_grads,
                              virial);
         deviceMemcpy(&value, d_value, sizeof(float), deviceMemcpyDeviceToHost);
     }
@@ -338,17 +345,17 @@ REGISTER_CV_STRUCTURE(CV_DIHEDRAL, "dihedral", 0);
 
 static __global__ void dihedral_get_all(const int atom0, const int atom1,
                                         const int atom2, const int atom3,
-                                        const VECTOR* crd, const LTMatrix3 cell,
-                                        const LTMatrix3 rcell, float* value,
+                                        const VECTOR* crd,
+                                        const Boundary boundary, float* value,
                                         VECTOR* crd_grads, LTMatrix3* virial)
 {
     VECTOR r0 = crd[atom0];
     VECTOR r1 = crd[atom1];
     VECTOR r2 = crd[atom2];
     VECTOR r3 = crd[atom3];
-    r0 = Get_Periodic_Displacement(r1, r0, cell, rcell);
-    r1 = Get_Periodic_Displacement(r2, r1, cell, rcell);
-    r2 = Get_Periodic_Displacement(r3, r2, cell, rcell);
+    r0 = Get_Displacement(r1, r0, boundary);
+    r1 = Get_Displacement(r2, r1, boundary);
+    r2 = Get_Displacement(r3, r2, boundary);
     SADvector<9> dr01(r0, 0, 1, 2);
     SADvector<9> dr21(r1, 3, 4, 5);
     SADvector<9> dr23(r2, 6, 7, 8);
@@ -384,14 +391,14 @@ void CV_DIHEDRAL::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_DIHEDRAL::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                          const LTMatrix3 rcell, int need, int step)
+void CV_DIHEDRAL::Compute(int atom_numbers, VECTOR* crd,
+                          const Boundary boundary, int need, int step)
 {
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need != CV_NEED_NONE)
     {
         Launch_Device_Kernel(dihedral_get_all, 1, 1, 0, NULL, atom[0], atom[1],
-                             atom[2], atom[3], crd, cell, rcell, d_value,
+                             atom[2], atom[3], crd, boundary, d_value,
                              crd_grads, virial);
         deviceMemcpy(&value, d_value, sizeof(float), deviceMemcpyDeviceToHost);
     }

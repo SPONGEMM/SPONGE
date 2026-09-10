@@ -48,13 +48,12 @@ struct LISTED_FORCE
     void Compile(CONTROLLER* controller);
     void Initial(CONTROLLER* controller, CONECT* connectivity,
                  PAIR_DISTANCE* con_dis);
-    void Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                       LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                       float* atom_energy, int need_pressure,
-                       LTMatrix3* atom_virial);
+    void Compute_Force(int atom_numbers, VECTOR* crd, Boundary boundary,
+                       VECTOR* frc, int need_energy, float* atom_energy,
+                       int need_pressure, LTMatrix3* atom_virial);
     void Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
                    char* atom_local_label, int* atom_local_id);
-    float Get_Energy(VECTOR* crd, VECTOR box_length);
+    float Get_Energy(VECTOR* crd, Boundary boundary);
     void Step_Print(CONTROLLER* controller);
 };
 
@@ -68,10 +67,9 @@ struct LISTED_FORCES
     std::vector<LISTED_FORCE*> forces;
     void Initial(CONTROLLER* controller, CONECT* connectivity,
                  PAIR_DISTANCE* con_dis, const char* module_name = NULL);
-    void Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                       LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                       float* atom_energy, int need_pressure,
-                       LTMatrix3* atom_virial);
+    void Compute_Force(int atom_numbers, VECTOR* crd, Boundary boundary,
+                       VECTOR* frc, int need_energy, float* atom_energy,
+                       int need_pressure, LTMatrix3* atom_virial);
     void Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
                    char* atom_local_label, int* atom_local_id);
     void Step_Print(CONTROLLER* controller);

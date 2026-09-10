@@ -437,7 +437,7 @@ double MD_INFORMATION::system_information::Get_Current_Time(bool plus_one_step)
 
 float MD_INFORMATION::system_information::Get_Volume()
 {
-    LTMatrix3 cell = md_info->pbc.cell;
+    LTMatrix3 cell = md_info->pbc.boundary.cell;
     volume = cell.a11 * cell.a22 * cell.a33;
     return volume;
 }

@@ -1,6 +1,7 @@
 ﻿#include <cmath>
 #include <filesystem>
 #include <highfive/highfive.hpp>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -638,6 +639,34 @@ static void Test_Rejects_Virtual_Atom_Arity_Mismatch()
     REQUIRE_TRUE(reader.Last_Error().find("arity") != std::string::npos);
 }
 
+static void Test_Rejects_Non_Finite_Virtual_Atom_Parameter()
+{
+    const auto dir = Unique_Temp_Path("topology_native_reader_nonfinite_vatom");
+    std::filesystem::create_directories(dir);
+    const auto path = dir / "topology.spgt.h5";
+
+    {
+        HighFive::File file(path.string(), HighFive::File::Overwrite);
+        Write_Scalar(file, "/topology/atom_count",
+                     static_cast<std::int64_t>(3));
+        Write_Int_Vector(file, "/forcefield/virtual_atom/type", {1});
+        Write_Int_Vector(file, "/forcefield/virtual_atom/atom", {2});
+        Write_Int64_Vector(file, "/forcefield/virtual_atom/from_offset",
+                           {0, 2});
+        Write_Int_Vector(file, "/forcefield/virtual_atom/from", {0, 1});
+        Write_Int64_Vector(file, "/forcefield/virtual_atom/parameter_offset",
+                           {0, 1});
+        Write_Float_Vector(file, "/forcefield/virtual_atom/parameter",
+                           {std::numeric_limits<float>::infinity()});
+    }
+
+    TopologyNativeH5Reader reader;
+    Require_Reader(reader.Open(path.string()), reader, "open non-finite vatom");
+    NativeTopologyCoreState state;
+    REQUIRE_TRUE(!reader.Read_Core_State(&state));
+    REQUIRE_TRUE(reader.Last_Error().find("non-finite") != std::string::npos);
+}
+
 static void Test_Rejects_GB_Atom_Count_Mismatch()
 {
     const auto dir = Unique_Temp_Path("topology_native_reader_bad_gb");
@@ -764,6 +793,7 @@ int main()
         Test_Rejects_Legacy_Scale_NB14_Without_LJ();
         Test_Rejects_NB14_Param_Count_Mismatch();
         Test_Rejects_Virtual_Atom_Arity_Mismatch();
+        Test_Rejects_Non_Finite_Virtual_Atom_Parameter();
         Test_Rejects_GB_Atom_Count_Mismatch();
         Test_Rejects_Urey_Bradley_Length_Mismatch();
         Test_Rejects_CMap_Grid_Length_Mismatch();

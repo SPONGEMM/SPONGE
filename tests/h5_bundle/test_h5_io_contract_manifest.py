@@ -40,7 +40,6 @@ REQUIRED_ENTRIES = {
     "topology.TERSOFF": "typed_converted",
     "topology.REAXFF": "typed_converted",
     "topology.REAXFF_type": "typed_converted",
-    "topology.qc_type": "typed_converted",
     "protocol.cv": "typed_converted",
     "protocol.constrain": "typed_converted",
     "protocol.restrain": "typed_converted",
@@ -81,7 +80,6 @@ REQUIRED_ENTRIES = {
     "output.legacy_sidecar.vel": "legacy_output_sidecar_preserved",
     "output.legacy_sidecar.frc": "legacy_output_sidecar_preserved",
     "output.legacy_sidecar.rst": "legacy_output_sidecar_preserved",
-    "output.legacy_sidecar.qc_scf_output": "legacy_output_sidecar_preserved",
     "run_mdin.rerun_start": "preserved_in_mdin",
     "run_mdin.rerun_strip": "preserved_in_mdin",
     "run_mdin.rerun_frame_limit": "preserved_in_mdin",
@@ -213,11 +211,6 @@ SEMANTIC_EQUIVALENCE_EVIDENCE = {
         "compare_reaxff_to_h5",
         "reaxff_type.txt",
         "/manybody/reaxff/type",
-    ],
-    "topology.qc_type": [
-        "compare_qc_type_to_legacy",
-        "qc_type.txt",
-        "/qc/type",
     ],
     "protocol.cv": ["compare_config_sections_to_h5", "cv.txt", "/cv/config"],
     "protocol.constrain": [
@@ -362,7 +355,6 @@ REQUIRED_LEGACY_OUTPUT_SIDECARS = {
     "output.legacy_sidecar.vel",
     "output.legacy_sidecar.frc",
     "output.legacy_sidecar.rst",
-    "output.legacy_sidecar.qc_scf_output",
 }
 
 REQUIRED_FULL_RUN_POLICY_KEYS = {
@@ -381,7 +373,6 @@ CORE_REQUIRED_ENTRIES = {
     "restart.box": "converted",
     "topology.mass": "typed_converted",
     "topology.charge": "typed_converted",
-    "topology.qc_type": "typed_converted",
     "protocol.cv": "typed_converted",
     "protocol.restrain": "typed_converted",
     "protocol.SITS": "typed_converted",

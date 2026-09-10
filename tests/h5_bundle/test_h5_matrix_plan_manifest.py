@@ -694,17 +694,16 @@ def require_rerun_smoke_branch_assertions(smoke_text):
         [
             "if (spec.vds)",
             "Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory",
-            "Require_H5_Observable_Stream_Has_Frames(",
-            "vds_trajectory_observable_times",
+            "trajectory_times, {0}",
+            "{observable_times.front()}",
         ],
     )
     require_tokens(
-        "rerun non-VDS trajectory observable branch",
+        "rerun VDS and non-VDS trajectory observables",
         rerun_body,
         [
-            "else",
             "Require_H5_Observable_Stream_Matches_Mdout(",
-            "sidecar_bundled.h5_trajectory",
+            "sidecar_bundled.h5_trajectory, sidecar_bundled.mdout, {0, 1}",
             "observable_times",
         ],
     )
@@ -760,7 +759,6 @@ def require_runtime_smoke_output_assertions(smoke_text):
         "Require_Rerun_Mdout_Equivalent(",
         "Require_H5_Trajectory_Has_Frames(",
         "Require_H5_Observable_Stream_Matches_Mdout(",
-        "Require_H5_Observable_Stream_Has_Frames(",
         "Require_VDS_Shards_Are_Complete(",
     ]:
         if token not in rerun_body:
@@ -785,6 +783,8 @@ def require_runtime_smoke_output_assertions(smoke_text):
         'Read_Float_Vector(shard_file, "/particles/all/position/value")',
         'Read_Float_Vector(shard_file, "/particles/all/box/edges/value")',
         "expected_steps[expected_index]",
+        "expected_shard_step_starts[i]",
+        "expected_shard_time_starts[i]",
         '"VDS shard position"',
         '"VDS shard box"',
     ]:
@@ -834,7 +834,6 @@ def require_sidecar_preparation_locks_success_paths(smoke_text):
             "!Has_Key_Line(mdin, key)",
             '"mass_in_file"',
             '"charge_in_file"',
-            '"qc_type_in_file"',
             '"cv_in_file"',
             '"restrain_in_file"',
             '"SITS_in_file"',
@@ -849,10 +848,10 @@ def require_sidecar_preparation_locks_success_paths(smoke_text):
         prep_body,
         [
             "same_key_same_path",
-            "qc_type_in_file = ",
-            "legacy_sidecars/qc_type_in_file/qc_type.txt",
+            "SITS_in_file = ",
+            "legacy_sidecars/SITS_in_file/sits.txt",
             "Legacy_Sidecar_Path_For_Key(",
-            '"qc_type_in_file"',
+            '"SITS_in_file"',
         ],
     )
     require_tokens(
@@ -884,7 +883,6 @@ def require_normal_preparation_locks_bundled_output_sidecar_defaults(
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "vel"))',
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "frc"))',
             'REQUIRE_TRUE(!Has_Key_Line(mdin, "rst"))',
-            'REQUIRE_TRUE(!Has_Key_Line(mdin, "qc_scf_output"))',
             "output_h5_restart_path",
             "output_h5_trajectory_path",
             "output_h5_observable_path",

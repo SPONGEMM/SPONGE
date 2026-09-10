@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+import h5py
 import pytest
 
 from benchmarks.bundled_io.ab_contracts import load_contract_registry
@@ -20,6 +21,7 @@ from benchmarks.bundled_io.execution_matrix import (
 )
 from benchmarks.bundled_io.tests.test_bundled_io_ab_production import (
     EVIDENCE_RUN_ID,
+    FIXTURE_ROOT,
     OBSERVABLE_REL,
     PROFILE,
     PROFILE_LIMITS,
@@ -301,9 +303,9 @@ MATRIX_RUNTIME_CASES = (
         "normal_reaxff_payload_sensitivity",
     ),
     _feature_runtime_case(
-        "feature_qc_cpu_omp1_rank1",
-        "qc",
-        "rerun_qc_type_typed_unrestricted_vds_off",
+        "feature_core_rerun_cpu_omp1_rank1",
+        "core",
+        "normal_core_topology_payload_sensitivity",
         ensemble="rerun",
     ),
     _feature_runtime_case(
@@ -388,9 +390,9 @@ MATRIX_RUNTIME_CASES = (
         tier="production",
     ),
     _feature_runtime_case(
-        "feature_qc_gpu_omp1_rank1",
-        "qc",
-        "rerun_qc_type_typed_unrestricted_vds_off",
+        "feature_core_rerun_gpu_omp1_rank1",
+        "core",
+        "normal_core_topology_payload_sensitivity",
         ensemble="rerun",
         backend="gpu",
         tier="production",
@@ -516,9 +518,14 @@ def test_legacy_and_bundled_execution_matrix_behavior(
                 seed,
             )
         else:
-            legacy_dir, bundled_dir = _prepare_case_pair(
-                ab_case, replica_root, seed
-            )
+            if matrix_case.ensemble == "rerun":
+                legacy_dir, bundled_dir = _prepare_core_rerun_pair(
+                    ab_case, replica_root, seed
+                )
+            else:
+                legacy_dir, bundled_dir = _prepare_case_pair(
+                    ab_case, replica_root, seed
+                )
             _prepare_mdin(
                 legacy_dir,
                 "mdin.spg.toml",
@@ -827,6 +834,45 @@ def _matrix_sample_plan(
     }
 
 
+def _prepare_core_rerun_pair(
+    case: AbCase, case_root: Path, seed: int
+) -> tuple[Path, Path]:
+    # Use the ordinary two-atom topology; the broad I/O fixture contains
+    # coincident virtual sites that are unsuitable for finite-energy checks.
+    legacy_dir, bundled_dir = _prepare_case_pair(
+        replace(case, mode="normal"), case_root, seed
+    )
+    trajectory_source = FIXTURE_ROOT / "full_contract_rerun"
+    for name in ("traj.dat", "traj_box.dat", "traj_vel.dat"):
+        shutil.copyfile(
+            trajectory_source / "legacy_input" / name, legacy_dir / name
+        )
+    trajectory = bundled_dir / case.trajectory_file_name
+    shutil.copyfile(
+        trajectory_source / "bundled_input" / "bundle" / "trajectory.spg.h5md",
+        trajectory,
+    )
+    with h5py.File(bundled_dir / "topology.spgt.h5", "r") as topology:
+        with h5py.File(trajectory, "r+") as frames:
+            for key in ("topology_hash", "atom_order_hash"):
+                frames[f"/parameters/sponge/topology_compatibility/{key}"][
+                    ()
+                ] = topology[f"/topology/{key}"].asstr()[()]
+    for directory in (legacy_dir, bundled_dir):
+        mdin = directory / _mdin_name(directory)
+        mdin.write_text(
+            _insert_root_toml_keys(
+                _remove_key_lines(
+                    mdin.read_text(encoding="utf-8"),
+                    {"mode", "pbc", "cutoff", "skin"},
+                ),
+                ['mode = "rerun"', "pbc = 1", "cutoff = 2.0", "skin = 0.5"],
+            ),
+            encoding="utf-8",
+        )
+    return legacy_dir, bundled_dir
+
+
 def _prepare_pair(
     case: MatrixRuntimeCase, case_root: Path
 ) -> tuple[Path, Path]:
@@ -1012,6 +1058,18 @@ def _as_ab_case(case: MatrixRuntimeCase) -> AbCase:
             if item.name == case.source_case_id
         )
         source = replace(source, vds=case.vds)
+        if case.ensemble == "rerun":
+            return replace(
+                source,
+                mode="rerun",
+                rerun_need_box_update=True,
+                input_behavior_only=False,
+                contract_ids=("runtime.rerun",),
+                assertion_ids=(
+                    "mdout_deterministic_equivalence",
+                    "h5_rerun_semantic_equivalence",
+                ),
+            )
         if (
             case.feature_family == "sits"
             and source.name == "normal_sits_ff19sb_cmap_peptide"
@@ -1024,8 +1082,6 @@ def _as_ab_case(case: MatrixRuntimeCase) -> AbCase:
                 normal_interval=1,
                 normal_dt=1.0e-5,
             )
-        if case.feature_family == "qc":
-            return replace(source, rerun_force_output=False)
         return source
     return AbCase(
         name=case.scenario_id,

@@ -5,8 +5,7 @@
 
 static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_0* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -19,17 +18,14 @@ static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
         VIRTUAL_TYPE_0 v_temp = v_info[i];
         int atom_v = v_temp.virtual_atom;
         int atom_1 = v_temp.from_1;
-        float h = v_temp.h_double;
-        VECTOR temp = crd[atom_1];
-        temp.z = 2 * h - temp.z;
-        crd[atom_v] = temp;
+        crd[atom_v] =
+            Virtual_Atom_Type_0_Position(crd[atom_1], v_temp.h_double);
     }
 }
 
 static __global__ void v1_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_1* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -44,16 +40,14 @@ static __global__ void v1_Coordinate_Refresh(const int virtual_numbers,
         int atom_1 = v_temp.from_1;
         int atom_2 = v_temp.from_2;
         float a = v_temp.a;
-        VECTOR rv1 = a * Get_Periodic_Displacement(crd[atom_2], crd[atom_1],
-                                                   cell, rcell);
-        crd[atom_v] = crd[atom_1] + rv1;
+        crd[atom_v] =
+            Virtual_Atom_Type_1_Position(crd[atom_1], crd[atom_2], a, boundary);
     }
 }
 
 static __global__ void v2_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_2* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -71,21 +65,15 @@ static __global__ void v2_Coordinate_Refresh(const int virtual_numbers,
         float a = v_temp.a;
         float b = v_temp.b;
 
-        const VECTOR r1 = crd[atom_1];
-        const VECTOR r2 = crd[atom_2];
-        const VECTOR r3 = crd[atom_3];
-
-        VECTOR rv1 = a * Get_Periodic_Displacement(r2, r1, cell, rcell) +
-                     b * Get_Periodic_Displacement(r3, r1, cell, rcell);
-
-        crd[atom_v] = crd[atom_1] + rv1;
+        crd[atom_v] = Virtual_Atom_Type_2_Position(crd[atom_1], crd[atom_2],
+                                                   crd[atom_3], a, b, boundary);
     }
 }
 
 static __global__ void v3_Coordinate_Refresh(const int virtual_numbers,
                                              const VIRTUAL_TYPE_3* v_info,
-                                             VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+                                             VECTOR* crd, Boundary boundary,
+                                             int* geometry_error)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -102,16 +90,13 @@ static __global__ void v3_Coordinate_Refresh(const int virtual_numbers,
         int atom_3 = v_temp.from_3;
         float d = v_temp.d;
         float k = v_temp.k;
-        const VECTOR r1 = crd[atom_1];
-        const VECTOR r2 = crd[atom_2];
-        const VECTOR r3 = crd[atom_3];
-
-        VECTOR r21 = Get_Periodic_Displacement(r2, r1, cell, rcell);
-        VECTOR r32 = Get_Periodic_Displacement(r3, r2, cell, rcell);
-
-        VECTOR temp = r21 + k * r32;
-        temp = d * rnorm3df(temp.x, temp.y, temp.z) * temp;
-        crd[atom_v] = crd[atom_1] + temp;
+        VECTOR position;
+        if (!Virtual_Atom_Type_3_Position(crd[atom_1], crd[atom_2], crd[atom_3],
+                                          d, k, boundary, &position))
+        {
+            atomicExch(geometry_error, atom_v);
+        }
+        crd[atom_v] = position;
     }
 }
 
@@ -157,9 +142,10 @@ static __global__ void v4_Coordinate_Refresh(const int atom_numbers,
 #endif
 }
 
-static __global__ void v0_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_0* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v0_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_0* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -173,9 +159,8 @@ static __global__ void v0_Force_Redistribute(
         int atom_v = v_temp.virtual_atom;
         int atom_1 = v_temp.from_1;
         VECTOR force_v = force[atom_v];
-        atomicAdd(&force[atom_1].x, force_v.x);
-        atomicAdd(&force[atom_1].y, force_v.y);
-        atomicAdd(&force[atom_1].z, -force_v.z);
+        Virtual_Atom_Add_Source_Force(
+            &force[atom_1], Virtual_Atom_Type_0_Source_Force(force_v));
         force_v.x = 0.0f;
         force_v.y = 0.0f;
         force_v.z = 0.0f;
@@ -183,9 +168,10 @@ static __global__ void v0_Force_Redistribute(
     }
 }
 
-static __global__ void v1_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_1* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v1_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_1* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -201,13 +187,10 @@ static __global__ void v1_Force_Redistribute(
         int atom_2 = v_temp.from_2;
         float a = v_temp.a;
         VECTOR force_v = force[atom_v];
-        atomicAdd(&force[atom_1].x, a * force_v.x);
-        atomicAdd(&force[atom_1].y, a * force_v.y);
-        atomicAdd(&force[atom_1].z, a * force_v.z);
-
-        atomicAdd(&force[atom_2].x, (1 - a) * force_v.x);
-        atomicAdd(&force[atom_2].y, (1 - a) * force_v.y);
-        atomicAdd(&force[atom_2].z, (1 - a) * force_v.z);
+        VECTOR force_1, force_2;
+        Virtual_Atom_Type_1_Source_Forces(force_v, a, &force_1, &force_2);
+        Virtual_Atom_Add_Source_Force(&force[atom_1], force_1);
+        Virtual_Atom_Add_Source_Force(&force[atom_2], force_2);
 
         force_v.x = 0.0f;
         force_v.y = 0.0f;
@@ -216,9 +199,10 @@ static __global__ void v1_Force_Redistribute(
     }
 }
 
-static __global__ void v2_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_2* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v2_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_2* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -236,17 +220,12 @@ static __global__ void v2_Force_Redistribute(
         float a = v_temp.a;
         float b = v_temp.b;
         VECTOR force_v = force[atom_v];
-        atomicAdd(&force[atom_1].x, (1 - a - b) * force_v.x);
-        atomicAdd(&force[atom_1].y, (1 - a - b) * force_v.y);
-        atomicAdd(&force[atom_1].z, (1 - a - b) * force_v.z);
-
-        atomicAdd(&force[atom_2].x, a * force_v.x);
-        atomicAdd(&force[atom_2].y, a * force_v.y);
-        atomicAdd(&force[atom_2].z, a * force_v.z);
-
-        atomicAdd(&force[atom_3].x, b * force_v.x);
-        atomicAdd(&force[atom_3].y, b * force_v.y);
-        atomicAdd(&force[atom_3].z, b * force_v.z);
+        VECTOR force_1, force_2, force_3;
+        Virtual_Atom_Type_2_Source_Forces(force_v, a, b, &force_1, &force_2,
+                                          &force_3);
+        Virtual_Atom_Add_Source_Force(&force[atom_1], force_1);
+        Virtual_Atom_Add_Source_Force(&force[atom_2], force_2);
+        Virtual_Atom_Add_Source_Force(&force[atom_3], force_3);
 
         force_v.x = 0.0f;
         force_v.y = 0.0f;
@@ -257,7 +236,7 @@ static __global__ void v2_Force_Redistribute(
 
 static __global__ void v2_Force_Redistribute_No_Atomic(
     const int virtual_numbers, const VIRTUAL_TYPE_2* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+    Boundary boundary, VECTOR* force)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -268,33 +247,22 @@ static __global__ void v2_Force_Redistribute_No_Atomic(
 #endif
     {
         VIRTUAL_TYPE_2 v_temp = v_info[i];
-        int atom_v = v_temp.virtual_atom;
-        int atom_1 = v_temp.from_1;
-        int atom_2 = v_temp.from_2;
-        int atom_3 = v_temp.from_3;
-        float a = v_temp.a;
-        float b = v_temp.b;
-        VECTOR force_v = force[atom_v];
-
-        force[atom_1].x += (1 - a - b) * force_v.x;
-        force[atom_1].y += (1 - a - b) * force_v.y;
-        force[atom_1].z += (1 - a - b) * force_v.z;
-
-        force[atom_2].x += a * force_v.x;
-        force[atom_2].y += a * force_v.y;
-        force[atom_2].z += a * force_v.z;
-
-        force[atom_3].x += b * force_v.x;
-        force[atom_3].y += b * force_v.y;
-        force[atom_3].z += b * force_v.z;
-
-        force[atom_v] = {0, 0, 0};
+        const VECTOR force_v = force[v_temp.virtual_atom];
+        VECTOR force_1, force_2, force_3;
+        Virtual_Atom_Type_2_Source_Forces(force_v, v_temp.a, v_temp.b, &force_1,
+                                          &force_2, &force_3);
+        force[v_temp.from_1] = force[v_temp.from_1] + force_1;
+        force[v_temp.from_2] = force[v_temp.from_2] + force_2;
+        force[v_temp.from_3] = force[v_temp.from_3] + force_3;
+        force[v_temp.virtual_atom] = VECTOR(0.0f);
     }
 }
 
-static __global__ void v3_Force_Redistribute(
-    const int virtual_numbers, const VIRTUAL_TYPE_3* v_info, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* force)
+static __global__ void v3_Force_Redistribute(const int virtual_numbers,
+                                             const VIRTUAL_TYPE_3* v_info,
+                                             const VECTOR* crd,
+                                             Boundary boundary, VECTOR* force,
+                                             int* geometry_error)
 {
 #ifdef USE_GPU
     int i = threadIdx.x + blockIdx.x * blockDim.x;
@@ -316,32 +284,17 @@ static __global__ void v3_Force_Redistribute(
         const VECTOR r1 = crd[atom_1];
         const VECTOR r2 = crd[atom_2];
         const VECTOR r3 = crd[atom_3];
-        const VECTOR rv = crd[atom_v];
+        VECTOR force_1, force_2, force_3;
+        if (!Virtual_Atom_Type_3_Source_Forces(r1, r2, r3, force_v, d, k,
+                                               boundary, &force_1, &force_2,
+                                               &force_3))
+        {
+            atomicExch(geometry_error, atom_v);
+        }
 
-        VECTOR r21 = Get_Periodic_Displacement(r2, r1, cell, rcell);
-        VECTOR r32 = Get_Periodic_Displacement(r3, r2, cell, rcell);
-        VECTOR rv1 = Get_Periodic_Displacement(rv, r1, cell, rcell);
-
-        VECTOR temp = r21 + k * r32;
-        float factor = d * rnorm3df(temp.x, temp.y, temp.z);
-
-        temp = (rv1 * force_v) / (rv1 * rv1) * rv1;
-        temp = factor * (force_v - temp);
-        VECTOR force_1 = force_v - temp;
-        VECTOR force_2 = (1 - k) * temp;
-        VECTOR force_3 = k * temp;
-
-        atomicAdd(&force[atom_1].x, force_1.x);
-        atomicAdd(&force[atom_1].y, force_1.y);
-        atomicAdd(&force[atom_1].z, force_1.z);
-
-        atomicAdd(&force[atom_2].x, force_2.x);
-        atomicAdd(&force[atom_2].y, force_2.y);
-        atomicAdd(&force[atom_2].z, force_2.z);
-
-        atomicAdd(&force[atom_3].x, force_3.x);
-        atomicAdd(&force[atom_3].y, force_3.y);
-        atomicAdd(&force[atom_3].z, force_3.z);
+        Virtual_Atom_Add_Source_Force(&force[atom_1], force_1);
+        Virtual_Atom_Add_Source_Force(&force[atom_2], force_2);
+        Virtual_Atom_Add_Source_Force(&force[atom_3], force_3);
 
         force_v.x = 0.0f;
         force_v.y = 0.0f;
@@ -361,7 +314,7 @@ static __global__ void v4_Force_Redistribute(const int atom_numbers,
 #ifdef USE_GPU
     for (int i = threadIdx.x; i < atom_numbers; i += blockDim.x)
 #else
-#pragma omp parallel for private(new_force) firstprivate(this_weight, this_frc)
+#pragma omp parallel for firstprivate(new_force) private(this_weight, this_frc)
     for (int i = 0; i < atom_numbers; i++)
 #endif
     {
@@ -390,6 +343,7 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                                   int* system_freedom, CONECT* connectivity,
                                   const char* module_name)
 {
+    this->controller = controller;
     if (module_name == NULL)
     {
         strcpy(this->module_name, "virtual_atom");
@@ -425,61 +379,30 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
         int virtual_type;
         int virtual_atom;
 
-        // 文件会从头到尾读三遍，分别确定每个原子的虚拟等级（因为可能存在坐标依赖于虚原子的虚原子，所以不得不如此做）
-        // 第一遍确定虚拟原子的层级
+        // 先统一校验力场虚原子定义并由依赖图计算层级。输入顺序不影响结果。
         controller->printf("    Start reading virtual levels\n");
         if (has_in_file)
         {
+            VirtualAtomGraph graph;
+            std::string graph_error;
+            if (!Build_Virtual_Atom_Graph(*records_to_use, atom_numbers, &graph,
+                                          &graph_error))
+            {
+                const std::string reason = "Reason:\n\t" + graph_error + "\n";
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "VIRTUAL_INFORMATION::Initial",
+                                               reason.c_str());
+            }
+            for (int atom = 0; atom < atom_numbers; ++atom)
+            {
+                virtual_level[atom] = graph.atom_levels[atom];
+            }
             for (const auto& record : *records_to_use)
             {
-                virtual_type = record.type;
-                virtual_atom = record.virtual_atom;
-                switch (virtual_type)
+                for (const int source : record.from)
                 {
-                    case 0:
-                        virtual_level[virtual_atom] =
-                            virtual_level[record.from[0]] + 1;
-                        break;
-
-                    case 1:
-                        virtual_level[virtual_atom] =
-                            std::max(virtual_level[record.from[0]],
-                                     virtual_level[record.from[1]]) +
-                            1;
-                        break;
-
-                    case 2:
-                        virtual_level[virtual_atom] =
-                            std::max(virtual_level[record.from[0]],
-                                     virtual_level[record.from[1]]);
-                        virtual_level[virtual_atom] =
-                            std::max(virtual_level[virtual_atom],
-                                     virtual_level[record.from[2]]) +
-                            1;
-                        // 添加信息至成键信息
-                        connectivity[0][virtual_atom].insert(record.from[0]);
-                        connectivity[0][record.from[0]].insert(virtual_atom);
-                        break;
-
-                    case 3:
-                        virtual_level[virtual_atom] =
-                            std::max(virtual_level[record.from[0]],
-                                     virtual_level[record.from[1]]);
-                        virtual_level[virtual_atom] =
-                            std::max(virtual_level[virtual_atom],
-                                     virtual_level[record.from[2]]) +
-                            1;
-                        // 添加信息至成键信息
-                        connectivity[0][virtual_atom].insert(record.from[0]);
-                        connectivity[0][record.from[0]].insert(virtual_atom);
-                        break;
-
-                    default:
-                        controller->Throw_SPONGE_Error(
-                            spongeErrorBadFileFormat,
-                            "VIRTUAL_INFORMATION::Initial",
-                            "Reason:\n\tvirtual_atom_in_file contains an "
-                            "unsupported virtual atom type\n");
+                    (*connectivity)[record.virtual_atom].insert(source);
+                    (*connectivity)[source].insert(record.virtual_atom);
                 }
             }
         }
@@ -493,12 +416,13 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                     iter->first.c_str(), "atom");
             for (int i = 0; i < h_from.size(); i++)
             {
-                if (h_from[i] >= atom_numbers + cv_vatom_name.size())
+                if (h_from[i] < 0 ||
+                    h_from[i] >= atom_numbers + cv_vatom_name.size())
                 {
                     char error_reason[CHAR_LENGTH_MAX];
                     sprintf(error_reason,
-                            "Reason:\n\tError: atom id (%d) >= atom_numbers + "
-                            "cv_virtual_atom_numbers (%d)\n",
+                            "Reason:\n\tError: atom id (%d) is outside [0, "
+                            "atom_numbers + cv_virtual_atom_numbers (%d))\n",
                             h_from[i],
                             atom_numbers + (int)cv_vatom_name.size());
                     controller->Throw_SPONGE_Error(
@@ -565,6 +489,7 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                         break;
                     case 3:
                         temp_vl->v3_info.virtual_numbers += 1;
+                        has_type_3 = true;
                         break;
                     default:
                         break;
@@ -717,6 +642,26 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
 
                     default:
                         break;
+                }
+            }
+        }
+        // Type-2 sites are common in water models. Preserve the non-atomic
+        // fast path only when no source atom is shared by two records in the
+        // same layer. Localization can remove records, but cannot introduce a
+        // new overlap, so this global per-layer decision remains safe.
+        for (VIRTUAL_LAYER_INFORMATION& layer_info : virtual_layer_info)
+        {
+            VIRTUAL_TYPE_2_INFROMATION& v2_info = layer_info.v2_info;
+            std::vector<unsigned char> source_seen(atom_numbers, 0);
+            for (int i = 0; i < v2_info.virtual_numbers; ++i)
+            {
+                const VIRTUAL_TYPE_2& record = v2_info.h_virtual_type_2[i];
+                const int sources[] = {record.from_1, record.from_2,
+                                       record.from_3};
+                for (const int source : sources)
+                {
+                    if (source_seen[source]) v2_info.need_atomic = true;
+                    source_seen[source] = 1;
                 }
             }
         }
@@ -901,6 +846,9 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
         controller->printf(
             "    End reading information for every virtual atom\n");
 
+        Device_Malloc_Safely((void**)&d_runtime_error, sizeof(int));
+        if (has_type_3) Reset_Runtime_Error();
+
         is_initialized = 1;
         if (is_initialized && !is_controller_printf_initialized)
         {
@@ -909,28 +857,6 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                                last_modify_date);
         }
 
-        for (int layer = 0; layer < max_level; layer++)
-        {
-            std::vector<bool> mark(atom_numbers, 0);
-            VIRTUAL_LAYER_INFORMATION* temp_vl = &virtual_layer_info[layer];
-            VIRTUAL_TYPE_2* v_info = temp_vl->v2_info.h_virtual_type_2;
-            int virtual_numbers = temp_vl->v2_info.local_numbers;
-            for (int i = 0; i < virtual_numbers; ++i)
-            {
-                for (auto x :
-                     {v_info[i].from_1, v_info[i].from_2, v_info[i].from_3})
-                {
-                    if (!mark[x])
-                    {
-                        mark[x] = 1;
-                    }
-                    else
-                    {
-                        need_atomic = true;
-                    }
-                }
-            }
-        }
         controller->printf("END INITIALIZING VIRTUAL ATOM\n\n");
     }
     else
@@ -939,8 +865,7 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
     }
 }
 
-void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
-                                             const LTMatrix3 rcell)
+void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, Boundary boundary)
 {
     if (is_initialized)
     {
@@ -960,7 +885,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v0_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v0_numbers, v0_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v1_numbers = local_state_ready
                                        ? temp_vl->v1_info.local_numbers
@@ -974,7 +899,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v1_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v1_numbers, v1_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v2_numbers = local_state_ready
                                        ? temp_vl->v2_info.local_numbers
@@ -988,7 +913,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v2_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v2_numbers, v2_info,
-                    crd, cell, rcell);
+                    crd, boundary);
 
             const int v3_numbers = local_state_ready
                                        ? temp_vl->v3_info.local_numbers
@@ -1002,14 +927,13 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh(VECTOR* crd, const LTMatrix3 cell,
                     (v3_numbers + CONTROLLER::device_max_thread - 1) /
                         CONTROLLER::device_max_thread,
                     CONTROLLER::device_max_thread, 0, NULL, v3_numbers, v3_info,
-                    crd, cell, rcell);
+                    crd, boundary, d_runtime_error);
         }
     }
 }
 
 void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
-                                             const LTMatrix3 cell,
-                                             const LTMatrix3 rcell, VECTOR* frc)
+                                             Boundary boundary, VECTOR* frc)
 {
     if (is_initialized)
     {
@@ -1026,7 +950,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v0_info.local_numbers,
                                      temp_vl->v0_info.l_virtual_type_0, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc);
             }
             if (temp_vl->v1_info.local_numbers > 0)
             {
@@ -1037,7 +961,7 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v1_info.local_numbers,
                                      temp_vl->v1_info.l_virtual_type_1, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc);
             }
             if (temp_vl->v3_info.local_numbers > 0)
             {
@@ -1048,41 +972,61 @@ void VIRTUAL_INFORMATION::Force_Redistribute(const VECTOR* crd,
                                      CONTROLLER::device_max_thread, 0, NULL,
                                      temp_vl->v3_info.local_numbers,
                                      temp_vl->v3_info.l_virtual_type_3, crd,
-                                     cell, rcell, frc);
+                                     boundary, frc, d_runtime_error);
             }
 
             if (temp_vl->v2_info.local_numbers > 0)
             {
-                if (need_atomic)
+                const int blocks = (temp_vl->v2_info.local_numbers +
+                                    CONTROLLER::device_max_thread - 1) /
+                                   CONTROLLER::device_max_thread;
+                if (temp_vl->v2_info.need_atomic)
                 {
-                    Launch_Device_Kernel(v2_Force_Redistribute,
-                                         (temp_vl->v2_info.local_numbers +
-                                          CONTROLLER::device_max_thread - 1) /
-                                             CONTROLLER::device_max_thread,
+                    Launch_Device_Kernel(v2_Force_Redistribute, blocks,
                                          CONTROLLER::device_max_thread, 0, NULL,
                                          temp_vl->v2_info.local_numbers,
                                          temp_vl->v2_info.l_virtual_type_2, crd,
-                                         cell, rcell, frc);
+                                         boundary, frc);
                 }
                 else
                 {
-                    Launch_Device_Kernel(v2_Force_Redistribute_No_Atomic,
-                                         (temp_vl->v2_info.local_numbers +
-                                          CONTROLLER::device_max_thread - 1) /
-                                             CONTROLLER::device_max_thread,
-                                         CONTROLLER::device_max_thread, 0, NULL,
-                                         temp_vl->v2_info.local_numbers,
-                                         temp_vl->v2_info.l_virtual_type_2, crd,
-                                         cell, rcell, frc);
+                    Launch_Device_Kernel(
+                        v2_Force_Redistribute_No_Atomic, blocks,
+                        CONTROLLER::device_max_thread, 0, NULL,
+                        temp_vl->v2_info.local_numbers,
+                        temp_vl->v2_info.l_virtual_type_2, crd, boundary, frc);
                 }
             }
         }
     }
 }
 
-void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd,
-                                                const LTMatrix3 cell,
-                                                const LTMatrix3 rcell)
+void VIRTUAL_INFORMATION::Reset_Runtime_Error()
+{
+    if (d_runtime_error == NULL) return;
+    const int no_error = -1;
+    deviceMemcpy(d_runtime_error, &no_error, sizeof(int),
+                 deviceMemcpyHostToDevice);
+}
+
+void VIRTUAL_INFORMATION::Throw_If_Runtime_Error(const char* operation)
+{
+    if (d_runtime_error == NULL || controller == NULL) return;
+    int atom = -1;
+    deviceMemcpy(&atom, d_runtime_error, sizeof(int), deviceMemcpyDeviceToHost);
+    if (atom >= 0)
+    {
+        char reason[CHAR_LENGTH_MAX];
+        snprintf(reason, sizeof(reason),
+                 "Reason:\n\tvirtual atom %d has a degenerate type-3 "
+                 "geometry during %s\n",
+                 atom, operation);
+        controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
+                                       "VIRTUAL_INFORMATION", reason);
+    }
+}
+
+void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd, Boundary boundary)
 {
     if (is_initialized)
     {
@@ -1105,9 +1049,7 @@ void VIRTUAL_INFORMATION::Coordinate_Refresh_CV(VECTOR* crd,
 }
 
 void VIRTUAL_INFORMATION::Force_Redistribute_CV(const VECTOR* crd,
-                                                const LTMatrix3 cell,
-                                                const LTMatrix3 rcell,
-                                                VECTOR* frc)
+                                                Boundary boundary, VECTOR* frc)
 {
     if (is_initialized)
     {
@@ -1129,12 +1071,11 @@ void VIRTUAL_INFORMATION::Force_Redistribute_CV(const VECTOR* crd,
     }
 }
 
-static __global__ void get_local_device_V0(int virtual_numbers,
-                                           int* local_numbers,
-                                           VIRTUAL_TYPE_0* d_virtual_type_0,
-                                           VIRTUAL_TYPE_0* l_virtual_type_0,
-                                           const int* atom_local_id,
-                                           const char* atom_local_label)
+static __global__ void get_local_device_V0(
+    int virtual_numbers, int* local_numbers, VIRTUAL_TYPE_0* d_virtual_type_0,
+    VIRTUAL_TYPE_0* l_virtual_type_0, const int* atom_local_id,
+    const char* atom_local_label, const int local_atom_numbers,
+    int* localization_error)
 {
     local_numbers[0] = 0;
     for (int cluster = 0; cluster < virtual_numbers; cluster++)
@@ -1143,6 +1084,14 @@ static __global__ void get_local_device_V0(int virtual_numbers,
         int from1 = d_virtual_type_0[cluster].from_1;
         if (atom_local_label[vatom])
         {
+            if (atom_local_id[vatom] < 0 ||
+                atom_local_id[vatom] >= local_atom_numbers ||
+                atom_local_id[from1] < 0 ||
+                atom_local_id[from1] >= local_atom_numbers)
+            {
+                atomicExch(localization_error, vatom);
+                continue;
+            }
             l_virtual_type_0[local_numbers[0]] = d_virtual_type_0[cluster];
             l_virtual_type_0[local_numbers[0]].virtual_atom =
                 atom_local_id[vatom];
@@ -1152,12 +1101,11 @@ static __global__ void get_local_device_V0(int virtual_numbers,
     }
 }
 
-static __global__ void get_local_device_V1(int virtual_numbers,
-                                           int* local_numbers,
-                                           VIRTUAL_TYPE_1* d_virtual_type_1,
-                                           VIRTUAL_TYPE_1* l_virtual_type_1,
-                                           const int* atom_local_id,
-                                           const char* atom_local_label)
+static __global__ void get_local_device_V1(
+    int virtual_numbers, int* local_numbers, VIRTUAL_TYPE_1* d_virtual_type_1,
+    VIRTUAL_TYPE_1* l_virtual_type_1, const int* atom_local_id,
+    const char* atom_local_label, const int local_atom_numbers,
+    int* localization_error)
 {
     local_numbers[0] = 0;
     for (int cluster = 0; cluster < virtual_numbers; cluster++)
@@ -1167,6 +1115,16 @@ static __global__ void get_local_device_V1(int virtual_numbers,
         int from2 = d_virtual_type_1[cluster].from_2;
         if (atom_local_label[vatom])
         {
+            if (atom_local_id[vatom] < 0 ||
+                atom_local_id[vatom] >= local_atom_numbers ||
+                atom_local_id[from1] < 0 ||
+                atom_local_id[from1] >= local_atom_numbers ||
+                atom_local_id[from2] < 0 ||
+                atom_local_id[from2] >= local_atom_numbers)
+            {
+                atomicExch(localization_error, vatom);
+                continue;
+            }
             l_virtual_type_1[local_numbers[0]] = d_virtual_type_1[cluster];
             l_virtual_type_1[local_numbers[0]].virtual_atom =
                 atom_local_id[vatom];
@@ -1177,12 +1135,11 @@ static __global__ void get_local_device_V1(int virtual_numbers,
     }
 }
 
-static __global__ void get_local_device_V2(int virtual_numbers,
-                                           int* local_numbers,
-                                           VIRTUAL_TYPE_2* d_virtual_type_2,
-                                           VIRTUAL_TYPE_2* l_virtual_type_2,
-                                           const int* atom_local_id,
-                                           const char* atom_local_label)
+static __global__ void get_local_device_V2(
+    int virtual_numbers, int* local_numbers, VIRTUAL_TYPE_2* d_virtual_type_2,
+    VIRTUAL_TYPE_2* l_virtual_type_2, const int* atom_local_id,
+    const char* atom_local_label, const int local_atom_numbers,
+    int* localization_error)
 {
     local_numbers[0] = 0;
     for (int cluster = 0; cluster < virtual_numbers; cluster++)
@@ -1193,6 +1150,18 @@ static __global__ void get_local_device_V2(int virtual_numbers,
         int from3 = d_virtual_type_2[cluster].from_3;
         if (atom_local_label[vatom])
         {
+            if (atom_local_id[vatom] < 0 ||
+                atom_local_id[vatom] >= local_atom_numbers ||
+                atom_local_id[from1] < 0 ||
+                atom_local_id[from1] >= local_atom_numbers ||
+                atom_local_id[from2] < 0 ||
+                atom_local_id[from2] >= local_atom_numbers ||
+                atom_local_id[from3] < 0 ||
+                atom_local_id[from3] >= local_atom_numbers)
+            {
+                atomicExch(localization_error, vatom);
+                continue;
+            }
             l_virtual_type_2[local_numbers[0]] = d_virtual_type_2[cluster];
             l_virtual_type_2[local_numbers[0]].virtual_atom =
                 atom_local_id[vatom];
@@ -1204,12 +1173,11 @@ static __global__ void get_local_device_V2(int virtual_numbers,
     }
 }
 
-static __global__ void get_local_device_V3(int virtual_numbers,
-                                           int* local_numbers,
-                                           VIRTUAL_TYPE_3* d_virtual_type_3,
-                                           VIRTUAL_TYPE_3* l_virtual_type_3,
-                                           const int* atom_local_id,
-                                           const char* atom_local_label)
+static __global__ void get_local_device_V3(
+    int virtual_numbers, int* local_numbers, VIRTUAL_TYPE_3* d_virtual_type_3,
+    VIRTUAL_TYPE_3* l_virtual_type_3, const int* atom_local_id,
+    const char* atom_local_label, const int local_atom_numbers,
+    int* localization_error)
 {
     local_numbers[0] = 0;
     for (int cluster = 0; cluster < virtual_numbers; cluster++)
@@ -1220,6 +1188,18 @@ static __global__ void get_local_device_V3(int virtual_numbers,
         int from3 = d_virtual_type_3[cluster].from_3;
         if (atom_local_label[vatom])
         {
+            if (atom_local_id[vatom] < 0 ||
+                atom_local_id[vatom] >= local_atom_numbers ||
+                atom_local_id[from1] < 0 ||
+                atom_local_id[from1] >= local_atom_numbers ||
+                atom_local_id[from2] < 0 ||
+                atom_local_id[from2] >= local_atom_numbers ||
+                atom_local_id[from3] < 0 ||
+                atom_local_id[from3] >= local_atom_numbers)
+            {
+                atomicExch(localization_error, vatom);
+                continue;
+            }
             l_virtual_type_3[local_numbers[0]] = d_virtual_type_3[cluster];
             l_virtual_type_3[local_numbers[0]].virtual_atom =
                 atom_local_id[vatom];
@@ -1238,6 +1218,9 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
                                     const int local_atom_numbers)
 {
     if (!is_initialized) return;
+    if (has_type_3)
+        Throw_If_Runtime_Error("coordinate refresh or force redistribution");
+    Reset_Runtime_Error();
     local_state_ready = true;
     // 每层之间需要串行计算，层内并行计算
     for (int layer = 0; layer < max_level; layer++)
@@ -1251,7 +1234,8 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
                                  temp_vl->v0_info.d_local_numbers,
                                  temp_vl->v0_info.d_virtual_type_0,
                                  temp_vl->v0_info.l_virtual_type_0,
-                                 atom_local_id, atom_local_label);
+                                 atom_local_id, atom_local_label,
+                                 local_atom_numbers, d_runtime_error);
             deviceMemcpy(&temp_vl->v0_info.local_numbers,
                          temp_vl->v0_info.d_local_numbers, sizeof(int),
                          deviceMemcpyDeviceToHost);
@@ -1264,7 +1248,8 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
                                  temp_vl->v1_info.d_local_numbers,
                                  temp_vl->v1_info.d_virtual_type_1,
                                  temp_vl->v1_info.l_virtual_type_1,
-                                 atom_local_id, atom_local_label);
+                                 atom_local_id, atom_local_label,
+                                 local_atom_numbers, d_runtime_error);
             deviceMemcpy(&temp_vl->v1_info.local_numbers,
                          temp_vl->v1_info.d_local_numbers, sizeof(int),
                          deviceMemcpyDeviceToHost);
@@ -1277,7 +1262,8 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
                                  temp_vl->v2_info.d_local_numbers,
                                  temp_vl->v2_info.d_virtual_type_2,
                                  temp_vl->v2_info.l_virtual_type_2,
-                                 atom_local_id, atom_local_label);
+                                 atom_local_id, atom_local_label,
+                                 local_atom_numbers, d_runtime_error);
             deviceMemcpy(&temp_vl->v2_info.local_numbers,
                          temp_vl->v2_info.d_local_numbers, sizeof(int),
                          deviceMemcpyDeviceToHost);
@@ -1290,7 +1276,8 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
                                  temp_vl->v3_info.d_local_numbers,
                                  temp_vl->v3_info.d_virtual_type_3,
                                  temp_vl->v3_info.l_virtual_type_3,
-                                 atom_local_id, atom_local_label);
+                                 atom_local_id, atom_local_label,
+                                 local_atom_numbers, d_runtime_error);
             deviceMemcpy(&temp_vl->v3_info.local_numbers,
                          temp_vl->v3_info.d_local_numbers, sizeof(int),
                          deviceMemcpyDeviceToHost);
@@ -1298,70 +1285,55 @@ void VIRTUAL_INFORMATION::Get_Local(const int* atom_local_id,
 
         // 预留v4质心接口
     }
+    int localization_error = -1;
+    deviceMemcpy(&localization_error, d_runtime_error, sizeof(int),
+                 deviceMemcpyDeviceToHost);
+    if (localization_error >= 0 && controller != NULL)
+    {
+        char reason[CHAR_LENGTH_MAX];
+        snprintf(reason, sizeof(reason),
+                 "Reason:\n\tvirtual atom %d and all of its sources must "
+                 "belong to the same local update group\n",
+                 localization_error);
+        controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
+                                       "VIRTUAL_INFORMATION::Get_Local",
+                                       reason);
+    }
 }
 
 void VIRTUAL_INFORMATION::update_ug_connectivity(CONECT* connectivity)
 {
     if (!is_initialized) return;
-    for (int i = 0; i < virtual_layer_info[0].v0_info.virtual_numbers; i++)
+    auto connect = [connectivity](int atomv, std::initializer_list<int> sources)
     {
-        int atomv =
-            virtual_layer_info[0].v0_info.h_virtual_type_0[i].virtual_atom;
-        int atom1 = virtual_layer_info[0].v0_info.h_virtual_type_0[i].from_1;
-        (*connectivity)[atomv].insert(atom1);
-        (*connectivity)[atom1].insert(atomv);
-    }
-    for (int i = 0; i < virtual_layer_info[0].v1_info.virtual_numbers; i++)
+        for (int source : sources)
+        {
+            (*connectivity)[atomv].insert(source);
+            (*connectivity)[source].insert(atomv);
+        }
+    };
+    for (int layer = 0; layer < max_level; ++layer)
     {
-        int atomv =
-            virtual_layer_info[0].v1_info.h_virtual_type_1[i].virtual_atom;
-        int atom1 = virtual_layer_info[0].v1_info.h_virtual_type_1[i].from_1;
-        int atom2 = virtual_layer_info[0].v1_info.h_virtual_type_1[i].from_2;
-        (*connectivity)[atomv].insert(atom1);
-        (*connectivity)[atomv].insert(atom2);
-        (*connectivity)[atom1].insert(atomv);
-        (*connectivity)[atom1].insert(atom2);
-        (*connectivity)[atom2].insert(atom1);
-        (*connectivity)[atom2].insert(atomv);
-    }
-    for (int i = 0; i < virtual_layer_info[0].v2_info.virtual_numbers; i++)
-    {
-        int atomv =
-            virtual_layer_info[0].v2_info.h_virtual_type_2[i].virtual_atom;
-        int atom1 = virtual_layer_info[0].v2_info.h_virtual_type_2[i].from_1;
-        int atom2 = virtual_layer_info[0].v2_info.h_virtual_type_2[i].from_2;
-        int atom3 = virtual_layer_info[0].v2_info.h_virtual_type_2[i].from_3;
-        (*connectivity)[atomv].insert(atom1);
-        (*connectivity)[atomv].insert(atom2);
-        (*connectivity)[atomv].insert(atom3);
-        (*connectivity)[atom1].insert(atomv);
-        (*connectivity)[atom1].insert(atom2);
-        (*connectivity)[atom1].insert(atom3);
-        (*connectivity)[atom2].insert(atom1);
-        (*connectivity)[atom2].insert(atomv);
-        (*connectivity)[atom2].insert(atom3);
-        (*connectivity)[atom3].insert(atom1);
-        (*connectivity)[atom3].insert(atom2);
-        (*connectivity)[atom3].insert(atomv);
-    }
-    for (int i = 0; i < virtual_layer_info[0].v3_info.virtual_numbers; i++)
-    {
-        int atomv =
-            virtual_layer_info[0].v3_info.h_virtual_type_3[i].virtual_atom;
-        int atom1 = virtual_layer_info[0].v3_info.h_virtual_type_3[i].from_1;
-        int atom2 = virtual_layer_info[0].v3_info.h_virtual_type_3[i].from_2;
-        int atom3 = virtual_layer_info[0].v3_info.h_virtual_type_3[i].from_3;
-        (*connectivity)[atomv].insert(atom1);
-        (*connectivity)[atomv].insert(atom2);
-        (*connectivity)[atomv].insert(atom3);
-        (*connectivity)[atom1].insert(atomv);
-        (*connectivity)[atom1].insert(atom2);
-        (*connectivity)[atom1].insert(atom3);
-        (*connectivity)[atom2].insert(atom1);
-        (*connectivity)[atom2].insert(atomv);
-        (*connectivity)[atom2].insert(atom3);
-        (*connectivity)[atom3].insert(atom1);
-        (*connectivity)[atom3].insert(atom2);
-        (*connectivity)[atom3].insert(atomv);
+        VIRTUAL_LAYER_INFORMATION& info = virtual_layer_info[layer];
+        for (int i = 0; i < info.v0_info.virtual_numbers; ++i)
+        {
+            const auto& v = info.v0_info.h_virtual_type_0[i];
+            connect(v.virtual_atom, {v.from_1});
+        }
+        for (int i = 0; i < info.v1_info.virtual_numbers; ++i)
+        {
+            const auto& v = info.v1_info.h_virtual_type_1[i];
+            connect(v.virtual_atom, {v.from_1, v.from_2});
+        }
+        for (int i = 0; i < info.v2_info.virtual_numbers; ++i)
+        {
+            const auto& v = info.v2_info.h_virtual_type_2[i];
+            connect(v.virtual_atom, {v.from_1, v.from_2, v.from_3});
+        }
+        for (int i = 0; i < info.v3_info.virtual_numbers; ++i)
+        {
+            const auto& v = info.v3_info.h_virtual_type_3[i];
+            connect(v.virtual_atom, {v.from_1, v.from_2, v.from_3});
+        }
     }
 }

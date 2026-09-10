@@ -657,13 +657,13 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Print_Initial()
 }
 
 void COLLECTIVE_VARIABLE_CONTROLLER::Compute_CV_For_Print(
-    int atom_numbers, VECTOR* crd, LTMatrix3 cell, LTMatrix3 rcell, int steps,
-    int interval, bool print_zeroth_frame)
+    int atom_numbers, VECTOR* crd, Boundary boundary, int steps, int interval,
+    bool print_zeroth_frame)
 {
     if (!((print_zeroth_frame || steps) && (steps % interval == 0))) return;
     for (int i = 0; i < print_cv_list.size(); i++)
     {
-        print_cv_list[i]->Compute(atom_numbers, crd, cell, rcell,
+        print_cv_list[i]->Compute(atom_numbers, crd, boundary,
                                   CV_NEED_CPU_VALUE, steps);
     }
 }
@@ -671,7 +671,7 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Compute_CV_For_Print(
 void COLLECTIVE_VARIABLE_CONTROLLER::Step_Print()
 {
     if (!is_initialized) return;
-    if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+    if (CONTROLLER::MPI_size == 1)
     {
         for (int i = 0; i < print_cv_list.size(); i++)
         {
@@ -680,7 +680,7 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Step_Print()
         }
         return;
     }
-    else  // 把最后一个进程号的信息发给0号进程
+    else  // 由拥有全局坐标的 CV rank 将结果发给0号进程
     {
 #ifdef USE_MPI
         for (int i = 0; i < print_cv_list.size(); i++)
@@ -688,12 +688,12 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Step_Print()
             if (CONTROLLER::MPI_rank == 0)
             {
                 MPI_Recv(&print_cv_list[i]->value, 1, MPI_FLOAT,
-                         CONTROLLER::MPI_size - 1, 0, MPI_COMM_WORLD,
+                         CONTROLLER::CV_MPI_rank, 0, MPI_COMM_WORLD,
                          MPI_STATUS_IGNORE);
                 controller->Step_Print(print_cv_list[i]->module_name,
                                        print_cv_list[i]->value);
             }
-            if (CONTROLLER::MPI_rank == CONTROLLER::MPI_size - 1)
+            if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
             {
                 MPI_Send(&print_cv_list[i]->value, 1, MPI_FLOAT, 0, 0,
                          MPI_COMM_WORLD);
@@ -1276,6 +1276,7 @@ void COLLECTIVE_VARIABLE_PROTOTYPE::Super_Initial(
     COLLECTIVE_VARIABLE_CONTROLLER* manager, int atom_numbers,
     const char* module_name)
 {
+    this->manager = manager;
     strcpy(this->module_name, module_name);
     int total_atom_numbers = atom_numbers;
     if (manager != NULL)
@@ -1295,6 +1296,19 @@ void COLLECTIVE_VARIABLE_PROTOTYPE::Super_Initial(
     last_update_step[CV_NEED_CPU_VALUE] = -1;
     last_update_step[CV_NEED_CRD_GRADS] = -1;
     last_update_step[CV_NEED_VIRIAL] = -1;
+}
+
+void COLLECTIVE_VARIABLE_PROTOTYPE::Validate_Boundary(
+    const Boundary boundary) const
+{
+    if (boundary.policy != BoundaryPolicy::Open || supports_open_boundary)
+        return;
+    std::string reason = "Reason:\n\tCV type '";
+    reason += type_name;
+    reason += "' requires periodic boundary conditions\n";
+    manager->Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                "COLLECTIVE_VARIABLE_PROTOTYPE::Compute",
+                                reason.c_str());
 }
 
 void COLLECTIVE_VARIABLE_PROTOTYPE::Initial(

@@ -29,7 +29,6 @@ struct VdsShardManifestEntry
     int64_t nhc_frame_count = 0;
     int64_t sits_nk_frame_count = 0;
     int64_t metadynamics_scalar_frame_count = 0;
-    int64_t qc_frame_count = 0;
     int64_t reaxff_frame_count = 0;
     int64_t step_start = 0;
     int64_t step_end = 0;
@@ -43,7 +42,7 @@ inline bool Manifest_Entry_Has_Stream_Frames(const VdsShardManifestEntry& entry)
     return entry.frame_count > 0 || entry.observable_frame_count > 0 ||
            entry.nhc_frame_count > 0 || entry.sits_nk_frame_count > 0 ||
            entry.metadynamics_scalar_frame_count > 0 ||
-           entry.qc_frame_count > 0 || entry.reaxff_frame_count > 0;
+           entry.reaxff_frame_count > 0;
 }
 
 inline bool Manifest_Entry_Has_Negative_Stream_Count(
@@ -52,7 +51,7 @@ inline bool Manifest_Entry_Has_Negative_Stream_Count(
     return entry.frame_count < 0 || entry.observable_frame_count < 0 ||
            entry.nhc_frame_count < 0 || entry.sits_nk_frame_count < 0 ||
            entry.metadynamics_scalar_frame_count < 0 ||
-           entry.qc_frame_count < 0 || entry.reaxff_frame_count < 0;
+           entry.reaxff_frame_count < 0;
 }
 
 class VdsTrajectoryH5Writer
@@ -207,18 +206,6 @@ class VdsTrajectoryH5Writer
         if (current_shard_writer_ != nullptr)
         {
             return current_shard_writer_->Ensure_Metadynamics_Scalars();
-        }
-        return true;
-    }
-
-    bool Ensure_Qc_Observables(bool include_spin_square)
-    {
-        qc_spin_square_enabled_ = include_spin_square;
-        qc_layout_defined_ = true;
-        if (current_shard_writer_ != nullptr)
-        {
-            return current_shard_writer_->Ensure_Qc_Observables(
-                qc_spin_square_enabled_);
         }
         return true;
     }
@@ -388,26 +375,6 @@ class VdsTrajectoryH5Writer
         return true;
     }
 
-    bool Append_Qc_Frame(const int64_t step, const double time, double energy,
-                         const double* spin_square = nullptr)
-    {
-        if (!qc_layout_defined_)
-        {
-            last_error_ = "QC layout must be defined before appending";
-            return false;
-        }
-        if (!Ensure_Current_Shard(step, time)) return false;
-        if (!current_shard_writer_->Append_Qc_Frame(step, time, energy,
-                                                    spin_square))
-        {
-            last_error_ = current_shard_writer_->Last_Error();
-            return false;
-        }
-        current_manifest_entry_.qc_frame_count += 1;
-        Extend_Nonparticle_Shard_Range(step, time);
-        return true;
-    }
-
     bool Append_Reaxff_Frame(
         const int64_t step, const double time,
         const std::map<std::string, double>& values_by_term)
@@ -473,22 +440,6 @@ class VdsTrajectoryH5Writer
         }
         ModuleH5MappingWriter module_writer(wrapper_writer_.get());
         if (!module_writer.Write_Metadynamics_Diagnostic(name, component, text))
-        {
-            last_error_ = module_writer.Last_Error();
-            return false;
-        }
-        return true;
-    }
-
-    bool Write_Qc_Scf_Output(const std::string& text)
-    {
-        if (wrapper_writer_ == nullptr)
-        {
-            last_error_ = "VDS wrapper is not open";
-            return false;
-        }
-        ModuleH5MappingWriter module_writer(wrapper_writer_.get());
-        if (!module_writer.Write_Qc_Scf_Output(text))
         {
             last_error_ = module_writer.Last_Error();
             return false;
@@ -664,12 +615,6 @@ class VdsTrajectoryH5Writer
             last_error_ = current_shard_writer_->Last_Error();
             return false;
         }
-        if (qc_layout_defined_ && !current_shard_writer_->Ensure_Qc_Observables(
-                                      qc_spin_square_enabled_))
-        {
-            last_error_ = current_shard_writer_->Last_Error();
-            return false;
-        }
         if (reaxff_layout_defined_ &&
             !current_shard_writer_->Ensure_Reaxff_Energy_Terms(reaxff_terms_))
         {
@@ -687,7 +632,6 @@ class VdsTrajectoryH5Writer
         current_manifest_entry_.nhc_frame_count = 0;
         current_manifest_entry_.sits_nk_frame_count = 0;
         current_manifest_entry_.metadynamics_scalar_frame_count = 0;
-        current_manifest_entry_.qc_frame_count = 0;
         current_manifest_entry_.reaxff_frame_count = 0;
         current_manifest_entry_.step_start = step;
         current_manifest_entry_.step_end = step;
@@ -934,7 +878,6 @@ class VdsTrajectoryH5Writer
         std::vector<int64_t> nhc_frame_counts;
         std::vector<int64_t> sits_frame_counts;
         std::vector<int64_t> metadynamics_frame_counts;
-        std::vector<int64_t> qc_frame_counts;
         std::vector<int64_t> reaxff_frame_counts;
         std::vector<int64_t> step_starts;
         std::vector<int64_t> step_ends;
@@ -953,7 +896,6 @@ class VdsTrajectoryH5Writer
             sits_frame_counts.push_back(entry.sits_nk_frame_count);
             metadynamics_frame_counts.push_back(
                 entry.metadynamics_scalar_frame_count);
-            qc_frame_counts.push_back(entry.qc_frame_count);
             reaxff_frame_counts.push_back(entry.reaxff_frame_count);
             step_starts.push_back(entry.step_start);
             step_ends.push_back(entry.step_end);
@@ -1031,7 +973,6 @@ class VdsTrajectoryH5Writer
             !write_i64(path::shard_manifest_sits_count, sits_frame_counts) ||
             !write_i64(path::shard_manifest_metadynamics_count,
                        metadynamics_frame_counts) ||
-            !write_i64(path::shard_manifest_qc_count, qc_frame_counts) ||
             !write_i64(path::shard_manifest_reaxff_count,
                        reaxff_frame_counts) ||
             !write_i64(path::shard_manifest_step_start, step_starts) ||
@@ -1588,47 +1529,6 @@ class VdsTrajectoryH5Writer
                    &VdsShardManifestEntry::metadynamics_scalar_frame_count);
     }
 
-    bool Materialize_Qc_Virtual_Datasets()
-    {
-        if (!qc_layout_defined_ ||
-            Total_Module_Frame_Count(&VdsShardManifestEntry::qc_frame_count) ==
-                0)
-        {
-            return true;
-        }
-        if (!wrapper_writer_->Ensure_Group(module_path::qc_root))
-        {
-            last_error_ = wrapper_writer_->Last_Error();
-            return false;
-        }
-        if (!Create_Module_Vds(module_path::qc_step, DataType::int64,
-                               &VdsShardManifestEntry::qc_frame_count, {}))
-        {
-            last_error_ = wrapper_writer_->Last_Error();
-            return false;
-        }
-        if (!Create_Module_Vds(module_path::qc_time, DataType::float64,
-                               &VdsShardManifestEntry::qc_frame_count, {}))
-        {
-            last_error_ = wrapper_writer_->Last_Error();
-            return false;
-        }
-        if (!Create_Module_Scalar_With_Axis(
-                Qc_Observable_Root("energy"), module_path::qc_step,
-                module_path::qc_time, &VdsShardManifestEntry::qc_frame_count))
-        {
-            return false;
-        }
-        if (qc_spin_square_enabled_ &&
-            !Create_Module_Scalar_With_Axis(
-                Qc_Observable_Root("spin_square"), module_path::qc_step,
-                module_path::qc_time, &VdsShardManifestEntry::qc_frame_count))
-        {
-            return false;
-        }
-        return true;
-    }
-
     bool Materialize_Reaxff_Virtual_Datasets()
     {
         if (!reaxff_layout_defined_ ||
@@ -1677,7 +1577,6 @@ class VdsTrajectoryH5Writer
         return Materialize_Nhc_Virtual_Datasets() &&
                Materialize_Sits_Nk_Virtual_Datasets() &&
                Materialize_Metadynamics_Virtual_Datasets() &&
-               Materialize_Qc_Virtual_Datasets() &&
                Materialize_Reaxff_Virtual_Datasets();
     }
 
@@ -1829,19 +1728,6 @@ class VdsTrajectoryH5Writer
         {
             return false;
         }
-        std::vector<std::string> qc_values = {
-            Qc_Observable_Value_Path("energy")};
-        if (qc_spin_square_enabled_)
-        {
-            qc_values.push_back(Qc_Observable_Value_Path("spin_square"));
-        }
-        if (qc_layout_defined_ &&
-            !write("qc", total(&VdsShardManifestEntry::qc_frame_count),
-                   "module_frames", module_path::qc_step, module_path::qc_time,
-                   qc_values, true))
-        {
-            return false;
-        }
         std::vector<std::string> reaxff_values;
         for (const auto& term : reaxff_terms_)
         {
@@ -1898,8 +1784,6 @@ class VdsTrajectoryH5Writer
     std::string sits_module_name_;
     std::size_t sits_k_count_ = 0;
     bool metadynamics_scalar_layout_defined_ = false;
-    bool qc_layout_defined_ = false;
-    bool qc_spin_square_enabled_ = false;
     bool reaxff_layout_defined_ = false;
     std::vector<std::string> reaxff_terms_;
     std::vector<std::string> observable_hdf5_names_;

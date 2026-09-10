@@ -116,7 +116,9 @@ void Require_Manifest_Entry_Fields(const std::string& entry,
         const auto source_path = Manifest_String_Field(entry, "source_path");
         REQUIRE_TRUE(!source_key.empty());
         const std::filesystem::path manifest_source(source_path);
-        REQUIRE_TRUE(manifest_source.is_absolute());
+        // Checked-in manifests may record POSIX absolute paths on Windows.
+        REQUIRE_TRUE(manifest_source.is_absolute() ||
+                     (!source_path.empty() && source_path.front() == '/'));
         REQUIRE_TRUE(
             std::filesystem::exists(legacy_root / manifest_source.filename()));
     }
@@ -194,9 +196,8 @@ std::vector<ManifestRequirement> Full_Contract_Manifest_Requirements()
         {"topology typed datasets", "topology.charge", "typed_converted"},
         {"topology typed datasets", "topology.residue", "typed_converted"},
         {"topology typed datasets", "topology.bond", "typed_converted"},
-        {"QC/ReaxFF sidecars", "topology.qc_type", "typed_converted"},
-        {"QC/ReaxFF sidecars", "topology.REAXFF", "typed_converted"},
-        {"QC/ReaxFF sidecars", "topology.REAXFF_type", "typed_converted"},
+        {"ReaxFF sidecars", "topology.REAXFF", "typed_converted"},
+        {"ReaxFF sidecars", "topology.REAXFF_type", "typed_converted"},
         {"protocol typed datasets", "protocol.cv", "typed_converted"},
         {"protocol typed datasets", "protocol.constrain", "typed_converted"},
         {"protocol typed datasets", "protocol.restrain", "typed_converted"},
@@ -287,7 +288,7 @@ std::vector<Phase6BucketEvidence> Phase6_Coverage_Bucket_Evidence()
         {"SITS state and sidecars", "protocol.SITS"},
         {"Metadynamics state and sidecars", "restart.meta_potential"},
         {"Custom pairwise/listed force payloads", "topology.pairwise_force"},
-        {"QC/ReaxFF sidecars", "topology.REAXFF"},
+        {"ReaxFF sidecars", "topology.REAXFF"},
         {"Rerun trajectory input", "trajectory.crd"},
         {"Legacy sidecar key/path tables",
          "Test_Full_Contract_Rerun_H5_Files_Cover_Sidecar_Tables"},
@@ -357,8 +358,7 @@ void Test_Full_Contract_Rerun_H5_Files_Cover_Sidecar_Tables()
                                   "EDIP_in_file",
                                   "TERSOFF_in_file",
                                   "REAXFF_in_file",
-                                  "REAXFF_type_in_file",
-                                  "qc_type_in_file"});
+                                  "REAXFF_type_in_file"});
     Require_Legacy_Sidecar_Table(
         bundle / "protocol.spgp.h5",
         {"cv_in_file", "constrain_in_file", "restrain_in_file",
@@ -410,7 +410,6 @@ void Test_Full_Contract_Rerun_H5_Files_Cover_Required_Bundle_Paths()
          "/forcefield/custom_force/listed/data/custom_bond"},
         {"topology.spgt.h5", "/manybody/reaxff/parameters"},
         {"topology.spgt.h5", "/manybody/reaxff/type"},
-        {"topology.spgt.h5", "/qc/type"},
         {"protocol.spgp.h5", "/cv"},
         {"protocol.spgp.h5", "/cv/config/section/name"},
         {"protocol.spgp.h5", "/constraint/default/pairs/atoms"},
@@ -536,7 +535,7 @@ void Test_Full_Contract_Rerun_Legacy_Output_Sidecar_Plan_Is_Preserved()
 void Test_Full_Contract_Rerun_Manifest_Buckets_Are_Explicit()
 {
     const std::set<std::string> expected_buckets = {
-        "QC/ReaxFF sidecars",
+        "ReaxFF sidecars",
         "SITS state and sidecars",
         "bundled output paths",
         "custom force payloads",
@@ -570,7 +569,7 @@ void Test_Phase6_Plan_Buckets_Are_Represented()
         "SITS state and sidecars",
         "Metadynamics state and sidecars",
         "Custom pairwise/listed force payloads",
-        "QC/ReaxFF sidecars",
+        "ReaxFF sidecars",
         "Rerun trajectory input",
         "Legacy sidecar key/path tables",
         "Bundled output trajectory/restart/observable paths",

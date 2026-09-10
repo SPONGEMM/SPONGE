@@ -1,5 +1,6 @@
 ﻿#include "sinkmeta.h"
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/h5_structural_state.hpp"
 
 static float Evaluate_Gaussian_Switch(const float rij, const float center,
@@ -1128,7 +1129,7 @@ void META::Step_Print(CONTROLLER* controller)
     {
         return;
     }
-    if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+    if (CONTROLLER::MPI_size == 1)
     {
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
@@ -1136,7 +1137,7 @@ void META::Step_Print(CONTROLLER* controller)
         return;
     }
 #ifdef USE_MPI
-    if (CONTROLLER::MPI_rank == CONTROLLER::MPI_size - 1)
+    if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
         MPI_Send(&potential_local, 1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&rbias, 1, MPI_FLOAT, 0, 1, MPI_COMM_WORLD);
@@ -1144,12 +1145,12 @@ void META::Step_Print(CONTROLLER* controller)
     }
     if (CONTROLLER::MPI_rank == 0)
     {
-        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 0,
+        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 1,
+        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 1,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 2,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 2, MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
         controller->Step_Print("rct", rct);
@@ -2326,8 +2327,8 @@ namespace
 {
 bool Meta_State_Is_Finite(const std::vector<float>& values)
 {
-    return std::all_of(values.begin(), values.end(),
-                       [](const float value) { return std::isfinite(value); });
+    return std::all_of(values.begin(), values.end(), [](const float value)
+                       { return SpongeFloat::Is_Finite(value); });
 }
 
 bool Meta_State_Almost_Equal(const float lhs, const float rhs)
@@ -2800,10 +2801,10 @@ void META::Border_Derivative(float* border_upper, float* border_lower,
     }
 }
 
-void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                           LTMatrix3 rcell, int step, int need_potential,
-                           int need_pressure, VECTOR* frc, float* d_potential,
-                           LTMatrix3* d_virial, float sys_temp)
+void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, Boundary boundary,
+                           int step, int need_potential, int need_pressure,
+                           VECTOR* frc, float* d_potential, LTMatrix3* d_virial,
+                           float sys_temp)
 {
     if (this->is_initialized)
     {
@@ -2815,7 +2816,7 @@ void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
 
         for (int i = 0; i < cvs.size(); i = i + 1)
         {
-            this->cvs[i]->Compute(atom_numbers, crd, cell, rcell, need, step);
+            this->cvs[i]->Compute(atom_numbers, crd, boundary, need, step);
         }
         temperature = sys_temp;
         Meta_Force_With_Energy_And_Virial(atom_numbers, frc, need_potential,

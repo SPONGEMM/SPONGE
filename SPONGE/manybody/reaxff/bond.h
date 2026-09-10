@@ -64,7 +64,7 @@ struct REAXFF_BOND
 
     void REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
         const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
+        const Boundary boundary, const ATOM_GROUP* nl,
         const int need_atom_energy, float* atom_energy, const int need_virial,
         LTMatrix3* atom_virial);
 

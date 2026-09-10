@@ -27,8 +27,7 @@
       "box",
       "vel",
       "frc",
-      "rst",
-      "qc_scf_output"
+      "rst"
     ],
     "topology_sidecar_keys": [
       "pairwise_force_in_file",
@@ -57,8 +56,7 @@
       "EDIP_in_file",
       "TERSOFF_in_file",
       "REAXFF_in_file",
-      "REAXFF_type_in_file",
-      "qc_type_in_file"
+      "REAXFF_type_in_file"
     ],
     "protocol_sidecar_keys": [
       "cv_in_file",
@@ -248,7 +246,7 @@
         "topology_sidecar_keys:SW_in_file",
         "topology_sidecar_keys:EDIP_in_file",
         "topology_sidecar_keys:TERSOFF_in_file",
-        "topology_sidecar_keys:qc_type_in_file",
+
         "protocol_sidecar_keys:cv_in_file",
         "protocol_sidecar_keys:constrain_in_file",
         "protocol_sidecar_keys:restrain_in_file",
@@ -687,17 +685,7 @@
       "case_ids": ["normal_steering_cv_typed_nonzero", "rerun_full_contract_pure_vds_off", "rerun_full_contract_pure_vds_on", "rerun_full_contract_sidecar_vds_off", "rerun_full_contract_sidecar_vds_on"],
       "assertion_ids": ["input_semantic_equivalence"]
     },
-    {
-      "contract_id": "input.qc.energy",
-      "direction": "input",
-      "component": "qc",
-      "status": "supported",
-      "minimum_evidence": "E3",
-      "legacy_surface": "qc_type_in_file and QC runtime",
-      "bundled_surface": "/qc/type",
-      "case_ids": ["rerun_qc_type_typed_unrestricted_vds_off", "rerun_full_contract_pure_vds_off", "rerun_full_contract_pure_vds_on", "rerun_full_contract_sidecar_vds_off", "rerun_full_contract_sidecar_vds_on"],
-      "assertion_ids": ["input_semantic_equivalence"]
-    },
+
     {
       "contract_id": "input.protocol.sits",
       "direction": "input",
@@ -998,40 +986,8 @@
       "case_ids": ["normal_nhc_dynamic_restart_continuation"],
       "assertion_ids": ["restart_dynamic_continuation_equivalence"]
     },
-    {
-      "contract_id": "input.qc.type",
-      "direction": "input",
-      "component": "qc",
-      "status": "supported",
-      "minimum_evidence": "E3",
-      "legacy_surface": "qc_type_in_file",
-      "bundled_surface": "/qc/type",
-      "case_ids": ["rerun_qc_type_typed_unrestricted_vds_off"],
-      "assertion_ids": ["input_semantic_equivalence"],
-      "reason": ""
-    },
-    {
-      "contract_id": "input.qc.spin_square",
-      "direction": "input",
-      "component": "qc",
-      "status": "supported",
-      "minimum_evidence": "E3",
-      "legacy_surface": "QC spin-square result",
-      "bundled_surface": "/observables/all/qc/spin_square",
-      "case_ids": ["rerun_qc_unrestricted_sidecar_vds_off", "rerun_qc_unrestricted_sidecar_vds_on", "rerun_qc_type_typed_unrestricted_vds_off"],
-      "assertion_ids": ["input_semantic_equivalence", "h5_rerun_semantic_equivalence"]
-    },
-    {
-      "contract_id": "input.qc.scf_text",
-      "direction": "input",
-      "component": "qc",
-      "status": "supported",
-      "minimum_evidence": "E3",
-      "legacy_surface": "non-empty qc_scf_output text",
-      "bundled_surface": "/parameters/sponge/qc/scf_output",
-      "case_ids": ["rerun_qc_unrestricted_sidecar_vds_off", "rerun_qc_unrestricted_sidecar_vds_on", "rerun_qc_type_typed_unrestricted_vds_off"],
-      "assertion_ids": ["qc_scf_exact_equivalence"]
-    },
+
+
     {
       "contract_id": "input.manybody.reaxff",
       "direction": "input",
@@ -1066,7 +1022,7 @@
       "minimum_evidence": "E3",
       "legacy_surface": "mdout",
       "bundled_surface": "explicit mdout retained beside H5 output",
-      "case_ids": ["normal_core_h5_output", "normal_sits_ff19sb_cmap_peptide", "normal_sits_typed_configuration_nonzero", "rerun_full_contract_pure_vds_off", "rerun_full_contract_pure_vds_on", "rerun_full_contract_sidecar_vds_off", "rerun_full_contract_sidecar_vds_on", "rerun_qc_unrestricted_sidecar_vds_off", "rerun_qc_unrestricted_sidecar_vds_on", "rerun_qc_type_typed_unrestricted_vds_off", "rerun_boundary_start0_strip0_limit1_vds_off", "rerun_boundary_start1_strip0_unlimited_no_velocity_vds_on", "rerun_boundary_start0_strip1_beyond_selected_vds_on", "rerun_boundary_start0_strip0_exact_eof_box_vds_off", "rerun_boundary_start1_strip1_limit1_selected_no_velocity_vds_off"],
+      "case_ids": ["normal_core_h5_output", "normal_sits_ff19sb_cmap_peptide", "normal_sits_typed_configuration_nonzero", "rerun_full_contract_pure_vds_off", "rerun_full_contract_pure_vds_on", "rerun_full_contract_sidecar_vds_off", "rerun_full_contract_sidecar_vds_on",    "rerun_boundary_start0_strip0_limit1_vds_off", "rerun_boundary_start1_strip0_unlimited_no_velocity_vds_on", "rerun_boundary_start0_strip1_beyond_selected_vds_on", "rerun_boundary_start0_strip0_exact_eof_box_vds_off", "rerun_boundary_start1_strip1_limit1_selected_no_velocity_vds_off"],
       "assertion_ids": ["mdout_statistical_equivalence", "mdout_deterministic_equivalence"],
       "inventory_refs": ["legacy_output_keys:mdout"]
     },
@@ -1231,18 +1187,7 @@
       "assertion_ids": ["restart_continuation_equivalence"],
       "inventory_refs": ["legacy_output_keys:rst"]
     },
-    {
-      "contract_id": "output.legacy.qc_scf_output",
-      "direction": "output",
-      "component": "legacy_output_route",
-      "status": "supported",
-      "minimum_evidence": "E3",
-      "legacy_surface": "qc_scf_output",
-      "bundled_surface": "/parameters/sponge/qc/scf_output",
-      "case_ids": ["rerun_qc_unrestricted_sidecar_vds_off", "rerun_qc_unrestricted_sidecar_vds_on", "rerun_qc_type_typed_unrestricted_vds_off"],
-      "assertion_ids": ["qc_scf_exact_equivalence"],
-      "inventory_refs": ["legacy_output_keys:qc_scf_output"]
-    },
+
     {
       "contract_id": "output.restart.dynamic_continuation",
       "direction": "output",

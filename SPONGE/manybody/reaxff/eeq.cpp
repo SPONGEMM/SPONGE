@@ -248,7 +248,7 @@ static __global__ void EEQ_Matrix_Vector_Multiply(
 static __global__ void EEQ_Count_H_Matrix_Entries(
     int atom_numbers, const VECTOR* crd, const int* atom_types,
     const float* shield, int atom_type_numbers, const ATOM_GROUP* nl,
-    const LTMatrix3 cell, const LTMatrix3 rcell, float cutoff, int* numnbrs)
+    const Boundary boundary, float cutoff, int* numnbrs)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -261,7 +261,8 @@ static __global__ void EEQ_Count_H_Matrix_Entries(
             int atom_j = nl_i.atom_serial[j_idx];
             int type_j = atom_types[atom_j];
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float r2 = drij.x * drij.x + drij.y * drij.y + drij.z * drij.z;
             float r = sqrtf(r2);
             if (r < cutoff)
@@ -277,8 +278,8 @@ static __global__ void EEQ_Count_H_Matrix_Entries(
 static __global__ void EEQ_Fill_H_Matrix(
     int atom_numbers, const VECTOR* crd, const int* atom_types,
     const float* shield, int atom_type_numbers, const ATOM_GROUP* nl,
-    const LTMatrix3 cell, const LTMatrix3 rcell, float cutoff,
-    const int* firstnbrs, int* jlist, float* h_val)
+    const Boundary boundary, float cutoff, const int* firstnbrs, int* jlist,
+    float* h_val)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -291,7 +292,8 @@ static __global__ void EEQ_Fill_H_Matrix(
             int atom_j = nl_i.atom_serial[j_idx];
             int type_j = atom_types[atom_j];
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float r2 = drij.x * drij.x + drij.y * drij.y + drij.z * drij.z;
             float r = sqrtf(r2);
             if (r < cutoff)
@@ -511,8 +513,8 @@ static __global__ void EEQ_Distribute_Energy_Kernel(
 static __global__ void EEQ_Calculate_Force_Kernel(
     int atom_numbers, const VECTOR* crd, const int* atom_types,
     const float* shield, int atom_type_numbers, const float* d_charge,
-    VECTOR* frc, const ATOM_GROUP* nl, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, LTMatrix3* atom_virial)
+    VECTOR* frc, const ATOM_GROUP* nl, const Boundary boundary, float cutoff,
+    LTMatrix3* atom_virial)
 {
     EEQ_SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -534,7 +536,8 @@ static __global__ void EEQ_Calculate_Force_Kernel(
                 int type_j = atom_types[atom_j];
 
                 VECTOR rj = crd[atom_j];
-                VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+                VECTOR drij = Get_Displacement<BoundaryPolicy::Periodic>(
+                    ri, rj, boundary);
                 float r2 = drij.x * drij.x + drij.y * drij.y + drij.z * drij.z;
                 float r = sqrtf(r2);
 
@@ -675,8 +678,7 @@ static __global__ void CG_Update_P_Kernel(int n, float* p, const float* r,
 // =====================================================================
 
 void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
-                                   const VECTOR* d_crd, const LTMatrix3 cell,
-                                   const LTMatrix3 rcell,
+                                   const VECTOR* d_crd, const Boundary boundary,
                                    const ATOM_GROUP* fnl_d_nl, float cutoff,
                                    float* d_energy, VECTOR* frc,
                                    int need_virial, LTMatrix3* atom_virial)
@@ -689,7 +691,7 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
     // ---- Build H matrix CSR ----
     Launch_Device_Kernel(EEQ_Count_H_Matrix_Entries, gridSize, blockSize, 0,
                          NULL, atom_numbers, d_crd, d_atom_type, d_shield,
-                         atom_type_numbers, fnl_d_nl, cell, rcell, cutoff,
+                         atom_type_numbers, fnl_d_nl, boundary, cutoff,
                          d_h_numnbrs);
 
     int total_nnz = 0;
@@ -731,7 +733,7 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
     {
         Launch_Device_Kernel(EEQ_Fill_H_Matrix, gridSize, blockSize, 0, NULL,
                              atom_numbers, d_crd, d_atom_type, d_shield,
-                             atom_type_numbers, fnl_d_nl, cell, rcell, cutoff,
+                             atom_type_numbers, fnl_d_nl, boundary, cutoff,
                              d_h_firstnbrs, d_h_jlist, d_h_val);
     }
 
@@ -968,7 +970,7 @@ void REAXFF_EEQ::Calculate_Charges(int atom_numbers, float* d_charge,
     {
         Launch_Device_Kernel(EEQ_Calculate_Force_Kernel, gridSize, blockSize, 0,
                              NULL, atom_numbers, d_crd, d_atom_type, d_shield,
-                             atom_type_numbers, d_q, frc, fnl_d_nl, cell, rcell,
+                             atom_type_numbers, d_q, frc, fnl_d_nl, boundary,
                              cutoff, need_virial ? atom_virial : NULL);
     }
 

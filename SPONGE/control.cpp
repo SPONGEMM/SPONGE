@@ -23,6 +23,7 @@ int CONTROLLER::MPI_rank = 0;
 int CONTROLLER::PP_MPI_rank = -1;
 int CONTROLLER::PM_MPI_rank = -1;
 int CONTROLLER::CC_MPI_rank = -1;
+int CONTROLLER::CV_MPI_rank = 0;
 int CONTROLLER::MPI_size = 1;
 int CONTROLLER::PP_MPI_size = 1;
 int CONTROLLER::PM_MPI_size = 1;

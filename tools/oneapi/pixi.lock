@@ -1,0 +1,258 @@
+version: 7
+platforms:
+- name: win-64
+  virtual-packages:
+  - __win=10.0
+  - __archspec=0=x86_64
+environments:
+  default:
+    channels:
+    - url: https://software.repos.intel.com/python/conda/
+    - url: https://conda.anaconda.org/conda-forge/
+    packages:
+      win-64:
+      - conda: https://conda.anaconda.org/conda-forge/noarch/vswhere-3.1.7-h40126e0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/opencl-headers-2025.06.13-h826ebb9_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ucrt-10.0.26100.0-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/vc-14.5-ha367084_41.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_41.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/vs2022_win-64-19.44.35207-ha74f236_41.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/vs_win-64-2022.14-ha74f236_41.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/compiler_shared-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/dpcpp-cpp-rt-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/dpcpp_impl_win-64-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/dpcpp_win-64-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lib-rt-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lib-ur-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lic-rt-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-opencl-rt-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-openmp-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/intel-sycl-rt-2026.1.1-intel_349.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/ocloc-2026.1.0-intel_38.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/tbb-2023.1.0-vc14_intel_152.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/tcm-1.5.0-intel_484.conda
+      - conda: https://software.repos.intel.com/python/conda/win-64/umf-1.1.0-intel_338.conda
+packages:
+- conda: https://conda.anaconda.org/conda-forge/noarch/vswhere-3.1.7-h40126e0_1.conda
+  sha256: b72270395326dc56de9bd6ca82f63791b3c8c9e2b98e25242a9869a4ca821895
+  md5: f622897afff347b715d046178ad745a5
+  depends:
+  - __win
+  license: MIT
+  license_family: MIT
+  run_exports: {}
+  size: 238764
+  timestamp: 1745560912727
+- conda: https://conda.anaconda.org/conda-forge/win-64/opencl-headers-2025.06.13-h826ebb9_0.conda
+  sha256: 3acfdfe4b914a9fd8c950da6c13cfe563896744709eb5c4c7a926919c3e0b630
+  md5: 77af5a2fabd1c8c3eb9e0a7b3d5afc22
+  depends:
+  - ucrt >=10.0.20348.0
+  - vc >=14.3,<15
+  - vc14_runtime >=14.44.35208
+  license: Apache-2.0
+  license_family: APACHE
+  run_exports: {}
+  size: 56082
+  timestamp: 1773844547434
+- conda: https://conda.anaconda.org/conda-forge/win-64/ucrt-10.0.26100.0-h57928b3_0.conda
+  sha256: 3005729dce6f3d3f5ec91dfc49fc75a0095f9cd23bab49efb899657297ac91a5
+  md5: 71b24316859acd00bdb8b38f5e2ce328
+  constrains:
+  - vc14_runtime >=14.29.30037
+  - vs2015_runtime >=14.29.30037
+  license: LicenseRef-MicrosoftWindowsSDK10
+  run_exports: {}
+  size: 694692
+  timestamp: 1756385147981
+- conda: https://conda.anaconda.org/conda-forge/win-64/vc-14.5-ha367084_41.conda
+  sha256: 35444c55a92e2f7f7ba26bc70f81e56e52344f7d064c0fd4b40a46a58517b79c
+  md5: aa805b5522c2a98fa286e551a1f48546
+  depends:
+  - vc14_runtime >=14.51.36247
+  track_features:
+  - vc14
+  license: BSD-3-Clause
+  license_family: BSD
+  run_exports: {}
+  size: 21383
+  timestamp: 1785359368566
+- conda: https://conda.anaconda.org/conda-forge/win-64/vc14_runtime-14.51.36247-habf1de7_41.conda
+  sha256: 4e4cb599cdc41bf2109d1464c127b5bcbddf548ce3e322e612afb691338b48f8
+  md5: ac5333bb3d429361f23adf704cc49a78
+  depends:
+  - ucrt >=10.0.20348.0
+  - vcomp14 14.51.36247 habf1de7_41
+  constrains:
+  - vs2015_runtime 14.51.36247.* *_41
+  license: LicenseRef-MicrosoftVisualCpp2015-2022Runtime
+  license_family: Proprietary
+  run_exports: {}
+  size: 767955
+  timestamp: 1785359364369
+- conda: https://conda.anaconda.org/conda-forge/win-64/vcomp14-14.51.36247-habf1de7_41.conda
+  sha256: 731e043390c9457299484d39e427221fc868a9249540a498a5a4f6456c7744d1
+  md5: 350bb67a5c8e5f1c53347ac544ab6600
+  depends:
+  - ucrt >=10.0.20348.0
+  constrains:
+  - vs2015_runtime 14.51.36247.* *_41
+  license: LicenseRef-MicrosoftVisualCpp2015-2022Runtime
+  license_family: Proprietary
+  run_exports:
+    strong:
+    - vcomp14 >=14.51.36247
+  size: 155910
+  timestamp: 1785359349999
+- conda: https://conda.anaconda.org/conda-forge/win-64/vs2022_win-64-19.44.35207-ha74f236_41.conda
+  sha256: 9d7d1b43cf4af5a8e8b1646175c9f899ffbcab189a33ac41127a96e7bcf41af0
+  md5: 04190e0ebd886433300ce9343ee98942
+  depends:
+  - vswhere
+  constrains:
+  - vs_win-64 2022.14
+  track_features:
+  - vc14
+  license: BSD-3-Clause
+  license_family: BSD
+  run_exports:
+    strong:
+    - vc >=14.3,<15
+    - vc14_runtime >=14.44.35208
+    - ucrt >=10.0.20348.0
+  size: 25462
+  timestamp: 1785358620723
+- conda: https://conda.anaconda.org/conda-forge/win-64/vs_win-64-2022.14-ha74f236_41.conda
+  sha256: 8fea9100a176185ae74f82593084835e68811e53d12ef7f4d5534e259b0e72ff
+  md5: 88be1d0bd96a08d3d8da83f87066192d
+  depends:
+  - vs2022_win-64 19.44.35207.*
+  track_features:
+  - vc14
+  license: BSD-3-Clause
+  license_family: BSD
+  run_exports:
+    strong:
+    - vc >=14.3,<15
+    - vc14_runtime >=14.44.35208
+    - ucrt >=10.0.20348.0
+  size: 21612
+  timestamp: 1785358636481
+- conda: https://software.repos.intel.com/python/conda/win-64/compiler_shared-2026.1.1-intel_349.conda
+  sha256: 7bb8ebfc41964c34628e1c09d4b4465988ad33315094d5dcfec25af2cab444d3
+  md5: 8f1212257b2ea1125994eab9b49e3142
+  license: Intel End User License Agreement for Developer Tools
+  size: 158324770
+  timestamp: 1786111896347
+- conda: https://software.repos.intel.com/python/conda/win-64/dpcpp-cpp-rt-2026.1.1-intel_349.conda
+  sha256: e15559c83fe5a53c3f0678a45c259d2c294d5072a980105b1a37fe5e9baeb7f0
+  md5: a4b60ad492a75e6724f6b04bfa61b756
+  depends:
+  - intel-opencl-rt 2026.1.1 intel_349
+  - intel-openmp 2026.1.1 intel_349
+  - intel-sycl-rt 2026.1.1 intel_349
+  constrains:
+  - dpcpp_cpp_rt >= 2021.3.0
+  license: Intel End User License Agreement for Developer Tools
+  size: 45654
+  timestamp: 1786112183426
+- conda: https://software.repos.intel.com/python/conda/win-64/dpcpp_impl_win-64-2026.1.1-intel_349.conda
+  sha256: 2072e977de4ded92bc9bd68206b9e7c74053447b59f39696f001d845d76b3e0c
+  md5: 94a8705712155dba5638f71e0b05a4b4
+  depends:
+  - compiler_shared 2026.1.1 intel_349
+  - dpcpp-cpp-rt 2026.1.1 intel_349
+  license: Intel End User License Agreement for Developer Tools
+  size: 193428969
+  timestamp: 1786112404316
+- conda: https://software.repos.intel.com/python/conda/win-64/dpcpp_win-64-2026.1.1-intel_349.conda
+  sha256: b3513d9f4531fceeccd4129a9461886666e4003347108b54e87337b3f84877ec
+  md5: 1182fa08a64408b8371efac2cab7ad38
+  depends:
+  - dpcpp_impl_win-64 2026.1.1 intel_349
+  - vs_win-64
+  license: Intel End User License Agreement for Developer Tools
+  size: 19282
+  timestamp: 1786111623483
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lib-rt-2026.1.1-intel_349.conda
+  sha256: 7fe28554f62191252c40e4c9af1a82aa57a5a06201b775928334765afc50c633
+  md5: 58a7925e6067dc8a2a8f234477c1ba81
+  license: Intel End User License Agreement for Developer Tools
+  size: 7557433
+  timestamp: 1786111647617
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lib-ur-2026.1.1-intel_349.conda
+  sha256: 7954118c54fb59d842ac850e3e794787822fcba23e5a41bab116a498dea416b5
+  md5: bf6d5fe0e99d43d0c9af3d64b842451e
+  depends:
+  - umf 1.1.*
+  license: Intel End User License Agreement for Developer Tools
+  size: 896436
+  timestamp: 1786111683291
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-cmplr-lic-rt-2026.1.1-intel_349.conda
+  sha256: 777224f152fab104e7c53676e04b1c1c1ef04bc05ff5498930a16a7cda7f012d
+  md5: fb34970158bbb8808cb88a6eaa0c262c
+  license: Intel End User License Agreement for Developer Tools
+  size: 44565
+  timestamp: 1786111616197
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-opencl-rt-2026.1.1-intel_349.conda
+  sha256: a3e31c982b13d6f5c03b8854b717da7479ec8c3d3129cfafef88af8d4ddab6a9
+  md5: 9e9ab1ff4992f5e673960202a9d96326
+  depends:
+  - intel-cmplr-lic-rt 2026.1.1 intel_349
+  - tbb 2023.*
+  constrains:
+  - opencl_rt >=2021.3.0
+  license: Intel End User License Agreement for Developer Tools
+  size: 78371476
+  timestamp: 1786111742155
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-openmp-2026.1.1-intel_349.conda
+  sha256: 2640b18a28e2546997fe15feacdab1f43cba3804b33fba24a9df859e0631374f
+  md5: 5883193178c6bf681ac8cab037a59442
+  depends:
+  - intel-cmplr-lib-ur 2026.1.1 intel_349
+  license: Intel End User License Agreement for Developer Tools
+  size: 17892112
+  timestamp: 1786111687489
+- conda: https://software.repos.intel.com/python/conda/win-64/intel-sycl-rt-2026.1.1-intel_349.conda
+  sha256: cdca8e33d2f77eceac4e41c4b2d87aa69558eefd44598a3973e670cd00bc2922
+  md5: 9e1b6d5bd1d031bfde41822b43881f82
+  depends:
+  - intel-cmplr-lib-rt 2026.1.1 intel_349
+  - intel-cmplr-lib-ur 2026.1.1 intel_349
+  - intel-cmplr-lic-rt 2026.1.1 intel_349
+  - ocloc 2026.*
+  - opencl-headers >=2025.06.13
+  license: Intel End User License Agreement for Developer Tools
+  size: 39055389
+  timestamp: 1786112330927
+- conda: https://software.repos.intel.com/python/conda/win-64/ocloc-2026.1.0-intel_38.conda
+  sha256: ee839f85a68450e05f82b8a959be99e573a7a8ec024614f4951f84d8b5b1ed25
+  md5: e3aadb743e5450acdffa9a5bdd4212a9
+  license: Intel End User License Agreement for Developer Tools
+  size: 96033419
+  timestamp: 1781759785104
+- conda: https://software.repos.intel.com/python/conda/win-64/tbb-2023.1.0-vc14_intel_152.conda
+  sha256: f6a89474082057bf80245d19dd265fd7f00db75b45463ee5ccbd703c96fe7235
+  md5: 849bb72a7ea23fc07dacfb0f2f7432a1
+  depends:
+  - tcm 1.*
+  - vc 14.*
+  features: vc14
+  license: Intel Simplified Software License
+  size: 307186
+  timestamp: 1781735719567
+- conda: https://software.repos.intel.com/python/conda/win-64/tcm-1.5.0-intel_484.conda
+  sha256: 6f97809fe77c94acf095c00c6db8c73c5fb9d601646ecce6db71790b04865f07
+  md5: 17297747a41a65b9de630aa69da1eac5
+  license: Intel Simplified Software License
+  size: 298771
+  timestamp: 1776132692011
+- conda: https://software.repos.intel.com/python/conda/win-64/umf-1.1.0-intel_338.conda
+  sha256: 4d63cb5b2d42f14237d1b25db1c13c5314a4d7aafbfc48aee4a1289b5c01626b
+  md5: a2fc505311055a4258747ae2afd967b9
+  depends:
+  - tcm >=1.5
+  license: Apache-2.0 with LLVM exceptions
+  size: 212571
+  timestamp: 1776153547871

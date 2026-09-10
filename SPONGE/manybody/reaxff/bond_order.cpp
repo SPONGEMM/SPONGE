@@ -2,13 +2,13 @@
 
 // Use neighbor list instead of O(N^2) all-pairs scan
 static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
-    int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, const int* atom_type, const float* r_s,
-    const float* r_p, const float* r_pp, const float* bo_1, const float* bo_2,
-    const float* bo_3, const float* bo_4, const float* bo_5, const float* bo_6,
-    const float* ro_pi, const float* ro_pi2, const int atom_type_numbers,
-    float bo_cut, float* total_bond_order, const ATOM_GROUP* nl, int* pair_i,
-    int* pair_j, float* distances, int max_pairs, int* num_pairs)
+    int atom_numbers, const VECTOR* crd, const Boundary boundary, float cutoff,
+    const int* atom_type, const float* r_s, const float* r_p, const float* r_pp,
+    const float* bo_1, const float* bo_2, const float* bo_3, const float* bo_4,
+    const float* bo_5, const float* bo_6, const float* ro_pi,
+    const float* ro_pi2, const int atom_type_numbers, float bo_cut,
+    float* total_bond_order, const ATOM_GROUP* nl, int* pair_i, int* pair_j,
+    float* distances, int max_pairs, int* num_pairs)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -27,7 +27,8 @@ static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
                 if (type_j < 0 || type_j >= atom_type_numbers) continue;
 
                 VECTOR rj = crd[j];
-                VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+                VECTOR drij = Get_Displacement<BoundaryPolicy::Periodic>(
+                    ri, rj, boundary);
                 float r2 = drij.x * drij.x + drij.y * drij.y + drij.z * drij.z;
 
                 if (r2 < cutoff * cutoff && r2 > 0.0001f)
@@ -94,17 +95,16 @@ static __global__ void Calculate_Uncorrected_Bond_Orders_Kernel(
 // Writes corrected BO and derivatives directly to sparse per-bond arrays
 static __global__ void Apply_Bond_Order_Corrections_Kernel(
     int num_pairs, int* pair_i, int* pair_j, float* distances,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const int* atom_type, const float* r_s, const float* r_p, const float* r_pp,
-    const float* bo_1, const float* bo_2, const float* bo_3, const float* bo_4,
-    const float* bo_5, const float* bo_6, const float* ro_pi,
-    const float* ro_pi2, const float* valency, const float* valency_val,
-    const float* ovc, const float* v13cor, const float* p_boc3,
-    const float* p_boc4, const float* p_boc5, const int atom_type_numbers,
-    const int atom_numbers, float gp_boc1, float gp_boc2, float bo_cut,
-    const float* total_bond_order, float* corrected_bo_s,
-    float* corrected_bo_pi, float* corrected_bo_pi2, float* dbo_s_dr,
-    float* dbo_pi_dr, float* dbo_pi2_dr, float* dbo_s_dDelta_i,
+    const VECTOR* crd, const Boundary boundary, const int* atom_type,
+    const float* r_s, const float* r_p, const float* r_pp, const float* bo_1,
+    const float* bo_2, const float* bo_3, const float* bo_4, const float* bo_5,
+    const float* bo_6, const float* ro_pi, const float* ro_pi2,
+    const float* valency, const float* valency_val, const float* ovc,
+    const float* v13cor, const float* p_boc3, const float* p_boc4,
+    const float* p_boc5, const int atom_type_numbers, const int atom_numbers,
+    float gp_boc1, float gp_boc2, float bo_cut, const float* total_bond_order,
+    float* corrected_bo_s, float* corrected_bo_pi, float* corrected_bo_pi2,
+    float* dbo_s_dr, float* dbo_pi_dr, float* dbo_pi2_dr, float* dbo_s_dDelta_i,
     float* dbo_pi_dDelta_i, float* dbo_pi2_dDelta_i, float* dbo_s_dDelta_j,
     float* dbo_pi_dDelta_j, float* dbo_pi2_dDelta_j, float* dbo_raw_total_dr)
 {
@@ -399,11 +399,11 @@ static __global__ void Calculate_CdDelta_Prime_Kernel(
 
 static __global__ void REAXFF_Force_Projection_Kernel(
     int num_pairs, const int* pair_i, const int* pair_j, const float* distances,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-    const float* dE_dBO_s, const float* dE_dBO_pi, const float* dE_dBO_pi2,
-    const float* CdDelta, const float* dbo_s_dr, const float* dbo_pi_dr,
-    const float* dbo_pi2_dr, const float* dbo_raw_total_dr,
-    const float* CdDelta_prime, VECTOR* frc, LTMatrix3* atom_virial)
+    const VECTOR* crd, const Boundary boundary, const float* dE_dBO_s,
+    const float* dE_dBO_pi, const float* dE_dBO_pi2, const float* CdDelta,
+    const float* dbo_s_dr, const float* dbo_pi_dr, const float* dbo_pi2_dr,
+    const float* dbo_raw_total_dr, const float* CdDelta_prime, VECTOR* frc,
+    LTMatrix3* atom_virial)
 {
     SIMPLE_DEVICE_FOR(idx, num_pairs)
     {
@@ -429,7 +429,8 @@ static __global__ void REAXFF_Force_Projection_Kernel(
 
             VECTOR ri = crd[i];
             VECTOR rj = crd[j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
 
             float fx = force_mag * drij.x / r_val;
             float fy = force_mag * drij.y / r_val;
@@ -904,9 +905,9 @@ void REAXFF_BOND_ORDER::Initial(CONTROLLER* controller, int atom_numbers,
 }
 
 void REAXFF_BOND_ORDER::Calculate_Uncorrected_Bond_Orders_GPU(
-    int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, const ATOM_GROUP* d_nl, int* d_pair_i,
-    int* d_pair_j, float* d_distances, int* d_num_pairs_ptr)
+    int atom_numbers, const VECTOR* d_crd, const Boundary boundary,
+    float cutoff, const ATOM_GROUP* d_nl, int* d_pair_i, int* d_pair_j,
+    float* d_distances, int* d_num_pairs_ptr)
 {
     if (!is_initialized) return;
 
@@ -921,16 +922,16 @@ void REAXFF_BOND_ORDER::Calculate_Uncorrected_Bond_Orders_GPU(
 
     Launch_Device_Kernel(
         Calculate_Uncorrected_Bond_Orders_Kernel, gridSize, blockSize, 0, NULL,
-        atom_numbers, d_crd, cell, rcell, cutoff, d_atom_type, d_r_s, d_r_p,
+        atom_numbers, d_crd, boundary, cutoff, d_atom_type, d_r_s, d_r_p,
         d_r_pp, d_bo_1, d_bo_2, d_bo_3, d_bo_4, d_bo_5, d_bo_6, d_ro_pi,
         d_ro_pi2, atom_type_numbers, gp_bo_cut, d_total_bond_order, d_nl,
         d_pair_i, d_pair_j, d_distances, max_bonds, d_num_pairs_ptr);
 }
 
 void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Orders_GPU(
-    int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, float cutoff, int num_pairs, int* d_pair_i,
-    int* d_pair_j, float* d_distances)
+    int atom_numbers, const VECTOR* d_crd, const Boundary boundary,
+    float cutoff, int num_pairs, int* d_pair_i, int* d_pair_j,
+    float* d_distances)
 {
     if (!is_initialized) return;
 
@@ -941,7 +942,7 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Orders_GPU(
 
     Launch_Device_Kernel(
         Apply_Bond_Order_Corrections_Kernel, gridSize, blockSize, 0, NULL,
-        num_pairs, d_pair_i, d_pair_j, d_distances, d_crd, cell, rcell,
+        num_pairs, d_pair_i, d_pair_j, d_distances, d_crd, boundary,
         d_atom_type, d_r_s, d_r_p, d_r_pp, d_bo_1, d_bo_2, d_bo_3, d_bo_4,
         d_bo_5, d_bo_6, d_ro_pi, d_ro_pi2, d_valency, d_valency_val, d_ovc,
         d_v13cor, d_p_boc3, d_p_boc4, d_p_boc5, atom_type_numbers, atom_numbers,
@@ -981,8 +982,8 @@ void REAXFF_BOND_ORDER::Build_Bond_CSR(int atom_numbers, int num_bonds)
 }
 
 void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
-    int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* fnl_d_nl, float cutoff)
+    int atom_numbers, const VECTOR* d_crd, const Boundary boundary,
+    const ATOM_GROUP* fnl_d_nl, float cutoff)
 {
     if (!is_initialized) return;
 
@@ -994,8 +995,8 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
         return;
     }
 
-    Calculate_Uncorrected_Bond_Orders_GPU(atom_numbers, d_crd, cell, rcell,
-                                          cutoff, fnl_d_nl, d_pair_i, d_pair_j,
+    Calculate_Uncorrected_Bond_Orders_GPU(atom_numbers, d_crd, boundary, cutoff,
+                                          fnl_d_nl, d_pair_i, d_pair_j,
                                           d_pair_distances, d_num_pairs_ptr);
 
     deviceMemcpy(&h_num_pairs, d_num_pairs_ptr, sizeof(int),
@@ -1021,7 +1022,7 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
 
     if (num_pairs > 0)
     {
-        Calculate_Corrected_Bond_Orders_GPU(atom_numbers, d_crd, cell, rcell,
+        Calculate_Corrected_Bond_Orders_GPU(atom_numbers, d_crd, boundary,
                                             cutoff, num_pairs, d_pair_i,
                                             d_pair_j, d_pair_distances);
 
@@ -1042,9 +1043,9 @@ void REAXFF_BOND_ORDER::Calculate_Corrected_Bond_Order(
 }
 
 void REAXFF_BOND_ORDER::Calculate_Forces(int atom_numbers, const VECTOR* d_crd,
-                                         VECTOR* d_frc, const LTMatrix3 cell,
-                                         const LTMatrix3 rcell, float cutoff,
-                                         float* d_CdDelta, int need_virial,
+                                         VECTOR* d_frc, const Boundary boundary,
+                                         float cutoff, float* d_CdDelta,
+                                         int need_virial,
                                          LTMatrix3* atom_virial)
 {
     if (!is_initialized || h_num_pairs <= 0) return;
@@ -1061,7 +1062,7 @@ void REAXFF_BOND_ORDER::Calculate_Forces(int atom_numbers, const VECTOR* d_crd,
 
     Launch_Device_Kernel(
         REAXFF_Force_Projection_Kernel, gridSize, blockSize, 0, NULL,
-        h_num_pairs, d_pair_i, d_pair_j, d_pair_distances, d_crd, cell, rcell,
+        h_num_pairs, d_pair_i, d_pair_j, d_pair_distances, d_crd, boundary,
         d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2, d_CdDelta, d_dbo_s_dr,
         d_dbo_pi_dr, d_dbo_pi2_dr, d_dbo_raw_total_dr, d_CdDelta_prime, d_frc,
         need_virial ? atom_virial : NULL);
@@ -1081,10 +1082,12 @@ void REAXFF_BOND_ORDER::Clear_Derivatives(int atom_numbers, float* d_CdDelta)
     deviceMemset(d_CdDelta_prime, 0, sizeof(float) * atom_numbers);
 }
 
-void REAXFF_BOND_ORDER::Calculate_Bond_Order(
-    int atom_numbers, const VECTOR* d_crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* fnl_d_nl, float cutoff)
+void REAXFF_BOND_ORDER::Calculate_Bond_Order(int atom_numbers,
+                                             const VECTOR* d_crd,
+                                             const Boundary boundary,
+                                             const ATOM_GROUP* fnl_d_nl,
+                                             float cutoff)
 {
-    Calculate_Corrected_Bond_Order(atom_numbers, d_crd, cell, rcell, fnl_d_nl,
+    Calculate_Corrected_Bond_Order(atom_numbers, d_crd, boundary, fnl_d_nl,
                                    cutoff);
 }

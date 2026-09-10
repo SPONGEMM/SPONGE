@@ -135,51 +135,6 @@ def read_h5_scalar_int(h5dump, h5_path, dataset_path):
     return values[0]
 
 
-def read_legacy_qc_type(path):
-    lines = [
-        line.strip()
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip() and not line.lstrip().startswith("#")
-    ]
-    if not lines:
-        fail(f"legacy qc_type file is empty: {path}")
-    header = lines[0].split()
-    if len(header) < 3:
-        fail(
-            f"legacy qc_type header must contain count charge multiplicity: {path}"
-        )
-    try:
-        count = int(header[0])
-        charge = int(header[1])
-        multiplicity = int(header[2])
-    except ValueError as err:
-        fail(f"legacy qc_type header is not integer-valued in {path}: {err}")
-
-    entries = []
-    for line in lines[1:]:
-        fields = line.split()
-        if len(fields) != 2:
-            fail(f"legacy qc_type entry must be '<type_id> <symbol>': {line!r}")
-        try:
-            type_id = int(fields[0])
-        except ValueError as err:
-            fail(f"legacy qc_type type id is not an integer in {path}: {err}")
-        entries.append((type_id, fields[1]))
-
-    if len(entries) != count:
-        fail(
-            f"legacy qc_type entry count mismatch for {path}: "
-            f"header={count} entries={len(entries)}"
-        )
-    return {
-        "count": count,
-        "charge": charge,
-        "multiplicity": multiplicity,
-        "atom_index": [entry[0] for entry in entries],
-        "symbol": [entry[1] for entry in entries],
-    }
-
-
 def read_legacy_counted_float_vector(path):
     lines = [
         line.strip()
@@ -1562,28 +1517,6 @@ def read_legacy_custom_bond(path):
     return {"item_count": item_count, "value": values, "int_value": int_values}
 
 
-def read_h5_qc_type(h5dump, h5_path):
-    return {
-        "count": read_h5_scalar_int(h5dump, h5_path, "/qc/type/count"),
-        "charge": read_h5_scalar_int(h5dump, h5_path, "/qc/type/charge"),
-        "multiplicity": read_h5_scalar_int(
-            h5dump, h5_path, "/qc/type/multiplicity"
-        ),
-        "atom_index": read_h5_ints(h5dump, h5_path, "/qc/type/atom_index"),
-        "symbol": read_h5_strings(h5dump, h5_path, "/qc/type/symbol"),
-    }
-
-
-def compare_qc_type_to_legacy(h5dump, legacy_path, h5_path):
-    expected = read_legacy_qc_type(legacy_path)
-    actual = read_h5_qc_type(h5dump, h5_path)
-    if actual != expected:
-        fail(
-            f"QC type payload mismatch for {h5_path} against {legacy_path}:\n"
-            f"actual={actual}\nexpected={expected}"
-        )
-
-
 def compare_float_vectors(label, actual, expected, tolerance=1.0e-6):
     if len(actual) != len(expected):
         fail(
@@ -2729,13 +2662,6 @@ def compare_group(h5diff, fixture_root, group, required_h5_names):
         compare_h5_files(h5diff, pure_path, sidecar_path)
 
 
-def compare_group_qc_type(h5dump, fixture_root, group):
-    legacy_qc_type = fixture_root / group / "legacy_input" / "qc_type.txt"
-    for family in ("bundled_input", "bundled_input_with_legacy_sidecar"):
-        topology = fixture_root / group / family / "bundle" / "topology.spgt.h5"
-        compare_qc_type_to_legacy(h5dump, legacy_qc_type, topology)
-
-
 def compare_group_mass_charge(h5dump, fixture_root, group):
     legacy_root = fixture_root / group / "legacy_input"
     for family in ("bundled_input", "bundled_input_with_legacy_sidecar"):
@@ -2986,8 +2912,6 @@ def main():
     compare_full_contract_restart_dynamic_typed(h5dump, fixture_root)
     compare_full_contract_core_topology(h5dump, fixture_root)
     compare_full_contract_trajectory(h5dump, fixture_root)
-    compare_group_qc_type(h5dump, fixture_root, "core_structural")
-    compare_group_qc_type(h5dump, fixture_root, "full_contract_rerun")
 
 
 if __name__ == "__main__":

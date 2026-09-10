@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+#include "../utils/float_classification.hpp"
+
 namespace
 {
 template <typename T>
@@ -95,7 +97,7 @@ std::vector<std::string> Read_Tersoff_Type_Names(HighFive::File* file,
 bool Tersoff_Parameters_Agree(float actual, float expected)
 {
     const float scale = std::max(1.0f, std::fabs(expected));
-    return std::isfinite(actual) && std::isfinite(expected) &&
+    return SpongeFloat::Is_Finite(actual) && SpongeFloat::Is_Finite(expected) &&
            std::fabs(actual - expected) <= 2.0e-5f * scale;
 }
 
@@ -237,7 +239,7 @@ bool Read_H5_Tersoff_Input(CONTROLLER* controller, const char* module_name,
             for (std::size_t parameter = 0; parameter < 14; ++parameter)
             {
                 const float value = parameters_raw[14 * row + parameter];
-                if (!std::isfinite(value))
+                if (!SpongeFloat::Is_Finite(value))
                 {
                     throw std::runtime_error(
                         "/manybody/tersoff/entry/parameters_raw contains a "
@@ -388,8 +390,8 @@ static __device__ __forceinline__ float ters_bij_d(float zeta,
 template <bool need_energy, bool need_virial>
 static __global__ void Tersoff_Force_CUDA(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    int* atom_types, float* params, int* map, int ntypes, float* atom_energy,
+    const Boundary boundary, const ATOM_GROUP* nl, int* atom_types,
+    float* params, int* map, int ntypes, float* atom_energy,
     LTMatrix3* atom_virial, float* d_energy_sum)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
@@ -406,7 +408,8 @@ static __global__ void Tersoff_Force_CUDA(
             int j = nl_i.atom_serial[jj];
             int type_j = atom_types[j];
             VECTOR rj = crd[j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij = norm3df(drij.x, drij.y, drij.z);
             int param_idx_ij =
                 map[type_i * ntypes * ntypes + type_j * ntypes + type_j];
@@ -445,7 +448,8 @@ static __global__ void Tersoff_Force_CUDA(
                     map[type_i * ntypes * ntypes + type_j * ntypes + type_k];
                 const float* param_ijk = params + param_idx_ijk * PARAM_STRIDE;
                 VECTOR rk = crd[k];
-                VECTOR drik = Get_Periodic_Displacement(ri, rk, cell, rcell);
+                VECTOR drik = Get_Displacement<BoundaryPolicy::Periodic>(
+                    ri, rk, boundary);
                 float rik = norm3df(drik.x, drik.y, drik.z);
                 if (rik > param_ijk[p_R] + param_ijk[p_D]) continue;
                 float costheta =
@@ -499,7 +503,8 @@ static __global__ void Tersoff_Force_CUDA(
                                         type_j * ntypes + atom_types[k]];
                 const float* param_ijk = params + param_idx_ijk * PARAM_STRIDE;
                 VECTOR rk = crd[k];
-                VECTOR drik = Get_Periodic_Displacement(ri, rk, cell, rcell);
+                VECTOR drik = Get_Displacement<BoundaryPolicy::Periodic>(
+                    ri, rk, boundary);
                 float rik = norm3df(drik.x, drik.y, drik.z);
                 if (rik > param_ijk[p_R] + param_ijk[p_D]) continue;
                 float costheta =
@@ -734,9 +739,8 @@ void TERSOFF_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers,
 
 void TERSOFF_INFORMATION::TERSOFF_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial)
+    const Boundary boundary, const ATOM_GROUP* nl, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
     if (need_atom_energy) deviceMemset(d_energy_sum, 0, sizeof(float));
@@ -758,7 +762,7 @@ void TERSOFF_INFORMATION::TERSOFF_Force_With_Atom_Energy_And_Virial(
     }
 
     Launch_Device_Kernel(force_kernel, gridSize, blockSize, 0, NULL,
-                         atom_numbers, crd, frc, cell, rcell, nl, d_atom_type,
+                         atom_numbers, crd, frc, boundary, nl, d_atom_type,
                          d_params, d_map, atom_type_numbers, atom_energy,
                          atom_virial, d_energy_sum);
 }

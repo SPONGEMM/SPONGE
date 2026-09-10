@@ -314,8 +314,7 @@ void INITIAL_VELOCITY_INFORMATION::Finalize(CONTROLLER* controller,
     }
 
     if (!settle->Project_Velocity_To_Constraint_Manifold(
-            dd->vel, dd->crd, dd->d_mass_inverse, md_info->pbc.cell,
-            md_info->pbc.rcell, false))
+            dd->vel, dd->crd, dd->d_mass_inverse, md_info->pbc.boundary, false))
     {
         controller->Throw_SPONGE_Error(
             spongeErrorSimulationBreakDown, kFinalizeErrorBy,
@@ -323,8 +322,8 @@ void INITIAL_VELOCITY_INFORMATION::Finalize(CONTROLLER* controller,
             "converge\n");
     }
     if (!shake->Project_Velocity_To_Constraint_Manifold(
-            dd->vel, dd->crd, dd->d_mass_inverse, md_info->pbc.cell,
-            md_info->pbc.rcell, dd->atom_numbers, false))
+            dd->vel, dd->crd, dd->d_mass_inverse, md_info->pbc.boundary,
+            dd->atom_numbers, false))
     {
         controller->Throw_SPONGE_Error(
             spongeErrorSimulationBreakDown, kFinalizeErrorBy,

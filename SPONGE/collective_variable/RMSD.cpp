@@ -198,8 +198,7 @@ static __global__ void get_diff_and_rmsd(int atom_numbers, const VECTOR* points,
                                          const VECTOR* rotated_reference,
                                          float* d_value, int* atom,
                                          VECTOR* crd_grads, LTMatrix3* virial,
-                                         const LTMatrix3 cell,
-                                         const LTMatrix3 rcell)
+                                         const Boundary boundary)
 {
 #ifdef USE_GPU
     __shared__ float rmsd[1024];
@@ -371,8 +370,8 @@ void CV_RMSD::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager, int atom_numbers,
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                      const LTMatrix3 rcell, int need, int step)
+void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                      int need, int step)
 {
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need)
@@ -401,14 +400,14 @@ void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
             Launch_Device_Kernel(get_diff_and_rmsd, 1, 1024, 0,
                                  this->device_stream, this->atom_numbers,
                                  this->points, this->rotated_ref, d_value, atom,
-                                 crd_grads, virial, cell, rcell);
+                                 crd_grads, virial, boundary);
         }
         else
         {
             Launch_Device_Kernel(get_diff_and_rmsd, 1, 1024, 0,
                                  this->device_stream, this->atom_numbers,
                                  this->points, this->references, d_value, atom,
-                                 crd_grads, virial, cell, rcell);
+                                 crd_grads, virial, boundary);
         }
         deviceMemcpyAsync(&value, d_value, sizeof(float),
                           deviceMemcpyDeviceToHost, this->device_stream);

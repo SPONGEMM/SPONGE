@@ -22,7 +22,7 @@ bindings.
 - `full_contract_rerun/legacy_input`
   - Broad rerun-mode legacy input generated from XPONGE's full converter
     contract sample. It covers trajectory input and most topology,
-    protocol/restart, custom-force, enhanced-sampling, QC, and force-field
+    protocol/restart, custom-force, enhanced-sampling, and force-field
     sidecar contracts.
 - `full_contract_rerun/bundled_input`
   - Sidecar-stripped copy of the broad rerun-mode bundled case. It keeps typed
@@ -44,3 +44,11 @@ PYTHONPATH=/home/youmans/sidereus/XPONGE \
 Use `core_structural` for the first three-way smoke matrix. Use
 `full_contract_rerun` to extend contract coverage before enabling the complete
 normal/rerun x legacy/bundled-in x legacy/bundled-out x VDS matrix.
+
+Topology identities are canonical SHA-256 hashes of the logical datasets under
+`/atoms/`, `/residues/`, `/forcefield/`, and `/manybody/`; forcefield identities
+cover `/forcefield/` and `/manybody/`. Use the SPONGE v2 dataset encoding
+(path, logical dtype, shape, payload), prefixed by `topology.spgt.h5`. Sidecar
+bindings and identity metadata are excluded so both bundle variants share an
+identity. Propagate identity updates to protocol, restart, trajectory, and mdin
+references together. Atom-order and restart-state identities remain separate.

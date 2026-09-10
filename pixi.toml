@@ -103,6 +103,7 @@ cmake = ">=3.24"
 ninja = "*"
 mkl-devel = "*"
 vs2022_win-64 = "*"
+intel-cmplr-lib-rt = "2026.1.1.*"
 tomlplusplus = "*"
 llvmdev = ">=22.1.0,<23"
 clangdev = "22.1.*"
@@ -157,19 +158,19 @@ gromacs = "*"
 lammps = "*"
 
 [feature.ref-gen.target.linux-64.pypi-dependencies]
-pyscf = ">=2.12.1,<3"
 xponge = "*"
 ase = "*"
 
 [feature.dev.tasks]
 comp-lammps = "python -X utf8 -m pytest benchmarks/comparison/tests/lammps/tests/comp_*.py -s --tb=short"
-comp-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/comp_*.py -s --tb=short"
-perf-pyscf = "python -X utf8 -m pytest benchmarks/comparison/tests/pyscf/tests/perf_*.py -s --tb=short"
 comp-amber = "python -X utf8 -m pytest benchmarks/comparison/tests/amber/tests/comp_*.py -s --tb=short"
 comp-gromacs = "python -X utf8 -m pytest benchmarks/comparison/tests/gromacs/tests/comp_*.py -s --tb=short"
 vali-thermostat = "python -X utf8 -m pytest benchmarks/validation/thermostat/tests -s --tb=short"
 vali-barostat = "python -X utf8 -m pytest benchmarks/validation/barostat/tests -s --tb=short"
 vali-cv = "python -X utf8 -m pytest benchmarks/validation/cv/tests -s --tb=short"
+vali-cv-mpi = "python -X utf8 -m pytest benchmarks/validation/cv/tests/test_mpi.py benchmarks/validation/cv/tests/test_mpi_reaxff.py -s --tb=short --mpi=2"
+vali-nopbc = "python -X utf8 -m pytest benchmarks/validation/nopbc/tests -s --tb=short"
+vali-nopbc-mpi = "python -X utf8 -m pytest benchmarks/validation/nopbc/tests -s --tb=short --mpi=2"
 vali-misc = "python -X utf8 -m pytest benchmarks/validation/misc/tests -s --tb=short"
 perf-nonortho = "python -X utf8 -m pytest benchmarks/performance/nonortho/tests -s --tb=short"
 perf-amber = "python -X utf8 -m pytest benchmarks/performance/amber/tests -s --tb=short"
@@ -214,8 +215,10 @@ configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARAL
 compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
 
 [feature.cpu.target.win-64.tasks]
-configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='{{ parallel }}' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_PREFIX_PATH=\"$CONDA_PREFIX\"", args = [{ arg = "parallel", default = "none" }] }
-compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
+configure = { cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action configure -Parallel '{{ parallel }}'", args = [{ arg = "parallel", default = "none" }] }
+configure-tests = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action configure -BuildTests"
+compile = { cmd = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action compile -Jobs {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
+test = "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/windows-cpu.ps1 -Action test"
 
 [feature.cpu.target.osx-arm64.tasks]
 configure = { cmd = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='{{ parallel }}' -DCMAKE_INSTALL_PREFIX=\"$CONDA_PREFIX\" -DCMAKE_PREFIX_PATH=\"$CONDA_PREFIX\"", args = [{ arg = "parallel", default = "none" }] }
@@ -245,8 +248,6 @@ configure = "cmake -S . -B build-$PIXI_ENVIRONMENT_NAME -G Ninja -DPARALLEL='hip
 compile = { cmd = "cmake --build build-$PIXI_ENVIRONMENT_NAME --config Release --target install --parallel {{ jobs }}", args = [{ arg = "jobs", default = "4" }] }
 
 [feature.ref-gen.target.linux-64.tasks]
-ref-gen-pyscf = "python benchmarks/comparison/reference/pyscf/generate.py"
-ref-check-pyscf = "python benchmarks/comparison/reference/pyscf/generate.py --check"
 ref-gen-amber = "python benchmarks/comparison/reference/amber/generate.py"
 ref-check-amber = "python benchmarks/comparison/reference/amber/generate.py --check"
 ref-gen-gromacs = "python benchmarks/comparison/reference/gromacs/generate.py"

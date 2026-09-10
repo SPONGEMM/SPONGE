@@ -13,9 +13,9 @@
 //   只有力是最基本的计算要求
 
 static __global__ void Bond_Force_With_Atom_Energy_And_Virial_Device(
-    const int bond_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
-    const int* atom_b, const float* bond_k, const float* bond_r0, VECTOR* frc,
+    const int bond_numbers, const VECTOR* crd, Boundary boundary,
+    const int local_atom_numbers, const int* atom_a, const int* atom_b,
+    const float* bond_k, const float* bond_r0, VECTOR* frc,
     int need_atom_energy, float* atom_energy, int need_virial,
     LTMatrix3* atom_virial, float* bond_ene)
 {
@@ -35,8 +35,7 @@ static __global__ void Bond_Force_With_Atom_Energy_And_Virial_Device(
         float r0 = bond_r0[bond_i];
 
         // 获取该对原子的考虑周期性边界的最短位置矢量（dr），和最短距离abs_r
-        VECTOR dr =
-            Get_Periodic_Displacement(crd[atom_i], crd[atom_j], cell, rcell);
+        VECTOR dr = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
         float abs_r = norm3df(dr.x, dr.y, dr.z);
         float tempf2 = abs_r - r0;
         float tempf = 2 * tempf2 * k;
@@ -241,9 +240,8 @@ void BOND::Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
 }
 
 void BOND::Bond_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* frc,
-    int need_atom_energy, float* atom_energy, int need_virial,
-    LTMatrix3* atom_virial)
+    const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+    float* atom_energy, int need_virial, LTMatrix3* atom_virial)
 {
     if (is_initialized)
     {
@@ -252,7 +250,7 @@ void BOND::Bond_Force_With_Atom_Energy_And_Virial(
             (bond_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, this->num_bond_local, crd,
-            cell, rcell, this->local_atom_numbers, this->d_atom_a_local,
+            boundary, this->local_atom_numbers, this->d_atom_a_local,
             this->d_atom_b_local, this->d_k_local, this->d_r0_local, frc,
             need_atom_energy, atom_energy, need_virial, atom_virial,
             this->d_bond_ene);

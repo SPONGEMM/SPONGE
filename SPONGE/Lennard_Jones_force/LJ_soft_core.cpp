@@ -197,7 +197,7 @@ template <bool need_force, bool need_energy, bool need_virial,
           bool need_coulomb, bool need_du_dlambda>
 static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
     const int atom_numbers, const int solvent_numbers, const ATOM_GROUP* nl,
-    const VECTOR_LJ_SOFT_TYPE* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
+    const VECTOR_LJ_SOFT_TYPE* crd, const Boundary boundary,
     const float* LJ_type_AA, const float* LJ_type_AB, const float* LJ_type_BA,
     const float* LJ_type_BB, const float cutoff, VECTOR* frc,
     const float pme_beta, float* atom_energy, LTMatrix3* atom_virial,
@@ -237,7 +237,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ_SOFT_TYPE r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -756,10 +757,10 @@ void LJ_SOFT_CORE::Parameter_Host_To_Device()
 void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-    const float* charge, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_lj_virial, float* atom_direct_pme_energy)
+    const float* charge, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_lj_virial,
+    float* atom_direct_pme_energy)
 {
     if (is_initialized)
     {
@@ -815,7 +816,7 @@ void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary,
             d_LJ_AA, d_LJ_AB, d_LJ_BA, d_LJ_BB, cutoff, frc, pme_beta,
             atom_energy, atom_lj_virial, atom_direct_pme_energy, NULL, NULL,
             lambda, alpha, p, sigma_6, sigma_6_min, d_LJ_energy_atom,
@@ -824,9 +825,9 @@ void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
 }
 
 float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
-    const int solvent_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* charge, const ATOM_GROUP* nl,
-    const float* charge_B_A, const float pme_beta, const int charge_perturbated)
+    const int solvent_numbers, const VECTOR* crd, const Boundary boundary,
+    const float* charge, const ATOM_GROUP* nl, const float* charge_B_A,
+    const float pme_beta, const int charge_perturbated)
 {
     if (is_initialized)
     {
@@ -861,7 +862,7 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary,
             d_LJ_AA, d_LJ_AB, d_LJ_BA, d_LJ_BB, cutoff, NULL, pme_beta, NULL,
             NULL, NULL, d_sigma_of_dH_dlambda_lj, d_sigma_of_dH_dlambda_direct,
             lambda, alpha, p, sigma_6, sigma_6_min, NULL, NULL, NULL);
@@ -877,7 +878,8 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
                       MPI_SUM, CONTROLLER::pp_comm);
 #endif
         return *h_sigma_of_dH_dlambda_lj +
-               long_range_factor_TI / cell.a11 / cell.a22 / cell.a33;
+               long_range_factor_TI / boundary.cell.a11 / boundary.cell.a22 /
+                   boundary.cell.a33;
     }
     else
     {

@@ -31,9 +31,9 @@ __device__ __forceinline__ SADfloat<N> reax_bond_energy_sad(SADfloat<N> BO_s,
 
 static __global__ void REAXFF_Bond_Force_CUDA(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    int* atom_types, float* params, int ntypes, float* bo_s, float* bo_pi,
-    float* bo_pi2, float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2,
+    const Boundary boundary, const ATOM_GROUP* nl, int* atom_types,
+    float* params, int ntypes, float* bo_s, float* bo_pi, float* bo_pi2,
+    float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2,
     float* atom_energy, LTMatrix3* atom_virial, float* d_energy_sum,
     const int* bond_count, const int* bond_offset, const int* bond_nbr,
     const int* bond_idx_arr)
@@ -308,9 +308,8 @@ void REAXFF_BOND::Initial(CONTROLLER* controller, int atom_numbers,
 
 void REAXFF_BOND::REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial)
+    const Boundary boundary, const ATOM_GROUP* nl, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
 
@@ -325,7 +324,7 @@ void REAXFF_BOND::REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
     dim3 gridSize((atom_numbers + blockSize.x - 1) / blockSize.x);
 
     Launch_Device_Kernel(REAXFF_Bond_Force_CUDA, gridSize, blockSize, 0, NULL,
-                         atom_numbers, crd, frc, cell, rcell, nl, d_atom_type,
+                         atom_numbers, crd, frc, boundary, nl, d_atom_type,
                          d_twobody_params, atom_type_numbers, d_bo_s, d_bo_pi,
                          d_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
                          atom_energy, atom_virial, d_energy_sum, d_bond_count,

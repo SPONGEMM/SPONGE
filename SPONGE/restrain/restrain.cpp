@@ -198,9 +198,9 @@ void RESTRAIN_INFORMATION::Update_Group_COM(
 static __global__ void restrain_force_with_atom_energy_and_virial(
     const int restrain_numbers, const int* restrain_list, const VECTOR* crd,
     const VECTOR* crd_ref, const int if_single_weight,
-    const float single_weight, const VECTOR* weight_list, const LTMatrix3 cell,
-    const LTMatrix3 rcell, int need_atom_energy, float* atom_energy,
-    int need_virial, LTMatrix3* atom_virial, VECTOR* frc, float* res_ene,
+    const float single_weight, const VECTOR* weight_list, Boundary boundary,
+    int need_atom_energy, float* atom_energy, int need_virial,
+    LTMatrix3* atom_virial, VECTOR* frc, float* res_ene,
     const int refcoord_scaling, const int* atom_local, const int* atom_to_group,
     const VECTOR* group_com)
 {
@@ -214,7 +214,7 @@ static __global__ void restrain_force_with_atom_energy_and_virial(
     {
         int atom_i = restrain_list[i];
         VECTOR r_i = crd[atom_i];
-        VECTOR dr = Get_Periodic_Displacement(crd_ref[i], r_i, cell, rcell);
+        VECTOR dr = Get_Displacement(crd_ref[i], r_i, boundary);
         VECTOR temp_force;
         if (if_single_weight)
         {
@@ -246,8 +246,7 @@ static __global__ void restrain_force_with_atom_energy_and_virial(
                 int atom_global = atom_local[atom_i];
                 int group = atom_to_group[atom_global];
                 VECTOR com = group_com[group];
-                VECTOR dr_com =
-                    Get_Periodic_Displacement(com, r_i, cell, rcell);
+                VECTOR dr_com = Get_Displacement(com, r_i, boundary);
                 atom_virial[atom_i] =
                     atom_virial[atom_i] -
                     Get_Virial_From_Force_Dis(temp_force, dr_com);
@@ -1062,11 +1061,10 @@ void RESTRAIN_INFORMATION::Get_Local(int* atom_local, int local_atom_numbers,
                  sizeof(int), deviceMemcpyDeviceToHost);
 }
 
-void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, const LTMatrix3 cell,
-                                     const LTMatrix3 rcell, int need_potential,
-                                     float* atom_energy, int need_pressure,
-                                     LTMatrix3* atom_virial, VECTOR* frc,
-                                     MD_INFORMATION* md_info,
+void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
+                                     int need_potential, float* atom_energy,
+                                     int need_pressure, LTMatrix3* atom_virial,
+                                     VECTOR* frc, MD_INFORMATION* md_info,
                                      DOMAIN_INFORMATION* dd)
 {
     if (is_initialized)
@@ -1163,7 +1161,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, const LTMatrix3 cell,
             CONTROLLER::device_max_thread, 0, NULL, local_restrain_numbers,
             this->d_local_restrain_list, crd, this->local_crd_ref,
             this->if_single_weight, this->single_weight, this->local_weights,
-            cell, rcell, need_potential, atom_energy, need_virial, atom_virial,
+            boundary, need_potential, atom_energy, need_virial, atom_virial,
             frc, this->d_restrain_ene, effective_scaling, atom_local,
             atom_to_group, group_com);
     }

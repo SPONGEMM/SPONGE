@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <limits>
 
+#include "../utils/float_classification.hpp"
 #include "../utils/h5md/topology_custom_force_h5_materializer.hpp"
 
 static constexpr int LISTED_FORCE_MAX_ATOMS = 6;
@@ -317,18 +318,17 @@ void LISTED_FORCES::Initial(CONTROLLER* controller, CONECT* connectivity,
     }
 }
 
-void LISTED_FORCES::Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                                  LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                                  float* atom_energy, int need_pressure,
-                                  LTMatrix3* atom_virial)
+void LISTED_FORCES::Compute_Force(int atom_numbers, VECTOR* crd,
+                                  Boundary boundary, VECTOR* frc,
+                                  int need_energy, float* atom_energy,
+                                  int need_pressure, LTMatrix3* atom_virial)
 {
     if (is_initialized)
     {
         for (auto force : forces)
         {
-            force->Compute_Force(atom_numbers, crd, cell, rcell, frc,
-                                 need_energy, atom_energy, need_pressure,
-                                 atom_virial);
+            force->Compute_Force(atom_numbers, crd, boundary, frc, need_energy,
+                                 atom_energy, need_pressure, atom_virial);
         }
     }
 }
@@ -548,7 +548,7 @@ __forceinline__ int atomicAdd(int* x, int y)
 }
 #endif
 extern "C" __global__ __launch_bounds__(1024) void listed_force_energy_and_virial(%PARM_ARGS%,
-VECTOR* crd, VECTOR box_length, VECTOR *frc, float *atom_ene, LTMatrix3 *atom_virial, float *listed_item_energy, const int local_atom_numbers, int need_atom_energy, int need_virial, int only_energy, int listed_force_item_numbers)
+VECTOR* crd, Boundary boundary, VECTOR *frc, float *atom_ene, LTMatrix3 *atom_virial, float *listed_item_energy, const int local_atom_numbers, int need_atom_energy, int need_virial, int only_energy, int listed_force_item_numbers)
 {
 #ifdef USE_GPU
     int tid = blockDim.x * blockIdx.x + threadIdx.x;
@@ -590,8 +590,10 @@ VECTOR* crd, VECTOR box_length, VECTOR *frc, float *atom_ene, LTMatrix3 *atom_vi
                                         {parameter_type, parameter_name});
     std::string PARM_DEC = string_join("const %0% %1% = %1%_list[tid];", endl,
                                        {parameter_type, parameter_name});
-    std::string CRD_DEC =
-        sadv + " box_length_with_grads(box_length, 0, 1, 2);" + endl;
+    std::string CRD_DEC = sadv +
+                          " box_length_with_grads(VECTOR{boundary.cell.a11, "
+                          "boundary.cell.a22, boundary.cell.a33}, 0, 1, 2);" +
+                          endl;
     CRD_DEC +=
         string_join(string_format("%sadv% r_%0%(crd[atom_%0%], 3 * %INDEX% + "
                                   "3, 3 * %INDEX% + 4, 3 * %INDEX% + 5);",
@@ -599,7 +601,7 @@ VECTOR* crd, VECTOR box_length, VECTOR *frc, float *atom_ene, LTMatrix3 *atom_vi
                     endl, {atom_labels});
     std::string BOND_DEC = string_join(
         string_format(
-            R"JIT(%sadv% dr_%0%%1% = Get_Periodic_Displacement(r_%0%, r_%1%, box_length_with_grads);
+            R"JIT(%sadv% dr_%0%%1% = Get_Displacement(r_%0%, r_%1%, box_length_with_grads, boundary);
         %sadf% r_%0%%1% = sqrtf(dr_%0%%1% * dr_%0%%1%);)JIT",
             {{"sadv", sadv}, {"sadf", sadf}}),
         endl, needed_bonds);
@@ -766,7 +768,7 @@ void LISTED_FORCE::Initial(CONTROLLER* controller, CONECT* connectivity,
                     native_parameter_values[static_cast<std::size_t>(i) *
                                                 parameter_name.size() +
                                             j];
-                if (!std::isfinite(value)) scanf_ret = 0;
+                if (!SpongeFloat::Is_Finite(value)) scanf_ret = 0;
                 if (parameter_type[j] == "int")
                 {
                     if (std::trunc(value) != value ||
@@ -928,10 +930,10 @@ void LISTED_FORCE::Step_Print(CONTROLLER* controller)
     controller->Step_Print(this->module_name, &h_energy, true);
 }
 
-void LISTED_FORCE::Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                                 LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                                 float* atom_energy, int need_pressure,
-                                 LTMatrix3* atom_virial)
+void LISTED_FORCE::Compute_Force(int atom_numbers, VECTOR* crd,
+                                 Boundary boundary, VECTOR* frc,
+                                 int need_energy, float* atom_energy,
+                                 int need_pressure, LTMatrix3* atom_virial)
 {
     last_atom_numbers = atom_numbers;
     int interaction_numbers =
@@ -941,8 +943,6 @@ void LISTED_FORCE::Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
         last_energy = 0.0f;
         return;
     }
-    VECTOR box_length = {cell.a11, cell.a22, cell.a33};
-    (void)rcell;
     void** parameter_ptr_array =
         use_domain_decomposition ? gpu_parameters_local : gpu_parameters;
     for (int j = 0; j < parameter_name.size(); j++)
@@ -961,7 +961,7 @@ void LISTED_FORCE::Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
                      sizeof(float) * interaction_numbers);
     }
     launch_args[parameter_name.size()] = &crd;
-    launch_args[parameter_name.size() + 1] = &box_length;
+    launch_args[parameter_name.size() + 1] = (void*)&boundary;
     launch_args[parameter_name.size() + 2] = &frc;
     launch_args[parameter_name.size() + 3] = &atom_energy;
     launch_args[parameter_name.size() + 4] = &atom_virial;
@@ -985,7 +985,7 @@ void LISTED_FORCE::Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
     }
 }
 
-float LISTED_FORCE::Get_Energy(VECTOR* crd, VECTOR box_length)
+float LISTED_FORCE::Get_Energy(VECTOR* crd, Boundary boundary)
 {
     int interaction_numbers =
         use_domain_decomposition ? local_item_numbers : item_numbers;
@@ -1005,7 +1005,7 @@ float LISTED_FORCE::Get_Energy(VECTOR* crd, VECTOR box_length)
     int local_atom_bound =
         use_domain_decomposition ? local_atom_numbers : last_atom_numbers;
     launch_args[parameter_name.size()] = &crd;
-    launch_args[parameter_name.size() + 1] = &box_length;
+    launch_args[parameter_name.size() + 1] = (void*)&boundary;
     launch_args[parameter_name.size() + 2] = &NULL_VECTOR;
     launch_args[parameter_name.size() + 3] = &item_energy;
     launch_args[parameter_name.size() + 4] = &NULL_TENSOR;

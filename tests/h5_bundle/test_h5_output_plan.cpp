@@ -367,7 +367,6 @@ static void Test_Restart_And_Observable_Paths()
     controller.Set(SpongeH5OutputContract::kRestartPathKey, "prod.spgr.h5");
     controller.Set(SpongeH5OutputContract::kObservablePathKey,
                    "prod.obs.spg.h5md");
-    controller.Set("qc_scf_output", "qc.log");
 
     auto plan = SpongeH5OutputPlan::Resolve_Output_Plan(&controller, false);
 
@@ -378,8 +377,6 @@ static void Test_Restart_And_Observable_Paths()
     REQUIRE_TRUE(plan.observable.enabled);
     REQUIRE_TRUE(plan.observable.has_recommended_suffix);
     REQUIRE_TRUE(!plan.legacy.default_enabled);
-    REQUIRE_TRUE(plan.legacy.Enabled("qc_scf_output"));
-    REQUIRE_TRUE(plan.legacy.Explicitly_Requested("qc_scf_output"));
 }
 
 static void Test_Invalid_Values()
@@ -547,7 +544,7 @@ static void Test_Contract_Helper_Edge_Cases()
 static void Test_Legacy_Output_Plan_All_Keys()
 {
     static constexpr const char* legacy_keys[] = {
-        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst", "qc_scf_output"};
+        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst"};
 
     {
         CONTROLLER controller;
@@ -575,7 +572,7 @@ static void Test_Legacy_Output_Plan_All_Keys()
         REQUIRE_TRUE(!plan.legacy.Enabled("mdout"));
         REQUIRE_TRUE(plan.legacy.Enabled("vel"));
         REQUIRE_TRUE(plan.legacy.Explicitly_Requested("vel"));
-        REQUIRE_EQ(plan.legacy.sidecars.size(), static_cast<std::size_t>(8));
+        REQUIRE_EQ(plan.legacy.sidecars.size(), static_cast<std::size_t>(7));
         bool found_vel = false;
         for (const auto& sidecar : plan.legacy.sidecars)
         {
@@ -592,15 +589,15 @@ static void Test_Legacy_Output_Plan_All_Keys()
 static void Test_Resolve_Legacy_Output_Plan_Matrix()
 {
     static constexpr const char* legacy_keys[] = {
-        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst", "qc_scf_output"};
+        "mdout", "mdinfo", "crd", "box", "vel", "frc", "rst"};
     static constexpr const char* legacy_paths[] = {
         "legacy.mdout", "legacy.mdinfo", "legacy.crd", "legacy.box",
-        "legacy.vel",   "legacy.frc",    "legacy.rst", "legacy.qc.log"};
+        "legacy.vel",   "legacy.frc",    "legacy.rst"};
 
     {
         auto legacy = SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(nullptr);
         REQUIRE_TRUE(legacy.default_enabled);
-        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(8));
+        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(7));
         for (const char* key : legacy_keys)
         {
             REQUIRE_TRUE(legacy.Enabled(key));
@@ -617,7 +614,7 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
         auto legacy =
             SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(&controller);
         REQUIRE_TRUE(legacy.default_enabled);
-        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(8));
+        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(7));
         for (const char* key : legacy_keys)
         {
             REQUIRE_TRUE(legacy.Enabled(key));
@@ -636,7 +633,7 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
         auto legacy =
             SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(&controller);
         REQUIRE_TRUE(!legacy.default_enabled);
-        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(8));
+        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(7));
         for (const char* key : legacy_keys)
         {
             REQUIRE_TRUE(!legacy.Enabled(key));
@@ -652,7 +649,8 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
         CONTROLLER controller;
         controller.Set(SpongeH5OutputContract::kObservablePathKey,
                        "analysis.obs.spg.h5md");
-        for (std::size_t i = 0; i < 8; ++i)
+        for (std::size_t i = 0;
+             i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
         {
             controller.Set(legacy_keys[i], legacy_paths[i]);
         }
@@ -660,8 +658,9 @@ static void Test_Resolve_Legacy_Output_Plan_Matrix()
         auto legacy =
             SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(&controller);
         REQUIRE_TRUE(!legacy.default_enabled);
-        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(8));
-        for (std::size_t i = 0; i < 8; ++i)
+        REQUIRE_EQ(legacy.sidecars.size(), static_cast<std::size_t>(7));
+        for (std::size_t i = 0;
+             i < sizeof(legacy_keys) / sizeof(legacy_keys[0]); ++i)
         {
             REQUIRE_TRUE(legacy.Enabled(legacy_keys[i]));
             REQUIRE_TRUE(legacy.Explicitly_Requested(legacy_keys[i]));
@@ -697,7 +696,6 @@ static void Test_Explicit_Legacy_Sidecar_Collection()
                        "prod.spg.h5md");
         controller.Set("rst", "legacy.rst");
         controller.Set("mdout", "legacy.mdout");
-        controller.Set("qc_scf_output", "legacy.qc.log");
 
         auto legacy =
             SpongeH5OutputPlan::Resolve_Legacy_Output_Plan(&controller);
@@ -707,14 +705,12 @@ static void Test_Explicit_Legacy_Sidecar_Collection()
         SpongeH5OutputPlan::Collect_Explicit_Legacy_Sidecars(legacy, &keys,
                                                              &paths);
 
-        REQUIRE_EQ(keys.size(), static_cast<std::size_t>(3));
-        REQUIRE_EQ(paths.size(), static_cast<std::size_t>(3));
+        REQUIRE_EQ(keys.size(), static_cast<std::size_t>(2));
+        REQUIRE_EQ(paths.size(), static_cast<std::size_t>(2));
         REQUIRE_EQ(keys[0], std::string("mdout"));
         REQUIRE_EQ(paths[0], std::string("legacy.mdout"));
         REQUIRE_EQ(keys[1], std::string("rst"));
         REQUIRE_EQ(paths[1], std::string("legacy.rst"));
-        REQUIRE_EQ(keys[2], std::string("qc_scf_output"));
-        REQUIRE_EQ(paths[2], std::string("legacy.qc.log"));
     }
 
     {
