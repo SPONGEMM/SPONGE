@@ -60,6 +60,24 @@ Temperature and pressure also support schedules through the top-level keys
 `target_temperature_schedule_*` and `target_pressure_schedule_*`. See
 [Thermostat](thermostat.md) and [Barostat](barostat.md).
 
+## Initial Velocities
+
+SPONGE preserves the velocities supplied by the selected input loader unless
+initialization is requested explicitly:
+
+```toml
+[initial_velocity]
+mode = "maxwell"
+seed = 202607220001
+```
+
+`mode = "maxwell"` samples velocities at the step-zero target temperature,
+removes center-of-mass motion, projects constrained systems onto the
+SHAKE/SETTLE velocity manifold without moving their coordinates, and rescales
+using the final system degrees of freedom. `seed` is required and must be an
+integer in `0..INT64_MAX`; it is independent of thermostat seeds. This mode is
+available for dynamical simulations, not minimization or rerun.
+
 ## Working Directory
 
 | Parameter | Type | Default | Description |
