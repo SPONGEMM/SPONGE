@@ -36,9 +36,9 @@ VIProductVersion "${PRODUCT_VERSION}"
 VIAddVersionKey "FileVersion"     "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductName"     "${PRODUCT_NAME}"
 VIAddVersionKey "ProductVersion"  "${DISPLAY_VERSION}"
-VIAddVersionKey "CompanyName"     "SPONGE Development Team"
+VIAddVersionKey "CompanyName"     "Beijing Sidereus Intelligent Computing Technology Co., Ltd."
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} Installer"
-VIAddVersionKey "LegalCopyright"  "Copyright (c) 2022-2026 SPONGE Development Team"
+VIAddVersionKey "LegalCopyright"  "Copyright (c) 2022-2026 Sidereus-AI and contributors"
 
 ; ---------- Multi-language ----------
 !define MUI_LANGDLL_ALLLANGUAGES
@@ -98,7 +98,7 @@ Section "$(SEC_MAIN_NAME)" SecMain
   WriteRegStr HKLM "${UNINSTALL_KEY}" \
     "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr HKLM "${UNINSTALL_KEY}" \
-    "Publisher" "SPONGE Development Team"
+    "Publisher" "Beijing Sidereus Intelligent Computing Technology Co., Ltd."
   WriteRegStr HKLM "${UNINSTALL_KEY}" \
     "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegDWORD HKLM "${UNINSTALL_KEY}" \

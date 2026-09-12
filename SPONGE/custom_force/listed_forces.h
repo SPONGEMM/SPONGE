@@ -1,5 +1,6 @@
 ﻿/*
- * Copyright 2021-2023 Gao's lab, Peking University, CCME. All rights reserved.
+ * Copyright (c) 2022-2026 Beijing Sidereus Intelligent Computing Technology
+ * Co., Ltd. and contributors. All rights reserved.
  *
  * This file is part of SPONGE and is licensed under the SPONGE Licensing
  * Agreement in the repository root. The English text in LICENSE controls.
