@@ -20,7 +20,8 @@ Official website: https://spongemm.cn
 
 When you need to understand or work with SPONGE:
 
-- If you are a human user, read the development and usage documents in the `docs` folder.
+- If you are a human user, start with the [Getting Started guide](docs/getting-started.md)
+  and the [Input File Reference](docs/input-reference/README.md).
 - If you are an AI assistant:
   - For using SPONGE, install this project's `skills` into your global skills directory, for example `~/.claude/skills` or `~/.agents/skills`.
   - For developing SPONGE, link your project-level skills directory to this project's `skills`, for example `.claude/skills` or `.agents/skills`.

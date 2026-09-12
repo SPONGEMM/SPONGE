@@ -11,6 +11,7 @@
 
 ; ---------- Build-time defines (set by installer.ps1) ----------
 ; !define PRODUCT_VERSION "2.0.0.0"
+; !define DISPLAY_VERSION "2.0.0"
 ; !define VARIANT         "CPU"
 ; !define STAGE_DIR       "release-artifacts\nsis\stage"
 ; !define OUTPUT_PATH     "release-artifacts\nsis\SPONGE-CPU-v2.0.0-installer.exe"
@@ -23,7 +24,7 @@
 !define UNINSTALL_KEY   "Software\Microsoft\Windows\CurrentVersion\Uninstall\SPONGE-${VARIANT}"
 
 ; ---------- Installer attributes ----------
-Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
+Name "${PRODUCT_NAME} ${DISPLAY_VERSION}"
 OutFile "${OUTPUT_PATH}"
 InstallDir "$PROGRAMFILES64\${INSTALL_DIR}"
 InstallDirRegKey HKLM "${REG_KEY}" "InstallDir"
@@ -34,7 +35,7 @@ Unicode true
 VIProductVersion "${PRODUCT_VERSION}"
 VIAddVersionKey "FileVersion"     "${PRODUCT_VERSION}"
 VIAddVersionKey "ProductName"     "${PRODUCT_NAME}"
-VIAddVersionKey "ProductVersion"  "${PRODUCT_VERSION}"
+VIAddVersionKey "ProductVersion"  "${DISPLAY_VERSION}"
 VIAddVersionKey "CompanyName"     "SPONGE Development Team"
 VIAddVersionKey "FileDescription" "${PRODUCT_NAME} Installer"
 VIAddVersionKey "LegalCopyright"  "Copyright (c) 2022-2026 SPONGE Development Team"
@@ -99,7 +100,7 @@ Section "$(SEC_MAIN_NAME)" SecMain
   WriteRegStr HKLM "${UNINSTALL_KEY}" \
     "Publisher" "SPONGE Development Team"
   WriteRegStr HKLM "${UNINSTALL_KEY}" \
-    "DisplayVersion" "${PRODUCT_VERSION}"
+    "DisplayVersion" "${DISPLAY_VERSION}"
   WriteRegDWORD HKLM "${UNINSTALL_KEY}" \
     "NoModify" 1
   WriteRegDWORD HKLM "${UNINSTALL_KEY}" \

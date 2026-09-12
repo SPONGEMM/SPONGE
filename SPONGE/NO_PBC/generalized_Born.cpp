@@ -285,7 +285,6 @@ void GENERALIZED_BORN_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
     else
     {
         controller->printf("    Error: GB need radii and scaled factor");
-        getchar();
         exit(1);
     }
 
