@@ -142,7 +142,7 @@ def test_type0_virtual_atom_reflects_force_and_clears_target(
     output_coordinates, forces = _run(case_dir, len(coordinates), mpi_np)
 
     np.testing.assert_allclose(
-        output_coordinates[1], (100.0, 100.0, 5.0), atol=2.0e-5
+        output_coordinates[1], (100.0, 100.0, 1.0), atol=2.0e-5
     )
     np.testing.assert_allclose(forces[1], 0.0, atol=1.0e-7)
     virtual_force = -forces[2]

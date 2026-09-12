@@ -18,8 +18,7 @@ static __global__ void v0_Coordinate_Refresh(const int virtual_numbers,
         VIRTUAL_TYPE_0 v_temp = v_info[i];
         int atom_v = v_temp.virtual_atom;
         int atom_1 = v_temp.from_1;
-        crd[atom_v] =
-            Virtual_Atom_Type_0_Position(crd[atom_1], v_temp.h_double);
+        crd[atom_v] = Virtual_Atom_Type_0_Position(crd[atom_1], v_temp.h);
     }
 }
 
@@ -592,7 +591,7 @@ void VIRTUAL_INFORMATION::Initial(CONTROLLER* controller,
                         temp_vl->v0_info.h_virtual_type_0[count0[this_level]]
                             .from_1 = record.from[0];
                         temp_vl->v0_info.h_virtual_type_0[count0[this_level]]
-                            .h_double = 2 * record.parameter[0];
+                            .h = record.parameter[0];
                         count0[this_level]++;
                         break;
 
