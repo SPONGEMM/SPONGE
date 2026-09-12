@@ -94,11 +94,13 @@ dt = 0.002
 cutoff = 8.0
 default_in_file_prefix = "WAT"
 constrain_mode = "SHAKE"
-thermostat = "middle_langevin"
-thermostat_tau = 0.1
-thermostat_seed = 2026
 target_temperature = 300.0
 write_information_interval = 1000
+
+[thermostat]
+mode = "middle_langevin"
+tau = 0.1
+seed = 2026
 ```
 
 Use the command that matches how SPONGE was installed.

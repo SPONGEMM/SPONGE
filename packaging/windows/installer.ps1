@@ -13,11 +13,15 @@ $PSNativeCommandUseErrorActionPreference = $true
 function Get-ProductVersion {
     param([string]$TagName)
 
+    if (-not $TagName) {
+        return "0.0.0.0"
+    }
+
     if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)$') {
         return "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
     }
 
-    if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)(alpha|beta|rc)(\d+)$') {
+    if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)-(alpha|beta|rc)\.(\d+)$') {
         $major = [int]$Matches[1]
         $minor = [int]$Matches[2]
         $patch = [int]$Matches[3]
@@ -34,7 +38,7 @@ function Get-ProductVersion {
         return "$major.$minor.$patch.$($offset + $number)"
     }
 
-    return "2.0.0.0"
+    throw "Unsupported release tag: $TagName"
 }
 
 $repoRoot = Resolve-Path "."
@@ -77,6 +81,7 @@ foreach ($dllDir in @($exeDir, $runtimeBinDir)) {
 # Resolve paths
 $tagLabel = if ($Tag) { $Tag } else { "dev" }
 $productVersion = Get-ProductVersion $Tag
+$displayVersion = if ($Tag) { $Tag.Substring(1) } else { "dev" }
 $variantUpper = $Variant.ToUpper()
 $outputPath = Join-Path (Resolve-Path $OutputDir) "SPONGE-$variantUpper-$tagLabel-installer.exe"
 $nsiFullPath = Join-Path $repoRoot $NsiPath
@@ -102,6 +107,7 @@ $utf8Bom = New-Object System.Text.UTF8Encoding $true
 # Build installer
 & $makensis `
     /DPRODUCT_VERSION="$productVersion" `
+    /DDISPLAY_VERSION="$displayVersion" `
     /DVARIANT="$variantUpper" `
     /DSTAGE_DIR="$stageFullPath" `
     /DOUTPUT_PATH="$outputPath" `

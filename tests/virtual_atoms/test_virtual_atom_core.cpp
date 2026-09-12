@@ -140,7 +140,7 @@ bool Check_Math()
     const Boundary periodic = Boundary{BoundaryPolicy::Periodic, cell, rcell};
     const VECTOR force_v(1.2f, -0.7f, 0.4f);
 
-    ok &= Check_Vector("type 0 compatibility position",
+    ok &= Check_Vector("type 0 reflection position",
                        Virtual_Atom_Type_0_Position({1.0f, 2.0f, 3.0f}, 4.0f),
                        {1.0f, 2.0f, 5.0f});
     ok &= Check_Vector("type 0 source force",

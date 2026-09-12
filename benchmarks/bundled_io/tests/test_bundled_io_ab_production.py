@@ -19594,11 +19594,10 @@ def _canonicalize_virtual_atom_positions(
         for record in records_by_level[level]:
             source = [coordinates[index] for index in record.source_atoms]
             if record.kind == 0:
-                h_double = 2.0 * record.parameters[0]
                 coordinates[record.atom] = [
                     source[0][0],
                     source[0][1],
-                    2.0 * h_double - source[0][2],
+                    2.0 * record.parameters[0] - source[0][2],
                 ]
             elif record.kind == 1:
                 delta = _lower_triangular_periodic_displacement(
