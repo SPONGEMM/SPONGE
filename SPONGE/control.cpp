@@ -1,7 +1,6 @@
 ﻿#include "control.h"
 
-#define SPONGE_CODENAME "2026-04-01 April Fools' Day"
-#define SPONGE_VERSION "v" SPONGE_VERSION_STR " " SPONGE_CODENAME
+#define SPONGE_VERSION "v" SPONGE_VERSION_STR
 
 static const char* SPONGE_ASCII_ART = R"( ____  ____   ___  _   _  ____ _____
 / ___||  _ \ / _ \| \ | |/ ___| ____|
