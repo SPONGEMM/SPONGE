@@ -13,9 +13,9 @@ __device__ __forceinline__ void Virtual_Atom_Add_Source_Force(
 }
 
 __host__ __device__ __forceinline__ VECTOR
-Virtual_Atom_Type_0_Position(VECTOR source, float h_double)
+Virtual_Atom_Type_0_Position(VECTOR source, float h)
 {
-    source.z = 2.0f * h_double - source.z;
+    source.z = 2.0f * h - source.z;
     return source;
 }
 
