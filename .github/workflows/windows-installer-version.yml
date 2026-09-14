@@ -1,0 +1,28 @@
+name: Windows installer version
+
+on:
+  pull_request:
+    paths:
+      - packaging/windows/**
+      - .github/workflows/windows-installer-version.yml
+  push:
+    branches: [master]
+    paths:
+      - packaging/windows/**
+      - .github/workflows/windows-installer-version.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress -y
+      - name: Check version ordering and installer metadata
+        shell: pwsh
+        run: ./packaging/windows/test-version.ps1 -BuildInstaller

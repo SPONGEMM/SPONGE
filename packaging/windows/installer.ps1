@@ -17,30 +17,41 @@ function Get-ProductVersion {
         return "0.0.0.0"
     }
 
-    if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)$') {
-        return "$($Matches[1]).$($Matches[2]).$($Matches[3]).0"
+    if ($TagName -cnotmatch '\Av(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(alpha|beta|rc)\.(0|[1-9][0-9]*))?\z') {
+        throw "Unsupported release tag: $TagName"
     }
 
-    if ($TagName -match '^v(\d+)\.(\d+)\.(\d+)-(alpha|beta|rc)\.(\d+)$') {
-        $major = [int]$Matches[1]
-        $minor = [int]$Matches[2]
-        $patch = [int]$Matches[3]
+    $parts = foreach ($index in 1..3) {
+        $value = 0
+        if (-not [int]::TryParse($Matches[$index], [ref]$value) -or $value -gt 65535) {
+            throw "Release version components must be in 0..65535: $TagName"
+        }
+        $value
+    }
+
+    # Disjoint prerelease ranges preserve alpha < beta < rc < stable.
+    # The revision is a 16-bit value; reserve its maximum for stable releases.
+    $revision = 65535
+    if ($Matches[4]) {
         $channel = $Matches[4]
-        $number = [int]$Matches[5]
+        $number = 0
+        if (-not [int]::TryParse($Matches[5], [ref]$number) -or $number -gt 19999) {
+            throw "Prerelease number must be in 0..19999: $TagName"
+        }
 
         $offset = switch ($channel) {
             "alpha" { 0 }
-            "beta" { 20 }
-            "rc" { 40 }
-            default { 0 }
+            "beta" { 20000 }
+            "rc" { 40000 }
         }
-
-        return "$major.$minor.$patch.$($offset + $number)"
+        $revision = $offset + $number
     }
 
-    throw "Unsupported release tag: $TagName"
+    return "$($parts -join '.').$revision"
 }
 
+# Validate before staging files or creating output directories.
+$productVersion = Get-ProductVersion $Tag
 $repoRoot = Resolve-Path "."
 $envPrefix = Join-Path $repoRoot ".pixi\envs\$EnvName"
 $exeDir = Join-Path $envPrefix "bin"
@@ -80,7 +91,6 @@ foreach ($dllDir in @($exeDir, $runtimeBinDir)) {
 
 # Resolve paths
 $tagLabel = if ($Tag) { $Tag } else { "dev" }
-$productVersion = Get-ProductVersion $Tag
 $displayVersion = if ($Tag) { $Tag.Substring(1) } else { "dev" }
 $variantUpper = $Variant.ToUpper()
 $outputPath = Join-Path (Resolve-Path $OutputDir) "SPONGE-$variantUpper-$tagLabel-installer.exe"
