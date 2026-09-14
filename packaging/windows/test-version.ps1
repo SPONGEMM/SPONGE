@@ -72,12 +72,12 @@ if ($BuildInstaller) {
     New-Item -ItemType Directory -Path $payloadDir -Force | Out-Null
     Set-Content -Path (Join-Path $payloadDir "SPONGE.exe") -Value "version test payload"
     Copy-Item (Join-Path $PSScriptRoot "installer.nsi") $tempRoot
-    $licensePath = (Resolve-Path (Join-Path $PSScriptRoot "../../LICENSE")).Path
+    Copy-Item (Join-Path $PSScriptRoot "../../LICENSE") $tempRoot
     Push-Location $tempRoot
     try {
         foreach ($tag in @("v2.0.0-alpha.19999", "v2.0.0-beta.2", "v2.0.0-rc.19999", "v2.0.0", "v2.0.1-alpha.0")) {
             & $installerPath -EnvName "version-test" -Variant CPU -Tag $tag `
-                -NsiPath "installer.nsi" -LicensePath $licensePath
+                -NsiPath "installer.nsi" -LicensePath "LICENSE"
             $exe = Join-Path $tempRoot "release-artifacts/nsis/SPONGE-CPU-$tag-installer.exe"
             $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
             $fixedVersion = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart).$($info.FilePrivatePart)"
