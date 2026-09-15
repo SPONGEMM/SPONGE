@@ -10,9 +10,10 @@ the runtime objects must outlive the sessions.
 
 `InputSession` preserves the launch order:
 
-1. `Load_System()` resolves and validates H5 bindings, applies topology atom
-   data, prepares compatibility sidecars, invokes the existing Xponge loader,
-   then applies the topology force field.
+1. `Load_System()` resolves and validates H5 bindings, then passes the shared
+   input context to `Xponge::System::Load_Inputs(controller, input)`. Xponge
+   applies topology atom data, prepares compatibility sidecars, runs its
+   format loader and assembles the topology force field before returning.
 2. `Restore_Dynamic_State()` runs after thermostats and barostats initialize.
 3. `Prepare_Metadynamics()` prepares legacy restart text before `meta.Initial`.
 4. `Restore_Protocol_State()` applies compatible protocol continuation state
@@ -21,8 +22,10 @@ the runtime objects must outlive the sessions.
 
 `SpongeH5MD::InputContext` keeps the resolved plan and lazily caches native
 topology, restart protocol and restart dynamic payloads used by these phases.
-Topology atom and force-field assembly consume the same payload. The restart
-protocol preparation and restoration phases also share a payload. Calling
+Topology atom and force-field assembly in `xponge/load/h5.hpp` consume the same
+payload. The one-argument Xponge loader retains its existing legacy entry path;
+the context overload accepts an already validated plan for bundled input. The
+restart protocol preparation and restoration phases also share a payload. Calling
 `Initial` again clears the previous context, including after a failed launch.
 
 The plan describes launch bindings. Sidecar preparation may still populate

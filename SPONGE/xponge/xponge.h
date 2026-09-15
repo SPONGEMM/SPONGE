@@ -5,6 +5,11 @@
 #include "./ir/md_core.h"
 #include "./ir/protocol.h"
 
+namespace SpongeH5MD
+{
+class InputContext;
+}
+
 namespace Xponge
 {
 
@@ -30,6 +35,8 @@ struct System
     double start_time = 0.0;
 
     void Load_Inputs(CONTROLLER* controller);
+    // The context must already contain a validated launch plan.
+    void Load_Inputs(CONTROLLER* controller, SpongeH5MD::InputContext& input);
 };
 
 void Load_Native_Inputs(System* system, CONTROLLER* controller);

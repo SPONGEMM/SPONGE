@@ -20,10 +20,6 @@ class InputSession
 
    private:
     void Validate_H5_Input_Plan();
-    void Materialize_H5_Native_Topology_Core();
-    void Materialize_H5_Native_Topology_Forcefield();
-    void Materialize_H5_Topology_And_Protocol_Sidecars();
-    void Materialize_H5_Protocol_Restart_Sidecars();
     void Apply_H5_Dynamic_Integrator_State(
         const SpongeH5MD::RestartDynamicState& state);
 

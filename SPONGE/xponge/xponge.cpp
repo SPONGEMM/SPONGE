@@ -11,6 +11,7 @@
 #include "../utils/float_classification.hpp"
 #include "load/amber.hpp"
 #include "load/gromacs.hpp"
+#include "load/h5.hpp"
 #include "load/native.hpp"
 #include "load/native/nb14_extra_h5.hpp"
 #include "load/native/restraint_h5.hpp"
@@ -422,4 +423,16 @@ void Xponge::System::Load_Inputs(CONTROLLER* controller)
             this->classical_force_field.constraints = constraints;
         }
     }
+}
+
+void Xponge::System::Load_Inputs(CONTROLLER* controller,
+                                 SpongeH5MD::InputContext& input)
+{
+    // Check ownership before compatibility sidecars inject legacy commands.
+    Materialize_H5_Native_Topology_Core(*this, *controller, input);
+    Materialize_H5_Topology_And_Protocol_Sidecars(*controller, input);
+    Materialize_H5_Protocol_Restart_Sidecars(*controller, input);
+    Load_Inputs(controller);
+    // Native loading resets the force field, so apply typed data last.
+    Materialize_H5_Native_Topology_Forcefield(*this, *controller, input);
 }
