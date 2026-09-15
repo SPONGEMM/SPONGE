@@ -1727,23 +1727,42 @@ bool MD_INFORMATION::trajectory_output::Should_Write_Legacy_Restart(
 }
 
 void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
-    CONTROLLER* controller, const float* nhc_coordinates,
-    const float* nhc_velocities, std::size_t nhc_chain_length,
-    const SpongeH5MD::RestartSitsState* sits_state,
-    const char* metad_module_name,
-    const SpongeH5MD::RestartMetadynamicsState* metad_state,
-    const char* metad_hills_file_name, const char* metad_history_file_name,
-    const char* metad_edge_file_name, const char* metad_potential_file_name,
-    const char* metad_direct_file_name, const char* restraint_name,
-    const float* restraint_reference_coordinates,
-    std::size_t restraint_atom_count,
-    const std::map<std::string, std::vector<float>>* cv_references,
-    const SpongeH5MD::RestartDynamicState* dynamic_state)
+    CONTROLLER* controller, const SpongeIO::RestartOutputState& state)
 {
     if (!h5_restart_enabled || !md_info->is_initialized || CONTROLLER::MPI_rank)
     {
         return;
     }
+    if (state.nhc_coordinates.size() != state.nhc_velocities.size() ||
+        state.restraint_reference.size() % 3 != 0)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorValueErrorCommand,
+            "MD_INFORMATION::trajectory_output::Export_H5_Restart_File",
+            "Restart module state has inconsistent coordinate dimensions");
+    }
+    const auto optional_text = [](const std::string& text) -> const char*
+    { return text.empty() ? nullptr : text.c_str(); };
+    const auto* nhc_coordinates = state.nhc_coordinates.data();
+    const auto* nhc_velocities = state.nhc_velocities.data();
+    const auto nhc_chain_length = state.nhc_coordinates.size();
+    const auto* sits_state = state.sits ? &*state.sits : nullptr;
+    const auto* metad_state =
+        state.metadynamics ? &*state.metadynamics : nullptr;
+    const auto* dynamic_state = state.dynamic ? &*state.dynamic : nullptr;
+    const auto* metad_module_name = optional_text(state.metadynamics_name);
+    const auto* metad_hills_file_name = optional_text(state.metad_hills_file);
+    const auto* metad_history_file_name =
+        optional_text(state.metad_history_file);
+    const auto* metad_edge_file_name = optional_text(state.metad_edge_file);
+    const auto* metad_potential_file_name =
+        optional_text(state.metad_potential_file);
+    const auto* metad_direct_file_name = optional_text(state.metad_direct_file);
+    const auto* restraint_name = optional_text(state.restraint_name);
+    const auto* restraint_reference_coordinates =
+        state.restraint_reference.data();
+    const auto restraint_atom_count = state.restraint_reference.size() / 3;
+    const auto* cv_references = &state.cv_references;
     md_info->Crd_Vel_Device_To_Host();
     float box_edges[9];
     Fill_H5MD_Box_Edges(md_info, box_edges);

@@ -98,22 +98,8 @@ struct trajectory_output
     void Record_H5_Output_Failure(const char* family, const char* phase,
                                   const std::string& reason);
     std::string H5_Output_Failure_Summary() const;
-    void Export_H5_Restart_File(
-        CONTROLLER* controller, const float* nhc_coordinates = NULL,
-        const float* nhc_velocities = NULL, std::size_t nhc_chain_length = 0,
-        const SpongeH5MD::RestartSitsState* sits_state = NULL,
-        const char* metad_module_name = NULL,
-        const SpongeH5MD::RestartMetadynamicsState* metad_state = NULL,
-        const char* metad_hills_file_name = NULL,
-        const char* metad_history_file_name = NULL,
-        const char* metad_edge_file_name = NULL,
-        const char* metad_potential_file_name = NULL,
-        const char* metad_direct_file_name = NULL,
-        const char* restraint_name = NULL,
-        const float* restraint_reference_coordinates = NULL,
-        std::size_t restraint_atom_count = 0,
-        const std::map<std::string, std::vector<float>>* cv_references = NULL,
-        const SpongeH5MD::RestartDynamicState* dynamic_state = NULL);
+    void Export_H5_Restart_File(CONTROLLER* controller,
+                                const SpongeIO::RestartOutputState& state);
     bool Should_Write_Legacy_Restart(CONTROLLER* controller);
     void Export_Restart_File(const char* rst7_name = NULL);
     void Append_Crd_Traj_File(FILE* fp = NULL);
