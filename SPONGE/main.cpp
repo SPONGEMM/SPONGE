@@ -1,9 +1,5 @@
 ﻿#include "main.h"
 
-#include "MD_core/initial_state.h"
-#include "io/input_session.h"
-#include "io/output_session.h"
-
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
 CONTROLLER controller;
