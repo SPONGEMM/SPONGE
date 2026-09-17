@@ -13,16 +13,13 @@
 // own source. Repeated source indices alone are not self-dependencies.
 //
 // Virtual atom type 0: reflection in a plane normal to the z axis.
-//   Intended: x_v = x_1, y_v = y_1, z_v = 2 * h - z_1.
-//   NOTE: the loader stores h_double = 2 * h, but the current position
-//   helper computes z_v = 2 * h_double - z_1 (i.e. 4 * h - z_1).
-//   This legacy factor-of-two discrepancy is not corrected here.
+//   Position: x_v = x_1, y_v = y_1, z_v = 2 * h - z_1.
 //   Force: F_1 += (F_v.x, F_v.y, -F_v.z).
 struct VIRTUAL_TYPE_0
 {
     int virtual_atom;
     int from_1;
-    float h_double;
+    float h;
 };
 
 struct VIRTUAL_TYPE_0_INFROMATION

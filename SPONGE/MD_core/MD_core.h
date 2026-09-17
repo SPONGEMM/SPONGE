@@ -2,6 +2,7 @@
 
 #include "../common.h"
 #include "../control.h"
+#include "../io/restart_output_state.h"
 #include "../utils/h5md/highfive_backend.hpp"
 #include "../utils/h5md/input_assembler.hpp"
 #include "../utils/h5md/input_plan.hpp"

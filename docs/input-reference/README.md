@@ -1,6 +1,8 @@
 # Input File Reference
 
-SPONGE input files use TOML format. The default filename is `mdin.spg.toml`, specified via the `-mdin` flag:
+SPONGE automatically reads `mdin.spg.toml` from the working directory. If it
+is absent, the legacy `mdin.txt` input is also recognized. Use `-mdin` to
+select another input file explicitly:
 
 ```bash
 SPONGE -mdin mdin.spg.toml
