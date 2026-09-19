@@ -696,6 +696,16 @@ PreparedCase Prepare_Restart_Load_Case(
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
+    // The synthetic funcfl fixture has one element; type 1 is out of range.
+    // Match the native runtime fixture's {0, 0} types in legacy/sidecar input.
+    for (const auto& relative :
+         {"eam_atom_type.txt",
+          "legacy_sidecars/EAM_atom_type_in_file/eam_atom_type.txt"})
+    {
+        const auto path = prepared.root / relative;
+        if (std::filesystem::exists(path)) Write_Text(path, "0\n0\n");
+    }
+
     std::filesystem::create_directories(prepared.root / "out");
 
     if (remove_metadynamics_restart_state)
