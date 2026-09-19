@@ -33,6 +33,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/constrain/constrain.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/constrain/settle.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/constrain/shake.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/constrain/matrix_constraint.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/virtual_atoms/virtual_atoms.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/collective_variable/collective_variable.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/collective_variable/RMSD.cpp

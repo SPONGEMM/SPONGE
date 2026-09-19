@@ -1505,11 +1505,13 @@
         "mode": {
           "type": "string",
           "enum": [
-            "SHAKE"
+            "SETTLE",
+            "SHAKE",
+            "LINCS",
+            "CCMA"
           ],
           "title": "Constrain Mode",
-          "description": "Constraint mode.",
-          "default": "amd"
+          "description": "Constraint mode."
         },
         "angle": {
           "type": "boolean",
@@ -1568,6 +1570,13 @@
           "title": "SHAKE Step Length",
           "description": "Step length for SHAKE algorithm.",
           "default": 1.0
+        },
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.0001,
+          "description": "Relative bond-length tolerance for small-group early stopping. Reaching the iteration cap does not guarantee convergence."
         }
       },
       "title": "SHAKE",
@@ -2156,6 +2165,73 @@
       },
       "title": "SITS",
       "description": "SITS enhanced sampling settings."
+    },
+    "constrain_mode": {
+      "type": "string",
+      "enum": [
+        "SETTLE",
+        "SHAKE",
+        "LINCS",
+        "CCMA"
+      ],
+      "description": "Constraint solver; SETTLE handles independent pairs/triangles first."
+    },
+    "LINCS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 8,
+          "description": "Expansion order. Ordinary 2 fs H-bond MD: try 4; larger-step models: consider 6 and validate. Default remains 8; higher order is not an accuracy guarantee."
+        },
+        "corrections": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "default": 1,
+          "description": "Additional rotational corrections. Ordinary MD: 1; 4 fs or energy-sensitive NVE: consider 2 and validate stability/energy drift."
+        }
+      }
+    },
+    "CCMA": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "iteration_numbers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 8
+        },
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.0001,
+          "description": "Relative bond-length tolerance for small-group early stopping. Reaching the iteration cap does not guarantee convergence."
+        },
+        "inverse_cutoff": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.01
+        },
+        "inverse_radius": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 3
+        },
+        "inverse_max_size": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 512,
+          "default": 128
+        }
+      }
     }
   }
 }

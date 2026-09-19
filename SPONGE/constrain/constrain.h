@@ -68,3 +68,49 @@ struct CONSTRAIN
     void Get_Local(const int* atom_local_id, const char* atom_local_label,
                    const int local_atom_numbers);
 };
+
+// Independent connected components with at most three constraints/four atoms.
+// The general solvers remain the fallback if any component exceeds this bound.
+struct SMALL_CONSTRAINT_GROUP
+{
+    int pair_count = 0, atom_count = 0;
+    int pairs[3] = {}, atoms[4] = {}, a[3] = {}, b[3] = {};
+};
+
+struct SMALL_CONSTRAINT_GROUPS
+{
+    SMALL_CONSTRAINT_GROUP* data = nullptr;
+    int count = 0;
+    SMALL_CONSTRAINT_GROUPS() = default;
+    SMALL_CONSTRAINT_GROUPS(const SMALL_CONSTRAINT_GROUPS&) = delete;
+    SMALL_CONSTRAINT_GROUPS& operator=(const SMALL_CONSTRAINT_GROUPS&) = delete;
+    ~SMALL_CONSTRAINT_GROUPS();
+    void Clear();
+    void Build(CONTROLLER* controller, const std::vector<CONSTRAIN_PAIR>& pairs,
+               int atoms);
+};
+
+// Explicit selection avoids dynamic indexing of short per-thread arrays,
+// which otherwise materializes these arrays in CUDA local memory.
+static __device__ __forceinline__ VECTOR
+Small_Group_Vector(const VECTOR* values, int i)
+{
+    return i == 0 ? values[0]
+                  : (i == 1 ? values[1] : (i == 2 ? values[2] : values[3]));
+}
+
+// Test the requested relative length tolerance on the current displacement.
+// Evaluate only this scalar predicate in double precision to avoid cancellation
+// in r^2 - l^2. Box size and coordinate-storage error must not tighten the
+// user's convergence target; later coordinate rounding is a separate accuracy
+// issue.
+static __device__ __forceinline__ bool Constraint_Within_Tolerance(
+    const VECTOR& displacement, float target, float tolerance)
+{
+    const double x = displacement.x, y = displacement.y, z = displacement.z;
+    const double r2 = x * x + y * y + z * z;
+    const double lower = double(target) * (1.0 - double(tolerance));
+    const double upper = double(target) * (1.0 + double(tolerance));
+    // NaNs fail the comparisons. No square root or division is needed.
+    return r2 >= lower * lower && r2 <= upper * upper;
+}

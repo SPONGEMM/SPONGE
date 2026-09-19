@@ -74,7 +74,7 @@ void CONSTRAIN::Initial_Constrain(CONTROLLER* controller,
         (void**)&d_constrain_pair, h_constrain_pair,
         sizeof(CONSTRAIN_PAIR) * constrain_pair_numbers);
     Device_Malloc_Safely((void**)&constrain_pair_local,
-                         sizeof(CONSTRAIN_PAIR) * atom_numbers);
+                         sizeof(CONSTRAIN_PAIR) * constrain_pair_numbers);
     Device_Malloc_Safely((void**)&d_num_pair_local, sizeof(int));
     // 清空初始化时使用的临时变量
     if (h_bond_pair != NULL)
@@ -225,4 +225,74 @@ void CONSTRAIN::update_ug_connectivity(CONECT* connectivity)
         (*connectivity)[p.atom_i_serial].insert(p.atom_j_serial);
         (*connectivity)[p.atom_j_serial].insert(p.atom_i_serial);
     }
+}
+
+SMALL_CONSTRAINT_GROUPS::~SMALL_CONSTRAINT_GROUPS() { Clear(); }
+
+void SMALL_CONSTRAINT_GROUPS::Clear()
+{
+    if (data) deviceFree(data);
+    data = nullptr;
+    count = 0;
+}
+
+static int Small_Group_Root(std::vector<int>& parents, int a)
+{
+    while (parents[a] != a)
+    {
+        parents[a] = parents[parents[a]];
+        a = parents[a];
+    }
+    return a;
+}
+
+void SMALL_CONSTRAINT_GROUPS::Build(CONTROLLER* controller,
+                                    const std::vector<CONSTRAIN_PAIR>& pairs,
+                                    int atoms)
+{
+    Clear();
+    if (pairs.empty()) return;
+    std::vector<int> parents(atoms), indices(atoms, -1);
+    std::iota(parents.begin(), parents.end(), 0);
+    for (auto p : pairs)
+    {
+        if (p.atom_i_serial < 0 || p.atom_j_serial < 0 ||
+            p.atom_i_serial >= atoms || p.atom_j_serial >= atoms)
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat, "SMALL_CONSTRAINT_GROUPS::Build",
+                "invalid small constraint group atom");
+        parents[Small_Group_Root(parents, p.atom_i_serial)] =
+            Small_Group_Root(parents, p.atom_j_serial);
+    }
+    std::vector<SMALL_CONSTRAINT_GROUP> groups;
+    for (int i = 0; i < static_cast<int>(pairs.size()); ++i)
+    {
+        auto p = pairs[i];
+        int root = Small_Group_Root(parents, p.atom_i_serial);
+        if (indices[root] < 0)
+        {
+            indices[root] = groups.size();
+            groups.emplace_back();
+        }
+        auto& g = groups[indices[root]];
+        if (g.pair_count == 3) return;
+        int endpoints[2] = {p.atom_i_serial, p.atom_j_serial};
+        int local[2];
+        for (int e = 0; e < 2; ++e)
+        {
+            int k = 0;
+            while (k < g.atom_count && g.atoms[k] != endpoints[e]) ++k;
+            if (k == 4) return;
+            if (k == g.atom_count) g.atoms[g.atom_count++] = endpoints[e];
+            local[e] = k;
+        }
+        int k = g.pair_count++;
+        g.pairs[k] = i;
+        g.a[k] = local[0];
+        g.b[k] = local[1];
+    }
+    count = groups.size();
+    Device_Malloc_Safely((void**)&data, count * sizeof(SMALL_CONSTRAINT_GROUP));
+    deviceMemcpy(data, groups.data(), count * sizeof(SMALL_CONSTRAINT_GROUP),
+                 deviceMemcpyHostToDevice);
 }

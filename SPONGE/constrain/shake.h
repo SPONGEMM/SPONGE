@@ -27,6 +27,9 @@ struct SHAKE
         1.0f;  // 迭代求力时选取的步长，步长为1.可以刚好严格求得两体的constrain
     // 但对于三体及以上的情况，步长小一点会更稳定，但随之而来可能要求迭代次数增加
     int iteration_numbers = 25;  // 迭代步数
+    bool use_small_groups = true;
+    float tolerance = 1e-4f;
+    void Get_Local(int local_atoms);
 
     // 在初始化后进行初始化
     void Initial_SHAKE(CONTROLLER* controller, CONSTRAIN* constrain,
@@ -42,4 +45,8 @@ struct SHAKE
     void Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                    const float* mass_inverse, const float* d_mass,
                    Boundary boundary, int need_pressure, LTMatrix3* d_stress);
+
+   private:
+    SMALL_CONSTRAINT_GROUPS small_groups;
+    CONTROLLER* controller = nullptr;
 };
