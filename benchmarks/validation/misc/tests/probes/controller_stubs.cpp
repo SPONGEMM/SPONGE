@@ -2,8 +2,16 @@
 #include <cstdlib>
 
 #include "control.h"
+#include "xponge/xponge.h"
 
 int CONTROLLER::MPI_rank = 0;
+
+// MSVC resolves the topology reference in CONSTRAIN::Initial_List even though
+// these probes bypass input loading and initialize their constraints directly.
+namespace Xponge
+{
+System system;
+}
 
 namespace
 {
