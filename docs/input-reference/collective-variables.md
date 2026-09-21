@@ -119,6 +119,19 @@ rotate = true
 
 `rotate = true` enables optimal rotational alignment before RMSD evaluation.
 
+For native H5 input, set `/cv/<name>/type` to `rmsd` and store reference
+coordinates in the protocol dataset `/cv/<name>/coordinate`, with shape
+`[selected_atom_count, 3]`. Rows follow the order of `atom_indices` or
+`atom_refs`; coordinates must be finite and use the same units as system
+coordinates. Xponge and XpongeCPP write this dataset from
+`ProtocolCollectiveVariable.reference_coordinates`.
+
+The legacy restart dataset
+`/parameters/restart/references/cv/<name>/coordinate` remains supported.
+If both datasets are supplied, their coordinates must agree; conflicting
+references are rejected. A native RMSD CV requires one of these references.
+The `coordinate` dataset is only supported for RMSD CVs.
+
 Parameters:
 
 | Parameter | Type | Description |

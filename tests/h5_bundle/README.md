@@ -22,6 +22,44 @@ pixi run -e dev-cpu ctest --test-dir build-h5-tests --output-on-failure
 
 ## Test targets
 
+### RMSD CV execution across Xponge and XpongeCPP
+
+`test_rmsd_cv_e2e.py` launches the actual SPONGE executable, using each
+producer's own Python environment to generate its input. It is a separate,
+opt-in pytest suite requiring `pytest`, `numpy`, and `h5py` in the test runner
+and the corresponding Xponge package in each producer environment.
+
+From the repository root, select a freshly built CPU or GPU SPONGE executable:
+
+```bash
+export SPONGE_EXECUTABLE="$PWD/build-dev-cpu/SPONGE"
+export XPONGE_PYTHON="/path/to/XPONGE/.venv/bin/python"
+export XPONGE_CPP_PYTHON="/path/to/XpongeCPP/.pixi/envs/default/bin/python"
+# Optional: test source checkouts instead of installed package versions.
+export XPONGE_SOURCE="/path/to/XPONGE"
+export XPONGE_CPP_SOURCE="/path/to/XpongeCPP/src"
+python -m pytest -c /dev/null --confcutdir="$PWD" \
+  tests/h5_bundle/test_rmsd_cv_e2e.py -q -p no:cacheprovider
+```
+
+All eight cases must pass without skips to cover both producers. Each covers
+`rotate=false` or `rotate=true` and either:
+
+- Native inline RMSD reference and converted legacy input evaluated by SPONGE,
+  with RMSD checked against an independent NumPy/Kabsch calculation and bias
+  forces checked against finite differences after subtracting a zero-bias run.
+- Four uninterrupted NVE steps versus two steps followed by two restarted
+  steps, checking RMSD, forces, coordinates, velocities, physical time, and the
+  original reference preserved in the generated restart.
+
+The fixture keeps the peptide inside the periodic box and uses an asymmetric
+reference with an unsorted atom selection. Scalar tolerances account for the
+runtime's printed precision; force trajectories retain float32 precision.
+Temporary inputs, H5 outputs, and subprocess logs remain in pytest's temporary
+directory. CPU success does not imply GPU execution coverage.
+
+### CTest targets
+
 | Target | Scope |
 |---|---|
 | `test_h5_output_plan` | Parser-visible H5 output keys, defaults, suffix helpers, helper null/empty-key behavior, empty H5 path handling, full legacy sidecar resolution matrix, explicit legacy sidecar provenance collection, VDS chunk size, repair policy validation. |
