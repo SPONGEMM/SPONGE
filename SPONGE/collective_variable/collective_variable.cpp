@@ -208,9 +208,11 @@ bool Load_H5_CV_Config(CONTROLLER* controller,
         constexpr const char* cv_root = "/cv/config";
         constexpr const char* restraint_root = "/restraint/config";
         constexpr const char* restraint_cv_root = "/restraint/cv/config";
+        constexpr const char* steer_root = "/steer/config";
         const bool has_cv = file->exist(cv_root);
         const bool has_restraint = file->exist(restraint_root);
         const bool has_restraint_cv = file->exist(restraint_cv_root);
+        const bool has_steer = file->exist(steer_root);
         SpongeH5MD::ProtocolCVH5Reader cv_reader;
         std::vector<SpongeH5MD::ProtocolCVDefinition> typed_cvs;
         std::vector<SpongeH5MD::ProtocolVirtualAtomDefinition>
@@ -261,7 +263,7 @@ bool Load_H5_CV_Config(CONTROLLER* controller,
         {
             throw std::runtime_error(steering_reader.Last_Error());
         }
-        if (!has_cv && !has_restraint && !has_restraint_cv &&
+        if (!has_cv && !has_restraint && !has_restraint_cv && !has_steer &&
             typed_cvs.empty() && typed_virtual_atoms.empty() &&
             typed_restraints.empty() && !has_typed_metadynamics &&
             !has_typed_steering)
@@ -271,14 +273,15 @@ bool Load_H5_CV_Config(CONTROLLER* controller,
         const bool has_legacy_cv = controller->Command_Exist("cv_in_file");
         const bool has_legacy_restraint =
             controller->Command_Exist("restrain_in_file") ||
-            controller->Command_Exist("restrain_cv_in_file");
+            controller->Command_Exist("restrain_cv_in_file") ||
+            controller->Command_Exist("steer_cv_in_file");
         if (has_legacy_cv || has_legacy_restraint)
         {
             return false;
         }
 
         std::vector<CVConfigSection> sections;
-        for (const auto& root : {cv_root, restraint_root, restraint_cv_root})
+        for (const auto& root : {cv_root, restraint_root, restraint_cv_root, steer_root})
         {
             if (file->exist(root))
             {
@@ -416,7 +419,8 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Initial(
     const bool has_h5_cv = Load_H5_CV_Config(controller, this);
     if (has_h5_cv || controller->Command_Exist("cv_in_file") ||
         controller->Command_Exist("restrain_in_file") ||
-        controller->Command_Exist("restrain_cv_in_file"))
+        controller->Command_Exist("restrain_cv_in_file") ||
+        controller->Command_Exist("steer_cv_in_file"))
     {
         int CV_numbers = 0;
         Commands_From_In_File(controller);
@@ -523,7 +527,8 @@ void COLLECTIVE_VARIABLE_CONTROLLER::Commands_From_In_File(
     CONTROLLER* controller)
 {
     for (const char* input_key :
-         {"cv_in_file", "restrain_in_file", "restrain_cv_in_file"})
+         {"cv_in_file", "restrain_in_file", "restrain_cv_in_file",
+          "steer_cv_in_file"})
     {
         if (!controller->Command_Exist(input_key)) continue;
         const std::string cv_path = controller->Command(input_key);
