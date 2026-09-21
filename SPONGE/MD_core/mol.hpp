@@ -916,8 +916,12 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
     std::vector<int> h_periodicity =
         Check_Periodic_Molecules(mol_atoms, md_info->sys.connectivity,
                                  md_info->coordinate, md_info->pbc.boundary);
-    Device_Malloc_And_Copy_Safely((void**)&d_periodicity, &h_periodicity[0],
-                                  sizeof(int) * molecule_numbers);
+    // Own this storage: the CPU combined allocator would alias the temporary
+    // vector.
+    Device_Malloc_Safely((void**)&d_periodicity,
+                         sizeof(int) * molecule_numbers);
+    deviceMemcpy(d_periodicity, h_periodicity.data(),
+                 sizeof(int) * molecule_numbers, deviceMemcpyHostToDevice);
     deviceMemcpy(md_info->crd, md_info->coordinate,
                  sizeof(VECTOR) * md_info->atom_numbers,
                  deviceMemcpyHostToDevice);

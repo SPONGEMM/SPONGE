@@ -275,7 +275,9 @@ void STILLINGER_WEBER_INFORMATION::Initial(CONTROLLER* controller,
         pair_type_numbers = atom_type_numbers * atom_type_numbers;
         triple_type_numbers =
             atom_type_numbers * atom_type_numbers * atom_type_numbers;
-        Malloc_Safely((void**)&h_energy_atom, sizeof(float) * atom_numbers);
+        // The first element stores the sum; per-atom energies start at +1.
+        Malloc_Safely((void**)&h_energy_atom,
+                      sizeof(float) * (atom_numbers + 1));
         Device_Malloc_And_Copy_Safely((void**)&d_energy_sum, h_energy_atom,
                                       sizeof(float) * (atom_numbers + 1));
         d_energy_atom = d_energy_sum + 1;
@@ -329,7 +331,8 @@ void STILLINGER_WEBER_INFORMATION::Initial(CONTROLLER* controller,
     pair_type_numbers = atom_type_numbers * atom_type_numbers;
     triple_type_numbers =
         atom_type_numbers * atom_type_numbers * atom_type_numbers;
-    Malloc_Safely((void**)&h_energy_atom, sizeof(float) * atom_numbers);
+    // The first element stores the sum; per-atom energies start at +1.
+    Malloc_Safely((void**)&h_energy_atom, sizeof(float) * (atom_numbers + 1));
     Device_Malloc_And_Copy_Safely((void**)&d_energy_sum, h_energy_atom,
                                   sizeof(float) * (atom_numbers + 1));
     d_energy_atom = d_energy_sum + 1;

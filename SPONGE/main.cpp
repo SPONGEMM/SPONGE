@@ -29,6 +29,7 @@ RESTRAIN_INFORMATION restrain;
 CONSTRAIN constrain;
 SETTLE settle;
 SHAKE shake;
+MATRIX_CONSTRAINT matrix_constraint;
 VIRTUAL_INFORMATION vatom;
 COLLECTIVE_VARIABLE_CONTROLLER cv_controller;
 STEER_CV steer_cv;
@@ -63,10 +64,9 @@ SpongeIO::RuntimeState io_runtime{
     main_stream};
 SpongeIO::InputSession input_session(io_runtime);
 SpongeIO::OutputSession output_session(io_runtime);
-SpongeRuntime::InitialStateBuilder initial_state({io_runtime, input_session,
-                                                  bd_thermo, constrain, settle,
-                                                  shake, vatom, pm, plugin,
-                                                  steer_cv, restrain_cv});
+SpongeRuntime::InitialStateBuilder initial_state(
+    {io_runtime, input_session, bd_thermo, constrain, settle, shake,
+     matrix_constraint, vatom, pm, plugin, steer_cv, restrain_cv});
 
 void Reject_Open_Boundary_Module(const bool is_initialized,
                                  const char* module_name)
@@ -521,6 +521,8 @@ void Main_Refresh_Local_State(bool rebuild_dd)
                        dd.atom_local_id);
     constrain.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
     settle.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
+    shake.Get_Local(dd.atom_numbers);
+    matrix_constraint.Get_Local(dd.atom_local, dd.atom_numbers);
     vatom.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
     sits.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers);
     if (sits.is_initialized && sits.selectively_applied)
@@ -552,6 +554,7 @@ void Main_Iteration()
         {
             settle.Remember_Last_Coordinates(dd.crd, boundary);
             shake.Remember_Last_Coordinates(dd.crd, boundary);
+            matrix_constraint.Remember_Last_Coordinates(dd.crd, boundary);
 
             if (md_info.mode == md_info.NVE)
             {
@@ -598,6 +601,9 @@ void Main_Iteration()
                     shake.Project_Velocity_To_Constraint_Manifold(
                         dd.vel, dd.crd, dd.d_mass_inverse, boundary,
                         dd.atom_numbers);
+                    matrix_constraint.Project_Velocity_To_Constraint_Manifold(
+                        dd.vel, dd.crd, dd.d_mass_inverse, boundary,
+                        dd.atom_numbers);
                     constrain.v_factor = FLT_MIN;
                     constrain.x_factor = 0.5;
                 }
@@ -623,6 +629,9 @@ void Main_Iteration()
             shake.Constrain(dd.atom_numbers, dd.crd, dd.vel, dd.d_mass_inverse,
                             dd.d_mass, boundary, md_info.need_pressure,
                             md_info.sys.d_stress);
+            matrix_constraint.Constrain(
+                dd.atom_numbers, dd.crd, dd.vel, dd.d_mass_inverse, dd.d_mass,
+                boundary, md_info.need_pressure, md_info.sys.d_stress);
             hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
         }
         if (md_info.need_pressure && !mc_baro.is_initialized)

@@ -4,6 +4,7 @@
 #include "../bias/restrain_cv.h"
 #include "../bias/steer.h"
 #include "../constrain/constrain.h"
+#include "../constrain/matrix_constraint.h"
 #include "../constrain/settle.h"
 #include "../constrain/shake.h"
 #include "../io/input_session.h"
@@ -141,6 +142,7 @@ void InitialStateBuilder::Build_Constraints_And_Velocities()
     auto& constrain = bindings_.constrain;
     auto& settle = bindings_.settle;
     auto& shake = bindings_.shake;
+    auto& matrix_constraint = bindings_.matrix_constraint;
     auto& vatom = bindings_.vatom;
     auto& initial_velocity = initial_velocity_;
     if (controller.Command_Exist("constrain_mode"))
@@ -154,6 +156,23 @@ void InitialStateBuilder::Build_Constraints_And_Velocities()
         if (controller.Command_Choice("constrain_mode", "SHAKE"))
         {
             shake.Initial_SHAKE(&controller, &constrain);
+        }
+        else if (controller.Command_Choice("constrain_mode", "LINCS") ||
+                 controller.Command_Choice("constrain_mode", "CCMA"))
+        {
+            matrix_constraint.algorithm =
+                controller.Command_Choice("constrain_mode", "LINCS")
+                    ? MATRIX_CONSTRAINT::Algorithm::LINCS
+                    : MATRIX_CONSTRAINT::Algorithm::CCMA;
+            matrix_constraint.Initial(&controller, &constrain, md_info.h_mass,
+                                      md_info.crd, md_info.pbc.boundary);
+        }
+        else if (!controller.Command_Choice("constrain_mode", "SETTLE"))
+        {
+            controller.Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "Build_Constraints_And_Velocities",
+                "Unknown constrain_mode; use SETTLE, SHAKE, LINCS or CCMA");
         }
         if (md_info.mode == md_info.MINIMIZATION)
         {
@@ -220,6 +239,7 @@ void InitialStateBuilder::Distribute_State(void (*prepare_processes)(),
     auto& dd = bindings_.runtime.dd;
     auto& settle = bindings_.settle;
     auto& shake = bindings_.shake;
+    auto& matrix_constraint = bindings_.matrix_constraint;
     auto& pm = bindings_.pm;
     auto& plugin = bindings_.plugin;
     auto& initial_velocity = initial_velocity_;
@@ -228,7 +248,8 @@ void InitialStateBuilder::Distribute_State(void (*prepare_processes)(),
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         refresh_local_state(true);
-        initial_velocity.Finalize(&controller, &md_info, &dd, &settle, &shake);
+        initial_velocity.Finalize(&controller, &md_info, &dd, &settle, &shake,
+                                  &matrix_constraint);
         plugin.Set_Domain_Information(&dd);
     }
 

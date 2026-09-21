@@ -11,6 +11,7 @@ class InputSession;
 
 struct BERENDSEN_THERMOSTAT_INFORMATION;
 struct CONSTRAIN;
+struct MATRIX_CONSTRAINT;
 struct VIRTUAL_INFORMATION;
 struct Particle_Mesh;
 struct SPONGE_PLUGIN;
@@ -27,6 +28,7 @@ struct InitialStateBindings
     CONSTRAIN& constrain;
     SETTLE& settle;
     SHAKE& shake;
+    MATRIX_CONSTRAINT& matrix_constraint;
     VIRTUAL_INFORMATION& vatom;
     Particle_Mesh& pm;
     SPONGE_PLUGIN& plugin;

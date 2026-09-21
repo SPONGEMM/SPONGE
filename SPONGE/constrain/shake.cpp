@@ -19,7 +19,6 @@ static __global__ void Constrain_Force_Cycle(
         VECTOR dr0 = pair_dr[pair_i];
         VECTOR dr = Get_Displacement(crd[cp.atom_i_serial],
                                      crd[cp.atom_j_serial], boundary);
-        float r_1 = rnorm3df(dr.x, dr.y, dr.z);
         float frc_abs = 0.5 * (dr * dr - cp.constant_r * cp.constant_r) /
                         (dr * dr0) * cp.constrain_k;
         VECTOR frc_lin = frc_abs * dr0;
@@ -115,6 +114,7 @@ void SHAKE::Initial_SHAKE(CONTROLLER* controller, CONSTRAIN* constrain,
                           const char* module_name)
 {
     // 从传入的参数复制基本信息
+    this->controller = controller;
     this->constrain = constrain;
     if (module_name == NULL)
     {
@@ -138,6 +138,25 @@ void SHAKE::Initial_SHAKE(CONTROLLER* controller, CONSTRAIN* constrain,
         }
         controller[0].printf("    constrain iteration step is %d\n",
                              iteration_numbers);
+
+        if (controller->Command_Exist(this->module_name, "early_stop"))
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand, "SHAKE::Initial_SHAKE",
+                "early_stop is no longer an input option; stopping is "
+                "automatic, use tolerance");
+        if (controller->Command_Exist(this->module_name, "tolerance"))
+        {
+            controller->Check_Float(this->module_name, "tolerance",
+                                    "SHAKE::Initial_SHAKE");
+            tolerance =
+                atof(controller->Command(this->module_name, "tolerance"));
+        }
+        if (!(tolerance > 0 && tolerance < 1))
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand, "SHAKE::Initial_SHAKE",
+                "tolerance must be between zero and one");
+        controller->printf("    small-group relative tolerance %.3g\n",
+                           tolerance);
 
         step_length = 1.0f;
         if (controller[0].Command_Exist(this->module_name, "step_length"))
@@ -418,12 +437,148 @@ static __global__ void Sum_Virial_Tensor_To_Stress(
     Warp_Sum_To(stress, virial_sum, warpSize);
 }
 
+void SHAKE::Get_Local(int local_atoms)
+{
+    small_groups.Clear();
+    if (!is_initialized || !use_small_groups) return;
+    std::vector<CONSTRAIN_PAIR> pairs(constrain->num_pair_local);
+    deviceMemcpy(pairs.data(), constrain->constrain_pair_local,
+                 pairs.size() * sizeof(CONSTRAIN_PAIR),
+                 deviceMemcpyDeviceToHost);
+    small_groups.Build(controller, pairs, local_atoms);
+}
+
+// Keep the original simultaneous (Jacobi) force updates, but keep each small
+// component's iteration state local instead of launching two kernels per round.
+static __global__ void Shake_Small_Groups(
+    int count, const SMALL_CONSTRAINT_GROUP* groups,
+    const CONSTRAIN_PAIR* pairs, const VECTOR* old, VECTOR* crd, VECTOR* vel,
+    const float* inv, Boundary boundary, int iterations, float xfactor,
+    float velocity_factor, bool pressure, float stress_factor,
+    LTMatrix3* stress, float tolerance)
+{
+#ifdef USE_GPU
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < count)
+#else
+#pragma omp parallel for
+    for (int index = 0; index < count; ++index)
+#endif
+    {
+        const auto g = groups[index];
+        VECTOR base[4] = {}, force[4] = {}, trial[4] = {}, dr0[3] = {};
+        float inverse[4] = {}, target2[3] = {}, target[3] = {};
+        float weight[3] = {}, lambda[3] = {};
+#pragma unroll
+        for (int a = 0; a < 4; ++a)
+        {
+            if (a < g.atom_count)
+            {
+                base[a] = crd[g.atoms[a]];
+                inverse[a] = inv[g.atoms[a]];
+            }
+        }
+#pragma unroll
+        for (int j = 0; j < 3; ++j)
+        {
+            if (j < g.pair_count)
+            {
+                auto p = pairs[g.pairs[j]];
+                dr0[j] = old[g.pairs[j]];
+                target2[j] = p.constant_r * p.constant_r;
+                target[j] = p.constant_r;
+                weight[j] = p.constrain_k;
+            }
+        }
+        bool stopped = false;
+        for (int iteration = 0; iteration < iterations; ++iteration)
+        {
+#pragma unroll
+            for (int a = 0; a < 4; ++a)
+                trial[a] = base[a] + (xfactor * inverse[a]) * force[a];
+            bool converged = true;
+#pragma unroll
+            for (int j = 0; j < 3; ++j)
+                if (j < g.pair_count)
+                {
+                    VECTOR d = Get_Displacement(
+                        Small_Group_Vector(trial, g.a[j]),
+                        Small_Group_Vector(trial, g.b[j]), boundary);
+                    converged = converged && Constraint_Within_Tolerance(
+                                                 d, target[j], tolerance);
+                }
+            if (converged)
+            {
+                stopped = true;
+                break;
+            }
+#pragma unroll
+            for (int j = 0; j < 3; ++j)
+            {
+                if (j < g.pair_count)
+                {
+                    VECTOR dr = Get_Displacement(
+                        Small_Group_Vector(trial, g.a[j]),
+                        Small_Group_Vector(trial, g.b[j]), boundary);
+                    float amount = 0.5 * (dr * dr - target2[j]) /
+                                   (dr * dr0[j]) * weight[j];
+                    VECTOR f = amount * dr0[j];
+#pragma unroll
+                    for (int a = 0; a < 4; ++a)
+                    {
+                        if (a == g.a[j]) force[a] = force[a] - f;
+                        if (a == g.b[j]) force[a] = force[a] + f;
+                    }
+                    if (pressure) lambda[j] += amount;
+                }
+            }
+        }
+#pragma unroll
+        for (int a = 0; a < 4; ++a)
+        {
+            if (a < g.atom_count)
+            {
+                VECTOR correction = inverse[a] * force[a];
+                crd[g.atoms[a]] =
+                    stopped ? trial[a] : base[a] + xfactor * correction;
+                vel[g.atoms[a]] =
+                    vel[g.atoms[a]] + velocity_factor * correction;
+            }
+        }
+        if (pressure)
+        {
+            LTMatrix3 value = {0, 0, 0, 0, 0, 0};
+#pragma unroll
+            for (int j = 0; j < 3; ++j)
+                if (j < g.pair_count)
+                    value =
+                        value - (stress_factor * lambda[j]) *
+                                    Get_Virial_From_Force_Dis(dr0[j], dr0[j]);
+            atomicAdd(stress, value);
+        }
+    }
+}
+
 void SHAKE::Constrain(int atom_numbers, VECTOR* crd, VECTOR* vel,
                       const float* mass_inverse, const float* d_mass,
                       Boundary boundary, int need_pressure, LTMatrix3* d_stress)
 {
     if (is_initialized)
     {
+        if (use_small_groups && small_groups.count)
+        {
+            Launch_Device_Kernel(
+                Shake_Small_Groups, (small_groups.count + 127) / 128, 128, 0, 0,
+                small_groups.count, small_groups.data,
+                constrain->constrain_pair_local, last_pair_dr, crd, vel,
+                mass_inverse, boundary, iteration_numbers, constrain->x_factor,
+                constrain->v_factor * constrain->dt_inverse, need_pressure > 0,
+                constrain->dt_inverse * constrain->dt_inverse *
+                    boundary.rcell.a11 * boundary.rcell.a22 *
+                    boundary.rcell.a33,
+                d_stress, tolerance);
+            return;
+        }
         // 清空约束力和维里
         deviceMemset(constrain_frc, 0, sizeof(VECTOR) * atom_numbers);
         if (need_pressure > 0)

@@ -24,6 +24,7 @@
 #include "collective_variable/collective_variable.h"
 #include "common.h"
 #include "constrain/constrain.h"
+#include "constrain/matrix_constraint.h"
 #include "constrain/settle.h"
 #include "constrain/shake.h"
 #include "control.h"

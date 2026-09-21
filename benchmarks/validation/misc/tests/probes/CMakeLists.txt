@@ -15,6 +15,7 @@ find_path(
 add_executable(
   constraint_velocity_projection_probe
   ../constraint_velocity_projection_probe.cpp
+  "${SPONGE_SOURCE_DIR}/SPONGE/constrain/constrain.cpp"
   "${SPONGE_SOURCE_DIR}/SPONGE/constrain/settle.cpp"
   "${SPONGE_SOURCE_DIR}/SPONGE/constrain/shake.cpp")
 # The guard probe includes settle.cpp to exercise its internal guard directly.

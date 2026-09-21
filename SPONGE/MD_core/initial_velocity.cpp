@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../Domain_decomposition/Domain_decomposition.h"
+#include "../constrain/matrix_constraint.h"
 #include "../constrain/settle.h"
 #include "../constrain/shake.h"
 #include "MD_core.h"
@@ -301,10 +302,9 @@ void INITIAL_VELOCITY_INFORMATION::Initial(CONTROLLER* controller,
         md_info->sys.freedom);
 }
 
-void INITIAL_VELOCITY_INFORMATION::Finalize(CONTROLLER* controller,
-                                            MD_INFORMATION* md_info,
-                                            DOMAIN_INFORMATION* dd,
-                                            SETTLE* settle, SHAKE* shake)
+void INITIAL_VELOCITY_INFORMATION::Finalize(
+    CONTROLLER* controller, MD_INFORMATION* md_info, DOMAIN_INFORMATION* dd,
+    SETTLE* settle, SHAKE* shake, MATRIX_CONSTRAINT* matrix_constraint)
 {
     if (!is_initialized || is_finalized) return;
     if (CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
@@ -329,6 +329,16 @@ void INITIAL_VELOCITY_INFORMATION::Finalize(CONTROLLER* controller,
             spongeErrorSimulationBreakDown, kFinalizeErrorBy,
             "Reason:\n\tthe initial SHAKE velocity projection did not "
             "converge\n");
+    }
+
+    if (matrix_constraint &&
+        !matrix_constraint->Project_Velocity_To_Constraint_Manifold(
+            dd->vel, dd->crd, dd->d_mass_inverse, md_info->pbc.boundary,
+            dd->atom_numbers, false))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorSimulationBreakDown, kFinalizeErrorBy,
+            "Initial LINCS/CCMA velocity projection did not converge");
     }
 
     const double kinetic_energy = Global_Kinetic_Energy(controller, dd);

@@ -7,6 +7,7 @@ struct DOMAIN_INFORMATION;
 struct MD_INFORMATION;
 struct SETTLE;
 struct SHAKE;
+struct MATRIX_CONSTRAINT;
 
 // Optional generation of a new initial velocity field.  Initial() runs after
 // the step-zero target schedule and final freedom calculation; Finalize() runs
@@ -19,5 +20,6 @@ struct INITIAL_VELOCITY_INFORMATION
 
     void Initial(CONTROLLER* controller, MD_INFORMATION* md_info);
     void Finalize(CONTROLLER* controller, MD_INFORMATION* md_info,
-                  DOMAIN_INFORMATION* dd, SETTLE* settle, SHAKE* shake);
+                  DOMAIN_INFORMATION* dd, SETTLE* settle, SHAKE* shake,
+                  MATRIX_CONSTRAINT* matrix_constraint = nullptr);
 };
