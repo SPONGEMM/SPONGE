@@ -281,7 +281,8 @@ bool Load_H5_CV_Config(CONTROLLER* controller,
         }
 
         std::vector<CVConfigSection> sections;
-        for (const auto& root : {cv_root, restraint_root, restraint_cv_root, steer_root})
+        for (const auto& root :
+             {cv_root, restraint_root, restraint_cv_root, steer_root})
         {
             if (file->exist(root))
             {
@@ -526,9 +527,8 @@ static void Set_CV_Config_Command(COLLECTIVE_VARIABLE_CONTROLLER* manager,
 void COLLECTIVE_VARIABLE_CONTROLLER::Commands_From_In_File(
     CONTROLLER* controller)
 {
-    for (const char* input_key :
-         {"cv_in_file", "restrain_in_file", "restrain_cv_in_file",
-          "steer_cv_in_file"})
+    for (const char* input_key : {"cv_in_file", "restrain_in_file",
+                                  "restrain_cv_in_file", "steer_cv_in_file"})
     {
         if (!controller->Command_Exist(input_key)) continue;
         const std::string cv_path = controller->Command(input_key);
