@@ -156,7 +156,7 @@ class ProtocolCVH5Reader
                 const std::size_t selected_atom_count =
                     atom_indices.empty() ? atom_refs.size()
                                          : atom_indices.size();
-                Read_Restart_Reference(root, selected_atom_count, &definition);
+                Read_Reference(root, selected_atom_count, &definition);
                 Validate_Current_Runtime_Shape(selected_atom_count, definition);
                 definitions->push_back(std::move(definition));
             }
@@ -429,44 +429,57 @@ class ProtocolCVH5Reader
         }
     }
 
-    void Read_Restart_Reference(const std::string& root,
+    void Read_Reference(const std::string& root,
+                        std::size_t selected_atom_count,
+                        ProtocolCVDefinition* definition)
+    {
+        const std::string inline_path = root + "/coordinate";
+        if (protocol_->exist(inline_path))
+        {
+            Read_Reference_Dataset(*protocol_, inline_path, selected_atom_count,
+                                   definition);
+        }
+        const std::string path = "/parameters/restart/references/cv/" +
+                                 definition->name + "/coordinate";
+        if (restart_ != nullptr && restart_->exist(path))
+        {
+            Read_Reference_Dataset(*restart_, path, selected_atom_count,
+                                   definition);
+        }
+        if (definition->type == "rmsd" &&
+            !Has_Runtime_Parameter(*definition, "coordinate"))
+        {
+            throw std::runtime_error(inline_path + " or restart " + path +
+                                     " is required for a native rmsd CV");
+        }
+    }
+
+    void Read_Reference_Dataset(HighFive::File& file, const std::string& path,
                                 std::size_t selected_atom_count,
                                 ProtocolCVDefinition* definition)
     {
-        const std::string path = "/parameters/restart/references/cv/" +
-                                 definition->name + "/coordinate";
-        if (restart_ == nullptr || !restart_->exist(path))
-        {
-            if (definition->type == "rmsd" &&
-                !Has_Runtime_Parameter(*definition, "coordinate"))
-            {
-                throw std::runtime_error(path +
-                                         " is required for a native rmsd CV");
-            }
-            return;
-        }
         if (definition->type != "rmsd")
         {
             throw std::runtime_error(path +
                                      " is only supported for rmsd CV objects");
         }
-        const auto dims = restart_->getDataSet(path).getSpace().getDimensions();
+        const auto dims = file.getDataSet(path).getSpace().getDimensions();
         if (dims != std::vector<std::size_t>{selected_atom_count, 3})
         {
-            throw std::runtime_error(path +
-                                     " must have shape [atom_indices,3]");
+            throw std::runtime_error(
+                path + " must have shape [selected_atom_count,3]");
         }
         std::vector<float> values(selected_atom_count * 3);
-        auto dataset = restart_->getDataSet(path);
+        auto dataset = file.getDataSet(path);
         if (H5Dread(dataset.getId(), H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
                     H5P_DEFAULT, values.data()) < 0)
         {
             throw std::runtime_error("failed to read " + path);
         }
         Validate_Finite(values, path);
-        definition->reference_coordinates = values;
         Add_Runtime_Parameter(definition, "coordinate", Join_Values(values),
                               path);
+        definition->reference_coordinates = values;
     }
 
     void Validate_Current_Runtime_Shape(std::size_t selected_atom_count,
