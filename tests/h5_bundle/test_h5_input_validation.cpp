@@ -3,6 +3,7 @@
 #include <cstring>
 #include <filesystem>
 #include <highfive/highfive.hpp>
+#include <limits>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -226,6 +227,107 @@ static void Test_Protocol_Reader_Loads_Native_CV_Objects()
         REQUIRE_EQ(definitions[1].sigma[0], 0.5f);
     }
     std::filesystem::remove_all(dir);
+}
+
+static void Test_Protocol_Reader_Inline_RMSD_Reference()
+{
+    const std::vector<float> reference = {1, 2, 3, 4, 5, 6};
+    struct Case
+    {
+        std::string type;
+        bool inline_reference;
+        bool restart_reference;
+        bool conflict;
+        int rows;
+        int columns;
+        bool nonfinite;
+        bool atom_refs;
+        std::string error;
+    };
+    const std::vector<Case> cases = {
+        {"rmsd", true, false, false, 2, 3, false, false, ""},
+        {"rmsd", true, false, false, 2, 3, false, true, ""},
+        {"rmsd", true, true, false, 2, 3, false, false, ""},
+        {"rmsd", false, true, false, 2, 3, false, false, ""},
+        {"rmsd", true, true, true, 2, 3, false, false, "conflicts"},
+        {"rmsd", false, false, false, 2, 3, false, false, "is required"},
+        {"rmsd", true, false, false, 1, 3, false, false, "must have shape"},
+        {"rmsd", true, false, false, 3, 2, false, false, "must have shape"},
+        {"rmsd", true, false, false, 2, 3, true, false, "finite"},
+        {"distance", true, false, false, 2, 3, false, false,
+         "only supported for rmsd"},
+    };
+    for (const auto& item : cases)
+    {
+        const auto dir = Unique_Temp_Path("protocol_inline_rmsd");
+        std::filesystem::create_directories(dir);
+        const auto protocol = dir / "protocol.spgp.h5";
+        const auto restart = dir / "restart.spgr.h5";
+        {
+            HighFive::File file(protocol.string(), HighFive::File::Overwrite);
+            Write_Scalar(file, "/cv/backbone/type", item.type);
+            if (item.atom_refs)
+                Write_String_Vector(file, "/cv/backbone/atom_refs", {"0", "1"});
+            else
+                Write_Int64_Vector(file, "/cv/backbone/atom_indices", {0, 1});
+            if (item.inline_reference)
+            {
+                auto values = reference;
+                values.resize(item.rows * item.columns);
+                if (item.nonfinite)
+                    values[0] = std::numeric_limits<float>::quiet_NaN();
+                Write_Matrix(file, "/cv/backbone/coordinate", values, item.rows,
+                             item.columns);
+            }
+        }
+        if (item.restart_reference)
+        {
+            auto values = reference;
+            if (item.conflict) values[0] += 1;
+            HighFiveBackend backend;
+            RestartH5Writer writer(&backend);
+            SpongeH5OutputPlan::ResolvedOutputPlan plan;
+            plan.restart.enabled = true;
+            plan.restart.path = restart.string();
+            REQUIRE_TRUE(writer.Open(plan, SpongeH5MD::kInputSchemaVersion));
+            REQUIRE_TRUE(writer.Write_Lineage("top", "atoms", "protocol"));
+            REQUIRE_TRUE(writer.Define_Structural_State(2, false));
+            const std::array<float, 9> box = {10, 0, 0, 0, 10, 0, 0, 0, 10};
+            REQUIRE_TRUE(writer.Write_Structural_State(0, 0.0, reference.data(),
+                                                       box.data(), nullptr));
+            REQUIRE_TRUE(
+                writer.Write_CV_Reference("backbone", values.data(), 2));
+            REQUIRE_TRUE(writer.Finalize());
+            REQUIRE_TRUE(writer.Close());
+        }
+        {
+            ProtocolCVH5Reader reader;
+            REQUIRE_TRUE(reader.Open_Protocol(protocol.string()));
+            if (item.restart_reference)
+                REQUIRE_TRUE(reader.Open_Restart(restart.string()));
+            std::vector<ProtocolCVDefinition> definitions;
+            const bool ok = reader.Read_Definitions(2, &definitions);
+            if (item.error.empty())
+            {
+                REQUIRE_TRUE(ok);
+                REQUIRE_EQ(definitions.size(), static_cast<std::size_t>(1));
+                REQUIRE_EQ(definitions[0].reference_coordinates, reference);
+                REQUIRE_TRUE(
+                    std::find(definitions[0].runtime_parameters.begin(),
+                              definitions[0].runtime_parameters.end(),
+                              std::make_pair(std::string("coordinate"),
+                                             std::string("1 2 3 4 5 6"))) !=
+                    definitions[0].runtime_parameters.end());
+            }
+            else
+            {
+                REQUIRE_TRUE(!ok);
+                REQUIRE_TRUE(reader.Last_Error().find(item.error) !=
+                             std::string::npos);
+            }
+        }
+        std::filesystem::remove_all(dir);
+    }
 }
 
 static void Test_Protocol_Reader_Loads_Typed_Virtual_Atoms()
@@ -1494,6 +1596,7 @@ int main()
         {
             Test_Protocol_Reader_Loads_Typed_CV_Restraint();
             Test_Protocol_Reader_Loads_Native_CV_Objects();
+            Test_Protocol_Reader_Inline_RMSD_Reference();
             Test_Protocol_Reader_Loads_Typed_Virtual_Atoms();
             Test_Protocol_Reader_Loads_Native_Metadynamics_Object();
             Test_Protocol_Reader_Loads_Native_Steering_Object();
