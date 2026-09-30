@@ -77,11 +77,6 @@ typedef void* HMODULE;
 #include <libgen.h>
 #include <unistd.h>
 typedef void* HMODULE;
-#define fcloseall()   \
-    do                \
-    {                 \
-        fflush(NULL); \
-    } while (0)
 #endif
 
 // device backend setup
