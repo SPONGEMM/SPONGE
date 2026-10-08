@@ -898,7 +898,7 @@ void CONTROLLER::Clear()
 {
     if (is_initialized)
     {
-        fcloseall();
+        fflush(NULL);
         if (Command_Exist("end_pause") && atoi(Command("end_pause")) != 0)
         {
             printf("End Pause\n");

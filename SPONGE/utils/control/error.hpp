@@ -138,7 +138,7 @@ inline void CONTROLLER::Throw_SPONGE_Error(const int error_number,
     }
     printf("\n%s%s\n%s\n%s", error_name.c_str(), error_by_.c_str(),
            error_reason.c_str(), extra_error_string_.c_str());
-    fcloseall();
+    fflush(NULL);
 #ifdef USE_MPI
     MPI_Abort(MPI_COMM_WORLD, error_number);
 #else
