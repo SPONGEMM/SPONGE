@@ -1219,7 +1219,7 @@ static __global__ void up_box_bc(int fftx, int ffty, int fftz, float* PME_BC,
                 }
                 else
                 {
-                    bc_local = (float)1.0 / PI / msq * exp(mprefactor * msq) /
+                    bc_local = (float)1.0 / PI / msq * exp(-mprefactor * msq) /
                                volume * PME_BC0[index];
                     virial_bc_local.a11 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.x * m.x;
@@ -1255,7 +1255,7 @@ void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
 {
     float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
-    float mprefactor = PI * PI / -beta / beta;
+    float mprefactor = PI * PI / beta / beta;
     dim3 blockSize = {8, 8, CONTROLLER::device_max_thread / 64};
     dim3 gridSize = {64, 64};
     Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx, ffty,
