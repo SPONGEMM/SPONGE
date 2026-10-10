@@ -62,7 +62,7 @@ corresponding pages.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `amber_parm7` | string | AMBER parm7 topology/parameter file |
-| `amber_rst7` | string | AMBER rst7 coordinate/velocity file |
+| `amber_rst7` | string | AMBER rst7 coordinates, optional velocities, and six box values (lengths and angles); the optional header time does not indicate velocity presence |
 | `gromacs_gro` | string | GROMACS .gro coordinate file |
 | `gromacs_top` | string | GROMACS .top topology file |
 | `gromacs_include_dir` | string list | Extra include directories used when reading `.top` |

@@ -1021,27 +1021,31 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
     Open_File_Safely(&fin, controller->Command("amber_rst7"), "r");
 
     char line[CHAR_LENGTH_MAX];
-    fgets(line, CHAR_LENGTH_MAX, fin);
-    fgets(line, CHAR_LENGTH_MAX, fin);
+    if (fgets(line, CHAR_LENGTH_MAX, fin) == NULL ||
+        fgets(line, CHAR_LENGTH_MAX, fin) == NULL)
+    {
+        fclose(fin);
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
+            "Reason:\n\tmissing amber_rst7 header\n");
+    }
 
     int atom_numbers = 0;
     double start_time = 0.0;
-    int has_vel = 0;
     int scanf_ret = sscanf(line, "%d %lf", &atom_numbers, &start_time);
+    if (scanf_ret < 1 || atom_numbers <= 0)
+    {
+        fclose(fin);
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
+            "Reason:\n\tinvalid atom count in amber_rst7\n");
+    }
     Amber_Ensure_Atom_Numbers(system, atom_numbers, controller,
                               "Xponge::Amber_Load_Rst7");
-    if (scanf_ret == 2)
-    {
-        has_vel = 1;
-        system->start_time = start_time;
-    }
-    else
-    {
-        system->start_time = 0.0;
-    }
+    system->start_time = scanf_ret == 2 ? start_time : 0.0;
 
     system->atoms.coordinate.resize(3 * atom_numbers);
-    system->atoms.velocity.resize(3 * atom_numbers, 0.0f);
+    system->atoms.velocity.assign(3 * atom_numbers, 0.0f);
 
     for (int i = 0; i < atom_numbers; i++)
     {
@@ -1055,42 +1059,35 @@ static void Amber_Load_Rst7(System* system, CONTROLLER* controller)
         }
     }
 
-    if (has_vel)
+    // Time is independent of the optional velocity block. These inputs
+    // require six box values, with either zero or 3*N preceding velocities.
+    std::vector<float> remaining;
+    float value;
+    int read_ret;
+    while ((read_ret = fscanf(fin, "%f", &value)) == 1)
     {
-        for (int i = 0; i < atom_numbers; i++)
-        {
-            if (fscanf(fin, "%f %f %f", &system->atoms.velocity[3 * i],
-                       &system->atoms.velocity[3 * i + 1],
-                       &system->atoms.velocity[3 * i + 2]) != 3)
-            {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
-                    "Reason:\n\tthe format of amber_rst7 is not right\n");
-            }
-        }
-    }
-    if (!has_vel)
-    {
-        system->atoms.velocity.assign(3 * atom_numbers, 0.0f);
-    }
-
-    system->box.box_length.resize(3);
-    system->box.box_angle.resize(3);
-    if (fscanf(fin, "%f %f %f", &system->box.box_length[0],
-               &system->box.box_length[1], &system->box.box_length[2]) != 3)
-    {
-        controller->Throw_SPONGE_Error(
-            spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
-            "Reason:\n\tthe format of amber_rst7 is not right\n");
-    }
-    if (fscanf(fin, "%f %f %f", &system->box.box_angle[0],
-               &system->box.box_angle[1], &system->box.box_angle[2]) != 3)
-    {
-        controller->Throw_SPONGE_Error(
-            spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
-            "Reason:\n\tthe format of amber_rst7 is not right\n");
+        remaining.push_back(value);
     }
     fclose(fin);
+    std::size_t velocity_count = system->atoms.velocity.size();
+    bool has_vel = remaining.size() == velocity_count + 6;
+    if (read_ret != EOF || (!has_vel && remaining.size() != 6))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat, "Xponge::Amber_Load_Rst7",
+            "Reason:\n\tamber_rst7 must contain coordinates, optionally "
+            "3*N velocities, and six box values\n");
+    }
+    std::size_t box_offset = has_vel ? velocity_count : 0;
+    if (has_vel)
+    {
+        system->atoms.velocity.assign(remaining.begin(),
+                                      remaining.begin() + velocity_count);
+    }
+    system->box.box_length.assign(remaining.begin() + box_offset,
+                                  remaining.begin() + box_offset + 3);
+    system->box.box_angle.assign(remaining.begin() + box_offset + 3,
+                                 remaining.end());
 }
 
 void Load_Amber_Inputs(System* system, CONTROLLER* controller)
