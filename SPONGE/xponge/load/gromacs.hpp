@@ -22,6 +22,7 @@ struct Gromacs_Defaults
 struct Gromacs_Atom_Type
 {
     std::string name;
+    std::string bonded_type;
     float mass = 0.0f;
     float charge = 0.0f;
     std::string ptype;
@@ -36,6 +37,14 @@ struct Gromacs_Bond_Type
     int funct = 0;
     float b0 = 0.0f;
     float kb = 0.0f;
+};
+
+struct Gromacs_Constraint_Type
+{
+    std::string ai;
+    std::string aj;
+    int funct = 0;
+    float b0 = 0.0f;
 };
 
 struct Gromacs_Angle_Type
@@ -178,6 +187,7 @@ struct Gromacs_Topology
     Gromacs_Defaults defaults;
     std::unordered_map<std::string, Gromacs_Atom_Type> atom_types;
     std::vector<Gromacs_Bond_Type> bond_types;
+    std::vector<Gromacs_Constraint_Type> constraint_types;
     std::vector<Gromacs_Angle_Type> angle_types;
     std::vector<Gromacs_Dihedral_Type> dihedral_types;
     std::vector<Gromacs_Pair_Type> pair_types;
@@ -463,11 +473,11 @@ static void Gromacs_Preprocess_File(const fs::path& file_path,
 static bool Gromacs_Is_Parsed_Section(const std::string& section)
 {
     static const std::set<std::string> parsed_sections = {
-        "defaults",      "atomtypes", "bondtypes",      "angletypes",
-        "dihedraltypes", "pairtypes", "nonbond_params", "cmaptypes",
-        "moleculetype",  "atoms",     "bonds",          "pairs",
-        "angles",        "dihedrals", "settles",        "constraints",
-        "exclusions",    "cmap",      "molecules"};
+        "defaults",        "atomtypes",    "bondtypes",      "angletypes",
+        "dihedraltypes",   "pairtypes",    "nonbond_params", "cmaptypes",
+        "constrainttypes", "moleculetype", "atoms",          "bonds",
+        "pairs",           "angles",       "dihedrals",      "settles",
+        "constraints",     "exclusions",   "cmap",           "molecules"};
     return parsed_sections.count(section) > 0;
 }
 
@@ -560,6 +570,25 @@ static const Gromacs_Bond_Type* Gromacs_Find_Bond_Type(
             (type.ai == aj && type.aj == ai))
         {
             return &type;
+        }
+    }
+    return NULL;
+}
+
+static const Gromacs_Constraint_Type* Gromacs_Find_Constraint_Type(
+    const Gromacs_Topology& topology, const std::string& ai,
+    const std::string& aj, int funct)
+{
+    const std::string& bonded_i = topology.atom_types.at(ai).bonded_type;
+    const std::string& bonded_j = topology.atom_types.at(aj).bonded_type;
+    // Later definitions override earlier definitions of the same pair.
+    for (auto it = topology.constraint_types.rbegin();
+         it != topology.constraint_types.rend(); ++it)
+    {
+        if (it->funct == funct && ((it->ai == bonded_i && it->aj == bonded_j) ||
+                                   (it->ai == bonded_j && it->aj == bonded_i)))
+        {
+            return &*it;
         }
     }
     return NULL;
@@ -779,7 +808,7 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
         }
         else if (current_section == "atomtypes")
         {
-            if (tokens.size() < 7)
+            if (tokens.size() < 6 || tokens.size() > 8)
             {
                 controller->Throw_SPONGE_Error(
                     spongeErrorBadFileFormat, error_by,
@@ -788,6 +817,14 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             }
             Gromacs_Atom_Type atom_type;
             atom_type.name = tokens[0];
+            atom_type.bonded_type = atom_type.name;
+            // The two optional fields are bonded type and atomic number.
+            if (tokens.size() == 8 ||
+                (tokens.size() == 7 && tokens[1].find_first_not_of(
+                                           "0123456789") != std::string::npos))
+            {
+                atom_type.bonded_type = tokens[1];
+            }
             atom_type.mass = std::stof(tokens[tokens.size() - 5]);
             atom_type.charge = std::stof(tokens[tokens.size() - 4]);
             atom_type.ptype = tokens[tokens.size() - 3];
@@ -811,6 +848,28 @@ static Gromacs_Topology Gromacs_Parse_Topology(CONTROLLER* controller)
             bond_type.b0 = std::stof(tokens[3]);
             bond_type.kb = std::stof(tokens[4]);
             topology.bond_types.push_back(bond_type);
+        }
+        else if (current_section == "constrainttypes")
+        {
+            if (tokens.size() != 4 && tokens.size() != 5)
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, error_by,
+                    "Reason:\n\tinvalid [ constrainttypes ] section in "
+                    "GROMACS topology\n");
+            }
+            Gromacs_Constraint_Type type;
+            type.ai = tokens[0];
+            type.aj = tokens[1];
+            type.funct = std::stoi(tokens[2]);
+            type.b0 = std::stof(tokens[3]);
+            if (type.funct != 1 && type.funct != 2)
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, error_by,
+                    "Reason:\n\tunsupported GROMACS constraint function\n");
+            }
+            topology.constraint_types.push_back(type);
         }
         else if (current_section == "angletypes")
         {
@@ -1449,6 +1508,10 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 }
             };
 
+            auto bonded_type =
+                [&](const Gromacs_Molecule_Atom& atom) -> const std::string&
+            { return topology.atom_types.at(atom.type).bonded_type; };
+
             std::set<std::pair<int, int>> exclusion_pairs = molecule.exclusions;
             for (const std::pair<int, int>& exclusion : exclusion_pairs)
             {
@@ -1495,9 +1558,9 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 }
                 else
                 {
-                    type =
-                        Gromacs_Find_Bond_Type(topology.bond_types, atom_i.type,
-                                               atom_j.type, bond.funct);
+                    type = Gromacs_Find_Bond_Type(
+                        topology.bond_types, bonded_type(atom_i),
+                        bonded_type(atom_j), bond.funct);
                     if (type == NULL)
                     {
                         controller->Throw_SPONGE_Error(
@@ -1534,18 +1597,44 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
 
             for (const Gromacs_Constraint& constraint : molecule.constraints)
             {
-                if (constraint.parameters.empty())
+                int ai_local = constraint.ai - 1;
+                int aj_local = constraint.aj - 1;
+                require_local_atom(ai_local);
+                require_local_atom(aj_local);
+                if (constraint.funct != 1 && constraint.funct != 2)
                 {
                     controller->Throw_SPONGE_Error(
                         spongeErrorBadFileFormat, error_by,
-                        "Reason:\n\tfailed to resolve GROMACS constraint "
-                        "distance\n");
+                        "Reason:\n\tunsupported GROMACS constraint function\n");
                 }
-                append_bond(constraint.ai - 1, constraint.aj - 1, 0.0f,
-                            Gromacs_To_Angstrom(constraint.parameters[0]));
-                append_constraint(
-                    constraint.ai - 1, constraint.aj - 1,
-                    Gromacs_To_Angstrom(constraint.parameters[0]));
+                float distance;
+                if (!constraint.parameters.empty())
+                {
+                    distance = constraint.parameters[0];
+                }
+                else
+                {
+                    const Gromacs_Constraint_Type* type =
+                        Gromacs_Find_Constraint_Type(
+                            topology, molecule.atoms[ai_local].type,
+                            molecule.atoms[aj_local].type, constraint.funct);
+                    if (type == NULL)
+                    {
+                        controller->Throw_SPONGE_Error(
+                            spongeErrorBadFileFormat, error_by,
+                            "Reason:\n\tfailed to resolve GROMACS constraint "
+                            "distance\n");
+                    }
+                    distance = type->b0;
+                }
+                float r0 = Gromacs_To_Angstrom(distance);
+                if (constraint.funct == 1)
+                {
+                    append_bond(ai_local, aj_local, 0.0f, r0);
+                }
+                // Function 2 constrains distance without creating a bond
+                // connection or generating nrexcl exclusions.
+                append_constraint(ai_local, aj_local, r0);
             }
 
             for (int i = 0; i < static_cast<int>(molecule.atoms.size()); i++)
@@ -1606,8 +1695,9 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 const Gromacs_Molecule_Atom& atom_l = molecule.atoms[al_local];
                 const Gromacs_Molecule_Atom& atom_m = molecule.atoms[am_local];
                 int cmap_type = Gromacs_Find_CMap_Type(
-                    topology.cmap_types, atom_i.type, atom_j.type, atom_k.type,
-                    atom_l.type, atom_m.type, cmap_item.funct);
+                    topology.cmap_types, bonded_type(atom_i),
+                    bonded_type(atom_j), bonded_type(atom_k),
+                    bonded_type(atom_l), bonded_type(atom_m), cmap_item.funct);
                 if (cmap_type < 0)
                 {
                     controller->Throw_SPONGE_Error(
@@ -1647,8 +1737,8 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
                 else
                 {
                     const Gromacs_Angle_Type* type = Gromacs_Find_Angle_Type(
-                        topology.angle_types, atom_i.type, atom_j.type,
-                        atom_k.type, angle.funct);
+                        topology.angle_types, bonded_type(atom_i),
+                        bonded_type(atom_j), bonded_type(atom_k), angle.funct);
                     if (type == NULL)
                     {
                         controller->Throw_SPONGE_Error(
@@ -1733,8 +1823,9 @@ static void Gromacs_Instantiate_System(const Gromacs_Topology& topology,
 
                 std::vector<const Gromacs_Dihedral_Type*> types =
                     Gromacs_Find_Dihedral_Types(
-                        topology.dihedral_types, atom_i.type, atom_j.type,
-                        atom_k.type, atom_l.type, dihedral.funct);
+                        topology.dihedral_types, bonded_type(atom_i),
+                        bonded_type(atom_j), bonded_type(atom_k),
+                        bonded_type(atom_l), dihedral.funct);
                 if (types.empty())
                 {
                     controller->Throw_SPONGE_Error(
