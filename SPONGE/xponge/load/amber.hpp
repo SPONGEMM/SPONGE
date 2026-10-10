@@ -755,8 +755,10 @@ static void Amber_Load_Classical_Force_Field(System* system,
                 type_b = temp;
             }
             int pair_type = type_b * (type_b + 1) / 2 + type_a;
-            float lj_scale = 0.0f;
-            float cf_scale = 0.0f;
+            // Missing per-dihedral factors use Amber's legacy defaults.
+            // Explicit zero factors retain the existing disabled-term behavior.
+            float lj_scale = scnb_scale_factor.empty() ? 1.0f / 2.0f : 0.0f;
+            float cf_scale = scee_scale_factor.empty() ? 1.0f / 1.2f : 0.0f;
             if (type_index < static_cast<int>(scnb_scale_factor.size()) &&
                 scnb_scale_factor[type_index] != 0.0f)
             {
