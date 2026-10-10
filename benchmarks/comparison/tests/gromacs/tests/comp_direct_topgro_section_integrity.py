@@ -11,9 +11,10 @@ def _toml_string(value):
 
 
 def _gro_atom(resid, resname, atomname, atomnr, x):
+    x, y, z = x if isinstance(x, tuple) else (x, 0.0, 0.0)
     return (
         f"{resid:5d}{resname:<5}{atomname:>5}{atomnr:5d}"
-        f"{x:8.3f}{0.0:8.3f}{0.0:8.3f}"
+        f"{x:8.3f}{y:8.3f}{z:8.3f}"
     )
 
 
