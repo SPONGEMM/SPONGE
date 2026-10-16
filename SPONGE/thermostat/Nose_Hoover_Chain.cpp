@@ -228,6 +228,7 @@ void NOSE_HOOVER_CHAIN_INFORMATION::Get_Local(int* atom_local,
 {
     if (!is_initialized) return;
     this->local_atom_numbers = local_atom_numbers;
+    if (local_atom_numbers == 0) return;
     Launch_Device_Kernel(
         device_get_local,
         (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
@@ -249,6 +250,8 @@ void NOSE_HOOVER_CHAIN_INFORMATION::MD_Iteration_Leap_Frog(
                      deviceMemcpyDeviceToHost);
         deviceMemcpy(h_velocity, velocity, sizeof(float) * (chain_length + 1),
                      deviceMemcpyDeviceToHost);
+        // The chain evolves from global kinetic energy even on an empty domain.
+        if (local_atom_numbers == 0) return;
         if (max_velocity <= 0)
         {
             Launch_Device_Kernel(

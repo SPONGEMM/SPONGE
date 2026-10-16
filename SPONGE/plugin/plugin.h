@@ -16,6 +16,7 @@ typedef void (*cv_compute_func)(int, UNSIGNED_INT_VECTOR*, VECTOR, VECTOR*,
 typedef std::string (*NameFunction)();
 typedef std::string (*VersionCheckFunction)(int);
 typedef void (*InitialStableFunction)(const SPONGE_PLUGIN_API* api);
+typedef void (*InitialLocalMPFunction)(const SPONGE_LOCAL_MP_API_V1* api);
 typedef void (*InitialFunction)(MD_INFORMATION* md_info, CONTROLLER* controller,
                                 NEIGHBOR_LIST* neighbor_list,
                                 COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
@@ -23,6 +24,8 @@ typedef void (*InitialFunction)(MD_INFORMATION* md_info, CONTROLLER* controller,
 typedef void (*SetDomainInformationFunction)(DOMAIN_INFORMATION* dd);
 typedef void (*SetBackendDeviceTypeFunction)(int device_type);
 typedef void (*RuntimeFunction)();
+
+class MLIP_NEIGHBOR_LIST;
 
 struct SPONGE_PLUGIN
 {
@@ -54,7 +57,31 @@ struct SPONGE_PLUGIN
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                  NEIGHBOR_LIST* neighbor_list);
     void Set_Domain_Information(DOMAIN_INFORMATION* dd);
+    bool Validate_Local_MP_Capabilities();
+    // PP-only admission before first force/feature exchange; no hot-path
+    // collective after success. Main aborts the world on a false result.
+    bool Ensure_Local_MP_Setup();
+    bool Has_Local_MP_Provider() const;
+    bool Get_Mlip_Neighbor_Parameters(double& cutoff, double& skin) const;
+    uint64_t Get_Domain_Epoch() const;
+    void Invalidate_Mlip_Neighbor_View();
+    // Caller completes device production before publishing borrowed pointers.
+    void Publish_Mlip_Neighbor_View(const MLIP_NEIGHBOR_LIST& graph,
+                                    int owned_count, int ghost_count);
+    // Immutable declarations are queried after all initialization callbacks.
+    bool classic_neighbors_required = false;
+    bool Uses_Classic_Neighbors() const { return classic_neighbors_required; }
     void After_Initial();
     void Calculate_Force();
     void Mdout_Print();
+
+   private:
+    bool local_mp_setup_checked = false;
+    bool local_mp_setup_ready = false;
+    std::vector<int> after_init_plugin_indices;
+    std::vector<int> force_plugin_indices;
+    std::vector<int> print_plugin_indices;
+    std::vector<int> domain_plugin_indices;
+    std::vector<SPONGE_GET_RUNTIME_ERROR_V1> checked_error_queries;
+    void Check_Runtime_Error(int plugin_index);
 };

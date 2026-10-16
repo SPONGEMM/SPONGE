@@ -46,6 +46,7 @@ struct CONTROLLER
     int is_initialized = 0;
     int is_controller_printf_initialized = 0;
     int last_modify_date = 20260216;
+    float mlip_ghost_radius = 0.0f;
 
     void Initial(int argc, char** argv, const char* subpackage_hint);
     void Clear();

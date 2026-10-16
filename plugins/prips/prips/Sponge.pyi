@@ -30,8 +30,45 @@ def Calculate_Force():
 ```
 """
 
-from typing import Literal
+from typing import Any, Literal
 
+_local_mp: int
+
+class SpongeDLPackTensor:
+    def __dlpack__(self) -> Any: ...
+    def __dlpack_device__(self) -> tuple[int, int]: ...
+
+def _register_mlip_capabilities(
+    cutoff_angstrom: float,
+    skin_angstrom: float,
+    interaction_depth: int,
+    capability_hash: int,
+) -> int: ...
+def _device_index() -> int: ...
+def _domain_epoch() -> int: ...
+def _need_potential() -> int: ...
+def _need_pressure() -> int: ...
+def _cell() -> tuple[tuple[tuple[float, float, float], ...], int]: ...
+def _update_ghost_tensor(local_rows: Any) -> int: ...
+def _accumulate_ghost_tensor(local_rows: Any) -> int: ...
+def _submit_owned_outputs(
+    owned_forces: Any, energy: Any | None, physical_virial: Any | None
+) -> int:
+    """Add contiguous CUDA FP32 [owned,3], optional [1], and optional [3,3].
+
+    Inputs use SPONGE units. Native converts physical virial to its LT storage.
+    Returns only after input reads finish; no MPI communication is performed.
+    Raises if the local-MP API is unavailable.
+    """
+
+def _assemble_edge_gradients(
+    selected_candidate_ids: Any,
+    gradients_model: Any,
+    neighbor_epoch: int,
+    length_to_angstrom: float,
+    owned_forces_model: Any,
+    virial_model: Any | None,
+) -> int: ...
 def set_backend(backend: Literal["numpy", "jax", "cupy", "pytorch"]) -> None:
     """
     Set the backend for PRIPS.
@@ -82,6 +119,9 @@ neighbor_list: NEIGHBOR_LIST | None
 " Neighbor list interface, available after SPONGE finishes initialization "
 
 class DOMAIN_INFORMATION:
+    domain_epoch: int
+    cell: tuple[tuple[float, float, float], ...] | None
+    pbc: tuple[bool, bool, bool]
     @property
     def atom_numbers(self) -> int | None:
         "Local atom numbers in the current PP rank"

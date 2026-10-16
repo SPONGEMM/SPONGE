@@ -1,5 +1,7 @@
 ﻿#pragma once
 
+#include "initial_coordinate.hpp"
+
 static __global__ void Get_Origin(const int residue_numbers, const int* start,
                                   const int* end, const VECTOR* crd,
                                   const float* atom_mass,
@@ -823,73 +825,6 @@ static std::vector<int> Check_Periodic_Molecules(
         for (int idx : atoms) mark[idx] = 0;
     }
     return periodic_mols;
-}
-
-static void Move_Crd_Nearest_From_Connectivity(
-    const CPP_ATOM_GROUP& mol_atoms, const CONECT& connectivity, VECTOR* crd,
-    const Boundary boundary, std::vector<int> periodic_molecules)
-{
-    // 复制原始坐标供最小镜像计算
-    int max_atom_idx = -1;
-    for (auto& mol : mol_atoms)
-    {
-        for (int idx : mol)
-        {
-            if (idx > max_atom_idx) max_atom_idx = idx;
-        }
-    }
-    if (max_atom_idx < 0) return;
-    std::vector<VECTOR> crd_orig(max_atom_idx + 1);
-    for (int i = 0; i <= max_atom_idx; ++i) crd_orig[i] = crd[i];
-
-    std::vector<int> mark(max_atom_idx + 1, 0);
-    std::vector<int> visited(max_atom_idx + 1, 0);
-    std::deque<int> queue;
-
-    for (int i = 0; i < mol_atoms.size(); i++)
-    {
-        auto& atoms = mol_atoms[i];
-        if (atoms.empty()) continue;
-        for (int idx : atoms)
-        {
-            mark[idx] = 1;
-            visited[idx] = 0;
-        }
-        // 先把第一个原子映射到主盒子
-        int anchor = atoms[0];
-        VECTOR frac0 = crd_orig[anchor] * boundary.rcell;
-        frac0.x = frac0.x - floorf(frac0.x);
-        frac0.y = frac0.y - floorf(frac0.y);
-        frac0.z = frac0.z - floorf(frac0.z);
-        crd[anchor] = frac0 * boundary.cell;
-
-        visited[anchor] = 1;
-        queue.clear();
-        queue.push_back(anchor);
-        while (!queue.empty())
-        {
-            int atom = queue.front();
-            queue.pop_front();
-            auto itMap = connectivity.find(atom);
-            if (itMap == connectivity.end())
-            {
-                continue;
-            }
-            for (auto it = itMap->second.begin(); it != itMap->second.end();
-                 ++it)
-            {
-                int nb = *it;
-                if (nb < 0 || nb > max_atom_idx || mark[nb] == 0 || visited[nb])
-                    continue;
-                VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
-                    crd_orig[nb], crd_orig[atom], boundary);
-                crd[nb] = crd[atom] + dr;
-                visited[nb] = 1;
-                queue.push_back(nb);
-            }
-        }
-        for (int idx : atoms) mark[idx] = 0;
-    }
 }
 
 void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)

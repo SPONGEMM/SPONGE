@@ -1077,15 +1077,32 @@ void MD_INFORMATION::Step_Print(CONTROLLER* controller)
     }
 }
 
+static __global__ void Add_Local_MLIP_Virial_To_Stress(const float* mlip_virial,
+                                                       float volume_inverse,
+                                                       LTMatrix3* stress)
+{
+    stress[0].a11 += volume_inverse * mlip_virial[0];
+    stress[0].a21 += volume_inverse * mlip_virial[1];
+    stress[0].a22 += volume_inverse * mlip_virial[2];
+    stress[0].a31 += volume_inverse * mlip_virial[3];
+    stress[0].a32 += volume_inverse * mlip_virial[4];
+    stress[0].a33 += volume_inverse * mlip_virial[5];
+}
+
 void MD_INFORMATION::Get_pressure(CONTROLLER* controller, float dd_atom_numbers,
                                   VECTOR* dd_vel, float* dd_d_mass,
-                                  LTMatrix3* dd_d_virial, deviceStream_t stream)
+                                  LTMatrix3* dd_d_virial,
+                                  const float* dd_d_mlip_virial,
+                                  deviceStream_t stream)
 {
     if (need_pressure == 0) return;
     // PP进程下计算势能与动能贡献，在单进程情况下PME势能贡献已考虑在内
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         sys.Get_Potential_to_stress(controller, dd_atom_numbers, dd_d_virial);
+        Launch_Device_Kernel(Add_Local_MLIP_Virial_To_Stress, 1, 1, 0, NULL,
+                             dd_d_mlip_virial, 1.0f / sys.Get_Volume(),
+                             sys.d_stress);
         sys.Get_Kinetic_to_stress(controller, dd_atom_numbers, dd_vel,
                                   dd_d_mass);
     }

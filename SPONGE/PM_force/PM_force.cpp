@@ -1823,7 +1823,7 @@ void Particle_Mesh::MPI_PME_Excluded_Force_With_Atom_Energy(
     const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
     int need_energy, float* atom_ene, int need_virial, LTMatrix3* atom_virial)
 {
-    if (is_initialized && calculate_excluded_part)
+    if (is_initialized && calculate_excluded_part && local_atom_numbers > 0)
     {
         if (need_energy)
             deviceMemset(d_correction_atom_energy, 0,

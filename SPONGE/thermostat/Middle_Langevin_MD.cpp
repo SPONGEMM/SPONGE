@@ -293,6 +293,7 @@ void MIDDLE_Langevin_INFORMATION::Get_Local(int* atom_local,
     if (!is_initialized) return;
     this->local_atom_numbers = local_atom_numbers;
     this->local_float4_numbers = (local_atom_numbers * 3 + 3) / 4;
+    if (local_atom_numbers == 0) return;
     Launch_Device_Kernel(
         device_get_local,
         (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
@@ -308,27 +309,28 @@ void MIDDLE_Langevin_INFORMATION::MD_Iteration_Leap_Frog(VECTOR* frc,
 {
     if (is_initialized)
     {
+        // Invocation state advances even when this domain currently owns no
+        // atoms.
+        const auto invocation_count = random_invocation_count++;
+        if (local_atom_numbers == 0) return;
         if (max_velocity <= 0)
         {
-            Launch_Device_Kernel(MD_Iteration_Leap_Frog_With_LiuJian,
-                                 (local_atom_numbers + 32 - 1) / 32, 32, 0,
-                                 NULL, random_seed, random_invocation_count,
-                                 (float*)random_force, local_atom_numbers,
-                                 half_dt, dt, exp_gamma, d_mass_inverse_local,
-                                 d_sqrt_mass_local, vel, crd, frc, acc,
-                                 random_force);
+            Launch_Device_Kernel(
+                MD_Iteration_Leap_Frog_With_LiuJian,
+                (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
+                invocation_count, (float*)random_force, local_atom_numbers,
+                half_dt, dt, exp_gamma, d_mass_inverse_local, d_sqrt_mass_local,
+                vel, crd, frc, acc, random_force);
         }
         else
         {
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_LiuJian_With_Max_Velocity,
                 (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
-                random_invocation_count, (float*)random_force,
-                local_atom_numbers, half_dt, dt, exp_gamma,
-                d_mass_inverse_local, d_sqrt_mass_local, vel, crd, frc, acc,
-                random_force, max_velocity);
+                invocation_count, (float*)random_force, local_atom_numbers,
+                half_dt, dt, exp_gamma, d_mass_inverse_local, d_sqrt_mass_local,
+                vel, crd, frc, acc, random_force, max_velocity);
         }
-        random_invocation_count += 1;
     }
 }
 

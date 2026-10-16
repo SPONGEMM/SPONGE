@@ -497,13 +497,20 @@ void MD_INFORMATION::system_information::Get_Potential_to_stress(
     dim3 blockSize = {CONTROLLER::device_warp,
                       CONTROLLER::device_max_thread / CONTROLLER::device_warp};
 
-    // 计算势能贡献
-    Launch_Device_Kernel(
-        Get_Stress_Potential_Contribution,
-        (atom_numbers + 4 * CONTROLLER::device_max_thread - 1) / 4 /
-            CONTROLLER::device_max_thread,
-        blockSize, 0, NULL, atom_numbers, d_atom_virial_tensor,
-        d_virial_tensor);
+    if (atom_numbers > 0)
+    {
+        // 计算势能贡献
+        Launch_Device_Kernel(
+            Get_Stress_Potential_Contribution,
+            (atom_numbers + 4 * CONTROLLER::device_max_thread - 1) / 4 /
+                CONTROLLER::device_max_thread,
+            blockSize, 0, NULL, atom_numbers, d_atom_virial_tensor,
+            d_virial_tensor);
+    }
+    else
+    {
+        deviceMemset(d_virial_tensor, 0, sizeof(LTMatrix3));
+    }
 
     Launch_Device_Kernel(Get_Stress_From_virial, 1, 1, 0, NULL, volume_inverse,
                          d_virial_tensor, d_stress);
@@ -512,6 +519,8 @@ void MD_INFORMATION::system_information::Get_Potential_to_stress(
 void MD_INFORMATION::system_information::Get_Kinetic_to_stress(
     CONTROLLER* controller, int atom_numbers, VECTOR* vel, float* atom_mass)
 {
+    // Stress already contains potential and MLIP terms; add zero for no atoms.
+    if (atom_numbers == 0) return;
     float volume_inverse = 1.0f / Get_Volume();
     dim3 blockSize = {CONTROLLER::device_warp,
                       CONTROLLER::device_max_thread / CONTROLLER::device_warp};

@@ -715,18 +715,26 @@ void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary)
 {
     if (!is_initialized) return;
 
-    Launch_Device_Kernel(remember_pair_AB,
-                         (num_pair_local + CONTROLLER::device_max_thread - 1) /
-                             CONTROLLER::device_max_thread,
-                         CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
-                         d_pairs_local, crd, boundary, last_pair_AB);
+    if (num_pair_local > 0)
+    {
+        Launch_Device_Kernel(
+            remember_pair_AB,
+            (num_pair_local + CONTROLLER::device_max_thread - 1) /
+                CONTROLLER::device_max_thread,
+            CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
+            d_pairs_local, crd, boundary, last_pair_AB);
+    }
 
-    Launch_Device_Kernel(
-        remember_triangle_BA_CA,
-        (num_triangle_local + CONTROLLER::device_max_thread - 1) /
-            CONTROLLER::device_max_thread,
-        CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-        d_triangles_local, crd, boundary, last_triangle_BA, last_triangle_CA);
+    if (num_triangle_local > 0)
+    {
+        Launch_Device_Kernel(
+            remember_triangle_BA_CA,
+            (num_triangle_local + CONTROLLER::device_max_thread - 1) /
+                CONTROLLER::device_max_thread,
+            CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
+            d_triangles_local, crd, boundary, last_triangle_BA,
+            last_triangle_CA);
+    }
 }
 
 static __global__ void get_local_device(int triangle_numbers, int pair_numbers,
@@ -800,21 +808,27 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
                        VECTOR* vel, const int need_pressure,
                        LTMatrix3* d_stress)
 {
-    if (!is_initialized) return;
+    // A globally active SETTLE instance can have no local pairs/triangles.
+    // CUDA forbids a zero-sized launch; empty local work changes no state.
+    if (!is_initialized || (num_pair_local == 0 && num_triangle_local == 0))
+        return;
 #ifndef GPU_ARCH_NAME
     int invalid_pair = -1;
     int* invalid_pair_buffer = &invalid_pair;
 #else
     int* invalid_pair_buffer = NULL;
 #endif
-    Launch_Device_Kernel(settle_pair,
-                         (num_pair_local + CONTROLLER::device_max_thread - 1) /
-                             CONTROLLER::device_max_thread,
-                         CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
-                         d_pairs_local, atom_local, d_mass, crd, boundary,
-                         last_pair_AB, constrain->dt, constrain->v_factor,
-                         constrain->x_factor, vel,
-                         virial_tensor + triangle_numbers, invalid_pair_buffer);
+    if (num_pair_local > 0)
+    {
+        Launch_Device_Kernel(
+            settle_pair,
+            (num_pair_local + CONTROLLER::device_max_thread - 1) /
+                CONTROLLER::device_max_thread,
+            CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
+            d_pairs_local, atom_local, d_mass, crd, boundary, last_pair_AB,
+            constrain->dt, constrain->v_factor, constrain->x_factor, vel,
+            virial_tensor + triangle_numbers, invalid_pair_buffer);
+    }
 
 #ifndef GPU_ARCH_NAME
     if (invalid_pair >= 0)
@@ -851,33 +865,42 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
     }
 #endif
 
-    Launch_Device_Kernel(
-        settle_triangle,
-        (num_triangle_local + CONTROLLER::device_max_thread - 1) /
-            CONTROLLER::device_max_thread,
-        CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-        d_triangles_local, d_mass, crd, boundary, last_triangle_BA,
-        last_triangle_CA, constrain->dt, constrain->v_factor,
-        constrain->x_factor, vel, virial_tensor);
+    if (num_triangle_local > 0)
+    {
+        Launch_Device_Kernel(
+            settle_triangle,
+            (num_triangle_local + CONTROLLER::device_max_thread - 1) /
+                CONTROLLER::device_max_thread,
+            CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
+            d_triangles_local, d_mass, crd, boundary, last_triangle_BA,
+            last_triangle_CA, constrain->dt, constrain->v_factor,
+            constrain->x_factor, vel, virial_tensor);
+    }
 
     if (need_pressure)
     {
         dim3 blockSize = {
             CONTROLLER::device_warp,
             CONTROLLER::device_max_thread / CONTROLLER::device_warp};
-        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
-                             (num_triangle_local + num_pair_local +
-                              CONTROLLER::device_max_thread - 1) /
-                                 CONTROLLER::device_max_thread,
-                             blockSize, 0, NULL, num_triangle_local,
-                             virial_tensor, d_stress, boundary.rcell);
-        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
-                             (num_triangle_local + num_pair_local +
-                              CONTROLLER::device_max_thread - 1) /
-                                 CONTROLLER::device_max_thread,
-                             blockSize, 0, NULL, num_pair_local,
-                             virial_tensor + triangle_numbers, d_stress,
-                             boundary.rcell);
+        if (num_triangle_local > 0)
+        {
+            Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
+                                 (num_triangle_local + num_pair_local +
+                                  CONTROLLER::device_max_thread - 1) /
+                                     CONTROLLER::device_max_thread,
+                                 blockSize, 0, NULL, num_triangle_local,
+                                 virial_tensor, d_stress, boundary.rcell);
+        }
+        if (num_pair_local > 0)
+        {
+            Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
+                                 (num_triangle_local + num_pair_local +
+                                  CONTROLLER::device_max_thread - 1) /
+                                     CONTROLLER::device_max_thread,
+                                 blockSize, 0, NULL, num_pair_local,
+                                 virial_tensor + triangle_numbers, d_stress,
+                                 boundary.rcell);
+        }
     }
 }
 

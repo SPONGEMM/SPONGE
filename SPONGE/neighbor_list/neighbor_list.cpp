@@ -1,6 +1,10 @@
 ﻿#include "neighbor_list.h"
 
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
+
+#include "../utils/mlip_geometry.hpp"
 
 #define MAX_GRID_NEIGHBORS 192
 
@@ -205,43 +209,17 @@ void NEIGHBOR_LIST::GRIDS::Initial(CONTROLLER* controller,
                        max_atom_in_grid_numbers);
     controller->printf("        Max number of ghosts in one grid: %d\n",
                        max_ghost_in_grid_numbers);
-    grid_numbers = Nx * Ny * Nz;
+    Initial_Buckets(Nx, Ny, Nz, max_atom_in_grid_numbers,
+                    max_ghost_in_grid_numbers);
     Malloc_Safely((void**)&h_neighbor_grid_numbers, sizeof(int) * grid_numbers);
     Malloc_Safely((void**)&h_neighbor_grids,
                   sizeof(int) * grid_numbers * MAX_GRID_NEIGHBORS);
-    Malloc_Safely((void**)&h_grid_atoms,
-                  sizeof(int) * grid_numbers * max_atom_in_grid_numbers);
-    Malloc_Safely((void**)&h_grid_atom_numbers, sizeof(int) * grid_numbers);
-
-    Malloc_Safely((void**)&h_grid_ghosts,
-                  sizeof(int) * grid_numbers * max_ghost_in_grid_numbers);
-    Malloc_Safely((void**)&h_grid_ghost_numbers, sizeof(int) * grid_numbers);
-    memset(h_grid_ghost_numbers, 0, sizeof(int) * grid_numbers);
-    Device_Malloc_And_Copy_Safely(
-        (void**)&d_grid_ghosts, h_grid_ghosts,
-        sizeof(int) * grid_numbers * max_ghost_in_grid_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&d_grid_ghost_numbers,
-                                  h_grid_ghost_numbers,
-                                  sizeof(int) * grid_numbers);
-    Device_Malloc_Safely(
-        (void**)&d_grid_ghost_crd,
-        sizeof(VECTOR) * grid_numbers * max_ghost_in_grid_numbers);
-
     Device_Malloc_And_Copy_Safely((void**)&d_neighbor_grid_numbers,
                                   h_neighbor_grid_numbers,
                                   sizeof(int) * grid_numbers);
     Device_Malloc_And_Copy_Safely(
         (void**)&d_neighbor_grids, h_neighbor_grids,
         sizeof(int) * grid_numbers * MAX_GRID_NEIGHBORS);
-    Device_Malloc_And_Copy_Safely(
-        (void**)&d_grid_atoms, h_grid_atoms,
-        sizeof(int) * grid_numbers * max_atom_in_grid_numbers);
-    Device_Malloc_Safely(
-        (void**)&d_grid_atom_crd,
-        sizeof(VECTOR) * grid_numbers * max_atom_in_grid_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&d_grid_atom_numbers,
-                                  h_grid_atom_numbers,
-                                  sizeof(int) * grid_numbers);
 
     Launch_Device_Kernel(Find_Neighor_Grids_Device,
                          (grid_numbers + CONTROLLER::device_max_thread - 1) /
@@ -249,6 +227,54 @@ void NEIGHBOR_LIST::GRIDS::Initial(CONTROLLER* controller,
                          CONTROLLER::device_max_thread, 0, NULL, grid_numbers,
                          d_neighbor_grid_numbers, d_neighbor_grids, Nx, Ny, Nz,
                          grid_length, boundary);
+}
+
+void NEIGHBOR_LIST::GRIDS::Initial_Buckets(int nx, int ny, int nz,
+                                           int owned_capacity,
+                                           int ghost_capacity)
+{
+    if (nx < 1 || ny < 1 || nz < 1 || owned_capacity < 1 || ghost_capacity < 1)
+        throw std::invalid_argument(
+            "bucket dimensions and capacities must be positive");
+    const int max_count = std::numeric_limits<int>::max();
+    if (nx > max_count / ny || nx * ny > max_count / nz)
+        throw std::overflow_error("bucket grid count exceeds int range");
+    const size_t count = static_cast<size_t>(nx) * ny * nz;
+    const size_t max_slots =
+        std::numeric_limits<size_t>::max() / sizeof(VECTOR);
+    if (count > max_slots / static_cast<size_t>(owned_capacity) ||
+        count > max_slots / static_cast<size_t>(ghost_capacity))
+        throw std::overflow_error(
+            "bucket allocation size exceeds size_t range");
+    Nx = nx;
+    Ny = ny;
+    Nz = nz;
+    grid_numbers = static_cast<int>(count);
+    owned_bucket_capacity = owned_capacity;
+    ghost_bucket_capacity = ghost_capacity;
+    Malloc_Safely((void**)&h_grid_atoms,
+                  sizeof(int) * grid_numbers * owned_capacity);
+    Malloc_Safely((void**)&h_grid_atom_numbers, sizeof(int) * grid_numbers);
+
+    Malloc_Safely((void**)&h_grid_ghosts,
+                  sizeof(int) * grid_numbers * ghost_capacity);
+    Malloc_Safely((void**)&h_grid_ghost_numbers, sizeof(int) * grid_numbers);
+    memset(h_grid_ghost_numbers, 0, sizeof(int) * grid_numbers);
+    Device_Malloc_And_Copy_Safely((void**)&d_grid_ghosts, h_grid_ghosts,
+                                  sizeof(int) * grid_numbers * ghost_capacity);
+    Device_Malloc_And_Copy_Safely((void**)&d_grid_ghost_numbers,
+                                  h_grid_ghost_numbers,
+                                  sizeof(int) * grid_numbers);
+    Device_Malloc_Safely((void**)&d_grid_ghost_crd,
+                         sizeof(VECTOR) * grid_numbers * ghost_capacity);
+
+    Device_Malloc_And_Copy_Safely((void**)&d_grid_atoms, h_grid_atoms,
+                                  sizeof(int) * grid_numbers * owned_capacity);
+    Device_Malloc_Safely((void**)&d_grid_atom_crd,
+                         sizeof(VECTOR) * grid_numbers * owned_capacity);
+    Device_Malloc_And_Copy_Safely((void**)&d_grid_atom_numbers,
+                                  h_grid_atom_numbers,
+                                  sizeof(int) * grid_numbers);
 }
 
 void NEIGHBOR_LIST::GRIDS::Clear()
@@ -336,7 +362,7 @@ static __global__ void Clear_Bucket(const int* need, int grid_numbers,
                                     int* grid_atom_numbers,
                                     int* grid_ghost_numbers)
 {
-    if (need[0] == 0) return;
+    if (need != nullptr && need[0] == 0) return;
     SIMPLE_DEVICE_FOR(tid, grid_numbers)
     {
         grid_atom_numbers[tid] = 0;
@@ -352,9 +378,9 @@ static __global__ void Put_Atom_In_Grids(
     int* grid_atoms, int* grid_atom_numbers, VECTOR* grid_crd, ATOM_GROUP* nl,
     const int max_grid_atoms, int* neighbor_grid_overflow, int* grid_ghosts,
     int* grid_ghost_numbers, VECTOR* grid_ghost_crd, const int max_grid_ghosts,
-    int* neighbor_grid_ghost_overflow)
+    int* neighbor_grid_ghost_overflow, bool mlip_geometry = false)
 {
-    if (need[0] == 0) return;
+    if (need != nullptr && need[0] == 0) return;
     SIMPLE_DEVICE_FOR(tid, atom_numbers + ghost_numbers)
     {
         VECTOR local_crd = crd[tid];
@@ -363,17 +389,33 @@ static __global__ void Put_Atom_In_Grids(
             old_crd[tid] = local_crd;
         }
 
-        float k3 = floorf(local_crd.z / boundary.cell.a33);
-        local_crd.z -= k3 * boundary.cell.a33;
-        local_crd.y -= k3 * boundary.cell.a32;
-        float k2 = floorf(local_crd.y / boundary.cell.a22);
-        local_crd.y -= k2 * boundary.cell.a22;
-        local_crd.x -= k3 * boundary.cell.a31 + k2 * boundary.cell.a21;
-        local_crd.x -=
-            floorf(local_crd.x / boundary.cell.a11) * boundary.cell.a11;
-        int nx = local_crd.x / grid_length;
-        int ny = local_crd.y / grid_length;
-        int nz = local_crd.z / grid_length;
+        int nx, ny, nz;
+        if (mlip_geometry)
+        {
+            nx = MlipGeometry::Bin(
+                MlipGeometry::Canonical(local_crd.x, boundary.cell.a11),
+                grid_length, Nx);
+            ny = MlipGeometry::Bin(
+                MlipGeometry::Canonical(local_crd.y, boundary.cell.a22),
+                grid_length, Ny);
+            nz = MlipGeometry::Bin(
+                MlipGeometry::Canonical(local_crd.z, boundary.cell.a33),
+                grid_length, Nz);
+        }
+        else
+        {
+            float k3 = floorf(local_crd.z / boundary.cell.a33);
+            local_crd.z -= k3 * boundary.cell.a33;
+            local_crd.y -= k3 * boundary.cell.a32;
+            float k2 = floorf(local_crd.y / boundary.cell.a22);
+            local_crd.y -= k2 * boundary.cell.a22;
+            local_crd.x -= k3 * boundary.cell.a31 + k2 * boundary.cell.a21;
+            local_crd.x -=
+                floorf(local_crd.x / boundary.cell.a11) * boundary.cell.a11;
+            nx = local_crd.x / grid_length;
+            ny = local_crd.y / grid_length;
+            nz = local_crd.z / grid_length;
+        }
 
         nx = nx < 0 ? 0 : (nx < Nx ? nx : Nx - 1);
         ny = ny < 0 ? 0 : (ny < Ny ? ny : Ny - 1);
@@ -393,10 +435,15 @@ static __global__ void Put_Atom_In_Grids(
             }
             else
             {
-                grid_atoms[max_grid_atoms * grid_id + k1] = tid;
-                grid_crd[max_grid_atoms * grid_id + k1] = crd[tid];
-                nl[tid].atom_numbers = 0;
-                nl[tid].ghost_numbers = 0;
+                grid_atoms[static_cast<size_t>(max_grid_atoms) * grid_id + k1] =
+                    tid;
+                grid_crd[static_cast<size_t>(max_grid_atoms) * grid_id + k1] =
+                    crd[tid];
+                if (nl != nullptr)
+                {
+                    nl[tid].atom_numbers = 0;
+                    nl[tid].ghost_numbers = 0;
+                }
             }
         }
         else
@@ -409,11 +456,41 @@ static __global__ void Put_Atom_In_Grids(
             }
             else
             {
-                grid_ghosts[max_grid_ghosts * grid_id + k1] = tid;
-                grid_ghost_crd[max_grid_ghosts * grid_id + k1] = crd[tid];
+                grid_ghosts[static_cast<size_t>(max_grid_ghosts) * grid_id +
+                            k1] = tid;
+                grid_ghost_crd[static_cast<size_t>(max_grid_ghosts) * grid_id +
+                               k1] = crd[tid];
             }
         }
     }
+}
+
+void NEIGHBOR_LIST::GRIDS::Populate_Buckets(
+    int owned_count, int ghost_count, const VECTOR* crd,
+    const Boundary boundary, float grid_length, int* d_owned_overflow,
+    int* d_ghost_overflow, bool mlip_geometry)
+{
+    if (owned_count < 0 || ghost_count < 0)
+        throw std::invalid_argument("bucket atom counts must be nonnegative");
+    if (owned_count > std::numeric_limits<int>::max() - ghost_count)
+        throw std::overflow_error("bucket total atom count exceeds int range");
+    const int total = owned_count + ghost_count;
+    const unsigned int threads = CONTROLLER::device_max_thread;
+    deviceMemset(d_owned_overflow, 0, sizeof(int));
+    deviceMemset(d_ghost_overflow, 0, sizeof(int));
+    Launch_Device_Kernel(
+        Clear_Bucket, grid_numbers / threads + (grid_numbers % threads != 0),
+        CONTROLLER::device_max_thread, 0, NULL, nullptr, grid_numbers,
+        d_grid_atom_numbers, d_grid_ghost_numbers);
+    if (total == 0) return;
+    Launch_Device_Kernel(
+        Put_Atom_In_Grids, total / threads + (total % threads != 0),
+        CONTROLLER::device_max_thread, 0, NULL, nullptr, 0, nullptr,
+        owned_count, ghost_count, grid_numbers, crd, nullptr, boundary,
+        grid_length, Nx, Ny, Nz, d_grid_atoms, d_grid_atom_numbers,
+        d_grid_atom_crd, nullptr, owned_bucket_capacity, d_owned_overflow,
+        d_grid_ghosts, d_grid_ghost_numbers, d_grid_ghost_crd,
+        ghost_bucket_capacity, d_ghost_overflow, mlip_geometry);
 }
 
 #ifdef USE_GPU
@@ -850,13 +927,17 @@ void NEIGHBOR_LIST::UPDATOR::Update(
         max_ghost_in_grid_numbers, grids->d_grid_ghost_numbers,
         grids->d_grid_ghosts);
 
-    Launch_Device_Kernel(
-        Delete_Excluded_Atoms_Serial_In_Neighbor_List,
-        (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
-            CONTROLLER::device_max_thread,
-        CONTROLLER::device_max_thread, 0, NULL, d_need_update,
-        local_atom_numbers, atom_local, d_nl, excluded_list_start,
-        excluded_list, excluded_numbers);
+    // Ghost-only ranks populate grids but have no owned rows to filter.
+    if (local_atom_numbers > 0)
+    {
+        Launch_Device_Kernel(
+            Delete_Excluded_Atoms_Serial_In_Neighbor_List,
+            (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
+                CONTROLLER::device_max_thread,
+            CONTROLLER::device_max_thread, 0, NULL, d_need_update,
+            local_atom_numbers, atom_local, d_nl, excluded_list_start,
+            excluded_list, excluded_numbers);
+    }
 }
 
 void NEIGHBOR_LIST::UPDATOR::Clear()
@@ -1115,5 +1196,6 @@ void NEIGHBOR_LIST::Clear()
         full_neighbor_list.Clear();
         grids.Clear();
         updator.Clear();
+        is_initialized = false;
     }
 }

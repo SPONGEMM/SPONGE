@@ -49,3 +49,17 @@ install(
   EXCLUDE_FROM_ALL
   COMPONENT python_modules
   DESTINATION ${PRIPS_INSTALL_DIR})
+
+install(
+  FILES ${CMAKE_CURRENT_SOURCE_DIR}/prips/__init__.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/prips/__main__.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/prips/Sponge.pyi
+  EXCLUDE_FROM_ALL
+  COMPONENT python_modules
+  DESTINATION ${PRIPS_INSTALL_DIR})
+install(
+  DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/prips/local_mp/
+  DESTINATION ${PRIPS_INSTALL_DIR}/local_mp
+  COMPONENT python_modules
+  FILES_MATCHING
+  PATTERN "*.py")
