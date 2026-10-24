@@ -1318,10 +1318,6 @@ class VdsTrajectoryH5Writer
     {
         const std::size_t total_frames =
             Total_Module_Frame_Count(frame_count_member);
-        if (total_frames == 0)
-        {
-            return true;
-        }
         std::vector<std::size_t> dims;
         dims.push_back(total_frames);
         for (const std::size_t dim : trailing_dims)
@@ -1335,6 +1331,10 @@ class VdsTrajectoryH5Writer
         spec.shape.max_dims = dims;
         spec.shape.chunk_dims = dims;
         spec.appendable = false;
+        if (total_frames == 0)
+        {
+            return wrapper_writer_->Create_Dataset(spec);
+        }
         return wrapper_writer_->Create_Virtual_Dataset(
             spec, Make_Module_Vds_Sources(dataset_path, frame_count_member,
                                           trailing_dims));
@@ -1373,9 +1373,7 @@ class VdsTrajectoryH5Writer
 
     bool Materialize_Nhc_Virtual_Datasets()
     {
-        if (!nhc_layout_defined_ ||
-            Total_Module_Frame_Count(&VdsShardManifestEntry::nhc_frame_count) ==
-                0)
+        if (!nhc_layout_defined_)
         {
             return true;
         }
@@ -1449,9 +1447,7 @@ class VdsTrajectoryH5Writer
 
     bool Materialize_Sits_Nk_Virtual_Datasets()
     {
-        if (!sits_nk_layout_defined_ ||
-            Total_Module_Frame_Count(
-                &VdsShardManifestEntry::sits_nk_frame_count) == 0)
+        if (!sits_nk_layout_defined_)
         {
             return true;
         }
@@ -1490,9 +1486,7 @@ class VdsTrajectoryH5Writer
 
     bool Materialize_Metadynamics_Virtual_Datasets()
     {
-        if (!metadynamics_scalar_layout_defined_ ||
-            Total_Module_Frame_Count(
-                &VdsShardManifestEntry::metadynamics_scalar_frame_count) == 0)
+        if (!metadynamics_scalar_layout_defined_)
         {
             return true;
         }
@@ -1531,9 +1525,7 @@ class VdsTrajectoryH5Writer
 
     bool Materialize_Reaxff_Virtual_Datasets()
     {
-        if (!reaxff_layout_defined_ ||
-            Total_Module_Frame_Count(
-                &VdsShardManifestEntry::reaxff_frame_count) == 0)
+        if (!reaxff_layout_defined_)
         {
             return true;
         }
