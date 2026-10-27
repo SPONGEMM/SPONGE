@@ -223,8 +223,29 @@ explicitly set.
 | `write_mdout_interval` | int | `1000` | mdout write interval |
 | `write_trajectory_interval` | int | same as `write_information_interval` | Trajectory write interval |
 | `write_restart_file_interval` | int | `step_limit` | Restart file write interval |
-| `max_restart_export_count` | int | `1` | Maximum number of restart files to keep in rotation |
+| `max_restart_export_count` | positive int | `1` | Maximum retained checkpoints, including the latest H5 restart; also controls legacy restart rotation |
 | `buffer_frame` | int | `10` | File buffer frame count (affects I/O performance) |
+
+For H5 restart output, `output_h5_restart_path` always names the latest
+successfully published checkpoint. With `max_restart_export_count = N`, SPONGE
+retains that file and up to `N - 1` older, complete H5 restart files alongside it.
+For example, `runs/restart.spgr.h5` has archives named
+`runs/history-1_restart.spgr.h5`, `runs/history-2_restart.spgr.h5`, and so on.
+The number orders archival operations, not simulation steps or age slots;
+existing history is discovered across launches. The embedded restart generation
+also continues from the existing latest checkpoint. Each history file can be
+selected directly with `input_h5_restart_path` for recovery.
+
+Each new checkpoint is written and closed at `<output_h5_restart_path>.tmp`.
+Before atomically replacing the latest path, SPONGE preserves the previous file
+using a hard link, or a copy when hard links are unavailable. Older history is
+pruned only after successful publication. A failed write or publication leaves
+the previous latest checkpoint and retained history available. An interrupted
+publication or a cleanup failure can leave extra history, which is pruned after
+a later successful publication. Lowering the limit likewise takes effect after
+a successful publication; the default `1` retains only the latest checkpoint.
+Archive names of the form `history-<positive integer>_<restart filename>` are
+reserved for SPONGE retention. Temporary files are not counted toward the limit.
 
 For TOML mdin files, `[write.interval] information`, `trajectory`, `mdout`,
 and `restart`/`restart_file` are accepted aliases for the corresponding
