@@ -1757,6 +1757,73 @@ static void Test_Module_Metad_And_Reaxff_With_Real_Backend()
     std::filesystem::remove_all(dir);
 }
 
+static void Test_Vds_Zero_Frame_Module_Descriptors_With_Real_Backend()
+{
+    for (const bool with_particles : {false, true})
+    {
+        const auto dir = Unique_Temp_Path("vds_empty_modules");
+        std::filesystem::create_directories(dir);
+        const auto wrapper_path = dir / "empty.spg.h5md";
+        {
+            HighFiveBackendFactory factory;
+            VdsTrajectoryH5Writer writer(&factory);
+            SpongeH5OutputPlan::ResolvedOutputPlan plan;
+            plan.trajectory.enabled = true;
+            plan.trajectory.path = wrapper_path.string();
+            plan.trajectory.vds = true;
+            plan.trajectory.chunk_size = 2;
+            plan.trajectory.derived_shard_root =
+                (dir / "empty.spg.shards").string();
+            REQUIRE_TRUE(writer.Open(plan, kOutputSchemaVersion));
+            REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+            REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
+            REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("SITS", 100));
+            REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
+            REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
+            if (with_particles)
+            {
+                float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+                float position[3] = {1, 2, 3};
+                REQUIRE_TRUE(
+                    writer.Append_Particle_Frame(10, 0.1, position, box));
+            }
+            REQUIRE_TRUE(writer.Finalize());
+        }
+        {
+            HighFive::File file(wrapper_path.string(),
+                                HighFive::File::ReadOnly);
+            const std::string root = "/parameters/sponge/output/streams/";
+            for (const std::string name :
+                 {"nose_hoover_chain", "sits", "metadynamics", "reaxff"})
+            {
+                const auto descriptor = root + name;
+                REQUIRE_EQ(
+                    Read_Int64_Vector(file, descriptor + "/committed_count"),
+                    std::vector<int64_t>({0}));
+                auto paths =
+                    Read_String_Vector(file, descriptor + "/value_paths");
+                paths.push_back(Read_String(file, descriptor + "/step_path"));
+                paths.push_back(Read_String(file, descriptor + "/time_path"));
+                for (const auto& dataset_path : paths)
+                {
+                    REQUIRE_TRUE(file.exist(dataset_path));
+                    REQUIRE_EQ(file.getDataSet(dataset_path).getDimensions()[0],
+                               static_cast<std::size_t>(0));
+                }
+            }
+            REQUIRE_EQ(
+                file.getDataSet(Sits_Nk_Value_Path("SITS")).getDimensions(),
+                std::vector<std::size_t>({0, 100}));
+            REQUIRE_EQ(file.getDataSet(module_path::nhc_coordinate_value)
+                           .getDimensions(),
+                       std::vector<std::size_t>({0, 2}));
+            REQUIRE_EQ(Read_String(file, path::output_status),
+                       std::string("finalized"));
+        }
+        std::filesystem::remove_all(dir);
+    }
+}
+
 static void Test_Vds_Finalize_Without_Frames_With_Real_Backend()
 {
     const auto dir = Unique_Temp_Path("vds_zero_frames");
@@ -2559,6 +2626,7 @@ int main()
             Test_Observable_Writer_With_Real_Backend();
             Test_Observable_Writer_Missing_Value_With_Real_Backend();
             Test_Module_Metad_And_Reaxff_With_Real_Backend();
+            Test_Vds_Zero_Frame_Module_Descriptors_With_Real_Backend();
             Test_Vds_Finalize_Without_Frames_With_Real_Backend();
             Test_Vds_Finalize_With_Only_Observables_With_Real_Backend();
             Test_Vds_Complete_Prefix_Repair_With_Real_Backend();
