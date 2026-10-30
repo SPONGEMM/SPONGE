@@ -238,7 +238,13 @@ selected directly with `input_h5_restart_path` for recovery.
 
 Each new checkpoint is written and closed at `<output_h5_restart_path>.tmp`.
 Before atomically replacing the latest path, SPONGE preserves the previous file
-using a hard link, or a copy when hard links are unavailable. Older history is
+using a hard link, or a copy when hard links are unavailable. If the output path
+is a symbolic link, its target contents are copied into an independent regular
+archive; successful publication replaces the symbolic link at the configured
+path without modifying its external target. Copies left by interrupted
+publication are recognized even for old checkpoints without generation or UUID
+metadata, using a full byte comparison when publication identity is unavailable.
+Older history is
 pruned only after successful publication. A failed write or publication leaves
 the previous latest checkpoint and retained history available. An interrupted
 publication or a cleanup failure can leave extra history, which is pruned after

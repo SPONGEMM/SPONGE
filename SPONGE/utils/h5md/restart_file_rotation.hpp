@@ -1,9 +1,11 @@
 ﻿#pragma once
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <highfive/highfive.hpp>
 #include <limits>
 #include <stdexcept>
@@ -109,25 +111,55 @@ inline bool Read_Last_Restart_Generation(const std::string& restart_path,
     }
 }
 
+inline bool Restart_Files_Have_Identical_Contents(
+    const std::filesystem::path& lhs, const std::filesystem::path& rhs)
+{
+    if (std::filesystem::file_size(lhs) != std::filesystem::file_size(rhs))
+        return false;
+    std::ifstream left(lhs, std::ios::binary), right(rhs, std::ios::binary);
+    if (!left.is_open() || !right.is_open())
+        throw std::runtime_error("failed to compare restart archive contents");
+    std::array<char, 65536> left_buffer, right_buffer;
+    do
+    {
+        left.read(left_buffer.data(), left_buffer.size());
+        right.read(right_buffer.data(), right_buffer.size());
+        if ((left.fail() && !left.eof()) || (right.fail() && !right.eof()))
+            throw std::runtime_error("failed to read restart archive contents");
+        if (left.gcount() != right.gcount() ||
+            !std::equal(left_buffer.begin(),
+                        left_buffer.begin() + left.gcount(),
+                        right_buffer.begin()))
+            return false;
+    } while (!left.eof() && !right.eof());
+    return left.eof() && right.eof();
+}
+
 inline bool Is_Same_Restart_Checkpoint(const std::filesystem::path& lhs,
                                        const std::filesystem::path& rhs)
 {
     if (std::filesystem::equivalent(lhs, rhs)) return true;
     // A copy fallback can remain after a crash between archiving and
-    // publishing. Recognize it without reading the large coordinate/state
-    // datasets.
-    HighFive::File left(lhs.string(), HighFive::File::ReadOnly);
-    HighFive::File right(rhs.string(), HighFive::File::ReadOnly);
-    if (!left.exist(path::output_restart_generation) ||
-        !right.exist(path::output_restart_generation) ||
-        !left.exist(path::identity_uuid) || !right.exist(path::identity_uuid))
-        return false;
-    std::string left_uuid, right_uuid;
-    left.getDataSet(path::identity_uuid).read(left_uuid);
-    right.getDataSet(path::identity_uuid).read(right_uuid);
-    return !left_uuid.empty() && left_uuid == right_uuid &&
-           Read_Restart_File_Generation(lhs) ==
-               Read_Restart_File_Generation(rhs);
+    // publishing. Prefer publication identity to avoid reading large files;
+    // old checkpoints without that identity need an exact byte comparison.
+    {
+        HighFive::File left(lhs.string(), HighFive::File::ReadOnly);
+        HighFive::File right(rhs.string(), HighFive::File::ReadOnly);
+        if (left.exist(path::output_restart_generation) &&
+            right.exist(path::output_restart_generation) &&
+            left.exist(path::identity_uuid) && right.exist(path::identity_uuid))
+        {
+            std::string left_uuid, right_uuid;
+            left.getDataSet(path::identity_uuid).read(left_uuid);
+            right.getDataSet(path::identity_uuid).read(right_uuid);
+            if (!left_uuid.empty() && !right_uuid.empty())
+                return left_uuid == right_uuid &&
+                       Read_Restart_File_Generation(lhs) ==
+                           Read_Restart_File_Generation(rhs);
+        }
+    }
+    // Release HDF5 handles before reopening via streams (also on Windows).
+    return Restart_Files_Have_Identical_Contents(lhs, rhs);
 }
 
 // Return value describes publication, not pruning. A pruning error must never
@@ -170,10 +202,16 @@ inline bool Publish_Restart_With_History(const std::string& temporary_path,
                 const auto staged_archive = new_archive + ".tmp";
                 if (!Remove_File_If_Exists(staged_archive, error)) return false;
                 TemporaryFileGuard staged_guard(staged_archive);
+                // Linking a symlink can preserve the symlink itself on POSIX.
+                // Copy its referent instead: the archive must be a regular,
+                // independent file even if the external target is modified.
+                const bool source_is_symlink = std::filesystem::is_symlink(
+                    std::filesystem::symlink_status(restart_path));
                 std::error_code link_error;
-                std::filesystem::create_hard_link(restart_path, staged_archive,
-                                                  link_error);
-                if (link_error &&
+                if (!source_is_symlink)
+                    std::filesystem::create_hard_link(
+                        restart_path, staged_archive, link_error);
+                if ((source_is_symlink || link_error) &&
                     !std::filesystem::copy_file(restart_path, staged_archive))
                     throw std::runtime_error("failed to copy previous restart");
                 if (!Atomic_Replace_File(staged_archive, new_archive, error))
