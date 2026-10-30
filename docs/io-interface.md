@@ -55,6 +55,14 @@ Simulation orchestration invokes events where their source data is ready:
 Streams retain their original `steps`/`steps + 1` and time conventions. Moving
 all module output to one end-of-step callback would change those semantics.
 
+The force gather applies the atom mapping even with one particle rank.
+Domain decomposition packs atoms by update group even in a single domain;
+groups such as `(0,2)` and `(1,3)` produce local order `0,2,1,3`. A direct copy
+would silently permute force records while coordinate and velocity output
+already use the correct mapping. Reuse the existing gather kernel and wait
+for its stream before copying the result to the host; no MPI reduction is
+needed for one particle rank.
+
 `RestartOutputState` owns NHC, dynamic, SITS, MetaD, restraint and CV module
 payloads and replaces the positional restart export argument list. Capturing
 these payloads is gated by H5 restart output and MPI rank 0. Structural

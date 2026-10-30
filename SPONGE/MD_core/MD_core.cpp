@@ -1016,8 +1016,12 @@ void MD_INFORMATION::Frc_dd_to_Host(VECTOR* dd_frc, char* dd_atom_local_label,
 
     if (CONTROLLER::PP_MPI_size == 1)
     {
-        deviceMemcpy(frc, dd_frc, sizeof(VECTOR) * atom_numbers,
-                     deviceMemcpyDeviceToDevice);
+        // A single domain still packs atoms by update group, which need not
+        // match global atom order. Apply the same map used by multiple ranks.
+        Launch_Device_Kernel(dd_frc_to_global, (atom_numbers + 255) / 256, 256,
+                             0, stream, atom_numbers, dd_atom_local_label, frc,
+                             dd_frc, dd_atom_local_id);
+        deviceStreamSynchronize(stream);
         deviceMemcpy(this->force, this->frc,
                      sizeof(VECTOR) * this->atom_numbers,
                      deviceMemcpyDeviceToHost);
