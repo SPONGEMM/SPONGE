@@ -1,4 +1,5 @@
-﻿#include <highfive/highfive.hpp>
+﻿#include <fstream>
+#include <highfive/highfive.hpp>
 #include <numeric>
 #include <type_traits>
 
@@ -8,6 +9,8 @@
 #include "utils/h5md/highfive_backend.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/observable_h5_writer.hpp"
+#include "utils/h5md/restart_file_rotation.hpp"
+#include "utils/h5md/restart_h5_reader.hpp"
 #include "utils/h5md/restart_h5_writer.hpp"
 #include "utils/h5md/trajectory_h5_writer.hpp"
 #include "utils/h5md/vds_trajectory_h5_writer.hpp"
@@ -1319,6 +1322,308 @@ static void Test_Atomic_File_Replacement_Preserves_Last_Published_File()
     std::filesystem::remove_all(dir);
 }
 
+static void Test_Restart_Rotation_Preserves_Latest_And_History()
+{
+    const auto dir = Unique_Temp_Path("restart_rotation") / "nested directory";
+    std::filesystem::create_directories(dir);
+    const auto latest = dir / "latest restart.spgr.h5";
+    const auto temporary = latest.string() + ".tmp";
+    const auto archive_path = [&](int64_t sequence)
+    {
+        return dir / ("history-" + std::to_string(sequence) + "_" +
+                      latest.filename().string());
+    };
+    auto write_generation = [&](int64_t generation)
+    {
+        HighFiveBackend backend;
+        RestartH5Writer writer(&backend);
+        REQUIRE_TRUE(
+            writer.Open(Make_File_Plan(dir / "unused", temporary), "test"));
+        REQUIRE_TRUE(writer.Write_Restart_Generation(generation));
+        REQUIRE_TRUE(writer.Define_Structural_State(1, true));
+        const float coordinate[3] = {static_cast<float>(generation), 1, 2};
+        const float velocity[3] = {3, 4, 5};
+        const float box[9] = {10, 0, 0, 0, 10, 0, 0, 0, 10};
+        REQUIRE_TRUE(writer.Write_Structural_State(
+            generation * 10, generation * 0.1, coordinate, box, velocity));
+        REQUIRE_TRUE(writer.Finalize());
+        REQUIRE_TRUE(writer.Close());
+    };
+    auto require_generation =
+        [&](const std::filesystem::path& file_path, int64_t generation)
+    {
+        REQUIRE_EQ(Read_Restart_File_Generation(file_path), generation);
+        RestartH5Reader reader;
+        REQUIRE_TRUE(reader.Open(file_path.string()));
+        RestartStructuralState state;
+        REQUIRE_TRUE(reader.Read_Structural_State(&state));
+        REQUIRE_EQ(state.step, generation * 10);
+        REQUIRE_EQ(state.position_xyz[0], static_cast<float>(generation));
+        SpongeH5InputMetadata::RestartMetadata metadata;
+        REQUIRE_TRUE(reader.Read_Metadata(&metadata));
+        REQUIRE_EQ(metadata.state_hash, metadata.computed_state_hash);
+    };
+    std::string error, cleanup_error;
+    int64_t generation = -1;
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    REQUIRE_EQ(generation, static_cast<int64_t>(0));
+    for (generation = 1; generation <= 6; ++generation)
+    {
+        write_generation(generation);
+        REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                                  &error, &cleanup_error));
+        REQUIRE_TRUE(cleanup_error.empty());
+        REQUIRE_TRUE(!std::filesystem::exists(temporary));
+        require_generation(latest, generation);
+        const auto history = List_Restart_History(latest.string());
+        const auto expected_count =
+            static_cast<std::size_t>(std::min<int64_t>(2, generation - 1));
+        REQUIRE_EQ(history.size(), expected_count);
+        for (std::size_t index = 0; index < history.size(); ++index)
+            require_generation(history[index].path,
+                               generation - history.size() + index);
+    }
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    REQUIRE_EQ(generation, static_cast<int64_t>(6));
+
+    // Publication failure must neither evict history nor change the latest.
+    REQUIRE_TRUE(!Publish_Restart_With_History(temporary, latest.string(), 3,
+                                               &error, &cleanup_error));
+    require_generation(latest, 6);
+    REQUIRE_EQ(List_Restart_History(latest.string()).size(), std::size_t(2));
+    require_generation(archive_path(4), 4);
+    require_generation(archive_path(5), 5);
+    REQUIRE_TRUE(!std::filesystem::exists(archive_path(6)));
+
+    // Failure to prepare the archive must also preserve all committed files.
+    const auto blocked_stage = archive_path(6).string() + ".tmp";
+    std::filesystem::create_directory(blocked_stage);
+    std::ofstream(std::filesystem::path(blocked_stage) / "blocker") << "x";
+    write_generation(7);
+    REQUIRE_TRUE(!Publish_Restart_With_History(temporary, latest.string(), 3,
+                                               &error, &cleanup_error));
+    REQUIRE_TRUE(std::filesystem::exists(temporary));
+    require_generation(latest, 6);
+    require_generation(archive_path(4), 4);
+    require_generation(archive_path(5), 5);
+    std::filesystem::remove_all(blocked_stage);
+
+    // Simulate a crash after a copy fallback archived the latest, but before
+    // publishing the next generation. Reuse the archive instead of duplicating
+    // it and prematurely evicting a distinct older checkpoint.
+    std::filesystem::copy_file(latest, archive_path(6));
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                              &error, &cleanup_error));
+    REQUIRE_TRUE(cleanup_error.empty());
+    require_generation(latest, 7);
+    REQUIRE_EQ(List_Restart_History(latest.string()).size(), std::size_t(2));
+    require_generation(archive_path(5), 5);
+    require_generation(archive_path(6), 6);
+
+    // A hard link left by an interrupted publication is reusable as well.
+    std::error_code link_error;
+    std::filesystem::create_hard_link(latest, archive_path(7), link_error);
+    if (link_error) std::filesystem::copy_file(latest, archive_path(7));
+    write_generation(8);
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                              &error, &cleanup_error));
+    require_generation(latest, 8);
+    require_generation(archive_path(6), 6);
+    require_generation(archive_path(7), 7);
+    REQUIRE_EQ(List_Restart_History(latest.string()).size(), std::size_t(2));
+
+    // The path is output-specific; unrelated files must never be pruned.
+    const auto unrelated = dir / "history-1_another.spgr.h5";
+    std::ofstream(unrelated) << "unrelated";
+    const auto note = dir / "history-not-a-number_latest restart.spgr.h5";
+    std::ofstream(note) << "unrelated";
+    write_generation(9);
+    REQUIRE_TRUE(!Publish_Restart_With_History(temporary, latest.string(), 0,
+                                               &error, &cleanup_error));
+    require_generation(latest, 8);
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 1,
+                                              &error, &cleanup_error));
+    require_generation(latest, 9);
+    REQUIRE_TRUE(List_Restart_History(latest.string()).empty());
+    REQUIRE_TRUE(std::filesystem::exists(unrelated));
+    REQUIRE_TRUE(std::filesystem::exists(note));
+
+    // Default retention creates no history, and generation resumes across runs.
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    write_generation(generation + 1);
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 1,
+                                              &error, &cleanup_error));
+    require_generation(latest, 10);
+    REQUIRE_TRUE(List_Restart_History(latest.string()).empty());
+
+    // Restoring an old or pre-generation checkpoint at latest must not reuse
+    // generation numbers already present in history. A missing latest can also
+    // recover its generation counter from history.
+    std::filesystem::copy_file(latest, archive_path(42));
+    write_generation(1);
+    REQUIRE_TRUE(Atomic_Replace_File(temporary, latest.string(), &error));
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    REQUIRE_EQ(generation, static_cast<int64_t>(10));
+    {
+        HighFive::File file(latest.string(), HighFive::File::ReadWrite);
+        REQUIRE_TRUE(H5Ldelete(file.getId(), path::output_restart_generation,
+                               H5P_DEFAULT) >= 0);
+    }
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    REQUIRE_EQ(generation, static_cast<int64_t>(10));
+    std::filesystem::remove(latest);
+    REQUIRE_TRUE(
+        Read_Last_Restart_Generation(latest.string(), &generation, &error));
+    REQUIRE_EQ(generation, static_cast<int64_t>(10));
+    std::filesystem::remove_all(dir.parent_path());
+}
+
+static void Write_Rotation_Edge_Checkpoint(
+    const std::filesystem::path& checkpoint, int64_t generation)
+{
+    HighFiveBackend backend;
+    RestartH5Writer writer(&backend);
+    REQUIRE_TRUE(writer.Open(
+        Make_File_Plan(checkpoint.string() + ".unused", checkpoint), "test"));
+    REQUIRE_TRUE(writer.Write_Restart_Generation(generation));
+    REQUIRE_TRUE(writer.Define_Structural_State(1, false));
+    const float position[3] = {static_cast<float>(generation), 1, 2};
+    const float box[9] = {10, 0, 0, 0, 10, 0, 0, 0, 10};
+    REQUIRE_TRUE(writer.Write_Structural_State(
+        generation * 10, generation * 0.1, position, box));
+    REQUIRE_TRUE(writer.Finalize());
+    REQUIRE_TRUE(writer.Close());
+}
+
+static void Require_Rotation_Edge_Checkpoint(
+    const std::filesystem::path& checkpoint, int64_t step)
+{
+    RestartH5Reader reader;
+    REQUIRE_TRUE(reader.Open(checkpoint.string()));
+    RestartStructuralState state;
+    REQUIRE_TRUE(reader.Read_Structural_State(&state));
+    REQUIRE_EQ(state.step, step);
+    REQUIRE_EQ(state.position_xyz[0], static_cast<float>(step / 10));
+}
+
+static void Test_Restart_Rotation_From_Symlink()
+{
+#ifndef _WIN32
+    // Windows symlink creation can require privileges. POSIX is also where
+    // hard-linking the symlink inode originally caused untracked archives.
+    const auto dir = Unique_Temp_Path("restart_rotation_symlink");
+    std::filesystem::create_directories(dir);
+    const auto target = dir / "external.spgr.h5";
+    const auto latest = dir / "latest.spgr.h5";
+    const auto temporary = latest.string() + ".tmp";
+    const auto archive = dir / "history-1_latest.spgr.h5";
+    Write_Rotation_Edge_Checkpoint(target, 1);
+    std::filesystem::create_symlink(target.filename(), latest);
+    std::string error, cleanup_error;
+
+    // An unsuccessful publish must preserve the original symlink and target.
+    REQUIRE_TRUE(!Publish_Restart_With_History(temporary, latest.string(), 3,
+                                               &error, &cleanup_error));
+    REQUIRE_TRUE(std::filesystem::is_symlink(latest));
+    REQUIRE_TRUE(!std::filesystem::exists(archive));
+    Require_Rotation_Edge_Checkpoint(target, 10);
+
+    Write_Rotation_Edge_Checkpoint(temporary, 2);
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                              &error, &cleanup_error));
+    REQUIRE_TRUE(cleanup_error.empty());
+    REQUIRE_TRUE(!std::filesystem::is_symlink(latest));
+    REQUIRE_TRUE(std::filesystem::is_regular_file(
+        std::filesystem::symlink_status(archive)));
+    REQUIRE_TRUE(!std::filesystem::equivalent(target, archive));
+    REQUIRE_EQ(List_Restart_History(latest.string()).size(), std::size_t(1));
+    Require_Rotation_Edge_Checkpoint(latest, 20);
+    Require_Rotation_Edge_Checkpoint(archive, 10);
+
+    // Even an in-place edit of the external symlink target must not alter the
+    // checkpoint archive (hard-linking the referent would fail this assertion).
+    {
+        HighFive::File file(target.string(), HighFive::File::ReadWrite);
+        file.getDataSet(path::output_restart_generation)
+            .write(std::vector<int64_t>{99});
+    }
+    REQUIRE_EQ(Read_Restart_File_Generation(archive), int64_t(1));
+    Write_Rotation_Edge_Checkpoint(temporary, 3);
+    REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                              &error, &cleanup_error));
+    REQUIRE_EQ(List_Restart_History(latest.string()).size(), std::size_t(2));
+    Require_Rotation_Edge_Checkpoint(archive, 10);
+    Require_Rotation_Edge_Checkpoint(dir / "history-2_latest.spgr.h5", 20);
+    Require_Rotation_Edge_Checkpoint(latest, 30);
+    std::filesystem::remove_all(dir);
+#endif
+}
+
+static void Test_Legacy_Restart_Copy_Recovery()
+{
+    // Cover missing generation, missing UUID as well, and an empty UUID.
+    for (const int identity_case : {0, 1, 2})
+    {
+        const auto dir = Unique_Temp_Path("legacy_restart_copy_recovery");
+        std::filesystem::create_directories(dir);
+        const auto latest = dir / "latest.spgr.h5";
+        const auto temporary = latest.string() + ".tmp";
+        const auto oldest = dir / "history-1_latest.spgr.h5";
+        const auto interrupted = dir / "history-2_latest.spgr.h5";
+        const auto next_archive = dir / "history-3_latest.spgr.h5";
+        Write_Rotation_Edge_Checkpoint(oldest, 1);
+        auto make_legacy = [&](int64_t generation)
+        {
+            Write_Rotation_Edge_Checkpoint(latest, generation);
+            HighFive::File file(latest.string(), HighFive::File::ReadWrite);
+            REQUIRE_TRUE(H5Ldelete(file.getId(),
+                                   path::output_restart_generation,
+                                   H5P_DEFAULT) >= 0);
+            if (identity_case == 1)
+                REQUIRE_TRUE(H5Ldelete(file.getId(), path::identity_uuid,
+                                       H5P_DEFAULT) >= 0);
+            else if (identity_case == 2)
+                file.getDataSet(path::identity_uuid).write(std::string());
+        };
+        make_legacy(2);
+        std::filesystem::copy_file(latest, interrupted);
+        REQUIRE_TRUE(Is_Same_Restart_Checkpoint(latest, interrupted));
+        Write_Rotation_Edge_Checkpoint(temporary, 3);
+        std::string error, cleanup_error;
+        REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                                  &error, &cleanup_error));
+        REQUIRE_TRUE(cleanup_error.empty());
+        REQUIRE_EQ(List_Restart_History(latest.string()).size(),
+                   std::size_t(2));
+        // Reusing the copy left by the interrupted publish must keep the older,
+        // distinct checkpoint rather than evicting it for a duplicate.
+        REQUIRE_TRUE(!std::filesystem::exists(next_archive));
+        Require_Rotation_Edge_Checkpoint(oldest, 10);
+        Require_Rotation_Edge_Checkpoint(interrupted, 20);
+        Require_Rotation_Edge_Checkpoint(latest, 30);
+
+        // Different legacy content must not be mistaken for that same copy.
+        make_legacy(4);
+        REQUIRE_TRUE(!Is_Same_Restart_Checkpoint(latest, interrupted));
+        Write_Rotation_Edge_Checkpoint(temporary, 5);
+        REQUIRE_TRUE(Publish_Restart_With_History(temporary, latest.string(), 3,
+                                                  &error, &cleanup_error));
+        REQUIRE_TRUE(cleanup_error.empty());
+        REQUIRE_EQ(List_Restart_History(latest.string()).size(),
+                   std::size_t(2));
+        REQUIRE_TRUE(!std::filesystem::exists(oldest));
+        Require_Rotation_Edge_Checkpoint(interrupted, 20);
+        Require_Rotation_Edge_Checkpoint(next_archive, 40);
+        Require_Rotation_Edge_Checkpoint(latest, 50);
+        std::filesystem::remove_all(dir);
+    }
+}
+
 static void Test_Restart_Optional_Velocity_With_Real_Backend()
 {
     const auto dir = Unique_Temp_Path("restart_optional_velocity");
@@ -1755,6 +2060,73 @@ static void Test_Module_Metad_And_Reaxff_With_Real_Backend()
     }
 
     std::filesystem::remove_all(dir);
+}
+
+static void Test_Vds_Zero_Frame_Module_Descriptors_With_Real_Backend()
+{
+    for (const bool with_particles : {false, true})
+    {
+        const auto dir = Unique_Temp_Path("vds_empty_modules");
+        std::filesystem::create_directories(dir);
+        const auto wrapper_path = dir / "empty.spg.h5md";
+        {
+            HighFiveBackendFactory factory;
+            VdsTrajectoryH5Writer writer(&factory);
+            SpongeH5OutputPlan::ResolvedOutputPlan plan;
+            plan.trajectory.enabled = true;
+            plan.trajectory.path = wrapper_path.string();
+            plan.trajectory.vds = true;
+            plan.trajectory.chunk_size = 2;
+            plan.trajectory.derived_shard_root =
+                (dir / "empty.spg.shards").string();
+            REQUIRE_TRUE(writer.Open(plan, kOutputSchemaVersion));
+            REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+            REQUIRE_TRUE(writer.Ensure_Nose_Hoover_Chain_Observables(2));
+            REQUIRE_TRUE(writer.Ensure_Sits_Nk_Observable("SITS", 100));
+            REQUIRE_TRUE(writer.Ensure_Metadynamics_Scalars());
+            REQUIRE_TRUE(writer.Ensure_Reaxff_Energy_Terms({"bond", "angle"}));
+            if (with_particles)
+            {
+                float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+                float position[3] = {1, 2, 3};
+                REQUIRE_TRUE(
+                    writer.Append_Particle_Frame(10, 0.1, position, box));
+            }
+            REQUIRE_TRUE(writer.Finalize());
+        }
+        {
+            HighFive::File file(wrapper_path.string(),
+                                HighFive::File::ReadOnly);
+            const std::string root = "/parameters/sponge/output/streams/";
+            for (const std::string name :
+                 {"nose_hoover_chain", "sits", "metadynamics", "reaxff"})
+            {
+                const auto descriptor = root + name;
+                REQUIRE_EQ(
+                    Read_Int64_Vector(file, descriptor + "/committed_count"),
+                    std::vector<int64_t>({0}));
+                auto paths =
+                    Read_String_Vector(file, descriptor + "/value_paths");
+                paths.push_back(Read_String(file, descriptor + "/step_path"));
+                paths.push_back(Read_String(file, descriptor + "/time_path"));
+                for (const auto& dataset_path : paths)
+                {
+                    REQUIRE_TRUE(file.exist(dataset_path));
+                    REQUIRE_EQ(file.getDataSet(dataset_path).getDimensions()[0],
+                               static_cast<std::size_t>(0));
+                }
+            }
+            REQUIRE_EQ(
+                file.getDataSet(Sits_Nk_Value_Path("SITS")).getDimensions(),
+                std::vector<std::size_t>({0, 100}));
+            REQUIRE_EQ(file.getDataSet(module_path::nhc_coordinate_value)
+                           .getDimensions(),
+                       std::vector<std::size_t>({0, 2}));
+            REQUIRE_EQ(Read_String(file, path::output_status),
+                       std::string("finalized"));
+        }
+        std::filesystem::remove_all(dir);
+    }
 }
 
 static void Test_Vds_Finalize_Without_Frames_With_Real_Backend()
@@ -2553,12 +2925,16 @@ int main()
             Test_Trajectory_Optional_Particle_Fields_With_Real_Backend();
             Test_Restart_Writer_With_Real_Backend();
             Test_Atomic_File_Replacement_Preserves_Last_Published_File();
+            Test_Restart_Rotation_Preserves_Latest_And_History();
+            Test_Restart_Rotation_From_Symlink();
+            Test_Legacy_Restart_Copy_Recovery();
             Test_Restart_Optional_Velocity_With_Real_Backend();
             Test_Restart_Writer_Custom_Run_Metadata_With_Real_Backend();
             Test_Restart_Writer_Rejects_Second_State_With_Real_Backend();
             Test_Observable_Writer_With_Real_Backend();
             Test_Observable_Writer_Missing_Value_With_Real_Backend();
             Test_Module_Metad_And_Reaxff_With_Real_Backend();
+            Test_Vds_Zero_Frame_Module_Descriptors_With_Real_Backend();
             Test_Vds_Finalize_Without_Frames_With_Real_Backend();
             Test_Vds_Finalize_With_Only_Observables_With_Real_Backend();
             Test_Vds_Complete_Prefix_Repair_With_Real_Backend();

@@ -15,6 +15,7 @@
 #include "utils/h5md/highfive_backend.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
 #include "utils/h5md/protocol_h5_reader.hpp"
+#include "utils/h5md/restart_file_rotation.hpp"
 #include "utils/h5md/topology_h5_reader.hpp"
 
 namespace
@@ -432,6 +433,29 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
         controller->Step_Print_Initial("Pxz", "%.2f");
         controller->Step_Print_Initial("Pyz", "%.2f");
     }
+    if (controller->Command_Exist("max_restart_export_count"))
+    {
+        controller->Check_Int("max_restart_export_count",
+                              "MD_INFORMATION::trajectory_output::Initial");
+        try
+        {
+            const std::string text =
+                controller->Command("max_restart_export_count");
+            std::size_t consumed = 0;
+            const auto count = std::stoll(text, &consumed);
+            if (consumed != text.size() || count <= 0 || count > INT_MAX)
+                throw std::out_of_range("invalid restart retention count");
+            max_restart_export_count = static_cast<int>(count);
+        }
+        catch (const std::exception&)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "MD_INFORMATION::trajectory_output::Initial",
+                "Reason:\n\tmax_restart_export_count must be an integer "
+                "between 1 and INT_MAX\n");
+        }
+    }
     if (md_info->mode != md_info->RERUN)
     {
         int default_interval = 1000;
@@ -501,13 +525,6 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
             print_zeroth_frame = controller->Get_Bool(
                 "print_zeroth_frame",
                 "MD_INFORMATION::trajectory_output::Initial");
-        }
-        if (controller->Command_Exist("max_restart_export_count"))
-        {
-            controller->Check_Int("max_restart_export_count",
-                                  "MD_INFORMATION::trajectory_output::Initial");
-            max_restart_export_count =
-                atoi(controller->Command("max_restart_export_count"));
         }
     }
     else
@@ -753,6 +770,19 @@ void MD_INFORMATION::trajectory_output::Initial_H5_Restart(
     }
     h5_restart_enabled = h5_output_plan.restart.enabled;
     h5_restart_generation = 0;
+    if (h5_restart_enabled && CONTROLLER::MPI_rank == 0)
+    {
+        std::string generation_error;
+        if (!SpongeH5MD::Read_Last_Restart_Generation(
+                h5_output_plan.restart.path, &h5_restart_generation,
+                &generation_error))
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat,
+                "MD_INFORMATION::trajectory_output::Initial_H5_Restart",
+                generation_error.c_str());
+        }
+    }
     if (h5_restart_enabled)
     {
         std::string lineage_error;
@@ -1777,6 +1807,13 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
     SpongeH5MD::TemporaryFileGuard temporary_file_guard(temporary_path);
     SpongeH5OutputPlan::ResolvedOutputPlan temporary_plan = h5_output_plan;
     temporary_plan.restart.path = temporary_path;
+    if (h5_restart_generation == std::numeric_limits<int64_t>::max())
+    {
+        h5_restart_enabled = false;
+        Record_H5_Output_Failure("restart", "prepare",
+                                 "restart generation is exhausted");
+        return;
+    }
     const int64_t candidate_generation = h5_restart_generation + 1;
     SpongeH5MD::HighFiveBackend backend;
     SpongeH5MD::RestartH5Writer writer(&backend);
@@ -1964,8 +2001,10 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
         Record_H5_Output_Failure("restart", "close", writer.Last_Error());
         return;
     }
-    if (!SpongeH5MD::Atomic_Replace_File(temporary_path, restart_path,
-                                         &publish_error))
+    std::string cleanup_error;
+    if (!SpongeH5MD::Publish_Restart_With_History(
+            temporary_path, restart_path, max_restart_export_count,
+            &publish_error, &cleanup_error))
     {
         h5_restart_enabled = false;
         Record_H5_Output_Failure("restart", "publish", publish_error);
@@ -1973,6 +2012,8 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
     }
     temporary_file_guard.Release();
     h5_restart_generation = candidate_generation;
+    if (!cleanup_error.empty())
+        Record_H5_Output_Failure("restart", "prune", cleanup_error);
 }
 
 void MD_INFORMATION::trajectory_output::Export_Restart_File(
