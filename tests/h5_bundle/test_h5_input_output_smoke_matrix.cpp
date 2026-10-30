@@ -731,7 +731,8 @@ void Require_H5_Trajectory_First_Frame_Matches_Core_State(
 }
 
 void Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
-    const std::filesystem::path& path, const std::size_t output_frame_index)
+    const std::filesystem::path& path, const std::size_t output_frame_index,
+    const std::vector<float>& expected_position)
 {
     HighFive::File file(path.string(), HighFive::File::ReadOnly);
     const auto positions =
@@ -741,9 +742,6 @@ void Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
 
     // The two-atom I/O fixture uses type 2 with sources {0, 0, 0}.
     // Its target (atom 1) coincides with atom 0 after coordinate refresh.
-    const std::vector<float> expected_position = {
-        1.5f, 2.5f, 3.5f, 1.5f, 2.5f, 3.5f,
-    };
     const std::vector<float> expected_box = {
         10.0f, 0.0f, 0.0f, 0.0f, 20.0f, 0.0f, 0.0f, 0.0f, 30.0f,
     };
@@ -2268,22 +2266,25 @@ void Run_Rerun_Mode_Matrix(const std::filesystem::path& sponge_executable)
         const bool h5_rerun_input =
             pure_bundled_input ||
             Starts_With(std::string(spec.name), "rerun_sidecar_");
-        const std::vector<double> trajectory_times =
-            h5_rerun_input ? std::vector<double>{1.0}
-                           : std::vector<double>{0.0};
+        // Both evaluated frames are published. H5 keeps input timestamps;
+        // legacy input retains the derived clock because it stores no time.
         const std::vector<double> observable_times =
-            h5_rerun_input ? std::vector<double>{1.0, 1.001}
+            h5_rerun_input ? std::vector<double>{0.0, 1.0}
                            : std::vector<double>{0.0, 0.001};
         SpongeH5InputMatrix::Require_Path_Exists(sidecar_bundled.h5_trajectory);
-        Require_H5_Trajectory_Has_Frames(sidecar_bundled.h5_trajectory, {1},
-                                         trajectory_times);
+        Require_H5_Trajectory_Has_Frames(sidecar_bundled.h5_trajectory, {1, 2},
+                                         observable_times);
         Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
-            sidecar_bundled.h5_trajectory, 0);
+            sidecar_bundled.h5_trajectory, 0,
+            {1.0f, 2.0f, 3.0f, 1.0f, 2.0f, 3.0f});
+        Require_H5_Trajectory_Frame_Matches_Rerun_Runtime_State(
+            sidecar_bundled.h5_trajectory, 1,
+            {1.5f, 2.5f, 3.5f, 1.5f, 2.5f, 3.5f});
         if (spec.vds)
         {
             // Step 0 observables open the shard before particle step 1.
-            Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory, {1},
-                                            trajectory_times, {0},
+            Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory,
+                                            {1, 2}, observable_times, {0},
                                             {observable_times.front()});
         }
         // VDS and single-file outputs both retain the initial observable frame,

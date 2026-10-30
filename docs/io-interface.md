@@ -51,7 +51,10 @@ Reduce the evaluated frame's energy and publish its outputs before loading
 the next frame. Broadcast the frame counter when input frames are skipped,
 so every rank participates in the same output events. Rerun retains its last
 selected frame even when the corresponding ordinary-MD schedule would skip
-the final trajectory or restart write. Ordinary MD retains its output phase.
+the final trajectory or restart write. H5 rerun outputs use the evaluated
+frame's absolute input time, without adding an integration step or the frame
+index times `dt`. Legacy trajectories have no stored timestamps and retain
+the existing derived clock. Ordinary MD retains its output phase and clock.
 
 ## Output events
 
