@@ -142,6 +142,21 @@ void OutputSession::Write_Observables()
     runtime_.controller.Print_To_Screen_And_Mdout();
 }
 
+void OutputSession::Prepare_Force_Output()
+{
+    const auto& output = runtime_.md_info.output;
+    // Use the shared plan: H5 writer state is initialized only on rank zero,
+    // but gathering force requires every particle rank to participate.
+    if (Force_Due() ||
+        (Trajectory_Due() && output.h5_output_plan.trajectory.enabled &&
+         output.is_frc_traj))
+    {
+        runtime_.md_info.Frc_dd_to_Host(
+            runtime_.dd.frc, runtime_.dd.atom_local_label,
+            runtime_.dd.atom_local_id, runtime_.main_stream);
+    }
+}
+
 void OutputSession::Write_Trajectory()
 {
     runtime_.md_info.Crd_Vel_dd_to_Device(
@@ -157,12 +172,6 @@ void OutputSession::Write_Trajectory()
     runtime_.md_info.output.Append_Crd_Traj_File();
     runtime_.md_info.output.Append_Vel_Traj_File();
     runtime_.md_info.output.Append_Box_Traj_File();
-    if (runtime_.md_info.output.h5_trajectory_force_enabled)
-    {
-        runtime_.md_info.Frc_dd_to_Host(
-            runtime_.dd.frc, runtime_.dd.atom_local_label,
-            runtime_.dd.atom_local_id, runtime_.main_stream);
-    }
     runtime_.md_info.output.Append_H5_Trajectory_Frame(&runtime_.controller);
     runtime_.meta.Write_Potential();
 #ifdef USE_MPI
@@ -185,9 +194,6 @@ void OutputSession::Write_Trajectory()
 
 void OutputSession::Write_Force()
 {
-    runtime_.md_info.Frc_dd_to_Host(
-        runtime_.dd.frc, runtime_.dd.atom_local_label,
-        runtime_.dd.atom_local_id, runtime_.main_stream);
     runtime_.md_info.output.Append_Frc_Traj_File();
 }
 

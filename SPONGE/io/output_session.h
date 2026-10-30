@@ -19,6 +19,8 @@ class OutputSession
     void Write_Reaxff();
     void Write_Metadynamics_Scalars();
     void Write_Observables();
+    // Called before DD ownership or force storage can change.
+    void Prepare_Force_Output();
     void Write_Trajectory();
     void Write_Force();
     void Write_Restart();

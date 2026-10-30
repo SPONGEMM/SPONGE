@@ -86,6 +86,12 @@ rerun_need_box_update = 0
 The current source uses flat `rerun_*` keys rather than a `[rerun]` TOML
 section.
 
+Rerun output is written for the evaluated frame before the next trajectory
+frame is loaded. This keeps coordinates, box, energy, and forces together
+when a box change rebuilds the domain buffers. The final evaluated frame,
+including one at an explicit frame limit, remains eligible for the configured
+output intervals. Ordinary MD retains its output after integration.
+
 ## Wall Constraints
 
 ### Hard Walls

@@ -15,7 +15,6 @@ struct RERUN_information
     int h5_trajectory_frame_count = 0;
     int h5_next_frame_index = 0;
     std::unique_ptr<SpongeH5MD::TrajectoryH5Reader> h5_trajectory_reader;
-    LTMatrix3 g;  // 盒子变化的速度
     int need_box_update = 0;
     int loaded_frame_count = 0;
     int start_frame = 0;

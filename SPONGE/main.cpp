@@ -92,8 +92,20 @@ int main(int argc, char* argv[])
     {
         Main_Sync_Dynamic_Targets_To_Controllers();
         Main_Calculate_Force();
+        controller.Get_Time_Recorder("Iteration")->Start();
+        Main_Reduce_Energy();
+        if (md_info.mode == md_info.RERUN)
+        {
+            output_session.Prepare_Force_Output();
+            // Publish this frame before loading the next one can replace its
+            // coordinates or rebuild the domain buffers holding its forces.
+            controller.Get_Time_Recorder("Iteration")->Stop();
+            Main_Print();
+            controller.Get_Time_Recorder("Iteration")->Start();
+        }
         Main_Iteration();
-        Main_Print();
+        controller.Get_Time_Recorder("Iteration")->Stop();
+        if (md_info.mode != md_info.RERUN) Main_Print();
     }
     Main_Clear();
     return 0;
@@ -537,15 +549,18 @@ void Main_Refresh_Local_State(bool rebuild_dd)
     }
 }
 
-void Main_Iteration()
+void Main_Reduce_Energy()
 {
-    const Boundary& boundary = md_info.pbc.boundary;
-    controller.Get_Time_Recorder("Iteration")->Start();
     if (md_info.need_potential || md_info.need_pressure || md_info.need_kinetic)
     {
         dd.Get_Ek_and_Temperature(&controller, &md_info);
     }
     dd.Get_Potential(&controller, &md_info);
+}
+
+void Main_Iteration()
+{
+    const Boundary& boundary = md_info.pbc.boundary;
     if (md_info.mode != md_info.RERUN)
     {
         Main_MC_Barostat();
@@ -634,6 +649,10 @@ void Main_Iteration()
                 boundary, md_info.need_pressure, md_info.sys.d_stress);
             hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
         }
+        // Capture output force with its current global-to-local mapping.
+        // Pressure-driven box rebuilds and ownership exchange below may
+        // replace or reorder DD slots without preserving their force values.
+        output_session.Prepare_Force_Output();
         if (md_info.need_pressure && !mc_baro.is_initialized)
         {
             md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
@@ -647,13 +666,16 @@ void Main_Iteration()
     }
     else
     {
-        md_info.rerun.Iteration();
-        if (md_info.rerun.need_box_update)
-        {
-            Main_Box_Change(md_info.rerun.g, 1, 0, 0);
-        }
+        const bool box_changed = md_info.rerun.Iteration();
+        // A large-box rebuild gathers DD state back into the global arrays.
+        // Populate the owned slots first so that gather preserves the new
+        // frame.
         md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
                                      dd.atom_local_id, main_stream);
+        if (md_info.rerun.need_box_update && box_changed)
+        {
+            Main_Rerun_Box_Change();
+        }
     }
 
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
@@ -689,7 +711,6 @@ void Main_Iteration()
                      true, true, true);
         controller.Get_Time_Recorder("Communication")->Stop();
     }
-    controller.Get_Time_Recorder("Iteration")->Stop();
 }
 
 void Main_Print()
@@ -809,6 +830,32 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
         }
     }
     return md_info.sys.Get_Volume();
+}
+
+void Main_Rerun_Box_Change()
+{
+    // The loaded geometry is authoritative; a strain round trip can change it.
+    md_info.pbc.boundary.cell =
+        md_info.pbc.Get_Cell(md_info.sys.box_length, md_info.sys.box_angle);
+    md_info.pbc.boundary.rcell =
+        Invert_Lower_Triangular_Cell(md_info.pbc.boundary.cell);
+    if (md_info.pbc.Check_Change_Large())
+    {
+        Main_Box_Change_Largely();
+    }
+    else
+    {
+        if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+        {
+            dd.Set_Box(md_info.sys.box_length);
+        }
+        if (CONTROLLER::PM_MPI_rank < CONTROLLER::PM_MPI_size &&
+            CONTROLLER::PM_MPI_rank != -1)
+        {
+            pm.Set_Box(md_info.pbc.boundary, md_info.sys.box_length);
+        }
+    }
+    md_info.sys.Get_Volume();
 }
 
 void Main_Box_Change_Largely()

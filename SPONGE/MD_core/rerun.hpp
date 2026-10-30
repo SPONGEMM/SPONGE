@@ -272,6 +272,9 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
     }
 #ifdef USE_MPI
     MPI_Bcast(&loaded_frame, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
+    // Skipping frames advances steps on rank 0; output collectives need the
+    // same frame counter on every rank.
+    MPI_Bcast(&md_info->sys.steps, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&md_info->sys.step_limit, sizeof(int), MPI_BYTE, 0,
               MPI_COMM_WORLD);
     MPI_Bcast(this->md_info->coordinate,
@@ -287,20 +290,12 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
 #endif
     if (loaded_frame) loaded_frame_count += 1;
     bool box_changed =
-        fabsf(old_box_length.x - md_info->sys.box_length.x) > 1e-4 ||
-        fabsf(old_box_length.y - md_info->sys.box_length.y) > 1e-4 ||
-        fabsf(old_box_length.z - md_info->sys.box_length.z) > 1e-4 ||
-        fabsf(old_box_angle.x - md_info->sys.box_angle.x) > 1e-4 ||
-        fabsf(old_box_angle.y - md_info->sys.box_angle.y) > 1e-4 ||
-        fabsf(old_box_angle.z - md_info->sys.box_angle.z) > 1e-4;
-    if (box_changed && md_info->pbc.pbc)
-    {
-        // 通过盒子变化计算g
-        LTMatrix3 new_cell = md_info->pbc.Get_Cell(md_info->sys.box_length,
-                                                   md_info->sys.box_angle);
-        g = (1 / md_info->dt) * (new_cell * inv(md_info->pbc.boundary.cell) -
-                                 LTMatrix3(1, 0, 1, 0, 0, 1));
-    }
+        loaded_frame && (old_box_length.x != md_info->sys.box_length.x ||
+                         old_box_length.y != md_info->sys.box_length.y ||
+                         old_box_length.z != md_info->sys.box_length.z ||
+                         old_box_angle.x != md_info->sys.box_angle.x ||
+                         old_box_angle.y != md_info->sys.box_angle.y ||
+                         old_box_angle.z != md_info->sys.box_angle.z);
     deviceMemcpy(this->md_info->crd, this->md_info->coordinate,
                  sizeof(VECTOR) * this->md_info->atom_numbers,
                  deviceMemcpyHostToDevice);

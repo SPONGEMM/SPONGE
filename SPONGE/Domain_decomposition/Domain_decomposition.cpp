@@ -1409,6 +1409,20 @@ static void Scale_Positions_Device(const LTMatrix3 g, VECTOR* crd, float dt)
     crd[0] = r_dash;
 }
 
+void DOMAIN_INFORMATION::Set_Box(VECTOR box_length)
+{
+    int nx = dom_dec_split_num.int_x;
+    int ny = dom_dec_split_num.int_y;
+    int nz = dom_dec_split_num.int_z;
+    int i = pp_rank % nx;
+    int j = pp_rank / nx % ny;
+    int k = pp_rank / (nx * ny);
+    min_corner = {box_length.x / nx * i, box_length.y / ny * j,
+                  box_length.z / nz * k};
+    max_corner = {box_length.x / nx * (i + 1), box_length.y / ny * (j + 1),
+                  box_length.z / nz * (k + 1)};
+}
+
 void DOMAIN_INFORMATION::Update_Box(LTMatrix3 g, float dt)
 {
     Scale_Positions_Device(g, &min_corner, dt);

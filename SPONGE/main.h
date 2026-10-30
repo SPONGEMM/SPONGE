@@ -57,6 +57,7 @@
 void Main_Initial(int argc, char* argv[]);
 void Main_Process_Management();
 void Main_Calculate_Force();
+void Main_Reduce_Energy();
 void Main_Iteration();
 void Main_Print();
 void Main_Clear();
@@ -65,6 +66,7 @@ void Main_Refresh_Local_State(bool rebuild_dd);
 
 void Main_MC_Barostat();
 float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel);
+void Main_Rerun_Box_Change();
 void Main_Box_Change_Largely();
 
 #endif

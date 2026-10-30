@@ -1251,7 +1251,22 @@ static void Scale_Positions_Device(const LTMatrix3 g, VECTOR* crd, float dt)
     crd[0] = r_dash;
 }
 
-void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
+void Particle_Mesh::Set_Box(const Boundary boundary, VECTOR box_length)
+{
+    Update_Box_Coefficients(boundary);
+    int nx = pm_dom_dec_split_num.int_x;
+    int ny = pm_dom_dec_split_num.int_y;
+    int nz = pm_dom_dec_split_num.int_z;
+    int i = pm_rank % nx;
+    int j = pm_rank / nx % ny;
+    int k = pm_rank / (nx * ny);
+    min_corner = {box_length.x / nx * i, box_length.y / ny * j,
+                  box_length.z / nz * k};
+    max_corner = {box_length.x / nx * (i + 1), box_length.y / ny * (j + 1),
+                  box_length.z / nz * (k + 1)};
+}
+
+void Particle_Mesh::Update_Box_Coefficients(const Boundary boundary)
 {
     float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
@@ -1261,6 +1276,11 @@ void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
     Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx, ffty,
                          fftz, PME_BC, PME_BC0, PME_Virial_BC, mprefactor,
                          boundary.rcell, volume);
+}
+
+void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
+{
+    Update_Box_Coefficients(boundary);
     Scale_Positions_Device(g, &min_corner, dt);
     Scale_Positions_Device(g, &max_corner, dt);
 }
