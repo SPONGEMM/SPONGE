@@ -63,6 +63,10 @@ struct CONTROLLER
     CheckMap choice_check;            // 检查选项是否都使用了
     bool workspace_from_cli = false;  // 记录workspace是否由命令行设置
     bool mdin_is_toml = false;        // 当前mdin是否为TOML输入
+    std::string mdin_directory;
+    bool native_mlip = false;
+    bool mlip_pure = true;
+    void Configure_Mlip();
     std::string mdin_toml_source_path;
     std::string mdin_toml_content;
     void Get_Command(

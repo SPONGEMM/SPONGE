@@ -68,6 +68,66 @@ bool adaptive_mlip_halo = false;
 double mlip_halo_displacement_limit = 0.0;
 DD_HALO_REFERENCE mlip_halo_reference;
 
+bool Native_Pure_Mlip()
+{
+    return controller.native_mlip && controller.mlip_pure;
+}
+
+void Reject_Native_Pure_Force(bool has_parameters, const char* name)
+{
+    if (!Native_Pure_Mlip() || !has_parameters) return;
+    const std::string reason =
+        std::string("Native [mlip] mode=\"pure\" conflicts with classical ") +
+        name +
+        " parameters. Set [mlip] mode=\"hybrid\" explicitly to add "
+        "classical and MLIP forces.";
+    controller.Throw_SPONGE_Error(spongeErrorConflictingCommand, "Main_Initial",
+                                  reason.c_str());
+}
+
+void Check_Native_Pure_Force_Parameters()
+{
+    if (!Native_Pure_Mlip()) return;
+    Reject_Native_Pure_Force(lj.is_initialized || LJ_NOPBC.is_initialized,
+                             "Lennard-Jones");
+    Reject_Native_Pure_Force(lj_soft.is_initialized, "LJ soft-core");
+    Reject_Native_Pure_Force(pairwise_force.is_initialized, "pairwise force");
+    Reject_Native_Pure_Force(bond.is_initialized, "bond");
+    Reject_Native_Pure_Force(angle.is_initialized, "angle");
+    Reject_Native_Pure_Force(urey_bradley.is_initialized, "Urey-Bradley");
+    Reject_Native_Pure_Force(cmap.is_initialized, "CMAP");
+    Reject_Native_Pure_Force(dihedral.is_initialized, "dihedral");
+    Reject_Native_Pure_Force(improper.is_initialized, "improper dihedral");
+    Reject_Native_Pure_Force(nb14.is_initialized, "1-4 nonbonded");
+    for (const auto* force : listed_forces.forces)
+    {
+        Reject_Native_Pure_Force(force->item_numbers > 0, force->module_name);
+    }
+    Reject_Native_Pure_Force(gb.is_initialized, "generalized Born");
+    Reject_Native_Pure_Force(sw.is_initialized, "Stillinger-Weber");
+    Reject_Native_Pure_Force(edip.is_initialized, "EDIP");
+    Reject_Native_Pure_Force(eam.is_initialized, "EAM");
+    Reject_Native_Pure_Force(tersoff.is_initialized, "Tersoff");
+    Reject_Native_Pure_Force(reaxff.is_initialized, "ReaxFF");
+}
+
+void Initialize_Particle_Mesh()
+{
+    if (Native_Pure_Mlip())
+    {
+        pm.Initial_CV_Transport(
+            &controller, md_info.atom_numbers,
+            md_info.no_direct_interaction_virtual_atom_numbers,
+            cv_controller.is_initialized);
+    }
+    else
+    {
+        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
+                   md_info.sys.box_length, md_info.nb.cutoff,
+                   md_info.no_direct_interaction_virtual_atom_numbers);
+    }
+}
+
 // Join native and plugin work before borrowed MD or graph storage is reused.
 void Fence_Mlip_Device()
 {
@@ -259,6 +319,14 @@ void Main_Initial(int argc, char* argv[])
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
 
     initial_state.Load_Base_State();
+    if (Native_Pure_Mlip())
+    {
+        for (int i = 0; i < md_info.atom_numbers; ++i)
+        {
+            Reject_Native_Pure_Force(md_info.h_charge[i] != 0.0f,
+                                     "electrostatic (nonzero charge)");
+        }
+    }
     controller.Step_Print_Initial("potential", "%.2f");
     controller.Step_Print_Initial("eff_pot", "%.7e");
     cv_controller.atom_numbers = md_info.atom_numbers;
@@ -274,9 +342,7 @@ void Main_Initial(int argc, char* argv[])
         lj.Initial(&controller, md_info.nb.cutoff);
         lj_soft.Initial(&controller, md_info.nb.cutoff);
 
-        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
-                   md_info.sys.box_length, md_info.nb.cutoff,
-                   md_info.no_direct_interaction_virtual_atom_numbers);
+        Initialize_Particle_Mesh();
 
         nb14.Initial(&controller, lj.h_LJ_A, lj.h_LJ_B, lj.h_atom_LJ_type);
 
@@ -325,6 +391,7 @@ void Main_Initial(int argc, char* argv[])
                     &neighbor_list.is_needed_full);
     reaxff.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
                    &neighbor_list.cutoff_full, &neighbor_list.is_needed_full);
+    Check_Native_Pure_Force_Parameters();
     Reject_Open_Boundary_Module(pairwise_force.is_initialized,
                                 "pairwise_force");
     Reject_Open_Boundary_Module(sw.is_initialized, "SW");
@@ -362,7 +429,8 @@ void Main_Initial(int argc, char* argv[])
     cv_controller.Input_Check();
 
     initial_state.Build_Coordinate_Derivatives();
-    if (md_info.pbc.pbc)
+    // Solvent LJ can auto-enable from masses/groups without LJ parameters.
+    if (md_info.pbc.pbc && !Native_Pure_Mlip())
     {
         solvent_lj.Initial(&controller, &lj, &lj_soft, &md_info,
                            md_info.mode >= md_info.NVT);
@@ -1047,9 +1115,7 @@ void Main_Box_Change_Largely()
                               md_info.pbc.boundary);
     }
     pm.Clear();
-    pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
-               md_info.sys.box_length, md_info.nb.cutoff,
-               md_info.no_direct_interaction_virtual_atom_numbers);
+    Initialize_Particle_Mesh();
     dd.Free_Buffer();
     dd.Domain_Decomposition(&controller, &md_info);
     pm.Domain_Decomposition(&controller, md_info.sys.box_length,
@@ -1089,7 +1155,8 @@ void Main_Process_Management()
     {
         controller.Throw_SPONGE_Error(
             spongeErrorConflictingCommand, "Main_Process_Management",
-            "Reason:\n\tMPI CV calculations require exactly one PM process\n");
+            "Reason:\n\tMPI CV calculations require exactly one PM process; "
+            "set [PM] MPI_size=1 explicitly\n");
     }
 
     if (CONTROLLER::MPI_size == 1)

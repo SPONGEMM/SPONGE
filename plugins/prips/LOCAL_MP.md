@@ -2,8 +2,9 @@
 
 `prips.local_mp` supplies model-independent contracts and execution. Model
 implementations belong to their own projects and depend on this API; PRIPS
-neither imports model libraries nor chooses a model by name. A user plugin
-exports an instance as `local_mp_adapter` and the global integer `atom_types`.
+neither selects model libraries nor chooses a model by name. Native `[mlip]`
+loads an external deployment object; the advanced Python entry exports an
+instance as `local_mp_adapter` and the global integer `atom_types`.
 For the rationale behind runtime changes and the C++/Python boundary, see the
 [maintainer design guide](../../docs/local-mp-design.md).
 
@@ -45,10 +46,77 @@ plugin loader; the complete loader interface is not a language-neutral C ABI.
 
 Import `LocalMPModelAdapter`, `LocalMPCapabilities`, `FieldSpec`, `ExchangeStage`,
 `CSRNeighborView`, `OwnedPrediction`, `LayerwiseGhostExchange` and
-`ResidentLocalMPDriver` from `prips.local_mp`.
+`ResidentLocalMPDriver` from `prips.local_mp`. Deployment helpers
+`LocalMPDeployment` and `load_deployment` are also public.
 
 Do not import underscore-prefixed implementation helpers or copy PRIPS
 contract classes into a model project.
+
+## Deployment object and system types
+
+External model packages may subclass `LocalMPDeployment` and implement:
+
+```python
+def create_adapter(self, type_names: tuple[str, ...]) -> LocalMPModelAdapter:
+    ...
+```
+
+Save that object with `torch.save(deployment, model_path)`. It holds reusable
+CPU model data and configuration, without system atom arrays, prepared
+adapters, CUDA state or runtime handles. Its class and dependencies must remain
+importable from the installed external model package. PRIPS does not install
+model code. A raw checkpoint or a deployment pickle for another engine does
+not satisfy this object contract. Load only trusted artifacts: loading uses
+`torch.load(model_path, map_location="cpu", weights_only=False)` and therefore
+deserializes Python objects.
+
+Supply system types separately as JSON in SPONGE's global atom order:
+
+```json
+{"type_names": ["Si", "O"], "atom_types": [0, 1, 0]}
+```
+
+`type_names` is a nonempty ordered list of unique, nonempty strings.
+`atom_types` is a one-dimensional array of integer indices into that list;
+booleans and out-of-range indices are rejected. The loader does not infer
+elements from names, masses or force-field parameters.
+
+```python
+from prips.local_mp import load_deployment
+
+local_mp_adapter, atom_types = load_deployment(model_path, types_path)
+```
+
+The optional `type_map` maps declared source names to nonempty model labels;
+for example, `{"Si_core": "Si"}` when `Si_core` is a declared source name.
+Unspecified names preserve identity, and unknown source keys are errors.
+Multiple source names may map to the same
+model label. The adapter receives the mapped names as an ordered tuple and
+must interpret integer types as indices into that tuple. Returned atom types
+retain their original indices as a CPU int64 tensor; they are not atomic
+numbers and are not renumbered by the mapping.
+
+`load_deployment(model_path, types_path, *, type_map=None)` validates types and
+mapping before loading the model, then calls `create_adapter`. The factory
+creates an unprepared adapter; device preparation, supported-type admission
+and the global atom-count check remain with `ResidentLocalMPDriver`. The host
+selects the native device before deployment loading.
+The Python helper uses paths as supplied. Native `[mlip]` resolves its required
+`model` and `types` paths relative to mdin, independently of `workspace`, before
+calling this same helper through the existing PRIPS interpreter. Native type
+names must already be model labels; `type_map` is a Python-helper option only.
+The native holder exports the returned adapter/types to the same resident
+driver. Deserialization and the CPU factory run on all WORLD ranks; actual
+model/device preparation remains PP-only. The factory must not prepare CUDA
+state or depend on a PP-only communicator.
+
+Native `mode = "pure"` is the default composition policy; `"hybrid"` adds model
+outputs to configured classical interactions. The advanced plugin entry keeps
+its existing additive behavior. These host policies do not change
+`OwnedPrediction` or make the adapter responsible for removing other forces.
+See the [user guide](LOCAL_MP_USER_GUIDE.md) for pure admission, PM/CV rules,
+build/install and supported-platform restrictions. Native entry qualification
+is separate from serialization/factory or standalone adapter checks.
 
 ## Geometry and lifetime
 
@@ -149,8 +217,8 @@ Before the first force callback, native SPONGE calls the PP-only setup hook.
 The driver runs `prepare_model` and `validate_atom_types(global_atom_types)`
 once. Native aggregates preparation success before any feature exchange; a
 failed rank stops the MPI world. PM ranks do not prepare GPU models or enter this
-PP collective. Entry scripts still run on every rank and may load CPU model
-objects during import. There is no new per-step collective or WORLD barrier.
+PP collective. Native deployment deserialization/factory runs on WORLD; advanced
+entry scripts also run on every rank and may load CPU model objects during import. There is no new per-step collective or WORLD barrier.
 
 Registration checks the communication contract across PP ranks: cutoff/skin,
 interaction depth, exchange layout, units and feature dtype. The driver also
@@ -274,8 +342,14 @@ only PP ranks evaluate the local model.
 
 ### Classical neighbor consumption
 
-A pure local-MP Python plugin can declare `uses_classic_neighbor_list = False`
-(the literal Python boolean). This is an immutable whole-run promise that its
+A native deployment adapter may explicitly declare
+`uses_classic_neighbor_list = False`; its callback-free native holder copies
+that value without inferring it from the adapter class or model family. An
+absent, invalid or non-False value keeps classical-neighbor consumption
+conservative. This optional declaration is not a default on the adapter base.
+
+An advanced local-MP Python plugin can declare
+`uses_classic_neighbor_list = False` (the literal Python boolean). This is an immutable whole-run promise that its
 adapter and all executed code never consume `Sponge.neighbor_list`. PRIPS opts
 out only after its local-MP driver is initialized and only when the plugin has
 none of the legacy hooks `After_Initial`, `Calculate_Force`,

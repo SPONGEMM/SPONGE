@@ -8,6 +8,7 @@ from .contracts import (
     LocalMPModelAdapter,
     OwnedPrediction,
 )
+from .deployment import LocalMPDeployment, load_deployment
 from .exchange import LayerwiseGhostExchange
 from .resident import ResidentLocalMPDriver
 
@@ -17,6 +18,8 @@ __all__ = [
     "FieldSpec",
     "LocalMPCapabilities",
     "LocalMPModelAdapter",
+    "LocalMPDeployment",
+    "load_deployment",
     "OwnedPrediction",
     "LayerwiseGhostExchange",
     "ResidentLocalMPDriver",

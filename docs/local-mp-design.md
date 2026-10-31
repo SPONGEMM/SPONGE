@@ -31,15 +31,61 @@ operators, autograd and acceleration without adding model dependencies to SPONGE
 The native service can also be called by a native plugin; Python is its PyTorch
 frontend, not the definition of the transport protocol.
 
+## Native deployment ownership
+
+The optional `SPONGE_ENABLE_MLIP` build bundles the same PRIPS bridge and Python
+package used by the advanced plugin entry. Linux CUDA+MPI is the native entry's
+current scope. The installed executable locates its private bridge relative to
+itself, and the loaded bridge supplies its sibling Python package directory.
+A missing private package is an error, rather than a reason to select another
+package from the Python search path. Standalone wheel/editable installation
+remains available for advanced use. The selected Python runtime and external
+model dependencies are still environmental dependencies, not bundled models.
+
+The controller retains the mdin directory and resolves only the new model/type
+paths against it; existing working-directory-relative inputs keep their prior
+behavior. Resolved strings cross the existing command API as data. The native
+entry enters the same loader, interpreter, adapter registration and resident
+driver path; it does not generate a user script or add a second interpreter.
+It rejects simultaneous plugin/py/environment-script configuration to avoid
+ambiguous initialization ownership. Hybrid mode concerns classical force
+composition, not arbitrary plugin composition.
+
+Device selection precedes bootstrap. Native defaults use MPI shared-memory
+local rank, or zero for exactly one process-visible GPU, without modulo
+mapping; explicit device selection wins. This visibility rule cannot establish
+physical GPU isolation across processes. CPU deployment deserialization and
+adapter construction run on WORLD because capability registration precedes
+PP/PM partitioning. CUDA model preparation remains at the existing PP-only
+setup boundary. Bootstrap/factory errors use the existing checked world-abort
+path; preparation success is aggregated on PP before model exchange.
+
+Native pure mode rejects actual classical force parameters and nonzero charges
+instead of silently discarding a second potential. Constraints, explicitly
+configured restraints/walls and supported CV biases retain their own roles.
+Pure defaults to zero PM ranks. The existing multi-rank CV implementation still
+requires exactly one explicitly requested PM/CV rank; there is no automatic
+reservation, and a pure PM rank without CV work is rejected. That rank transports
+coordinates and bias forces without enabling electrostatic mesh setup. Hybrid
+and advanced plugin paths keep classical composition and PM behavior. These
+host-level policies leave model predictions additive to the active runtime
+outputs and do not alter the adapter's derivative contract.
+
+The interpreter remains alive until process exit. Native loading introduces no
+new finalization or teardown ordering. Installation, serialization and startup
+checks do not establish numerical equivalence, dynamics stability or scaling;
+those remain separate qualification tasks.
+
 ## One force evaluation
 
 1. Before the first model exchange, every PP rank prepares its model. Native
    setup aggregates preparation success across PP ranks. Communication
    declarations are checked at registration; identical model inputs are the
    responsibility of deployment and external adapters. PM ranks do
-   not prepare or evaluate the GPU model. Entry scripts still run on every
-   rank and may load CPU model objects during import. These checks establish
-   communication compatibility and readiness, not model correctness.
+   not prepare or evaluate GPU models. Native CPU deployment construction
+   runs on WORLD; advanced entry scripts also run on every rank and may load
+   CPU model objects during import. These checks establish communication compatibility and
+   readiness, not model correctness.
 2. SPONGE migrates atoms when required, refreshes the halo and updates ghost
    coordinates. It builds or reuses the local candidate graph, then publishes
    its view. Coordinates stay fixed throughout the force callbacks.

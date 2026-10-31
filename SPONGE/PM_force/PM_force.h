@@ -155,6 +155,11 @@ struct Particle_Mesh
                  int no_direct_interaction_virtual_atom_numbers,
                  const char* module_name = NULL);
 
+    // Native pure MLIP uses PM only for explicitly requested MPI CV transport.
+    void Initial_CV_Transport(CONTROLLER* controller, int atom_numbers,
+                              int no_direct_interaction_virtual_atom_numbers,
+                              bool has_cv);
+
     // 重初始化PME系统（PME信息）
     void Reinitial(CONTROLLER* controller, const Boundary boundary,
                    VECTOR box_length, const char* module_name = NULL);

@@ -1,5 +1,7 @@
 ﻿#include "control.h"
 
+#include "third_party/toml/toml_decode.hpp"
+
 #define SPONGE_VERSION "v" SPONGE_VERSION_STR
 
 static const char* SPONGE_ASCII_ART = R"( ____  ____   ___  _   _  ____ _____
@@ -443,6 +445,8 @@ void CONTROLLER::Commands_From_In_File(int argc, char** argv,
         commands["md_name"] = "Default SPONGE MD Task Name";
     }
 
+    mdin_directory = mdin_dir.string();
+
     // Resolve workspace after mdin has been parsed so mdin-provided workspace
     // is honored. Workspace is resolved relative to mdin directory if present,
     // otherwise relative to startup cwd.
@@ -582,6 +586,89 @@ void CONTROLLER::Set_Command(const char* Flag, const char* Value, int Check,
     command_check[key] = Check;
 }
 
+void CONTROLLER::Configure_Mlip()
+{
+    native_mlip = Command_Exist("mlip", "model") ||
+                  Command_Exist("mlip", "types") ||
+                  Command_Exist("mlip", "mode");
+    sponge::toml_decode::table root;
+    if (mdin_is_toml)
+    {
+        root = sponge::toml_decode::detail::parse_toml_string(
+            mdin_toml_content, mdin_toml_source_path);
+        native_mlip = native_mlip || root.count("mlip") != 0;
+    }
+    if (!native_mlip) return;
+    const char* error_by = "CONTROLLER::Configure_Mlip";
+    if (!Command_Exist("mlip", "model") || !Command_Exist("mlip", "types"))
+    {
+        Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                           "[mlip] requires both model and types paths");
+    }
+#ifndef SPONGE_ENABLE_MLIP
+    Throw_SPONGE_Error(
+        spongeErrorValueErrorCommand, error_by,
+        "Native [mlip] requires a Linux CUDA+MPI build configured with "
+        "-DSPONGE_ENABLE_MLIP=ON -DPARALLEL=cuda -DMPI=ON. "
+        "The advanced plugin+py entry remains available separately.");
+#endif
+    const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+    if (Command_Exist("plugin") || Command_Exist("py") ||
+        (py_env != nullptr && py_env[0] != '\0'))
+    {
+        Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, error_by,
+            "Native [mlip] cannot be combined with plugin, py or "
+            "SPONGE_PRIPS_PY; use mlip.mode=hybrid for classical forces.");
+    }
+    // Read native TOML strings as data, preserving spaces and literal '#'.
+    if (mdin_is_toml)
+    {
+        const auto section = root.find("mlip");
+        if (section != root.end() && section->second.as_table() != nullptr)
+        {
+            for (const char* key : {"model", "types", "mode"})
+            {
+                const auto& table = *section->second.as_table();
+                const auto value = table.find(key);
+                if (value == table.end()) continue;
+                const auto* text = value->second.as_string();
+                if (text == nullptr)
+                {
+                    Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                                       "mlip model/types/mode must be strings");
+                }
+                original_commands[std::string("mlip_") + key] = *text;
+            }
+        }
+    }
+    if (Command_Exist("mlip", "mode"))
+    {
+        const std::string mode = Original_Command("mlip", "mode");
+        if (mode != "pure" && mode != "hybrid")
+        {
+            Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                               "mlip.mode must be pure or hybrid");
+        }
+        mlip_pure = mode == "pure";
+    }
+    for (const char* key : {"model", "types"})
+    {
+        const std::string raw_path = Original_Command("mlip", key);
+        if (raw_path.empty())
+        {
+            Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                               "mlip model/types paths must not be empty");
+        }
+        const std::string resolved =
+            Resolve_Path_With_Base(raw_path, mdin_directory).string();
+        const std::string command = std::string("mlip_") + key;
+        // The existing plugin command API now returns the complete path.
+        commands[command] = resolved;
+        original_commands[command] = resolved;
+    }
+}
+
 void CONTROLLER::Default_Set()
 {
     srand(0);
@@ -668,6 +755,18 @@ neither equal to the size of MPI ranks (%d) nor 1\n",
     }
     int count;
     deviceGetDeviceCount(&count);
+#if defined(SPONGE_ENABLE_MLIP) && defined(USE_MPI)
+    if (native_mlip && !Command_Exist("device"))
+    {
+        MPI_Comm local_comm;
+        MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, MPI_rank,
+                            MPI_INFO_NULL, &local_comm);
+        int local_rank;
+        MPI_Comm_rank(local_comm, &local_rank);
+        MPI_Comm_free(&local_comm);
+        working_device = count == 1 ? 0 : local_rank;
+    }
+#endif
     printf("        %d device(s) found:\n", count);
 
     deviceProp prop;
@@ -874,6 +973,7 @@ void CONTROLLER::Initial(int argc, char** argv, const char* subpackage_hint)
     warn_of_initialization = 1;
     Arguments_Parse(argc, argv);
     Commands_From_In_File(argc, argv, subpackage_hint);
+    Configure_Mlip();
     printf("START INITIALIZING CONTROLLER\n");
     Default_Set();
     Init_Device();

@@ -4,10 +4,12 @@ endif()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
-# The plugin is a standalone Python extension; build it in this test tree so
-# CTest exercises the exact PRIPS source from the SPONGE checkout.
-add_subdirectory(${PROJECT_ROOT_DIR}/plugins/prips
-                 ${CMAKE_CURRENT_BINARY_DIR}/prips_plugin)
+# Reuse the bundled bridge when native MLIP is enabled. Otherwise build the same
+# checkout's standalone bridge for the advanced plugin entry tests.
+if(NOT TARGET _prips)
+  add_subdirectory(${PROJECT_ROOT_DIR}/plugins/prips
+                   ${CMAKE_CURRENT_BINARY_DIR}/prips_plugin)
+endif()
 
 set(LOCAL_MP_TEST_GPU_COUNT
     2

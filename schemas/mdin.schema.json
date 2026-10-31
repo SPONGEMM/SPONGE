@@ -720,6 +720,38 @@
       "description": "Force coordinate mapping by whole molecules during output.",
       "default": false
     },
+    "mlip": {
+      "type": "object",
+      "title": "Native Local-MP Deployment",
+      "description": "External deployment entry requiring SPONGE_ENABLE_MLIP on Linux CUDA+MPI. Cannot be combined with plugin, py or SPONGE_PRIPS_PY.",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "types"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "title": "Deployment Object",
+          "description": "Trusted external LocalMPDeployment file; relative paths resolve against mdin, independently of workspace. Not a raw checkpoint or model name."
+        },
+        "types": {
+          "type": "string",
+          "title": "System Type Sidecar",
+          "description": "JSON type_names and atom_types in global SPONGE atom order; relative paths resolve against mdin. Names are explicit model labels."
+        },
+        "mode": {
+          "type": "string",
+          "title": "Force Composition",
+          "enum": [
+            "pure",
+            "hybrid"
+          ],
+          "default": "pure",
+          "description": "Pure rejects classical force parameters and nonzero charges while retaining explicitly configured constraints and biases. Hybrid adds model outputs to classical interactions."
+        }
+      }
+    },
     "plugin": {
       "type": "string",
       "title": "Native Plugins",
@@ -743,7 +775,7 @@
         }
       ],
       "title": "Device",
-      "description": "Visible compute device index shared by all ranks, or an index list in global MPI rank order.",
+      "description": "Explicit visible device index shared by all ranks, or indices in global MPI rank order. Native mlip omission uses shared-memory local rank, or zero for one visible device; the legacy default remains global rank.",
       "default": 0
     },
     "device_optimized_block": {
@@ -1657,7 +1689,7 @@
         "MPI_size": {
           "type": "integer",
           "title": "PM MPI Size",
-          "description": "MPI size for particle mesh algorithms.",
+          "description": "MPI size for particle mesh algorithms. Native mlip pure defaults to zero; multi-rank CV requires explicit one, and pure one without a CV consumer is rejected.",
           "default": 1
         },
         "fftx": {

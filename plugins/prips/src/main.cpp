@@ -18,6 +18,7 @@
 #include <cstdarg>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <sstream>
 
 #include "../include/sponge_plugin_api.h"
@@ -974,7 +975,20 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
         sponge_local_mp == NULL ? 0 : sponge_local_mp->get_device_index();
     if (dlpack_device_index < 0) dlpack_device_index = 0;
     controller_printf("    initializing pyplugin\n");
-    if (controller_command_exist("py"))
+    const bool native_mlip = controller_command_exist("mlip_model");
+    if (native_mlip)
+    {
+        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+        if (controller_command_exist("py") ||
+            (py_env != nullptr && py_env[0] != '\0'))
+        {
+            RuntimeFailure("Initial_Stable",
+                           "Native [mlip] cannot be combined with py or "
+                           "SPONGE_PRIPS_PY");
+            return;
+        }
+    }
+    else if (controller_command_exist("py"))
     {
         py_script_path = controller_command("py");
     }
@@ -1002,7 +1016,43 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
                        "could not register the embedded prips module");
         return;
     }
-    Py_Initialize();
+#ifdef PRIPS_BUNDLED_PYTHON_EXECUTABLE
+    if (native_mlip)
+    {
+        PyConfig config;
+        PyConfig_InitPythonConfig(&config);
+        config.parse_argv = 0;
+        // Anchor path discovery to the configured interpreter, preserving its
+        // venv spelling. Leave home/prefix unset for CPython's pyvenv.cfg
+        // logic.
+        PyStatus status = PyConfig_SetBytesString(
+            &config, &config.program_name, PRIPS_BUNDLED_PYTHON_EXECUTABLE);
+        if (!PyStatus_Exception(status))
+        {
+            status = PyConfig_SetBytesString(&config, &config.executable,
+                                             PRIPS_BUNDLED_PYTHON_EXECUTABLE);
+        }
+        if (!PyStatus_Exception(status))
+        {
+            status = Py_InitializeFromConfig(&config);
+        }
+        if (PyStatus_Exception(status))
+        {
+            const std::string error =
+                status.err_msg == nullptr
+                    ? "Python initialization requested exit"
+                    : status.err_msg;
+            PyConfig_Clear(&config);
+            RuntimeFailure("Native Python initialization", error);
+            return;
+        }
+        PyConfig_Clear(&config);
+    }
+    else
+#endif
+    {
+        Py_Initialize();
+    }
     if (!Py_IsInitialized())
     {
         RuntimeFailure("Initial_Stable", "Python initialization failed");
@@ -1023,6 +1073,38 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
         CapturePythonFailure("Python bootstrap");
         return;
     }
+    // The loaded bridge owns its sibling package; wheel and bundled installs
+    // use the same layout. Editable installs retain the sys.path fallback.
+    std::string package_dir;
+#ifndef _WIN32
+    Dl_info library_info = {};
+    if (dladdr(reinterpret_cast<void*>(&Initial_Stable), &library_info) != 0 &&
+        library_info.dli_fname != nullptr)
+    {
+        package_dir = std::filesystem::absolute(library_info.dli_fname)
+                          .parent_path()
+                          .string();
+    }
+#endif
+    if (native_mlip &&
+        (package_dir.empty() ||
+         !std::filesystem::is_regular_file(std::filesystem::path(package_dir) /
+                                           "local_mp" / "__init__.py")))
+    {
+        RuntimeFailure("Native MLIP package",
+                       "The loaded PRIPS bridge is missing its sibling "
+                       "local_mp package; reinstall SPONGE with MLIP enabled");
+        return;
+    }
+    PyObject* package_path = PyUnicode_DecodeFSDefault(package_dir.c_str());
+    if (package_path == nullptr ||
+        PyObject_SetAttrString(main, "_prips_package_dir", package_path) != 0)
+    {
+        Py_XDECREF(package_path);
+        CapturePythonFailure("Python package path");
+        return;
+    }
+    Py_DECREF(package_path);
     if (!RunPythonCode("Python bootstrap", R"XYJ(
 import sys
 sys.dont_write_bytecode = True
@@ -1041,8 +1123,11 @@ from prips import Sponge
 # The embedded extension is named prips; expose the installed Python package
 # directory so a user script can import prips.local_mp at module import time.
 import prips as _prips_module
-_prips_module.__path__ = [str(Path(p) / "prips") for p in sys.path
-                          if (Path(p) / "prips" / "local_mp" / "__init__.py").is_file()]
+if _prips_package_dir and (Path(_prips_package_dir) / "local_mp" / "__init__.py").is_file():
+    _prips_module.__path__ = [_prips_package_dir]
+else:
+    _prips_module.__path__ = [str(Path(p) / "prips") for p in sys.path
+                              if (Path(p) / "prips" / "local_mp" / "__init__.py").is_file()]
 
 class SpongeDLPackTensor:
     def __init__(self, capsule):
@@ -1288,11 +1373,52 @@ Sponge.backend_name = None
 )XYJ"))
         return;
 
-    char buffer[4096];
-    sprintf(buffer, "Sponge.fname = r'%s'", py_script_path.c_str());
-    if (!RunPythonCode("Python script path", buffer)) return;
-    if (!RunPythonCode("Python user module",
-                       R"XYJ(sponge_pyplugin_path = Path(Sponge.fname)
+    if (native_mlip)
+    {
+        PyObject* deployment =
+            PyImport_ImportModule("prips.local_mp.deployment");
+        PyObject* model_path =
+            PyUnicode_DecodeFSDefault(controller_command("mlip_model"));
+        const char* types_command = controller_command("mlip_types");
+        PyObject* types_path = types_command == nullptr
+                                   ? nullptr
+                                   : PyUnicode_DecodeFSDefault(types_command);
+        PyObject* loaded =
+            deployment != nullptr && model_path != nullptr &&
+                    types_path != nullptr
+                ? PyObject_CallMethod(deployment, "load_deployment", "OO",
+                                      model_path, types_path)
+                : nullptr;
+        Py_XDECREF(deployment);
+        Py_XDECREF(model_path);
+        Py_XDECREF(types_path);
+        if (loaded == nullptr ||
+            PyObject_SetAttrString(main, "_prips_deployment", loaded) != 0)
+        {
+            Py_XDECREF(loaded);
+            CapturePythonFailure("Native MLIP deployment");
+            return;
+        }
+        Py_DECREF(loaded);
+        if (!RunPythonCode("Native MLIP deployment", R"XYJ(
+from types import SimpleNamespace
+_adapter, _atom_types = _prips_deployment
+sponge_pyplugin = SimpleNamespace(
+    local_mp_adapter=_adapter,
+    atom_types=_atom_types,
+    uses_classic_neighbor_list=getattr(_adapter, "uses_classic_neighbor_list", None),
+)
+del _adapter, _atom_types, _prips_deployment
+)XYJ"))
+            return;
+    }
+    else
+    {
+        char buffer[4096];
+        sprintf(buffer, "Sponge.fname = r'%s'", py_script_path.c_str());
+        if (!RunPythonCode("Python script path", buffer)) return;
+        if (!RunPythonCode("Python user module",
+                           R"XYJ(sponge_pyplugin_path = Path(Sponge.fname)
 spec = iu.spec_from_file_location('sponge_pyplugin', sponge_pyplugin_path)
 if spec is None:
     Sponge.controller.printf(f"Module '{Sponge.fname}' is not found.")
@@ -1302,7 +1428,8 @@ else:
     spec.loader.exec_module(sponge_pyplugin)
     Sponge.controller.printf("        module '%s' imported."%(sponge_pyplugin_path.stem))
 )XYJ"))
-        return;
+            return;
+    }
 
     is_initialized = 1;
     controller_printf("    end initializing pyplugin\n");

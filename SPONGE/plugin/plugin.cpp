@@ -2,6 +2,10 @@
 
 #include <stdexcept>
 
+#ifdef SPONGE_ENABLE_MLIP
+#include <filesystem>
+#endif
+
 #include "../local_mp/local_mp_service.h"
 #include "../utils/mlip_geometry.hpp"
 
@@ -358,7 +362,7 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     checked_error_queries.clear();
     g_local_mp_plugin_loaded = false;
     Local_MP_Service().Initial(md_info, controller);
-    if (!controller->Command_Exist("plugin"))
+    if (!controller->native_mlip && !controller->Command_Exist("plugin"))
     {
         return;
     }
@@ -378,15 +382,43 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     g_plugin_controller = controller;
     g_plugin_neighbor_list = neighbor_list;
 
-    std::string command(controller->Original_Command("plugin"));
-    auto last_pos = command.find_first_not_of(" ", 0);
-    auto pos = command.find_first_of(" ", last_pos);
-    while (pos != std::string::npos || last_pos != std::string::npos)
+    std::vector<std::string> plugin_paths;
+    if (controller->native_mlip)
     {
-        plugin_numbers += 1;
-        last_pos = command.find_first_not_of(" ", pos);
-        pos = command.find_first_of(" ", last_pos);
+#ifdef SPONGE_ENABLE_MLIP
+        namespace fs = std::filesystem;
+        std::error_code error;
+        const fs::path executable = fs::read_symlink("/proc/self/exe", error);
+        if (error)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorOpenFileFailed, "SPONGE_PLUGIN::Initial",
+                "Cannot locate /proc/self/exe for native [mlip]");
+        }
+        const fs::path bridge =
+            executable == fs::path(SPONGE_MLIP_BUILD_EXECUTABLE)
+                ? fs::path(SPONGE_MLIP_BUILD_BRIDGE)
+                : (executable.parent_path() / SPONGE_MLIP_INSTALL_RELATIVE)
+                      .lexically_normal();
+        plugin_paths.push_back(bridge.string());
+#endif
     }
+    else
+    {
+        const std::string command(controller->Original_Command("plugin"));
+        auto last_pos = command.find_first_not_of(" ", 0);
+        auto pos = command.find_first_of(" ", last_pos);
+        while (pos != std::string::npos || last_pos != std::string::npos)
+        {
+            std::istringstream token(command.substr(last_pos, pos - last_pos));
+            std::string path;
+            token >> path;
+            plugin_paths.push_back(path);
+            last_pos = command.find_first_not_of(" ", pos);
+            pos = command.find_first_of(" ", last_pos);
+        }
+    }
+    plugin_numbers = static_cast<int>(plugin_paths.size());
 
     controller->printf("%d plugin(s) to load\n", plugin_numbers);
     checked_error_queries.assign(plugin_numbers, nullptr);
@@ -402,20 +434,16 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 
     int count = 0;
     std::string plugin_name, plugin_version, version_check_error;
-    char plugin_path[CHAR_LENGTH_MAX];
     NameFunction name_func, version_func;
     VersionCheckFunction version_check_func;
     SetBackendDeviceTypeFunction set_backend_device_type_func;
     InitialStableFunction stable_initial_func;
     InitialLocalMPFunction local_mp_initial_func;
 
-    last_pos = command.find_first_not_of(" ", 0);
-    pos = command.find_first_of(" ", last_pos);
-    while (pos != std::string::npos || last_pos != std::string::npos)
+    for (const std::string& path : plugin_paths)
     {
         int funcs_loaded = 1;
-        sscanf(command.substr(last_pos, pos - last_pos).c_str(), "%s",
-               plugin_path);
+        const char* plugin_path = path.c_str();
 
 #ifdef _WIN32
         constexpr int dlopen_mode = 0;
@@ -615,8 +643,6 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 
         g_current_plugin_index = -1;
         count += 1;
-        last_pos = command.find_first_not_of(" ", pos);
-        pos = command.find_first_of(" ", last_pos);
     }
 
     controller->printf("END INITIALIZING SPONGE PLUGIN\n\n");
