@@ -2,14 +2,37 @@
 #include "../MD_core/MD_core.h"
 #include "../common.h"
 #include "../control.h"
+#include "direct_halo.h"
 
 #define MAX_NEIGHBOR_NUM 9  // 每个区域一个方向上最大的邻居数，用于负载均衡
 #define MAX_RANK_NUM 16     // 最大的进程数
+
+inline float Effective_Ghost_Radius(float physical_cutoff, float physical_skin,
+                                    float model_cutoff, float model_skin)
+{
+    return std::max(physical_cutoff + physical_skin, model_cutoff + model_skin);
+}
+
+inline bool Valid_Domain_Split(int pp_ranks, INT_VECTOR split)
+{
+    if (pp_ranks < 1 || pp_ranks > MAX_RANK_NUM) return false;
+    int remaining = pp_ranks;
+    const int axes[] = {split.int_x, split.int_y, split.int_z};
+    for (int axis : axes)
+    {
+        if (axis <= 0 || remaining % axis != 0) return false;
+        remaining /= axis;
+    }
+    return remaining == 1;
+}
 
 struct DOMAIN_INFORMATION
 {
     char module_name[CHAR_LENGTH_MAX];
     int tmp_frc_size = 0;
+    bool use_direct_halo = false;
+    bool direct_halo_preserve_classic = true;
+    DIRECT_HALO_PLAN direct_halo;
 
     // 存储局域粒子与残基数目
     int atom_numbers = 0;  // 区域内粒子数
@@ -64,7 +87,9 @@ struct DOMAIN_INFORMATION
     float* d_sum_ene_total = NULL;  // 存储整体能量
     float h_sum_ene_total = 0.0f;
 
-    LTMatrix3* d_virial = NULL;  // 存储逐原子维里
+    LTMatrix3* d_virial = NULL;   // 存储逐原子维里
+    float* d_mlip_energy = NULL;  // Rank-local model energy (one FP32 value)
+    float* d_mlip_virial = NULL;  // Device FP32[6]: a11,a21,a22,a31,a32,a33
 
     int* d_excluded_list_start = NULL;  // 局域粒子的排除表开端
     int* d_excluded_list = NULL;        // 局域粒子的排除表
@@ -80,9 +105,13 @@ struct DOMAIN_INFORMATION
     void Get_Excluded(CONTROLLER* controller,
                       MD_INFORMATION* md_info);  // 获取区域内粒子的排除表
     void Update_Ghost(CONTROLLER* controller);  // 更新Ghost粒子信息，主要是坐标
+    // Contiguous FP32 rows follow DD's owned+ghost ordering. Forward fills
+    // ghost rows; reverse adds their contributions back to owners.
     void Update_Ghost_Tensor(
         CONTROLLER* controller, float* atom_tensor,
         int dim_feature);  // 使用AI力场时，对ghost粒子进行通信
+    void Accumulate_Ghost_Tensor(CONTROLLER* controller, float* tensor,
+                                 int feature_width);
     void Sync_Local_Charge_From_Global(const float* global_charge);
     void Distribute_Ghost_Information(
         CONTROLLER* controller, VECTOR* frc_);  // 传递Ghost粒子信息，用于力计算

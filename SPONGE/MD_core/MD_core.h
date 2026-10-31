@@ -111,7 +111,7 @@ struct MD_INFORMATION
     // 计算总张力
     void Get_pressure(CONTROLLER* controller, float dd_atom_numbers,
                       VECTOR* dd_vel, float* dd_d_mass, LTMatrix3* dd_d_virial,
-                      deviceStream_t stream);
+                      const float* dd_d_mlip_virial, deviceStream_t stream);
     // 将坐标和速度放缩
     void Scale_Positions_And_Velocities(LTMatrix3 g, int scale_crd,
                                         int scale_vel, VECTOR* crd,

@@ -25,9 +25,15 @@ directory = "."
 
 [tool.py-build-cmake.sdist]
 include = [
+        "LOCAL_MP.md",
+        "LOCAL_MP_USER_GUIDE.md",
+        "LOCAL_MP_VALIDATION.md",
         "CMakeLists.txt",
         "src/*",
         "include/*",
+        "prips/*.py",
+        "prips/*.pyi",
+        "prips/local_mp/*.py",
         "THIRD_PARTY_NOTICES",
         "LICENSE-DLPACK",
 ]

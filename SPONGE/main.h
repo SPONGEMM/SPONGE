@@ -2,6 +2,7 @@
 #define MAIN_RUN_H
 
 #include "Domain_decomposition/Domain_decomposition.h"
+#include "Domain_decomposition/halo_reference.h"
 #include "Lennard_Jones_force/LJ_soft_core.h"
 #include "Lennard_Jones_force/Lennard_Jones_force.h"
 #include "Lennard_Jones_force/solvent_LJ.h"
@@ -41,6 +42,7 @@
 #include "manybody/tersoff.h"
 #include "nb14/nb14.h"
 #include "neighbor_list/full_neighbor_list.h"
+#include "neighbor_list/mlip_neighbor_list.h"
 #include "neighbor_list/neighbor_list.h"
 #include "plugin/plugin.h"
 #include "restrain/restrain.h"

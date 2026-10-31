@@ -18,9 +18,8 @@ void FULL_NEIGHBOR_LIST::Initial(int atom_numbers, int max_neighbor_numbers)
     }
     Device_Malloc_And_Copy_Safely((void**)&d_nl, h_nl,
                                   sizeof(ATOM_GROUP) * atom_numbers);
-    int h_overflow = 0;
-    Device_Malloc_And_Copy_Safely((void**)&d_overflow, &h_overflow,
-                                  sizeof(int));
+    Device_Malloc_Safely((void**)&d_overflow, sizeof(int));
+    deviceMemset(d_overflow, 0, sizeof(int));
     is_initialized = true;
 }
 

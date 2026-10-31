@@ -720,6 +720,126 @@
       "description": "Force coordinate mapping by whole molecules during output.",
       "default": false
     },
+    "initial_velocity": {
+      "type": "object",
+      "description": "Explicit Maxwell velocity initialization using target_temperature; replaces any imported velocity. Not available in minimization or rerun mode.",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "seed"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "maxwell"
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "structure": {
+      "title": "Initial Atomistic Structure",
+      "description": "Native pure MLIP only. Resolves relative to mdin; owns atoms, coordinates, masses, cell, velocities and element labels. Cannot be combined with traditional initial-state sources, default input prefix, JSON types or restart/rerun input. Requires ASE in the bridge Python environment.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "xyz",
+                "extxyz",
+                "vasp",
+                "cif"
+              ]
+            },
+            "frame": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647,
+              "default": 0,
+              "description": "Single ASE frame index; negative indices are supported."
+            },
+            "cell": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number"
+              },
+              "description": "Lengths in angstrom, only to supplement a missing cell; does not scale coordinates."
+            },
+            "pbc": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "boolean"
+              },
+              "description": "Only supplements missing boundary semantics. Current runtime requires all periodic."
+            }
+          }
+        }
+      ]
+    },
+    "mlip": {
+      "type": "object",
+      "title": "Native Local-MP Deployment",
+      "description": "External deployment entry requiring SPONGE_ENABLE_MLIP on Linux CUDA+MPI. Cannot be combined with plugin, py or SPONGE_PRIPS_PY.",
+      "additionalProperties": false,
+      "required": [
+        "model"
+      ],
+      "properties": {
+        "model": {
+          "type": "string",
+          "title": "Deployment Object",
+          "description": "Trusted external LocalMPDeployment file; relative paths resolve against mdin, independently of workspace. Not a raw checkpoint or model name."
+        },
+        "types": {
+          "type": "string",
+          "title": "System Type Sidecar",
+          "description": "JSON type_names and atom_types in global SPONGE atom order; relative paths resolve against mdin. Names are explicit model labels. Required without structure; mutually exclusive with structure."
+        },
+        "mode": {
+          "type": "string",
+          "title": "Force Composition",
+          "enum": [
+            "pure",
+            "hybrid"
+          ],
+          "default": "pure",
+          "description": "Pure rejects classical force parameters and nonzero charges while retaining explicitly configured constraints and biases. Hybrid adds model outputs to classical interactions."
+        }
+      }
+    },
+    "plugin": {
+      "type": "string",
+      "title": "Native Plugins",
+      "description": "Space-separated native plugin library paths. Use absolute paths or explicit relative paths such as ./build-prips/_prips.so."
+    },
+    "py": {
+      "type": "string",
+      "title": "PRIPS Python Entry",
+      "description": "Python entry file loaded by PRIPS, resolved from the process working directory. Overrides SPONGE_PRIPS_PY when supplied."
+    },
     "device": {
       "anyOf": [
         {
@@ -733,7 +853,7 @@
         }
       ],
       "title": "Device",
-      "description": "Compute device index or list.",
+      "description": "Explicit visible device index shared by all ranks, or indices in global MPI rank order. Native mlip omission uses shared-memory local rank, or zero for one visible device; the legacy default remains global rank.",
       "default": 0
     },
     "device_optimized_block": {
@@ -1647,7 +1767,7 @@
         "MPI_size": {
           "type": "integer",
           "title": "PM MPI Size",
-          "description": "MPI size for particle mesh algorithms.",
+          "description": "MPI size for particle mesh algorithms. Native mlip pure defaults to zero; multi-rank CV requires explicit one, and pure one without a CV consumer is rejected.",
           "default": 1
         },
         "fftx": {
@@ -2231,6 +2351,41 @@
           "maximum": 512,
           "default": 128
         }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "structure"
+    ]
+  },
+  "then": {
+    "required": [
+      "mlip"
+    ],
+    "properties": {
+      "mlip": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "pure"
+            ]
+          }
+        },
+        "not": {
+          "required": [
+            "types"
+          ]
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "mlip": {
+        "required": [
+          "types"
+        ]
       }
     }
   }

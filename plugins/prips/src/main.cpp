@@ -13,18 +13,162 @@
 #include <dlfcn.h>
 #endif
 
+#include <climits>
+#include <cmath>
 #include <cstdarg>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <sstream>
+#include <vector>
 
 #include "../include/sponge_plugin_api.h"
+#include "../include/sponge_structure_input.h"
 #include "Python.h"
 #include "dlpack.h"
 
 static const SPONGE_PLUGIN_API* sponge_api = NULL;
+static const SPONGE_LOCAL_MP_API_V1* sponge_local_mp = NULL;
 static int is_initialized = 0;
 static std::string py_script_path;
 static DLDeviceType dlpack_device_type = kDLCPU;
+static int dlpack_device_index = 0;
+static bool checked_runtime_errors = false;
+static bool runtime_error_latched = false;
+static std::string runtime_error_stage;
+static std::string runtime_error_message;
+
+static void RuntimeFailure(const char* stage, const std::string& message)
+{
+    if (!checked_runtime_errors)
+    {
+        fprintf(stderr, "PRIPS [%s]: %s\n", stage, message.c_str());
+        exit(1);
+    }
+    if (!runtime_error_latched)
+    {
+        runtime_error_stage = stage;
+        runtime_error_message = message;
+        runtime_error_latched = true;
+    }
+}
+
+static void CapturePythonFailure(const char* stage)
+{
+    PyObject *type = nullptr, *value = nullptr, *trace = nullptr;
+    PyErr_Fetch(&type, &value, &trace);
+    PyErr_NormalizeException(&type, &value, &trace);
+    std::string message = "Python callback failed";
+    PyObject* text = value ? PyObject_Str(value) : nullptr;
+    if (text)
+    {
+        const char* utf8 = PyUnicode_AsUTF8(text);
+        if (utf8) message = utf8;
+    }
+    Py_XDECREF(text);
+    PyErr_Clear();
+    PyObject* traceback = PyImport_ImportModule("traceback");
+    PyObject* lines =
+        traceback && type
+            ? PyObject_CallMethod(traceback, "format_exception", "OOO", type,
+                                  value ? value : Py_None,
+                                  trace ? trace : Py_None)
+            : nullptr;
+    PyObject* separator = lines ? PyUnicode_FromString("") : nullptr;
+    PyObject* joined = separator ? PyUnicode_Join(separator, lines) : nullptr;
+    if (joined)
+    {
+        const char* utf8 = PyUnicode_AsUTF8(joined);
+        if (utf8) message = utf8;
+    }
+    Py_XDECREF(joined);
+    Py_XDECREF(separator);
+    Py_XDECREF(lines);
+    Py_XDECREF(traceback);
+    Py_XDECREF(type);
+    Py_XDECREF(value);
+    Py_XDECREF(trace);
+    PyErr_Clear();
+    RuntimeFailure(stage, message);
+}
+
+static bool RunPythonCode(const char* stage, const char* source)
+{
+    if (runtime_error_latched) return false;
+    if (!checked_runtime_errors)
+    {
+        if (PyRun_SimpleString(source) == 0) return true;
+        RuntimeFailure(stage, "Python callback failed");
+        return false;
+    }
+    const PyGILState_STATE gil = PyGILState_Ensure();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* globals = main ? PyModule_GetDict(main) : nullptr;
+    PyObject* result =
+        globals ? PyRun_String(source, Py_file_input, globals, globals)
+                : nullptr;
+    const bool success = result != nullptr;
+    Py_XDECREF(result);
+    if (!success) CapturePythonFailure(stage);
+    PyGILState_Release(gil);
+    return success;
+}
+
+PLUGIN_API int32_t Enable_Checked_Runtime_Errors_V1()
+{
+    checked_runtime_errors = true;
+    return 0;
+}
+
+PLUGIN_API int32_t Get_Runtime_Error_V1(const char** stage,
+                                        const char** message)
+{
+    if (stage)
+        *stage = runtime_error_latched ? runtime_error_stage.c_str() : nullptr;
+    if (message)
+        *message =
+            runtime_error_latched ? runtime_error_message.c_str() : nullptr;
+    return runtime_error_latched ? 1 : 0;
+}
+
+PLUGIN_API int32_t Prepare_Local_MP_Setup_V1()
+{
+    if (runtime_error_latched) return -1;
+    if (!is_initialized || !Py_IsInitialized()) return 0;
+    if (!checked_runtime_errors)
+    {
+        RuntimeFailure("Prepare_Local_MP_Setup_V1",
+                       "setup requires checked errors");
+        return -1;
+    }
+    const PyGILState_STATE gil = PyGILState_Ensure();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* globals = main ? PyModule_GetDict(main) : nullptr;
+    PyObject* driver =
+        globals ? PyRun_String("getattr(Sponge, '_local_mp_driver', None)",
+                               Py_eval_input, globals, globals)
+                : nullptr;
+    if (driver == Py_None)
+    {
+        Py_DECREF(driver);
+        PyGILState_Release(gil);
+        return 0;
+    }
+    if (driver != nullptr && (sponge_local_mp == nullptr ||
+                              sponge_local_mp->submit_owned_outputs == nullptr))
+        PyErr_SetString(PyExc_RuntimeError,
+                        "native owned output submission is unavailable");
+    PyObject* result =
+        driver != nullptr && !PyErr_Occurred()
+            ? PyObject_CallMethod(driver, "prepare_setup", nullptr)
+            : nullptr;
+    Py_XDECREF(driver);
+    const bool success = result != nullptr;
+    if (!success) CapturePythonFailure("Prepare_Local_MP_Setup_V1");
+    Py_XDECREF(result);
+    PyGILState_Release(gil);
+    return success ? 1 : -1;
+}
 
 static bool controller_command_exist(const char* key)
 {
@@ -64,11 +208,13 @@ PLUGIN_API std::string Version() { return std::string(PRIPS_VERSION); }
 
 PLUGIN_API std::string Version_Check(int i)
 {
-    if (i != SPONGE_PRIPS_API_VERSION)
+    if (i != SPONGE_PRIPS_API_VERSION && i != SPONGE_LOCAL_MP_API_VERSION)
     {
         return std::string("Reason:\n\tPRIPS v" PRIPS_VERSION
                            " expects SPONGE plugin API version " +
                            std::to_string(SPONGE_PRIPS_API_VERSION) +
+                           " or local-MP " +
+                           std::to_string(SPONGE_LOCAL_MP_API_VERSION) +
                            ", but got " + std::to_string(i));
     }
     return std::string();
@@ -79,6 +225,7 @@ static void delete_dltensor(DLManagedTensor* managed_tensor)
     DLTensor* tensor = &managed_tensor->dl_tensor;
     free(tensor->shape);
     if (tensor->strides != NULL) free(tensor->strides);
+    free(managed_tensor);
 }
 
 // strides虽然dlpack支持，但是很多引擎不支持，所以尽量不给
@@ -92,11 +239,12 @@ static PyObject* create_dltensor(void* data, int N_dim, int64_t* shape,
     managed_tensor->deleter = delete_dltensor;
     DLTensor* tensor = &managed_tensor->dl_tensor;
     tensor->data = data;
-    tensor->device = {dlpack_device_type, 0};
+    tensor->device = {dlpack_device_type, dlpack_device_index};
     tensor->ndim = N_dim;
     tensor->dtype = {(uint8_t)type_code, bits, lanes};
-    tensor->shape = (int64_t*)malloc(sizeof(int64_t) * N_dim);
-    memcpy(tensor->shape, shape, sizeof(int64_t) * N_dim);
+    tensor->shape =
+        N_dim == 0 ? NULL : (int64_t*)malloc(sizeof(int64_t) * N_dim);
+    if (N_dim > 0) memcpy(tensor->shape, shape, sizeof(int64_t) * N_dim);
     if (strides != NULL)
     {
         tensor->strides = (int64_t*)malloc(sizeof(int64_t) * N_dim);
@@ -104,6 +252,92 @@ static PyObject* create_dltensor(void* data, int N_dim, int64_t* shape,
     }
     PyObject* a = PyCapsule_New((void*)managed_tensor, "dltensor", NULL);
     return a;
+}
+
+// These capsules own only DLPack metadata, never the SPONGE device arrays.
+static void delete_borrowed_capsule(PyObject* capsule)
+{
+    if (!PyCapsule_IsValid(capsule, "dltensor")) return;
+    auto* tensor = static_cast<DLManagedTensor*>(
+        PyCapsule_GetPointer(capsule, "dltensor"));
+    tensor->deleter(tensor);
+}
+
+static PyObject* create_neighbor_capsule(const int32_t* data, int ndim,
+                                         int64_t* shape)
+{
+    PyObject* capsule =
+        create_dltensor(const_cast<int32_t*>(data), ndim, shape, NULL, kDLInt);
+    if (capsule != NULL)
+        PyCapsule_SetDestructor(capsule, delete_borrowed_capsule);
+    return capsule;
+}
+
+static PyObject* MlipNeighborEpoch(PyObject*, PyObject*)
+{
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->get_mlip_neighbor_epoch == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "MLIP neighbor epoch requires local-MP API v1");
+        return NULL;
+    }
+    return PyLong_FromUnsignedLongLong(
+        sponge_local_mp->get_mlip_neighbor_epoch());
+}
+
+static PyObject* MlipNeighborView(PyObject*, PyObject*)
+{
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->get_mlip_neighbor_view == NULL ||
+        sponge_local_mp->get_mlip_neighbor_epoch == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "MLIP neighbor view requires local-MP API v1");
+        return NULL;
+    }
+    SPONGE_MLIP_NEIGHBOR_VIEW view = {};
+    const int status = sponge_local_mp->get_mlip_neighbor_view(&view);
+    if (status != SPONGE_MLIP_NEIGHBOR_READY)
+    {
+        PyErr_Format(PyExc_RuntimeError,
+                     "MLIP neighbor graph unavailable (status %d)", status);
+        return NULL;
+    }
+    if (view.neighbor_epoch == 0 ||
+        view.neighbor_epoch != sponge_local_mp->get_mlip_neighbor_epoch() ||
+        view.owned_count < 0 || view.edge_count < 0 ||
+        (view.owned_count == 0 && view.edge_count != 0) ||
+        view.row_ptr == NULL ||
+        (view.edge_count > 0 &&
+         (view.source_local_index == NULL || view.image_shift == NULL)))
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "Invalid MLIP neighbor graph metadata");
+        return NULL;
+    }
+    int64_t row_shape[] = {static_cast<int64_t>(view.owned_count) + 1};
+    int64_t source_shape[] = {view.edge_count};
+    int64_t shift_shape[] = {view.edge_count, 3};
+    // A valid int32 base also supports zero-length views in DLPack consumers.
+    const int32_t* sources = view.source_local_index == NULL
+                                 ? view.row_ptr
+                                 : view.source_local_index;
+    const int32_t* shifts =
+        view.image_shift == NULL ? view.row_ptr : view.image_shift;
+    PyObject* rows = create_neighbor_capsule(view.row_ptr, 1, row_shape);
+    PyObject* source = create_neighbor_capsule(sources, 1, source_shape);
+    PyObject* shift = create_neighbor_capsule(shifts, 2, shift_shape);
+    if (rows == NULL || source == NULL || shift == NULL)
+    {
+        Py_XDECREF(rows);
+        Py_XDECREF(source);
+        Py_XDECREF(shift);
+        return NULL;
+    }
+    return Py_BuildValue(
+        "(KiiNNN)", static_cast<unsigned long long>(view.neighbor_epoch),
+        view.owned_count, view.edge_count, rows, source, shift);
 }
 
 // MD information
@@ -309,7 +543,347 @@ static PyObject* Control_MPI_Rank(PyObject* self, PyObject* args)
                              : sponge_api->get_mpi_rank());
 }
 
+static PyObject* LocalMPRegisterCapabilities(PyObject*, PyObject* args)
+{
+    double cutoff, skin;
+    int depth;
+    unsigned long long hash;
+    if (!PyArg_ParseTuple(args, "ddiK", &cutoff, &skin, &depth, &hash))
+        return NULL;
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->register_mlip_capabilities == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "PRIPS local-MP v1 capability callback is unavailable");
+        return NULL;
+    }
+    return PyLong_FromLong(sponge_local_mp->register_mlip_capabilities(
+        cutoff, skin, depth, SPONGE_MLIP_FEATURE_FP32,
+        static_cast<uint64_t>(hash)));
+}
+
+static PyObject* LocalMPDeviceIndex(PyObject*, PyObject*)
+{
+    return PyLong_FromLong(
+        sponge_local_mp == NULL ? -1 : sponge_local_mp->get_device_index());
+}
+
+static PyObject* LocalMPDomainEpoch(PyObject*, PyObject*)
+{
+    return PyLong_FromUnsignedLongLong(
+        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_domain_epoch());
+}
+
+static PyObject* LocalMPNeedPotential(PyObject*, PyObject*)
+{
+    return PyLong_FromLong(
+        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_need_potential());
+}
+
+static PyObject* LocalMPNeedPressure(PyObject*, PyObject*)
+{
+    return PyLong_FromLong(
+        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_need_pressure());
+}
+
+static PyObject* LocalMPCell(PyObject*, PyObject*)
+{
+    float cell[9];
+    uint8_t pbc_mask = 0;
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->get_cell(cell, &pbc_mask) != 0)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "PRIPS local-MP v1 cell is unavailable");
+        return NULL;
+    }
+    PyObject* rows = PyTuple_New(3);
+    for (int row = 0; row < 3; ++row)
+    {
+        PyObject* values = PyTuple_New(3);
+        for (int col = 0; col < 3; ++col)
+            PyTuple_SET_ITEM(values, col,
+                             PyFloat_FromDouble(cell[row * 3 + col]));
+        PyTuple_SET_ITEM(rows, row, values);
+    }
+    PyObject* result = PyTuple_New(2);
+    PyTuple_SET_ITEM(result, 0, rows);
+    PyTuple_SET_ITEM(result, 1, PyLong_FromLong(pbc_mask));
+    return result;
+}
+
+static bool CurrentTorchCUDAStream(uintptr_t* stream)
+{
+    PyObject* torch = PyImport_ImportModule("torch");
+    if (torch == NULL) return false;
+    PyObject* cuda = PyObject_GetAttrString(torch, "cuda");
+    Py_DECREF(torch);
+    if (cuda == NULL) return false;
+    PyObject* current =
+        PyObject_CallMethod(cuda, "current_stream", "i", dlpack_device_index);
+    Py_DECREF(cuda);
+    if (current == NULL) return false;
+    PyObject* handle = PyObject_GetAttrString(current, "cuda_stream");
+    Py_DECREF(current);
+    if (handle == NULL) return false;
+    void* pointer = PyLong_AsVoidPtr(handle);
+    Py_DECREF(handle);
+    if (PyErr_Occurred()) return false;
+    *stream = reinterpret_cast<uintptr_t>(pointer);
+    return true;
+}
+
+static PyObject* LocalMPTensorExchange(PyObject*, PyObject* args, bool reverse)
+{
+    PyObject* tensor;
+    if (!PyArg_ParseTuple(args, "O", &tensor)) return NULL;
+    if (sponge_local_mp == NULL || sponge_api == NULL ||
+        sponge_local_mp->exchange_on_stream == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "PRIPS local-MP v1 tensor exchange is unavailable");
+        return NULL;
+    }
+    uintptr_t producer_stream = 0;
+    if (!CurrentTorchCUDAStream(&producer_stream)) return NULL;
+    // DLPack uses 1 for CUDA's legacy default stream, never the raw null
+    // handle. Passing the current stream avoids an implicit default handoff.
+    PyObject* capsule = NULL;
+    {
+        PyObject* method = PyObject_GetAttrString(tensor, "__dlpack__");
+        if (method == NULL) return NULL;
+        PyObject* empty = PyTuple_New(0);
+        PyObject* keywords =
+            Py_BuildValue("{s:K}", "stream",
+                          static_cast<unsigned long long>(
+                              producer_stream == 0 ? 1 : producer_stream));
+        if (empty != NULL && keywords != NULL)
+            capsule = PyObject_Call(method, empty, keywords);
+        Py_XDECREF(keywords);
+        Py_XDECREF(empty);
+        Py_DECREF(method);
+    }
+    if (capsule == NULL) return NULL;
+    DLManagedTensor* managed = static_cast<DLManagedTensor*>(
+        PyCapsule_GetPointer(capsule, "dltensor"));
+    if (managed == NULL)
+    {
+        Py_DECREF(capsule);
+        return NULL;
+    }
+    DLTensor& view = managed->dl_tensor;
+    const int expected_rows = sponge_api->get_local_atom_numbers() +
+                              sponge_api->get_local_ghost_numbers();
+    const bool contiguous =
+        view.ndim == 2 &&
+        (view.strides == NULL ||
+         (view.strides[1] == 1 && view.strides[0] == view.shape[1]));
+    if (view.ndim != 2 || view.shape[0] != expected_rows ||
+        view.shape[1] <= 0 || view.shape[1] > INT_MAX ||
+        view.dtype.code != kDLFloat || view.dtype.bits != 32 ||
+        view.dtype.lanes != 1 || dlpack_device_type != kDLCUDA ||
+        view.device.device_type != kDLCUDA ||
+        view.device.device_id != dlpack_device_index || !contiguous)
+    {
+        Py_DECREF(capsule);
+        PyErr_SetString(PyExc_ValueError,
+                        "exchange requires contiguous FP32 CUDA "
+                        "local-plus-ghost rows on the selected device");
+        return NULL;
+    }
+    float* data = reinterpret_cast<float*>(static_cast<char*>(view.data) +
+                                           view.byte_offset);
+    const int status = sponge_local_mp->exchange_on_stream(
+        data, expected_rows, static_cast<int>(view.shape[1]), reverse,
+        sponge_local_mp->get_domain_epoch(), producer_stream);
+    Py_DECREF(capsule);
+    return PyLong_FromLong(status);
+}
+
+static PyObject* LocalMPUpdateGhost(PyObject* self, PyObject* args)
+{
+    return LocalMPTensorExchange(self, args, false);
+}
+
+static PyObject* LocalMPAccumulateGhost(PyObject* self, PyObject* args)
+{
+    return LocalMPTensorExchange(self, args, true);
+}
+
+struct TorchDeviceBorrow
+{
+    PyObject* capsule = NULL;
+    DLTensor* view = NULL;
+    ~TorchDeviceBorrow() { Py_XDECREF(capsule); }
+
+    bool acquire(PyObject* tensor, uintptr_t stream)
+    {
+        PyObject* method = PyObject_GetAttrString(tensor, "__dlpack__");
+        if (method == NULL) return false;
+        PyObject* empty = PyTuple_New(0);
+        PyObject* keywords = Py_BuildValue(
+            "{s:K}", "stream",
+            static_cast<unsigned long long>(stream == 0 ? 1 : stream));
+        if (empty != NULL && keywords != NULL)
+            capsule = PyObject_Call(method, empty, keywords);
+        Py_XDECREF(keywords);
+        Py_XDECREF(empty);
+        Py_DECREF(method);
+        if (capsule == NULL) return false;
+        auto* managed = static_cast<DLManagedTensor*>(
+            PyCapsule_GetPointer(capsule, "dltensor"));
+        if (managed == NULL) return false;
+        view = &managed->dl_tensor;
+        return true;
+    }
+
+    bool valid(int rank, int64_t rows, int64_t width, int code, int bits) const
+    {
+        if (view == NULL || view->ndim != rank || view->shape[0] != rows ||
+            view->device.device_type != kDLCUDA ||
+            view->device.device_id != dlpack_device_index ||
+            view->dtype.code != code || view->dtype.bits != bits ||
+            view->dtype.lanes != 1)
+            return false;
+        if (rank == 2 && view->shape[1] != width) return false;
+        const bool empty = rows == 0;
+        if (!empty && view->data == NULL) return false;
+        if (view->strides != NULL && !empty)
+        {
+            if (rank == 1 && view->strides[0] != 1) return false;
+            if (rank == 2 &&
+                (view->strides[1] != 1 || view->strides[0] != width))
+                return false;
+        }
+        return true;
+    }
+
+    void* data() const
+    {
+        return view->data == NULL
+                   ? NULL
+                   : static_cast<char*>(view->data) + view->byte_offset;
+    }
+};
+
+static PyObject* LocalMPSubmitOwnedOutputs(PyObject*, PyObject* args)
+{
+    PyObject *forces_tensor, *energy_tensor, *virial_tensor;
+    if (!PyArg_ParseTuple(args, "OOO", &forces_tensor, &energy_tensor,
+                          &virial_tensor))
+        return NULL;
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->submit_owned_outputs == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "native owned output submission is unavailable");
+        return NULL;
+    }
+    uintptr_t producer_stream = 0;
+    if (!CurrentTorchCUDAStream(&producer_stream)) return NULL;
+    TorchDeviceBorrow forces, energy, virial;
+    if (!forces.acquire(forces_tensor, producer_stream) ||
+        (energy_tensor != Py_None &&
+         !energy.acquire(energy_tensor, producer_stream)) ||
+        (virial_tensor != Py_None &&
+         !virial.acquire(virial_tensor, producer_stream)))
+        return NULL;
+    const int owned = sponge_local_mp->prips_api->get_local_atom_numbers();
+    if (!forces.valid(2, owned, 3, kDLFloat, 32) ||
+        (energy_tensor != Py_None && !energy.valid(1, 1, 0, kDLFloat, 32)) ||
+        (virial_tensor != Py_None && !virial.valid(2, 3, 3, kDLFloat, 32)))
+    {
+        PyErr_SetString(PyExc_ValueError,
+                        "owned output submission requires contiguous FP32 "
+                        "CUDA tensors on the selected device with shapes "
+                        "[owned,3], optional [1] energy and optional [3,3] "
+                        "physical virial in SPONGE units");
+        return NULL;
+    }
+    const int status = sponge_local_mp->submit_owned_outputs(
+        sponge_local_mp->get_domain_epoch(), owned,
+        static_cast<const float*>(forces.data()),
+        energy_tensor == Py_None ? NULL
+                                 : static_cast<const float*>(energy.data()),
+        virial_tensor == Py_None ? NULL
+                                 : static_cast<const float*>(virial.data()),
+        producer_stream);
+    // Host completion keeps every borrowed capsule alive through native reads.
+    return PyLong_FromLong(status);
+}
+
+static PyObject* LocalMPAssembleEdgeGradients(PyObject*, PyObject* args)
+{
+    PyObject *ids_tensor, *gradients_tensor, *forces_tensor, *virial_tensor;
+    unsigned long long neighbor_epoch;
+    double length_scale;
+    if (!PyArg_ParseTuple(args, "OOKdOO", &ids_tensor, &gradients_tensor,
+                          &neighbor_epoch, &length_scale, &forces_tensor,
+                          &virial_tensor))
+        return NULL;
+    if (sponge_local_mp == NULL ||
+        sponge_local_mp->assemble_selected_edge_gradients == NULL)
+    {
+        PyErr_SetString(PyExc_RuntimeError,
+                        "native edge output assembly is unavailable");
+        return NULL;
+    }
+    if (neighbor_epoch == 0 || !std::isfinite(length_scale) ||
+        length_scale <= 0)
+    {
+        PyErr_SetString(PyExc_ValueError,
+                        "invalid edge neighbor epoch or length conversion");
+        return NULL;
+    }
+    uintptr_t producer_stream = 0;
+    if (!CurrentTorchCUDAStream(&producer_stream)) return NULL;
+    TorchDeviceBorrow ids, gradients, forces, virial;
+    if (!ids.acquire(ids_tensor, producer_stream) ||
+        !gradients.acquire(gradients_tensor, producer_stream) ||
+        !forces.acquire(forces_tensor, producer_stream) ||
+        (virial_tensor != Py_None &&
+         !virial.acquire(virial_tensor, producer_stream)))
+        return NULL;
+    const int64_t count = ids.view->ndim == 1 ? ids.view->shape[0] : -1;
+    const int owned = sponge_local_mp->prips_api->get_local_atom_numbers();
+    if (count < 0 || count > INT_MAX || !ids.valid(1, count, 0, kDLInt, 64) ||
+        !gradients.valid(2, count, 3, kDLFloat, 32) ||
+        !forces.valid(2, owned, 3, kDLFloat, 32) ||
+        (virial_tensor != Py_None && !virial.valid(2, 3, 3, kDLFloat, 32)))
+    {
+        PyErr_SetString(PyExc_ValueError,
+                        "edge assembly requires contiguous int64 IDs and FP32 "
+                        "gradients/outputs "
+                        "on the selected CUDA device with shapes [E], [E,3], "
+                        "[owned,3], [3,3]");
+        return NULL;
+    }
+    const int status = sponge_local_mp->assemble_selected_edge_gradients(
+        sponge_local_mp->get_domain_epoch(),
+        static_cast<uint64_t>(neighbor_epoch), static_cast<int>(count),
+        static_cast<const int64_t*>(ids.data()),
+        static_cast<const float*>(gradients.data()),
+        static_cast<float*>(forces.data()),
+        virial_tensor == Py_None ? NULL : static_cast<float*>(virial.data()),
+        virial_tensor == Py_None ? 0 : 1, length_scale, producer_stream);
+    // The callback returns only after every input read and output write ends.
+    // Keep all capsules alive through that completion boundary.
+    return PyLong_FromLong(status);
+}
+
 static PyMethodDef SpongeMethods[] = {
+    {"_submit_owned_outputs", (PyCFunction)LocalMPSubmitOwnedOutputs,
+     METH_VARARGS,
+     "Add owned force, optional energy and physical virial in SPONGE units; "
+     "host complete."},
+    {"_mlip_neighbor_epoch", (PyCFunction)MlipNeighborEpoch, METH_NOARGS,
+     "Return neighbor epoch; zero means no published graph."},
+    {"_mlip_neighbor_view", (PyCFunction)MlipNeighborView, METH_NOARGS,
+     "Return (epoch, owned_count, edge_count, row_ptr, source_local_index, "
+     "image_shift). Arrays are borrowed int32 DLPack capsules with shapes "
+     "[owned_count+1], [edge_count], [edge_count,3], valid until epoch "
+     "changes. "
+     "Request a view only when the epoch changes; unavailable graphs raise."},
     {"_atom_numbers", (PyCFunction)Atom_Numbers, METH_VARARGS, ""},
     {"_steps", (PyCFunction)Steps, METH_VARARGS, ""},
     {"_coordinate", (PyCFunction)Coordinate, METH_VARARGS, ""},
@@ -331,6 +905,19 @@ static PyMethodDef SpongeMethods[] = {
      METH_VARARGS, ""},
     {"_printf", (PyCFunction)Control_Printf, METH_VARARGS | METH_KEYWORDS, ""},
     {"_MPI_rank", (PyCFunction)Control_MPI_Rank, METH_VARARGS, ""},
+    {"_register_mlip_capabilities", (PyCFunction)LocalMPRegisterCapabilities,
+     METH_VARARGS, ""},
+    {"_device_index", (PyCFunction)LocalMPDeviceIndex, METH_NOARGS, ""},
+    {"_domain_epoch", (PyCFunction)LocalMPDomainEpoch, METH_NOARGS, ""},
+    {"_need_potential", (PyCFunction)LocalMPNeedPotential, METH_NOARGS, ""},
+    {"_need_pressure", (PyCFunction)LocalMPNeedPressure, METH_NOARGS, ""},
+    {"_cell", (PyCFunction)LocalMPCell, METH_NOARGS, ""},
+    {"_update_ghost_tensor", (PyCFunction)LocalMPUpdateGhost, METH_VARARGS, ""},
+    {"_accumulate_ghost_tensor", (PyCFunction)LocalMPAccumulateGhost,
+     METH_VARARGS, ""},
+    {"_assemble_edge_gradients", (PyCFunction)LocalMPAssembleEdgeGradients,
+     METH_VARARGS,
+     "Assemble selected native candidate edge gradients in model units."},
     {NULL, NULL, 0, NULL}};
 
 static PyModuleDef SpongeModule = {PyModuleDef_HEAD_INIT,
@@ -364,6 +951,8 @@ PyMODINIT_FUNC PyInit_prips(void)
     PyObject* m0 = PyInit_sponge();
     PyModule_AddIntConstant(m0, "_backend",
                             static_cast<int>(dlpack_device_type));
+    PyModule_AddIntConstant(m0, "_backend_index", dlpack_device_index);
+    PyModule_AddIntConstant(m0, "_local_mp", sponge_local_mp != NULL);
     PyModule_AddObject(m, "Sponge", m0);
     return m;
 }
@@ -373,17 +962,294 @@ PLUGIN_API void Set_Backend_Device_Type(int device_type)
     dlpack_device_type = static_cast<DLDeviceType>(device_type);
 }
 
+// Structure input needs Python before MD arrays exist. Only module/path setup
+// belongs here; runtime wrappers and model preparation stay in Initial_Stable.
+static void EnsurePythonInitialized(bool native_mlip)
+{
+    if (Py_IsInitialized() || runtime_error_latched) return;
+    if (PyImport_AppendInittab("prips", &PyInit_prips) != 0)
+    {
+        RuntimeFailure("Initial_Stable",
+                       "could not register the embedded prips module");
+        return;
+    }
+#ifdef PRIPS_BUNDLED_PYTHON_EXECUTABLE
+    if (native_mlip)
+    {
+        PyConfig config;
+        PyConfig_InitPythonConfig(&config);
+        config.parse_argv = 0;
+        // Anchor path discovery to the configured interpreter, preserving its
+        // venv spelling. Leave home/prefix unset for CPython's pyvenv.cfg
+        // logic.
+        PyStatus status = PyConfig_SetBytesString(
+            &config, &config.program_name, PRIPS_BUNDLED_PYTHON_EXECUTABLE);
+        if (!PyStatus_Exception(status))
+        {
+            status = PyConfig_SetBytesString(&config, &config.executable,
+                                             PRIPS_BUNDLED_PYTHON_EXECUTABLE);
+        }
+        if (!PyStatus_Exception(status))
+        {
+            status = Py_InitializeFromConfig(&config);
+        }
+        if (PyStatus_Exception(status))
+        {
+            const std::string error =
+                status.err_msg == nullptr
+                    ? "Python initialization requested exit"
+                    : status.err_msg;
+            PyConfig_Clear(&config);
+            RuntimeFailure("Native Python initialization", error);
+            return;
+        }
+        PyConfig_Clear(&config);
+    }
+    else
+#endif
+    {
+        Py_Initialize();
+    }
+    if (!Py_IsInitialized())
+    {
+        RuntimeFailure("Initial_Stable", "Python initialization failed");
+        return;
+    }
+
+    wchar_t* temp_args[1] = {(wchar_t*)L"SPONGE"};
+    PySys_SetArgv(1, temp_args);
+    PyObject* main = PyImport_AddModule("__main__");
+    if (PyErr_Occurred() || main == nullptr ||
+        PyModule_AddIntConstant(main, "_prips_checked_errors",
+                                checked_runtime_errors) != 0)
+    {
+        CapturePythonFailure("Python bootstrap");
+        return;
+    }
+    // The loaded bridge owns its sibling package; wheel and bundled installs
+    // use the same layout. Editable installs retain the sys.path fallback.
+    std::string package_dir;
+#ifndef _WIN32
+    Dl_info library_info = {};
+    if (dladdr(reinterpret_cast<void*>(&EnsurePythonInitialized),
+               &library_info) != 0 &&
+        library_info.dli_fname != nullptr)
+    {
+        package_dir = std::filesystem::absolute(library_info.dli_fname)
+                          .parent_path()
+                          .string();
+    }
+#endif
+    if (native_mlip &&
+        (package_dir.empty() ||
+         !std::filesystem::is_regular_file(std::filesystem::path(package_dir) /
+                                           "local_mp" / "__init__.py")))
+    {
+        RuntimeFailure("Native MLIP package",
+                       "The loaded PRIPS bridge is missing its sibling "
+                       "local_mp package; reinstall SPONGE with MLIP enabled");
+        return;
+    }
+    PyObject* package_path = PyUnicode_DecodeFSDefault(package_dir.c_str());
+    if (package_path == nullptr ||
+        PyObject_SetAttrString(main, "_prips_package_dir", package_path) != 0)
+    {
+        Py_XDECREF(package_path);
+        CapturePythonFailure("Python package path");
+        return;
+    }
+    Py_DECREF(package_path);
+    if (!RunPythonCode("Python bootstrap", R"XYJ(
+import sys
+sys.dont_write_bytecode = True
+from pathlib import Path
+import importlib.util as iu
+
+old_excepthook = sys.excepthook
+def new_hook(exctype, value, traceback):
+    old_excepthook(exctype, value, traceback)
+    exit(1)
+if not _prips_checked_errors:
+    sys.excepthook = new_hook
+
+from prips import Sponge
+
+# The embedded extension is named prips; expose the installed Python package
+# directory so a user script can import prips.local_mp at module import time.
+import prips as _prips_module
+if _prips_package_dir and (Path(_prips_package_dir) / "local_mp" / "__init__.py").is_file():
+    _prips_module.__path__ = [_prips_package_dir]
+else:
+    _prips_module.__path__ = [str(Path(p) / "prips") for p in sys.path
+                              if (Path(p) / "prips" / "local_mp" / "__init__.py").is_file()]
+
+)XYJ"))
+        return;
+}
+
+// Pending input types live only until the deployment loader takes ownership.
+static PyObject* structure_type_names = nullptr;
+static PyObject* structure_atom_types = nullptr;
+
+PLUGIN_API int Set_Structure_Types(int type_count, const char* const* names,
+                                   int atom_count, const int32_t* indices)
+{
+    EnsurePythonInitialized(true);
+    if (runtime_error_latched) return -1;
+    structure_type_names = PyTuple_New(type_count);
+    structure_atom_types = PyList_New(atom_count);
+    if (structure_type_names && structure_atom_types)
+    {
+        for (int i = 0; i < type_count; ++i)
+        {
+            PyObject* name = PyUnicode_FromString(names[i]);
+            if (!name) break;
+            PyTuple_SET_ITEM(structure_type_names, i, name);
+        }
+        for (int i = 0; i < atom_count && !PyErr_Occurred(); ++i)
+        {
+            PyObject* index = PyLong_FromLong(indices[i]);
+            if (!index) break;
+            PyList_SET_ITEM(structure_atom_types, i, index);
+        }
+    }
+    if (!structure_type_names || !structure_atom_types || PyErr_Occurred())
+    {
+        Py_CLEAR(structure_type_names);
+        Py_CLEAR(structure_atom_types);
+        CapturePythonFailure("Structure types");
+        return -1;
+    }
+    return 0;
+}
+
+PLUGIN_API int Read_Structure_Input(const SPONGE_STRUCTURE_REQUEST* request,
+                                    SPONGE_STRUCTURE_SINK sink, void* context)
+{
+    EnsurePythonInitialized(true);
+    if (runtime_error_latched) return -1;
+    PyObject* module = PyImport_ImportModule("prips.structure_input");
+    PyObject* reader =
+        module ? PyObject_GetAttrString(module, "read_structure") : nullptr;
+    PyObject* args = Py_BuildValue("(s)", request->path);
+    PyObject* kwargs = Py_BuildValue("{s:i}", "frame", request->frame);
+    auto set = [kwargs](const char* key, PyObject* value)
+    {
+        if (value && kwargs) PyDict_SetItemString(kwargs, key, value);
+        Py_XDECREF(value);
+    };
+    if (request->format) set("format", PyUnicode_FromString(request->format));
+    if (request->has_cell)
+        set("cell", Py_BuildValue("(ddd)", request->cell[0], request->cell[1],
+                                  request->cell[2]));
+    if (request->has_pbc)
+        set("pbc", Py_BuildValue("(OOO)", request->pbc[0] ? Py_True : Py_False,
+                                 request->pbc[1] ? Py_True : Py_False,
+                                 request->pbc[2] ? Py_True : Py_False));
+    PyObject* result = reader && args && kwargs && !PyErr_Occurred()
+                           ? PyObject_Call(reader, args, kwargs)
+                           : nullptr;
+    Py_XDECREF(reader);
+    Py_XDECREF(module);
+    Py_XDECREF(args);
+    Py_XDECREF(kwargs);
+    if (!result)
+    {
+        CapturePythonFailure("Structure input");
+        return -1;
+    }
+    // Reader owns contiguous float64/int32 CPU arrays. Borrow them only while
+    // copying into the native input payload; no NumPy C ABI dependency is
+    // needed.
+    const char* keys[] = {"positions", "masses", "velocities", "cell",
+                          "atom_types"};
+    Py_buffer buffers[5] = {};
+    bool ok = true;
+    for (int i = 0; i < 5 && ok; ++i)
+    {
+        PyObject* value = PyDict_GetItemString(result, keys[i]);
+        if (i == 2 && value == Py_None) continue;
+        ok = value &&
+             PyObject_GetBuffer(value, &buffers[i], PyBUF_CONTIG_RO) == 0;
+    }
+    PyObject* names = PyDict_GetItemString(result, "type_names");
+    std::vector<const char*> labels;
+    if (ok && names)
+    {
+        for (Py_ssize_t i = 0; i < PyList_Size(names); ++i)
+        {
+            const char* name = PyUnicode_AsUTF8(PyList_GetItem(names, i));
+            if (!name)
+            {
+                ok = false;
+                break;
+            }
+            labels.push_back(name);
+        }
+        const Py_ssize_t n = buffers[1].len / sizeof(double);
+        // SPONGE atom counts and MPI array counts are signed int.
+        if (n > INT_MAX / 3)
+        {
+            PyErr_SetString(PyExc_ValueError,
+                            "structure exceeds SPONGE atom count range");
+            ok = false;
+        }
+        if (ok)
+        {
+            SPONGE_STRUCTURE_VIEW view = {
+                static_cast<int>(n),
+                static_cast<const double*>(buffers[0].buf),
+                static_cast<const double*>(buffers[1].buf),
+                static_cast<const double*>(buffers[2].buf),
+                static_cast<const double*>(buffers[3].buf),
+                static_cast<int>(labels.size()),
+                labels.data(),
+                static_cast<const int32_t*>(buffers[4].buf)};
+            sink(&view, context);
+        }
+    }
+    else
+        ok = false;
+    for (auto& buffer : buffers)
+        if (buffer.obj) PyBuffer_Release(&buffer);
+    Py_DECREF(result);
+    if (!ok || PyErr_Occurred())
+    {
+        CapturePythonFailure("Structure input buffers");
+        return -1;
+    }
+    return 0;
+}
+
 PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
 {
+    if (runtime_error_latched) return;
     sponge_api = api;
     if (sponge_api == NULL)
     {
-        fprintf(stderr, "        PRIPS initialization failed: null API.\n");
-        exit(1);
+        RuntimeFailure("Initial_Stable",
+                       "PRIPS initialization failed: null API.");
+        return;
     }
     dlpack_device_type = static_cast<DLDeviceType>(sponge_api->device_type);
+    dlpack_device_index =
+        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_device_index();
+    if (dlpack_device_index < 0) dlpack_device_index = 0;
     controller_printf("    initializing pyplugin\n");
-    if (controller_command_exist("py"))
+    const bool native_mlip = controller_command_exist("mlip_model");
+    if (native_mlip)
+    {
+        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+        if (controller_command_exist("py") ||
+            (py_env != nullptr && py_env[0] != '\0'))
+        {
+            RuntimeFailure("Initial_Stable",
+                           "Native [mlip] cannot be combined with py or "
+                           "SPONGE_PRIPS_PY");
+            return;
+        }
+    }
+    else if (controller_command_exist("py"))
     {
         py_script_path = controller_command("py");
     }
@@ -405,34 +1271,29 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
             return;
         }
     }
-    PyImport_AppendInittab("prips", &PyInit_prips);
-    Py_Initialize();
-    if (!Py_IsInitialized())
+    EnsurePythonInitialized(native_mlip);
+    if (runtime_error_latched) return;
+    PyObject* main = PyImport_AddModule("__main__");
+    // Early structure reading created Sponge with no runtime binding. Publish
+    // the actual rank device and service before constructing tensor wrappers.
+    PyObject* module = PyImport_ImportModule("prips");
+    PyObject* sponge =
+        module ? PyObject_GetAttrString(module, "Sponge") : nullptr;
+    if (sponge == nullptr ||
+        PyModule_AddIntConstant(sponge, "_backend", dlpack_device_type) != 0 ||
+        PyModule_AddIntConstant(sponge, "_backend_index",
+                                dlpack_device_index) != 0 ||
+        PyModule_AddIntConstant(sponge, "_local_mp",
+                                sponge_local_mp != nullptr) != 0)
     {
-        fprintf(stderr, "        Python Initialize Failed.\n");
-        exit(1);
+        Py_XDECREF(sponge);
+        Py_XDECREF(module);
+        CapturePythonFailure("Python runtime binding");
+        return;
     }
-    else
-    {
-        controller_printf("        Python Initialized\n");
-    }
-
-    wchar_t* temp_args[1] = {(wchar_t*)L"SPONGE"};
-    PySys_SetArgv(1, temp_args);
-    PyRun_SimpleString(R"XYJ(
-import sys
-sys.dont_write_bytecode = True
-from pathlib import Path
-import importlib.util as iu
-
-old_excepthook = sys.excepthook
-def new_hook(exctype, value, traceback):
-    old_excepthook(exctype, value, traceback)
-    exit(1)
-sys.excepthook = new_hook
-
-from prips import Sponge
-
+    Py_DECREF(sponge);
+    Py_DECREF(module);
+    if (!RunPythonCode("Python runtime binding", R"XYJ(
 class SpongeDLPackTensor:
     def __init__(self, capsule):
         self.capsule = capsule
@@ -441,7 +1302,7 @@ class SpongeDLPackTensor:
         return self.capsule
 
     def __dlpack_device__(self):
-        return (Sponge._backend, 0)
+        return (Sponge._backend, Sponge._backend_index)
 
 Sponge.SpongeDLPackTensor = SpongeDLPackTensor
 
@@ -506,7 +1367,18 @@ class DOMAIN_INFORMATION:
     def pp_rank(self):
         return Sponge._local_pp_rank()
 
+    @property
+    def cell(self):
+        # Box changes need not replace the local atom map or this wrapper.
+        return Sponge._cell()[0] if Sponge._local_mp else None
+
+    @property
+    def pbc(self):
+        pbc_mask = Sponge._cell()[1] if Sponge._local_mp else 0
+        return tuple(bool(pbc_mask & (1 << axis)) for axis in range(3))
+
     def __init__(self):
+        self.domain_epoch = Sponge._domain_epoch()
         atom_local_capsule = Sponge._atom_local()
         atom_local_label_capsule = Sponge._atom_local_label()
         atom_local_id_capsule = Sponge._atom_local_id()
@@ -663,12 +1535,65 @@ def set_backend(backend):
 Sponge.set_backend = set_backend
 Sponge.backend_name = None
 
-)XYJ");
+)XYJ"))
+        return;
 
-    char buffer[4096];
-    sprintf(buffer, "Sponge.fname = r'%s'", py_script_path.c_str());
-    PyRun_SimpleString(buffer);
-    PyRun_SimpleString(R"XYJ(sponge_pyplugin_path = Path(Sponge.fname)
+    if (native_mlip)
+    {
+        PyObject* deployment =
+            PyImport_ImportModule("prips.local_mp.deployment");
+        PyObject* model_path =
+            PyUnicode_DecodeFSDefault(controller_command("mlip_model"));
+        PyObject* loaded = nullptr;
+        if (deployment != nullptr && model_path != nullptr)
+        {
+            if (structure_type_names != nullptr)
+            {
+                loaded = PyObject_CallMethod(
+                    deployment, "load_deployment_with_types", "OOO", model_path,
+                    structure_type_names, structure_atom_types);
+                Py_CLEAR(structure_type_names);
+                Py_CLEAR(structure_atom_types);
+            }
+            else
+            {
+                PyObject* types_path =
+                    PyUnicode_DecodeFSDefault(controller_command("mlip_types"));
+                if (types_path)
+                    loaded = PyObject_CallMethod(deployment, "load_deployment",
+                                                 "OO", model_path, types_path);
+                Py_XDECREF(types_path);
+            }
+        }
+        Py_XDECREF(deployment);
+        Py_XDECREF(model_path);
+        if (loaded == nullptr ||
+            PyObject_SetAttrString(main, "_prips_deployment", loaded) != 0)
+        {
+            Py_XDECREF(loaded);
+            CapturePythonFailure("Native MLIP deployment");
+            return;
+        }
+        Py_DECREF(loaded);
+        if (!RunPythonCode("Native MLIP deployment", R"XYJ(
+from types import SimpleNamespace
+_adapter, _atom_types = _prips_deployment
+sponge_pyplugin = SimpleNamespace(
+    local_mp_adapter=_adapter,
+    atom_types=_atom_types,
+    uses_classic_neighbor_list=getattr(_adapter, "uses_classic_neighbor_list", None),
+)
+del _adapter, _atom_types, _prips_deployment
+)XYJ"))
+            return;
+    }
+    else
+    {
+        char buffer[4096];
+        sprintf(buffer, "Sponge.fname = r'%s'", py_script_path.c_str());
+        if (!RunPythonCode("Python script path", buffer)) return;
+        if (!RunPythonCode("Python user module",
+                           R"XYJ(sponge_pyplugin_path = Path(Sponge.fname)
 spec = iu.spec_from_file_location('sponge_pyplugin', sponge_pyplugin_path)
 if spec is None:
     Sponge.controller.printf(f"Module '{Sponge.fname}' is not found.")
@@ -677,10 +1602,37 @@ else:
     sponge_pyplugin = iu.module_from_spec(spec)
     spec.loader.exec_module(sponge_pyplugin)
     Sponge.controller.printf("        module '%s' imported."%(sponge_pyplugin_path.stem))
-)XYJ");
+)XYJ"))
+            return;
+    }
 
     is_initialized = 1;
     controller_printf("    end initializing pyplugin\n");
+}
+
+PLUGIN_API void Initial_Local_MP_V1(const SPONGE_LOCAL_MP_API_V1* api)
+{
+    if (runtime_error_latched) return;
+    if (api == NULL || api->api_version != SPONGE_LOCAL_MP_API_VERSION ||
+        api->prips_api == NULL ||
+        api->prips_api->api_version != SPONGE_PRIPS_API_VERSION ||
+        api->register_mlip_capabilities == NULL || api->get_pp_rank == NULL ||
+        api->get_pp_size == NULL || api->get_device_index == NULL ||
+        api->get_domain_epoch == NULL || api->get_need_potential == NULL ||
+        api->get_need_pressure == NULL || api->get_cell == NULL ||
+        api->get_mlip_neighbor_epoch == NULL ||
+        api->get_mlip_neighbor_view == NULL ||
+        (api->prips_api->device_type == kDLCUDA &&
+         (api->exchange_on_stream == NULL ||
+          api->submit_owned_outputs == NULL)))
+    {
+        RuntimeFailure(
+            "Initial_Local_MP_V1",
+            "PRIPS requires a complete local-MP API v1 with a valid v2 base.");
+        return;
+    }
+    sponge_local_mp = api;
+    Initial_Stable(api->prips_api);
 }
 
 PLUGIN_API void Initial(void* md, void* ctrl, void* nl, void* cv, void* cv_map,
@@ -692,45 +1644,86 @@ PLUGIN_API void Initial(void* md, void* ctrl, void* nl, void* cv, void* cv_map,
     (void)cv;
     (void)cv_map;
     (void)cv_instance_map;
-    fprintf(stderr,
-            "PRIPS requires SPONGE stable plugin API support. "
-            "Rebuild SPONGE with Initial_Stable loader support.\n");
-    exit(1);
+    RuntimeFailure("Initial",
+                   "PRIPS requires SPONGE stable plugin API support. "
+                   "Rebuild SPONGE with Initial_Stable loader support.");
 }
 
 PLUGIN_API void After_Initial()
 {
-    if (!is_initialized) return;
-    PyRun_SimpleString(R"XYJ(
+    if (!is_initialized || runtime_error_latched) return;
+    RunPythonCode("After_Initial", R"XYJ(
+if sponge_pyplugin is not None and hasattr(sponge_pyplugin, "local_mp_adapter"):
+    if Sponge.backend_name is None:
+        Sponge.set_backend("pytorch")
+    if Sponge.backend_name not in ("pytorch", "torch"):
+        raise RuntimeError("local-MP requires the PyTorch backend")
 if Sponge.neighbor_list is None:
     Sponge.neighbor_list = Sponge.NEIGHBOR_LIST()
 if hasattr(sponge_pyplugin, "After_Initial"):
     sponge_pyplugin.After_Initial()
+if sponge_pyplugin is not None and hasattr(sponge_pyplugin, "local_mp_adapter"):
+    from prips.local_mp import ResidentLocalMPDriver
+    Sponge._local_mp_driver = ResidentLocalMPDriver(
+        Sponge, sponge_pyplugin.local_mp_adapter, sponge_pyplugin.atom_types)
     )XYJ");
+}
+
+// Optional plugin declaration, queried after all After_Initial callbacks.
+// False is a whole-run promise covering the adapter and all executed code.
+PLUGIN_API int Uses_Classic_Neighbor_List()
+{
+    if (!is_initialized || runtime_error_latched || !Py_IsInitialized())
+        return 1;
+    const PyGILState_STATE gil = PyGILState_Ensure();
+    PyObject* main = PyImport_AddModule("__main__");
+    PyObject* globals = main == nullptr ? nullptr : PyModule_GetDict(main);
+    PyObject* result =
+        globals == nullptr
+            ? nullptr
+            : PyRun_String(
+                  "getattr(Sponge, '_local_mp_driver', None) is not None and "
+                  "getattr(sponge_pyplugin, 'uses_classic_neighbor_list', "
+                  "None) is False and "
+                  "not any(hasattr(sponge_pyplugin, name) for name in "
+                  "('After_Initial', 'Calculate_Force', "
+                  "'Set_Domain_Information', 'Mdout_Print'))",
+                  Py_eval_input, globals, globals);
+    const int required = result == Py_True ? 0 : 1;
+    Py_XDECREF(result);
+    if (PyErr_Occurred()) PyErr_Clear();
+    PyGILState_Release(gil);
+    return required;
 }
 
 PLUGIN_API void Set_Domain_Information(void* domain_info)
 {
     (void)domain_info;
-    if (!is_initialized) return;
-    PyRun_SimpleString(R"XYJ(
+    if (!is_initialized || runtime_error_latched) return;
+    RunPythonCode("Set_Domain_Information", R"XYJ(
 Sponge.dd = Sponge.DOMAIN_INFORMATION()
+if hasattr(sponge_pyplugin, "Set_Domain_Information"):
+    sponge_pyplugin.Set_Domain_Information()
+if hasattr(Sponge, "_local_mp_driver"):
+    Sponge._local_mp_driver.set_domain_information(Sponge.dd)
 )XYJ");
 }
 
 PLUGIN_API void Calculate_Force()
 {
-    if (!is_initialized) return;
-    PyRun_SimpleString(R"XYJ(
+    if (!is_initialized || runtime_error_latched) return;
+    RunPythonCode("Calculate_Force", R"XYJ(
 if hasattr(sponge_pyplugin, "Calculate_Force"):
     sponge_pyplugin.Calculate_Force()
+if hasattr(Sponge, "_local_mp_driver"):
+    Sponge._local_mp_driver.calculate_force()
     )XYJ");
 }
 
 PLUGIN_API void Mdout_Print()
 {
-    if (!is_initialized) return;
-    PyRun_SimpleString(R"XYJ(
+    if (!is_initialized || runtime_error_latched) return;
+    RunPythonCode("Mdout_Print", R"XYJ(
 if hasattr(sponge_pyplugin, "Mdout_Print"):
     sponge_pyplugin.Mdout_Print()
     )XYJ");

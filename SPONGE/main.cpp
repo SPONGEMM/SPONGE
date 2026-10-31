@@ -1,5 +1,10 @@
 ﻿#include "main.h"
 
+#include <exception>
+
+#include "local_mp/local_mp_service.h"
+#include "utils/mlip_geometry.hpp"
+
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
 CONTROLLER controller;
@@ -14,6 +19,7 @@ NOSE_HOOVER_CHAIN_INFORMATION nhc;
 PRESSURE_BASED_BAROSTAT_INFORMATION press_baro;
 MC_BAROSTAT_INFORMATION mc_baro;
 NEIGHBOR_LIST neighbor_list;
+MLIP_NEIGHBOR_LIST mlip_neighbor_list;
 LENNARD_JONES_INFORMATION lj;
 LJ_SOFT_CORE lj_soft;
 SOLVENT_LENNARD_JONES solvent_lj;
@@ -57,6 +63,215 @@ deviceStream_t main_stream;
 
 namespace
 {
+bool mlip_neighbors_initialized = false;
+bool adaptive_mlip_halo = false;
+double mlip_halo_displacement_limit = 0.0;
+DD_HALO_REFERENCE mlip_halo_reference;
+
+bool Native_Pure_Mlip()
+{
+    return controller.native_mlip && controller.mlip_pure;
+}
+
+void Reject_Native_Pure_Force(bool has_parameters, const char* name)
+{
+    if (!Native_Pure_Mlip() || !has_parameters) return;
+    const std::string reason =
+        std::string("Native [mlip] mode=\"pure\" conflicts with classical ") +
+        name +
+        " parameters. Set [mlip] mode=\"hybrid\" explicitly to add "
+        "classical and MLIP forces.";
+    controller.Throw_SPONGE_Error(spongeErrorConflictingCommand, "Main_Initial",
+                                  reason.c_str());
+}
+
+void Check_Native_Pure_Force_Parameters()
+{
+    if (!Native_Pure_Mlip()) return;
+    Reject_Native_Pure_Force(lj.is_initialized || LJ_NOPBC.is_initialized,
+                             "Lennard-Jones");
+    Reject_Native_Pure_Force(lj_soft.is_initialized, "LJ soft-core");
+    Reject_Native_Pure_Force(pairwise_force.is_initialized, "pairwise force");
+    Reject_Native_Pure_Force(bond.is_initialized, "bond");
+    Reject_Native_Pure_Force(angle.is_initialized, "angle");
+    Reject_Native_Pure_Force(urey_bradley.is_initialized, "Urey-Bradley");
+    Reject_Native_Pure_Force(cmap.is_initialized, "CMAP");
+    Reject_Native_Pure_Force(dihedral.is_initialized, "dihedral");
+    Reject_Native_Pure_Force(improper.is_initialized, "improper dihedral");
+    Reject_Native_Pure_Force(nb14.is_initialized, "1-4 nonbonded");
+    for (const auto* force : listed_forces.forces)
+    {
+        Reject_Native_Pure_Force(force->item_numbers > 0, force->module_name);
+    }
+    Reject_Native_Pure_Force(gb.is_initialized, "generalized Born");
+    Reject_Native_Pure_Force(sw.is_initialized, "Stillinger-Weber");
+    Reject_Native_Pure_Force(edip.is_initialized, "EDIP");
+    Reject_Native_Pure_Force(eam.is_initialized, "EAM");
+    Reject_Native_Pure_Force(tersoff.is_initialized, "Tersoff");
+    Reject_Native_Pure_Force(reaxff.is_initialized, "ReaxFF");
+}
+
+void Initialize_Particle_Mesh()
+{
+    if (Native_Pure_Mlip())
+    {
+        pm.Initial_CV_Transport(
+            &controller, md_info.atom_numbers,
+            md_info.no_direct_interaction_virtual_atom_numbers,
+            cv_controller.is_initialized);
+    }
+    else
+    {
+        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
+                   md_info.sys.box_length, md_info.nb.cutoff,
+                   md_info.no_direct_interaction_virtual_atom_numbers);
+    }
+}
+
+// Join native and plugin work before borrowed MD or graph storage is reused.
+void Fence_Mlip_Device()
+{
+#ifdef USE_GPU
+    const auto status = hostDeviceSynchronize();
+    if (status != 0)
+        controller.Throw_SPONGE_Error(static_cast<int>(status),
+                                      "Fence_Mlip_Device",
+                                      "MLIP device synchronization failed");
+#endif
+}
+
+bool Has_Classic_Neighbor_Consumer()
+{
+    return lj.is_initialized || lj_soft.is_initialized ||
+           solvent_lj.is_initialized || pairwise_force.is_initialized ||
+           neighbor_list.is_needed_full || plugin.Uses_Classic_Neighbors();
+}
+
+// Shared ghost rows also serve listed/bonded/constraint consumers which do
+// not request a spatial neighbor table. Keep this separate from table gating.
+bool Has_Shared_Classic_Halo_Consumer()
+{
+    return Has_Classic_Neighbor_Consumer() || bond.is_initialized ||
+           angle.is_initialized || urey_bradley.is_initialized ||
+           dihedral.is_initialized || improper.is_initialized ||
+           cmap.is_initialized || nb14.is_initialized ||
+           listed_forces.is_initialized || constrain.is_initialized ||
+           settle.is_initialized || shake.is_initialized ||
+           matrix_constraint.is_initialized || restrain.is_initialized ||
+           vatom.is_initialized || sits.is_initialized;
+}
+
+bool Should_Update_Classic_Neighbors()
+{
+    // Preserve the legacy path unless local-MP owns its independent graph.
+    return !adaptive_mlip_halo || Has_Classic_Neighbor_Consumer();
+}
+
+void Initialize_Mlip_Halo_Refresh()
+{
+    int enabled = 0;
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+    {
+        double cutoff = 0.0, skin = 0.0;
+        enabled = plugin.Get_Mlip_Neighbor_Parameters(cutoff, skin) ? 1 : 0;
+        if (enabled)
+        {
+            // A shared halo must satisfy every consumer's skin. Bound each
+            // atom's motion by half the smallest skin so pair separation
+            // changes stay covered.
+            double active_skin = skin;
+            if (Has_Shared_Classic_Halo_Consumer())
+                active_skin = std::min(active_skin,
+                                       static_cast<double>(neighbor_list.skin));
+#ifdef USE_MPI
+            double global_skin = active_skin;
+            MPI_Allreduce(&active_skin, &global_skin, 1, MPI_DOUBLE, MPI_MIN,
+                          CONTROLLER::pp_comm);
+            active_skin = global_skin;
+#endif
+            mlip_halo_displacement_limit =
+                MlipGeometry::Motion_Limit(active_skin);
+        }
+    }
+#ifdef USE_MPI
+    // PM ranks join refresh decisions, but never the PP motion reduction.
+    MPI_Bcast(&enabled, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+    adaptive_mlip_halo = enabled != 0;
+}
+
+void Record_Mlip_Halo()
+{
+    if (!adaptive_mlip_halo) return;
+    try
+    {
+        // Join DD/native producers before the helper's explicit main stream.
+        Fence_Mlip_Device();
+        mlip_halo_reference.Record(dd.atom_numbers, dd.atom_local, dd.crd,
+                                   md_info.pbc.boundary, main_stream);
+    }
+    catch (const std::exception& error)
+    {
+        controller.Throw_SPONGE_Error(spongeErrorSimulationBreakDown,
+                                      "Record_Mlip_Halo", error.what());
+    }
+}
+
+bool Mlip_Halo_Needs_Refresh()
+{
+    int refresh = 0;
+    try
+    {
+        Fence_Mlip_Device();
+        refresh = mlip_halo_reference.Needs_Refresh(
+            dd.atom_numbers, dd.atom_local, dd.crd, md_info.pbc.boundary,
+            mlip_halo_displacement_limit, main_stream);
+    }
+    catch (const std::exception& error)
+    {
+        // Abort the world before peers enter their next collective/exchange.
+        controller.Throw_SPONGE_Error(spongeErrorSimulationBreakDown,
+                                      "Mlip_Halo_Needs_Refresh", error.what());
+    }
+#ifdef USE_MPI
+    int global_refresh = refresh;
+    MPI_Allreduce(&refresh, &global_refresh, 1, MPI_INT, MPI_MAX,
+                  CONTROLLER::pp_comm);
+    refresh = global_refresh;
+#endif
+    return refresh != 0;
+}
+
+void Update_Mlip_Neighbors()
+{
+    double cutoff = 0.0, skin = 0.0;
+    if (!plugin.Get_Mlip_Neighbor_Parameters(cutoff, skin)) return;
+    plugin.Invalidate_Mlip_Neighbor_View();
+    try
+    {
+        // DD transports and coordinate producers may use different streams.
+        Fence_Mlip_Device();
+        if (!mlip_neighbors_initialized)
+        {
+            mlip_neighbor_list.Initial(&controller, dd.atom_numbers, cutoff,
+                                       skin);
+            mlip_neighbors_initialized = true;
+        }
+        mlip_neighbor_list.Update(
+            dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
+            md_info.pbc.boundary, plugin.Get_Domain_Epoch());
+        Fence_Mlip_Device();
+        plugin.Publish_Mlip_Neighbor_View(mlip_neighbor_list, dd.atom_numbers,
+                                          dd.ghost_numbers);
+    }
+    catch (const std::exception& error)
+    {
+        // This aborts MPI_COMM_WORLD, including peers awaiting an exchange.
+        controller.Throw_SPONGE_Error(spongeErrorSimulationBreakDown,
+                                      "Update_Mlip_Neighbors", error.what());
+    }
+}
+
 SpongeIO::RuntimeState io_runtime{
     controller, Xponge::system, md_info, dd,         middle_langevin,
     ad_thermo,  bussi_thermo,   nhc,     press_baro, mc_baro,
@@ -102,22 +317,33 @@ int main(int argc, char* argv[])
 void Main_Initial(int argc, char* argv[])
 {
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
+
     initial_state.Load_Base_State();
+    if (Native_Pure_Mlip())
+    {
+        for (int i = 0; i < md_info.atom_numbers; ++i)
+        {
+            Reject_Native_Pure_Force(md_info.h_charge[i] != 0.0f,
+                                     "electrostatic (nonzero charge)");
+        }
+    }
     controller.Step_Print_Initial("potential", "%.2f");
     controller.Step_Print_Initial("eff_pot", "%.7e");
     cv_controller.atom_numbers = md_info.atom_numbers;
+
     plugin.Initial(&md_info, &controller, &cv_controller, &neighbor_list);
 
     initial_state.Initialize_Dynamics(&Main_Box_Change);
+
     pairwise_force.Initial(&controller);
 
     if (md_info.pbc.pbc)
     {
         lj.Initial(&controller, md_info.nb.cutoff);
         lj_soft.Initial(&controller, md_info.nb.cutoff);
-        pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
-                   md_info.sys.box_length, md_info.nb.cutoff,
-                   md_info.no_direct_interaction_virtual_atom_numbers);
+
+        Initialize_Particle_Mesh();
+
         nb14.Initial(&controller, lj.h_LJ_A, lj.h_LJ_B, lj.h_atom_LJ_type);
 
         sits.Initial(&controller, md_info.atom_numbers,
@@ -165,6 +391,7 @@ void Main_Initial(int argc, char* argv[])
                     &neighbor_list.is_needed_full);
     reaxff.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
                    &neighbor_list.cutoff_full, &neighbor_list.is_needed_full);
+    Check_Native_Pure_Force_Parameters();
     Reject_Open_Boundary_Module(pairwise_force.is_initialized,
                                 "pairwise_force");
     Reject_Open_Boundary_Module(sw.is_initialized, "SW");
@@ -198,14 +425,17 @@ void Main_Initial(int argc, char* argv[])
 
     cv_controller.Print_Initial();
     plugin.After_Initial();
+
     cv_controller.Input_Check();
 
     initial_state.Build_Coordinate_Derivatives();
-    if (md_info.pbc.pbc)
+    // Solvent LJ can auto-enable from masses/groups without LJ parameters.
+    if (md_info.pbc.pbc && !Native_Pure_Mlip())
     {
         solvent_lj.Initial(&controller, &lj, &lj_soft, &md_info,
                            md_info.mode >= md_info.NVT);
     }
+
     initial_state.Distribute_State(&Main_Process_Management,
                                    &Main_Refresh_Local_State);
 
@@ -214,6 +444,11 @@ void Main_Initial(int argc, char* argv[])
 
 void Main_Calculate_Force()
 {
+    if (!plugin.Ensure_Local_MP_Setup())
+        controller.Throw_SPONGE_Error(
+            spongeErrorSimulationBreakDown, "Main_Calculate_Force",
+            "Local-MP setup requires one checked provider, successful "
+            "preparation on every PP rank.");
     const Boundary& boundary = md_info.pbc.boundary;
     bool use_reaxff_eeq = reaxff.eeq.is_initialized;
     const int cv_atom_numbers =
@@ -246,11 +481,16 @@ void Main_Calculate_Force()
     {
         dd.Reset_Force_and_Virial(&md_info);
         dd.Update_Ghost(&controller);
-        neighbor_list.Update(
-            dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-            md_info.pbc.boundary, md_info.sys.steps,
-            neighbor_list.CONDITIONAL_UPDATE, md_info.nb.d_excluded_list_start,
-            md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+        Update_Mlip_Neighbors();
+        if (Should_Update_Classic_Neighbors())
+        {
+            neighbor_list.Update(
+                dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
+                md_info.pbc.boundary, md_info.sys.steps,
+                neighbor_list.CONDITIONAL_UPDATE,
+                md_info.nb.d_excluded_list_start, md_info.nb.d_excluded_list,
+                md_info.nb.d_excluded_numbers);
+        }
 
         reaxff.Calculate_Force(&dd, &md_info, &neighbor_list);
 
@@ -387,7 +627,10 @@ void Main_Calculate_Force()
             dd.d_energy, md_info.need_pressure, dd.d_virial);
         soft_walls.Compute_Force(dd.atom_numbers, dd.crd, dd.frc,
                                  md_info.need_potential, dd.d_energy);
+        if (mlip_neighbors_initialized) Fence_Mlip_Device();
         plugin.Calculate_Force();
+        // Finish Python reads/writes before native force/MD buffers are reused.
+        if (mlip_neighbors_initialized) Fence_Mlip_Device();
 
         restrain.Restraint(dd.crd, boundary, md_info.need_potential,
                            dd.d_energy, md_info.need_pressure, dd.d_virial,
@@ -475,20 +718,27 @@ void Main_Calculate_Force()
 
 void Main_Refresh_Local_State(bool rebuild_dd)
 {
+    plugin.Invalidate_Mlip_Neighbor_View();
     if (rebuild_dd)
     {
         dd.Send_Recv_Dom_Dec(&controller);
         dd.Find_Neighbor_Domain(&controller, &md_info);
         dd.Get_Atoms(&controller, &md_info);
     }
+    // Runtime owns consumer knowledge; the native plan owns its union/map.
+    dd.use_direct_halo = adaptive_mlip_halo;
+    dd.direct_halo_preserve_classic = Has_Shared_Classic_Halo_Consumer();
     dd.Get_Ghost(&controller, &md_info);
     dd.Get_Excluded(&controller, &md_info);
 
-    neighbor_list.Update(
-        dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-        md_info.pbc.boundary, md_info.sys.steps, neighbor_list.FORCED_UPDATE,
-        md_info.nb.d_excluded_list_start, md_info.nb.d_excluded_list,
-        md_info.nb.d_excluded_numbers);
+    if (Should_Update_Classic_Neighbors())
+    {
+        neighbor_list.Update(
+            dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
+            md_info.pbc.boundary, md_info.sys.steps,
+            neighbor_list.FORCED_UPDATE, md_info.nb.d_excluded_list_start,
+            md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+    }
 
     middle_langevin.Get_Local(dd.atom_local, dd.atom_numbers);
     ad_thermo.Get_Local(dd.atom_local, dd.atom_numbers);
@@ -535,6 +785,7 @@ void Main_Refresh_Local_State(bool rebuild_dd)
         sits_cmap.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
                             dd.atom_local_label, dd.atom_local_id);
     }
+    Record_Mlip_Halo();
 }
 
 void Main_Iteration()
@@ -637,7 +888,8 @@ void Main_Iteration()
         if (md_info.need_pressure && !mc_baro.is_initialized)
         {
             md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
-                                 dd.d_mass, dd.d_virial, main_stream);
+                                 dd.d_mass, dd.d_virial, dd.d_mlip_virial,
+                                 main_stream);
             md_info.sys.Get_Density();
             press_baro.Regulate_Pressure(
                 md_info.sys.steps, md_info.sys.h_stress,
@@ -647,41 +899,63 @@ void Main_Iteration()
     }
     else
     {
-        md_info.rerun.Iteration();
-        if (md_info.rerun.need_box_update)
+        const bool box_changed = md_info.rerun.Iteration();
+        // A large-box rebuild gathers DD state back into the global arrays.
+        // Populate the owned slots first so that gather preserves the new
+        // frame.
+        md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
+                                     dd.atom_local_id, main_stream);
+        // Iteration only prepares g when the trajectory box actually changes.
+        if (md_info.rerun.need_box_update && box_changed)
         {
             Main_Box_Change(md_info.rerun.g, 1, 0, 0);
         }
-        md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
-                                     dd.atom_local_id, main_stream);
     }
 
+    int refresh_halo = (md_info.sys.steps + 1) % dd.update_interval == 0 ||
+                       md_info.mode == md_info.RERUN;
     if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
     {
         vatom.Coordinate_Refresh(dd.crd, boundary);
-        if ((md_info.sys.steps + 1) % dd.update_interval == 0 ||
-            md_info.mode == md_info.RERUN)
+        if (adaptive_mlip_halo)
+            refresh_halo = Mlip_Halo_Needs_Refresh() || refresh_halo;
+    }
+#ifdef USE_MPI
+    // Adaptive PP refreshes also trigger pm.Get_Atoms below; PM ranks must
+    // enter that exchange on the same iterations.
+    if ((adaptive_mlip_halo) && CONTROLLER::MPI_size > CONTROLLER::PP_MPI_size)
+        MPI_Bcast(&refresh_halo, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+    {
+        if (refresh_halo)
         {
             if (CONTROLLER::PP_MPI_size != 1)
             {
                 controller.Get_Time_Recorder("Communication")->Start();
+                plugin.Invalidate_Mlip_Neighbor_View();
                 dd.Exchange_Particles(&controller, &md_info);
                 controller.Get_Time_Recorder("Communication")->Stop();
                 Main_Refresh_Local_State(false);
+                plugin.Set_Domain_Information(&dd);
             }
             else
             {
-                neighbor_list.Update(
-                    dd.atom_local, dd.atom_numbers, dd.ghost_numbers, dd.crd,
-                    md_info.pbc.boundary, md_info.sys.steps,
-                    neighbor_list.FORCED_UPDATE,
-                    md_info.nb.d_excluded_list_start,
-                    md_info.nb.d_excluded_list, md_info.nb.d_excluded_numbers);
+                if (Should_Update_Classic_Neighbors())
+                {
+                    neighbor_list.Update(
+                        dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
+                        dd.crd, md_info.pbc.boundary, md_info.sys.steps,
+                        neighbor_list.FORCED_UPDATE,
+                        md_info.nb.d_excluded_list_start,
+                        md_info.nb.d_excluded_list,
+                        md_info.nb.d_excluded_numbers);
+                }
+                Record_Mlip_Halo();
             }
         }
     }
-    if ((md_info.sys.steps + 1) % dd.update_interval == 0 ||
-        md_info.mode == md_info.RERUN)
+    if (refresh_halo)
     {
         controller.Get_Time_Recorder("Communication")->Start();
         pm.Get_Atoms(&controller, md_info.crd, md_info.d_charge,
@@ -765,6 +1039,15 @@ void Main_Print()
 
 void Main_Clear()
 {
+    plugin.Invalidate_Mlip_Neighbor_View();
+    if (mlip_neighbors_initialized)
+    {
+        Fence_Mlip_Device();
+        mlip_neighbor_list.Clear();
+        mlip_neighbors_initialized = false;
+    }
+    mlip_halo_reference.Clear();
+    Local_MP_Service().Clear();
     output_session.Close();
 
     controller.Final_Time_Summary(
@@ -776,6 +1059,7 @@ void Main_Clear()
 
 float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
 {
+    plugin.Invalidate_Mlip_Neighbor_View();
     if (scale_box)
     {
         md_info.pbc.Update_Box(g);
@@ -824,12 +1108,14 @@ void Main_Box_Change_Largely()
                                      dd.atom_local_id, main_stream);
     }
     neighbor_list.Clear();
-    neighbor_list.Initial(&controller, md_info.atom_numbers, md_info.nb.cutoff,
-                          md_info.nb.skin, md_info.pbc.boundary);
+    if (Should_Update_Classic_Neighbors())
+    {
+        neighbor_list.Initial(&controller, md_info.atom_numbers,
+                              md_info.nb.cutoff, md_info.nb.skin,
+                              md_info.pbc.boundary);
+    }
     pm.Clear();
-    pm.Initial(&controller, md_info.atom_numbers, md_info.pbc.boundary,
-               md_info.sys.box_length, md_info.nb.cutoff,
-               md_info.no_direct_interaction_virtual_atom_numbers);
+    Initialize_Particle_Mesh();
     dd.Free_Buffer();
     dd.Domain_Decomposition(&controller, &md_info);
     pm.Domain_Decomposition(&controller, md_info.sys.box_length,
@@ -869,7 +1155,8 @@ void Main_Process_Management()
     {
         controller.Throw_SPONGE_Error(
             spongeErrorConflictingCommand, "Main_Process_Management",
-            "Reason:\n\tMPI CV calculations require exactly one PM process\n");
+            "Reason:\n\tMPI CV calculations require exactly one PM process; "
+            "set [PM] MPI_size=1 explicitly\n");
     }
 
     if (CONTROLLER::MPI_size == 1)
@@ -904,6 +1191,7 @@ void Main_Process_Management()
         MPI_Bcast(&pp_id, sizeof(pp_id), MPI_BYTE, 0, CONTROLLER::pp_comm);
         xcclCommInitRank(&CONTROLLER::d_pp_comm, CONTROLLER::PP_MPI_size, pp_id,
                          CONTROLLER::PP_MPI_rank);
+
 #else
         CONTROLLER::d_pp_comm = CONTROLLER::pp_comm;
 #endif
@@ -962,6 +1250,43 @@ void Main_Process_Management()
         "MPI process partition: MPI_rank=%d, PP_MPI_rank=%d, "
         "PM_MPI_rank=%d\n",
         CONTROLLER::MPI_rank, CONTROLLER::PP_MPI_rank, CONTROLLER::PM_MPI_rank);
+
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size &&
+        !plugin.Validate_Local_MP_Capabilities())
+    {
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Process_Management",
+            "Local-MP capabilities are missing, invalid, or differ "
+            "between PP ranks");
+    }
+
+    // Reject before any MC proposal can modify coordinates, box or ownership.
+    if (mc_baro.is_initialized && plugin.Has_Local_MP_Provider())
+    {
+        controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                      "Main_Process_Management",
+                                      "Local-MP MLIP with MC barostat is "
+                                      "unsupported in the short-range runtime");
+    }
+
+    // SITS consumes energy before the world reduction and does not yet
+    // include the separate model virial in its enhancement path.
+    if (sits.is_initialized && plugin.Has_Local_MP_Provider())
+    {
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Process_Management",
+            "Local-MP MLIP with ITS/SITS is unsupported: enhanced energy "
+            "and virial integration is not implemented");
+    }
+
+    Initialize_Mlip_Halo_Refresh();
+
+    // Callback declarations and built-in consumers are finalized now. Keep
+    // configuration metadata for shared-halo consumers after releasing storage.
+    if (!Should_Update_Classic_Neighbors())
+    {
+        neighbor_list.Clear();
+    }
 
     if (CONTROLLER::PP_MPI_size > 1)
     {

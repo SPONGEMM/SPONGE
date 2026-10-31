@@ -653,6 +653,70 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
     controller->printf("END INITIALIZING PME\n\n");
 }
 
+void Particle_Mesh::Initial_CV_Transport(
+    CONTROLLER* controller, int atom_numbers,
+    int no_direct_interaction_virtual_atom_numbers, bool has_cv)
+{
+    strcpy(module_name, "PM");
+    // These namespaces belong to electrostatics, except the shared rank split.
+    for (const auto& command : controller->commands)
+    {
+        const auto& key = command.first;
+        if ((key.compare(0, 3, "PM_") == 0 && key != "PM_MPI_size") ||
+            key.compare(0, 4, "PME_") == 0)
+        {
+            const std::string reason =
+                "Native [mlip] mode=\"pure\" conflicts with electrostatic " +
+                key +
+                ". Set [mlip] mode=\"hybrid\" explicitly to add "
+                "classical and MLIP forces.";
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand,
+                "Particle_Mesh::Initial_CV_Transport", reason.c_str());
+        }
+    }
+
+    PM_MPI_size = 0;
+    if (controller->Command_Exist("PM", "MPI_size"))
+    {
+        controller->Check_Int("PM", "MPI_size",
+                              "Particle_Mesh::Initial_CV_Transport");
+        PM_MPI_size = atoi(controller->Command("PM", "MPI_size"));
+    }
+    if (PM_MPI_size != 0 &&
+        (PM_MPI_size != 1 || CONTROLLER::MPI_size <= 1 || !has_cv))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorConflictingCommand,
+            "Particle_Mesh::Initial_CV_Transport",
+            "Native pure MLIP uses PM only for multi-rank CV transport. "
+            "Omit [PM] MPI_size (or set it to 0) without MPI CV; "
+            "use MPI_size=1 with an explicitly configured MPI CV.");
+    }
+    this->atom_numbers = atom_numbers;
+    max_atom_numbers = atom_numbers;
+    if (PM_MPI_size == 0)
+    {
+        controller->printf(
+            "Native pure MLIP: all ranks are PP; PME disabled.\n");
+        return;
+    }
+
+    Device_Malloc_Safely((void**)&atom_id_l_g, sizeof(int) * atom_numbers);
+    Device_Malloc_Safely((void**)&atom_id_g_l, sizeof(int) * atom_numbers);
+    const size_t coordinate_bytes =
+        sizeof(VECTOR) *
+        (atom_numbers + no_direct_interaction_virtual_atom_numbers);
+    Device_Malloc_Safely((void**)&g_crd, coordinate_bytes);
+    Device_Malloc_Safely((void**)&g_frc, coordinate_bytes);
+    deviceMemset(atom_id_l_g, 0, sizeof(int) * atom_numbers);
+    deviceMemset(atom_id_g_l, 0, sizeof(int) * atom_numbers);
+    deviceMemset(g_crd, 0, coordinate_bytes);
+    deviceMemset(g_frc, 0, coordinate_bytes);
+    controller->printf(
+        "Native pure MLIP: one PM rank for CV transport; PME disabled.\n");
+}
+
 void Particle_Mesh::Clear()
 {
     if (is_initialized)
@@ -669,11 +733,6 @@ void Particle_Mesh::Clear()
         Free_Single_Device_Pointer((void**)&charge_sum);
         Free_Single_Device_Pointer((void**)&charge_square);
         Free_Single_Device_Pointer((void**)&num_ghost_dir_id);
-
-        Free_Single_Device_Pointer((void**)&atom_id_l_g);
-        Free_Single_Device_Pointer((void**)&atom_id_g_l);
-        Free_Single_Device_Pointer((void**)&g_crd);
-        Free_Single_Device_Pointer((void**)&g_frc);
 
         // Free_Single_Device_Pointer((void**)&MPI_PME_Q);
         // Free_Single_Device_Pointer((void**)&MPI_PME_FQ);
@@ -693,6 +752,10 @@ void Particle_Mesh::Clear()
         Free_Single_Device_Pointer((void**)&d_direct_atom_energy);
         Free_Single_Device_Pointer((void**)&d_correction_atom_energy);
     }
+    Free_Single_Device_Pointer((void**)&atom_id_l_g);
+    Free_Single_Device_Pointer((void**)&atom_id_g_l);
+    Free_Single_Device_Pointer((void**)&g_crd);
+    Free_Single_Device_Pointer((void**)&g_frc);
 }
 
 // 计算每个原子所在的网格点以及其周围64个网格点的索引
@@ -1253,14 +1316,18 @@ static void Scale_Positions_Device(const LTMatrix3 g, VECTOR* crd, float dt)
 
 void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
 {
-    float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
-    neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
-    float mprefactor = PI * PI / beta / beta;
-    dim3 blockSize = {8, 8, CONTROLLER::device_max_thread / 64};
-    dim3 gridSize = {64, 64};
-    Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx, ffty,
-                         fftz, PME_BC, PME_BC0, PME_Virial_BC, mprefactor,
-                         boundary.rcell, volume);
+    if (is_initialized)
+    {
+        float volume =
+            boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
+        neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
+        float mprefactor = PI * PI / beta / beta;
+        dim3 blockSize = {8, 8, CONTROLLER::device_max_thread / 64};
+        dim3 gridSize = {64, 64};
+        Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx,
+                             ffty, fftz, PME_BC, PME_BC0, PME_Virial_BC,
+                             mprefactor, boundary.rcell, volume);
+    }
     Scale_Positions_Device(g, &min_corner, dt);
     Scale_Positions_Device(g, &max_corner, dt);
 }
@@ -1823,7 +1890,7 @@ void Particle_Mesh::MPI_PME_Excluded_Force_With_Atom_Energy(
     const int* excluded_list, const int* excluded_atom_numbers, VECTOR* frc,
     int need_energy, float* atom_ene, int need_virial, LTMatrix3* atom_virial)
 {
-    if (is_initialized && calculate_excluded_part)
+    if (is_initialized && calculate_excluded_part && local_atom_numbers > 0)
     {
         if (need_energy)
             deviceMemset(d_correction_atom_energy, 0,

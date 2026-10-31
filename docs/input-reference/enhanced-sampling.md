@@ -30,6 +30,11 @@ Detailed SinkMeta parameter list: [sinkmeta.md](sinkmeta.md)
 
 ## SITS
 
+The SITS module cannot currently be combined with a local-MP MLIP plugin.
+SPONGE rejects this combination at initialization because enhanced energy and
+virial integration is incomplete. This applies to all modes below, including
+observation, empirical, AMD and GaMD. Classical SITS behavior is unchanged.
+
 SITS parameters live under the `[SITS]` scope:
 
 ```toml

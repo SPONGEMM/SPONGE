@@ -38,7 +38,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -154,7 +154,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -248,7 +248,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
             shard: all
             label: osx-arm64
 
@@ -287,6 +287,17 @@ jobs:
           pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
           benchmarks/validation/barostat/tests/test_schedule_inputs.py -s
           --tb=short
+
+      # The test log only contains density summaries; retain the actual states.
+      - name: Upload failed barostat outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: barostat-cpu-${{ matrix.target }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          retention-days: 7
+          path: |
+            benchmarks/validation/barostat/outputs
+            pixi.lock
 
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
@@ -421,6 +432,16 @@ jobs:
           pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
           benchmarks/validation/barostat/tests/test_schedule_inputs.py -s
           --tb=short --mpi 2
+
+      - name: Upload failed barostat outputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: barostat-mpi-np2-${{ matrix.target }}-${{ matrix.shard }}-${{ github.run_attempt }}
+          retention-days: 7
+          path: |
+            benchmarks/validation/barostat/outputs
+            pixi.lock
 
   benchmark-cpu-mpi-np3:
     name: benchmark-cpu-mpi-np3 (${{ matrix.target }})

@@ -60,9 +60,10 @@ struct NEIGHBOR_LIST
     struct GRIDS
     {
         // 总的格点数
-        int grid_numbers;
+        int grid_numbers = 0;
         // 格点在三个方向的数量
-        int Nx, Ny, Nz;
+        int Nx = 0, Ny = 0, Nz = 0;
+        int owned_bucket_capacity = 0, ghost_bucket_capacity = 0;
         // 每个格点的周围格点数目
         int *h_neighbor_grid_numbers = NULL, *d_neighbor_grid_numbers = NULL;
         // 每个格点的周围格点
@@ -83,6 +84,17 @@ struct NEIGHBOR_LIST
         void Initial(CONTROLLER* controller, int max_atom_in_grid_numbers,
                      int max_ghost_in_grid_numbers, const Boundary boundary,
                      float grid_length);
+        // Allocate buckets only on a new/cleared instance; dimensions may be 1.
+        void Initial_Buckets(int nx, int ny, int nz, int owned_capacity,
+                             int ghost_capacity);
+        // Rebuild only this instance's buckets. Overflow outputs are fresh
+        // device integers; callers must grow/rebuild before using truncated
+        // bins.
+        void Populate_Buckets(int owned_count, int ghost_count,
+                              const VECTOR* crd, const Boundary boundary,
+                              float grid_length, int* d_owned_overflow,
+                              int* d_ghost_overflow,
+                              bool mlip_geometry = false);
         // 释放内存
         void Clear();
     } grids;

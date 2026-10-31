@@ -34,6 +34,38 @@ readers, structural restart loading in MD core and rerun's streaming reader
 retain their existing implementations; the context does not cache trajectory
 frames or claim to eliminate every H5 open in the program.
 
+## Rerun frame ownership and cell reconstruction
+
+During ordinary MD, domain-decomposed (DD) coordinates and velocities are the
+live state. A large-box rebuild gathers them into the global arrays before
+recreating the decomposition. Rerun reverses the data flow: `rerun.Iteration()`
+loads the next frame into the global arrays. `Main_Iteration()` must therefore
+copy that frame into the current owned DD slots **before** invoking box-change
+handling. Otherwise the rebuild gathers the previous frame over the newly read
+coordinates and velocities. This ordering applies to both classical and plugin
+force calculations; it is not a model-specific correction.
+
+For periodic rerun, `rerun.Iteration()` returns whether the box changed and
+prepares the deformation matrix `g` only in that case. The caller must use that return value as well as
+`rerun_need_box_update`. Applying the saved `g` to a following unchanged box
+would repeat the preceding deformation. The existing box-change detection
+thresholds are retained.
+
+`periodic_box_condition_information::Get_Cell()` converts lengths and angles
+for rerun geometry and H5 box output. When all three input angles are exactly
+90 degrees, it constructs a diagonal matrix directly: evaluating `cos(90°)`
+would otherwise introduce nonzero roundoff tilts and cause an explicitly
+orthogonal frame to fail the local-MP graph's strict orthogonal-cell check.
+All other input angles use the original formula. No tilt tolerance is applied
+here, and this does not extend local-MP support to triclinic cells or change
+the initialization normalization rules.
+
+When changing this ordering, verify that the force calculation consumes the
+loaded frame across fixed, small and large box changes, including a following
+unchanged box on one and multiple particle ranks. Check exact orthogonal cell
+construction separately from nonorthogonal geometry. These replay checks do
+not establish long-trajectory MD or ensemble correctness.
+
 ## Output events
 
 `OutputSession` routes synchronous H5 and legacy output. It exposes schedule

@@ -23,6 +23,15 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
 {
     strcpy(this->module_name, "DOM_DEC");
     controller->printf("DOMAIN DECOMPOSITION BEGIN\n");
+    if (controller->PP_MPI_size < 1 || controller->PP_MPI_size > MAX_RANK_NUM)
+    {
+        char error_reason[CHAR_LENGTH_MAX * 2];
+        snprintf(error_reason, sizeof(error_reason),
+                 "Reason:\n\tPP MPI rank count %d exceeds the supported "
+                 "range 1..%d.\n",
+                 controller->PP_MPI_size, MAX_RANK_NUM);
+        throw_unsupported_domain_decomposition(controller, error_reason);
+    }
     Device_Malloc_Safely((void**)&d_sum_ene_local, sizeof(float));
     Device_Malloc_Safely((void**)&d_sum_ene_total, sizeof(float));
     Device_Malloc_Safely((void**)&d_ek_local, sizeof(float));
@@ -59,6 +68,7 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
     VECTOR box_length = md_info->sys.box_length;
     VECTOR box_angle = md_info->sys.box_angle;
     int nx, ny, nz;
+    dom_dec_split_num = {0, 0, 0};
 
     if (controller->Command_Exist(this->module_name, "split_nx") ||
         controller->Command_Exist(this->module_name, "split_ny") ||
@@ -136,6 +146,15 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
     nx = dom_dec_split_num.int_x;
     ny = dom_dec_split_num.int_y;
     nz = dom_dec_split_num.int_z;
+    if (!Valid_Domain_Split(controller->PP_MPI_size, dom_dec_split_num))
+    {
+        char error_reason[CHAR_LENGTH_MAX * 2];
+        snprintf(error_reason, sizeof(error_reason),
+                 "Reason:\n\tDomain split (%d, %d, %d) must be positive, "
+                 "multiply to %d PP ranks, and fit the %d-rank limit.\n",
+                 nx, ny, nz, controller->PP_MPI_size, MAX_RANK_NUM);
+        throw_unsupported_domain_decomposition(controller, error_reason);
+    }
 
     const float orthogonal_angle_tolerance = 1e-4f;
     if (!is_orthogonal_box(box_angle, orthogonal_angle_tolerance))
@@ -149,7 +168,9 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
         throw_unsupported_domain_decomposition(controller, error_reason);
     }
 
-    const float halo = md_info->nb.cutoff + md_info->nb.skin;
+    const float halo =
+        Effective_Ghost_Radius(md_info->nb.cutoff, md_info->nb.skin,
+                               controller->mlip_ghost_radius, 0.0f);
     const struct
     {
         const char* axis_name;
@@ -169,7 +190,7 @@ void DOMAIN_INFORMATION::Domain_Decomposition(CONTROLLER* controller,
                 error_reason, sizeof(error_reason),
                 "Reason:\n\tCurrent MPI domain decomposition ghost algorithm "
                 "is unsupported on axis %s.\n\tlocal extent = %.6f "
-                "Angstrom, but 2 * (cutoff + skin) = %.6f Angstrom.\n\t"
+                "Angstrom, but 2 * ghost radius = %.6f Angstrom.\n\t"
                 "Reduce MPI domain splits on this axis or increase the box "
                 "size.\n",
                 axis.axis_name, local_extent, 2.0f * halo);
@@ -405,6 +426,11 @@ void DOMAIN_INFORMATION::Get_Atoms(CONTROLLER* controller,
     max_atom_numbers = md_info->atom_numbers +
                        md_info->no_direct_interaction_virtual_atom_numbers;
     max_res_numbers = md_info->ug.ug_numbers;
+
+    Device_Malloc_Safely((void**)&d_mlip_energy, sizeof(float));
+    Device_Malloc_Safely((void**)&d_mlip_virial, sizeof(float) * 6);
+    deviceMemset(d_mlip_energy, 0, sizeof(float));
+    deviceMemset(d_mlip_virial, 0, sizeof(float) * 6);
 
     controller->printf("max_atom_numbers=%d, max_res_numbers=%d\n",
                        this->max_atom_numbers, this->max_res_numbers);
@@ -668,7 +694,34 @@ void DOMAIN_INFORMATION::Get_Ghost(CONTROLLER* controller,
         return;
     }
 #ifdef USE_MPI
-    float cutoff = md_info->nb.cutoff + md_info->nb.skin;
+    if (use_direct_halo)
+    {
+        try
+        {
+            const float classic_radius = md_info->nb.cutoff + md_info->nb.skin;
+            const float radius =
+                direct_halo_preserve_classic
+                    ? std::max(classic_radius, controller->mlip_ghost_radius)
+                    : controller->mlip_ghost_radius;
+            direct_halo.Build(*this, controller, md_info, radius,
+                              direct_halo_preserve_classic, classic_radius);
+            deviceMemset(atom_local_id, -1, sizeof(int) * max_atom_numbers);
+            const int count = atom_numbers + ghost_numbers;
+            if (count > 0)
+                Launch_Device_Kernel(save_ghost_id, (count + 255) / 256, 256, 0,
+                                     NULL, 0, count, atom_local, atom_local_id,
+                                     d_charge, md_info->d_charge);
+        }
+        catch (const std::exception& error)
+        {
+            controller->Throw_SPONGE_Error(spongeErrorSimulationBreakDown,
+                                           "DIRECT_HALO_PLAN::Build",
+                                           error.what());
+        }
+        return;
+    }
+    float cutoff = Effective_Ghost_Radius(md_info->nb.cutoff, md_info->nb.skin,
+                                          controller->mlip_ghost_radius, 0.0f);
     VECTOR box_length = md_info->sys.box_length;
 
     // 粒子的传输计划，plan中存储了当前进程中每个粒子所需的近邻传输方式，存储在device上
@@ -877,6 +930,11 @@ static __global__ void set_crd_buffer(int ghost_number_dir,
 
 void DOMAIN_INFORMATION::Update_Ghost(CONTROLLER* controller)
 {
+    if (direct_halo.active)
+    {
+        direct_halo.Forward(reinterpret_cast<float*>(crd), 3);
+        return;
+    }
     if (controller->PP_MPI_size == 1)
     {
         return;
@@ -894,9 +952,12 @@ void DOMAIN_INFORMATION::Update_Ghost(CONTROLLER* controller)
         Device_Malloc_Safely((void**)&crd_buffer,
                              sizeof(VECTOR) * ghost_number_dir);
         int* ghost_id_buffer = d_num_ghost_dir_id + dir * max_atom_numbers;
-        Launch_Device_Kernel(set_crd_buffer, (ghost_number_dir + 255) / 256,
-                             256, 0, NULL, ghost_number_dir, ghost_id_buffer,
-                             crd, crd_buffer);
+        if (ghost_number_dir > 0)
+        {
+            Launch_Device_Kernel(set_crd_buffer, (ghost_number_dir + 255) / 256,
+                                 256, 0, NULL, ghost_number_dir,
+                                 ghost_id_buffer, crd, crd_buffer);
+        }
         int send_dir = dir;
         int recv_dir = dir % 2 ? (dir - 1) : (dir + 1);
         int send_neighbor = h_neighbor_dir[send_dir][0];
@@ -922,7 +983,152 @@ void DOMAIN_INFORMATION::Update_Ghost(CONTROLLER* controller)
         // destroy device streams created for this exchange
         for (int _i = 0; _i < 2; ++_i) deviceStreamDestroy(d_reqs[_i]);
 #endif
+        Free_Single_Device_Pointer((void**)&crd_buffer);
         start_idx += h_num_ghost_dir_re[recv_dir];
+    }
+#endif
+}
+
+static __global__ void pack_ghost_tensor(int row_count, int feature_width,
+                                         const int* row_ids,
+                                         const float* tensor, float* buffer)
+{
+    SIMPLE_DEVICE_FOR(i, row_count * feature_width)
+    {
+        const int row = i / feature_width;
+        const int feature = i % feature_width;
+        buffer[i] = tensor[row_ids[row] * feature_width + feature];
+    }
+}
+
+static __global__ void add_ghost_tensor(int row_count, int feature_width,
+                                        const int* row_ids, float* tensor,
+                                        const float* buffer)
+{
+    SIMPLE_DEVICE_FOR(i, row_count * feature_width)
+    {
+        const int row = i / feature_width;
+        const int feature = i % feature_width;
+        atomicAdd(&tensor[row_ids[row] * feature_width + feature], buffer[i]);
+    }
+}
+
+void DOMAIN_INFORMATION::Update_Ghost_Tensor(CONTROLLER* controller,
+                                             float* tensor, int feature_width)
+{
+    if (direct_halo.active)
+    {
+        direct_halo.Forward(tensor, feature_width);
+        return;
+    }
+    if (controller->PP_MPI_size == 1) return;
+#ifdef USE_MPI
+    int start_idx = atom_numbers;
+    for (int dir = 0; dir < 6; ++dir)
+    {
+        if (!h_neighbor_num[dir]) continue;
+        const int send_count = h_num_ghost_dir[dir];
+        const int recv_dir = dir % 2 ? dir - 1 : dir + 1;
+        const int recv_count = h_num_ghost_dir_re[recv_dir];
+        const int* send_ids = d_num_ghost_dir_id + dir * max_atom_numbers;
+        float* send_buffer;
+        Device_Malloc_Safely(
+            (void**)&send_buffer,
+            sizeof(float) * std::max(1, send_count * feature_width));
+        if (send_count > 0)
+        {
+            const int values = send_count * feature_width;
+            Launch_Device_Kernel(pack_ghost_tensor, (values + 255) / 256, 256,
+                                 0, NULL, send_count, feature_width, send_ids,
+                                 tensor, send_buffer);
+        }
+        // The pack runs on the default stream; NCCL sends use request streams.
+        deviceStreamSynchronize(0);
+
+        D_MPI_Request requests[2];
+        D_MPI_Status statuses[2];
+#ifdef USE_GPU
+        for (int i = 0; i < 2; ++i) deviceStreamCreate(&requests[i]);
+#endif
+        D_MPI_GroupStart();
+        D_MPI_Isend(send_buffer, send_count * feature_width * sizeof(float),
+                    D_MPI_BYTE, h_neighbor_dir[dir][0], 0,
+                    CONTROLLER::d_pp_comm, requests[0]);
+        // Keep zero-count participants without arithmetic on a null slab.
+        float* receive_rows =
+            recv_count > 0 ? tensor + start_idx * feature_width : send_buffer;
+        D_MPI_Irecv(receive_rows, recv_count * feature_width * sizeof(float),
+                    D_MPI_BYTE, h_neighbor_dir[recv_dir][0], 0,
+                    CONTROLLER::d_pp_comm, requests[1]);
+        D_MPI_GroupEnd();
+        D_MPI_Waitall(2, requests, statuses);
+#ifdef USE_GPU
+        for (int i = 0; i < 2; ++i) deviceStreamDestroy(requests[i]);
+#endif
+        Free_Single_Device_Pointer((void**)&send_buffer);
+        start_idx += recv_count;
+    }
+#endif
+}
+
+void DOMAIN_INFORMATION::Accumulate_Ghost_Tensor(CONTROLLER* controller,
+                                                 float* tensor,
+                                                 int feature_width)
+{
+    if (direct_halo.active)
+    {
+        direct_halo.Reverse(tensor, feature_width);
+        return;
+    }
+    if (controller->PP_MPI_size == 1) return;
+#ifdef USE_MPI
+    int start_idx = atom_numbers + ghost_numbers;
+    for (int dir = 5; dir >= 0; --dir)
+    {
+        if (!h_neighbor_num[dir]) continue;
+        const int recv_dir = dir;
+        const int send_dir = dir % 2 ? dir - 1 : dir + 1;
+        const int send_count = h_num_ghost_dir_re[send_dir];
+        const int recv_count = h_num_ghost_dir[recv_dir];
+        start_idx -= send_count;
+        float* recv_buffer;
+        Device_Malloc_Safely(
+            (void**)&recv_buffer,
+            sizeof(float) * std::max(1, recv_count * feature_width));
+        // Each preceding reverse step may have added into rows sent here.
+        deviceStreamSynchronize(0);
+
+        D_MPI_Request requests[2];
+        D_MPI_Status statuses[2];
+#ifdef USE_GPU
+        for (int i = 0; i < 2; ++i) deviceStreamCreate(&requests[i]);
+#endif
+        D_MPI_GroupStart();
+        // A zero-count send still participates using valid scratch storage.
+        float* send_rows =
+            send_count > 0 ? tensor + start_idx * feature_width : recv_buffer;
+        D_MPI_Isend(send_rows, send_count * feature_width * sizeof(float),
+                    D_MPI_BYTE, h_neighbor_dir[send_dir][0], 0,
+                    CONTROLLER::d_pp_comm, requests[0]);
+        D_MPI_Irecv(recv_buffer, recv_count * feature_width * sizeof(float),
+                    D_MPI_BYTE, h_neighbor_dir[recv_dir][0], 0,
+                    CONTROLLER::d_pp_comm, requests[1]);
+        D_MPI_GroupEnd();
+        D_MPI_Waitall(2, requests, statuses);
+#ifdef USE_GPU
+        for (int i = 0; i < 2; ++i) deviceStreamDestroy(requests[i]);
+#endif
+        if (recv_count > 0)
+        {
+            const int values = recv_count * feature_width;
+            const int* recv_ids =
+                d_num_ghost_dir_id + recv_dir * max_atom_numbers;
+            Launch_Device_Kernel(add_ghost_tensor, (values + 255) / 256, 256, 0,
+                                 NULL, recv_count, feature_width, recv_ids,
+                                 tensor, recv_buffer);
+            deviceStreamSynchronize(0);
+        }
+        Free_Single_Device_Pointer((void**)&recv_buffer);
     }
 #endif
 }
@@ -978,6 +1184,14 @@ void DOMAIN_INFORMATION::Sync_Local_Charge_From_Global(
 void DOMAIN_INFORMATION::Distribute_Ghost_Information(CONTROLLER* controller,
                                                       VECTOR* frc_)
 {
+    if (direct_halo.active)
+    {
+        direct_halo.Reverse(reinterpret_cast<float*>(frc_), 3);
+        if (atom_numbers > 0)
+            Launch_Device_Kernel(add_frc, (atom_numbers + 255) / 256, 256, 0,
+                                 NULL, atom_numbers, this->frc, frc_);
+        return;
+    }
     if (controller->PP_MPI_size == 1)
     {
         return;
@@ -1019,9 +1233,12 @@ void DOMAIN_INFORMATION::Distribute_Ghost_Information(CONTROLLER* controller,
         int* num_ghost_dir_id_recv =
             d_num_ghost_dir_id + recv_dir * max_atom_numbers;
         // 将接收到的粒子受力更新到力的buffer中
-        Launch_Device_Kernel(set_frc_buffer, (num_ghost_dir_recv + 255) / 256,
-                             256, 0, NULL, num_ghost_dir_recv,
-                             num_ghost_dir_id_recv, frc_, frc_buffer);
+        if (num_ghost_dir_recv > 0)
+        {
+            Launch_Device_Kernel(
+                set_frc_buffer, (num_ghost_dir_recv + 255) / 256, 256, 0, NULL,
+                num_ghost_dir_recv, num_ghost_dir_id_recv, frc_, frc_buffer);
+        }
     }
     // 将力更新回本地粒子
     Launch_Device_Kernel(add_frc, (atom_numbers + 255) / 256, 256, 0, NULL,
@@ -1251,11 +1468,14 @@ void DOMAIN_INFORMATION::Exchange_Particles(CONTROLLER* controller,
 #endif
         res_numbers += recv_res_dir;
 
-        Launch_Device_Kernel(
-            reset_local, (atom_numbers - start_idx + 255) / 256, 256, 0, NULL,
-            start_idx, atom_numbers, atom_local, atom_local_label,
-            atom_local_id, d_charge, d_mass, d_mass_inverse, md_info->d_charge,
-            md_info->d_mass, md_info->d_mass_inverse);
+        if (atom_numbers > start_idx)
+        {
+            Launch_Device_Kernel(
+                reset_local, (atom_numbers - start_idx + 255) / 256, 256, 0,
+                NULL, start_idx, atom_numbers, atom_local, atom_local_label,
+                atom_local_id, d_charge, d_mass, d_mass_inverse,
+                md_info->d_charge, md_info->d_mass, md_info->d_mass_inverse);
+        }
 
         int* d_start_idx;
         Device_Malloc_And_Copy_Safely((void**)&d_start_idx, &start_idx,
@@ -1274,6 +1494,9 @@ void DOMAIN_INFORMATION::Exchange_Particles(CONTROLLER* controller,
 
 void DOMAIN_INFORMATION::Reset_Force_and_Virial(MD_INFORMATION* md_info)
 {
+    if (d_mlip_energy != NULL) deviceMemset(d_mlip_energy, 0, sizeof(float));
+    if (d_mlip_virial != NULL)
+        deviceMemset(d_mlip_virial, 0, sizeof(float) * 6);
     // frc, d_virial and d_energy are allocated (on CPU path) with size
     // tmp_frc_size * force_replica_count (see Get_Atoms). Use that allocated
     // capacity when resetting to avoid writing past the end of the buffer.
@@ -1291,6 +1514,7 @@ void DOMAIN_INFORMATION::Reset_Force_and_Virial(MD_INFORMATION* md_info)
 
 void DOMAIN_INFORMATION::Free_Buffer()
 {
+    direct_halo.Clear();
     atom_numbers = 0;
     res_numbers = 0;
     ghost_numbers = 0;
@@ -1329,6 +1553,8 @@ void DOMAIN_INFORMATION::Free_Buffer()
 
     Free_Single_Device_Pointer((void**)&d_virial);
     Free_Single_Device_Pointer((void**)&d_energy);
+    Free_Single_Device_Pointer((void**)&d_mlip_energy);
+    Free_Single_Device_Pointer((void**)&d_mlip_virial);
 
     Free_Single_Device_Pointer((void**)&d_excluded_list_start);
     Free_Single_Device_Pointer((void**)&d_excluded_numbers);
@@ -1358,7 +1584,7 @@ static __global__ void MD_Atom_Ek(const int atom_numbers, float* ek,
 void DOMAIN_INFORMATION::Get_Ek_and_Temperature(CONTROLLER* controller,
                                                 MD_INFORMATION* md_info)
 {
-    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size && atom_numbers > 0)
     {
         Launch_Device_Kernel(
             MD_Atom_Ek,
@@ -1415,6 +1641,12 @@ void DOMAIN_INFORMATION::Update_Box(LTMatrix3 g, float dt)
     Scale_Positions_Device(g, &max_corner, dt);
 }
 
+static __global__ void Add_Local_MLIP_Energy(float* local_sum,
+                                             const float* mlip_energy)
+{
+    local_sum[0] += mlip_energy[0];
+}
+
 // 最终势能需要广播到所有进程
 void DOMAIN_INFORMATION::Get_Potential(CONTROLLER* controller,
                                        MD_INFORMATION* md_info)
@@ -1424,6 +1656,10 @@ void DOMAIN_INFORMATION::Get_Potential(CONTROLLER* controller,
         if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
         {
             Sum_Of_List(d_energy, d_sum_ene_local, atom_numbers);
+            // One owner-unique model energy per PP rank joins the existing
+            // world reduction; PM ranks have no model contribution.
+            Launch_Device_Kernel(Add_Local_MLIP_Energy, 1, 1, 0, NULL,
+                                 d_sum_ene_local, d_mlip_energy);
         }
         else
         {
@@ -1501,6 +1737,8 @@ static __global__ void Map_Origin(const int res_numbers, const int* res_start,
 
 void DOMAIN_INFORMATION::Res_Crd_Map(LTMatrix3 g, float dt)
 {
+    if (res_numbers == 0) return;
+
     Launch_Device_Kernel(Get_Origin,
                          (res_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,

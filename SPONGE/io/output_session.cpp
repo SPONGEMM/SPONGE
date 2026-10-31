@@ -308,6 +308,17 @@ RestartOutputState OutputSession::Capture_Restart_State()
 void OutputSession::Write_Restart()
 {
     auto& output = runtime_.md_info.output;
+    // Restart-only output must gather current owned DD state on every PP rank.
+    // Do not map molecules or write the gathered coordinates back into DD.
+    runtime_.md_info.Crd_Vel_dd_to_Device(
+        runtime_.dd.crd, runtime_.dd.vel, runtime_.dd.atom_local_label,
+        runtime_.dd.atom_local_id, runtime_.main_stream);
+    if (CONTROLLER::MPI_rank == 0)
+    {
+        deviceStreamSynchronize(runtime_.main_stream);
+        // A trajectory earlier in this step may have populated the host cache.
+        runtime_.md_info.Crd_Vel_Device_To_Host(1);
+    }
     if (output.h5_restart_enabled && CONTROLLER::MPI_rank == 0)
     {
         output.Export_H5_Restart_File(&runtime_.controller,

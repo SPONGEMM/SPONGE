@@ -3,6 +3,8 @@
 #include "../utils/h5md/input_context.hpp"
 #include "runtime_state.h"
 
+struct SPONGE_PLUGIN;
+
 namespace SpongeIO
 {
 class InputSession
@@ -10,7 +12,7 @@ class InputSession
    public:
     explicit InputSession(const RuntimeState& runtime) : runtime_(runtime) {}
 
-    void Load_System();
+    void Load_System(SPONGE_PLUGIN& plugin);
     // Thermostats and barostats must already be initialized.
     void Restore_Dynamic_State();
     void Prepare_Metadynamics();
@@ -19,6 +21,7 @@ class InputSession
     void Finish_Initialization() { input_.Clear(); }
 
    private:
+    void Load_Structure(SPONGE_PLUGIN& plugin);
     void Validate_H5_Input_Plan();
     void Apply_H5_Dynamic_Integrator_State(
         const SpongeH5MD::RestartDynamicState& state);

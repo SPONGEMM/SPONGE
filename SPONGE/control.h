@@ -46,6 +46,7 @@ struct CONTROLLER
     int is_initialized = 0;
     int is_controller_printf_initialized = 0;
     int last_modify_date = 20260216;
+    float mlip_ghost_radius = 0.0f;
 
     void Initial(int argc, char** argv, const char* subpackage_hint);
     void Clear();
@@ -62,6 +63,15 @@ struct CONTROLLER
     CheckMap choice_check;            // 检查选项是否都使用了
     bool workspace_from_cli = false;  // 记录workspace是否由命令行设置
     bool mdin_is_toml = false;        // 当前mdin是否为TOML输入
+    std::string mdin_directory;
+    bool native_mlip = false;
+    bool mlip_pure = true;
+    std::string structure_path;
+    std::string structure_format;
+    int structure_frame = 0;
+    std::vector<double> structure_cell;
+    std::vector<int> structure_pbc;
+    void Configure_Mlip();
     std::string mdin_toml_source_path;
     std::string mdin_toml_content;
     void Get_Command(
