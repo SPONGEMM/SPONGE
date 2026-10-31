@@ -1,6 +1,7 @@
 ﻿#include <cmath>
 #include <cstring>
 #include <iostream>
+#include <limits>
 
 #include "MD_core/initial_coordinate.hpp"
 
@@ -40,11 +41,12 @@ int main()
     const float above = std::nextafter(8.0f, 9.0f);
     Check("one ULP above face", Wrap({above, 1, 2}, orth), {above - 8.0f, 1, 2},
           true);
-    const float below_zero = std::nextafter(0.0f, -1.0f);
-    // An infinitesimal negative input translates to a value rounding to L in
-    // FP32. Preserve that lattice translation; do not add a non-lattice clamp.
-    Check("one ULP below zero", Wrap({below_zero, 1, 2}, orth), {8.0f, 1, 2},
-          true);
+    // Fast-math builds may flush subnormal inputs to zero. Use the smallest
+    // normal magnitude to check that a negative coordinate translates to a
+    // value rounding to L in FP32, without requiring subnormal arithmetic.
+    const float below_zero = -std::numeric_limits<float>::min();
+    Check("negative minimum normal", Wrap({below_zero, 1, 2}, orth),
+          {8.0f, 1, 2}, true);
     Check("multiple boxes", Wrap({25, -30, 99}, orth), {1, 2, 3}, true);
     Check("negative fraction", Wrap({-.25f, 1, 2}, orth), {7.75f, 1, 2}, true);
     const LTMatrix3 tilted(8, 2, 8, -1, 2, 8);

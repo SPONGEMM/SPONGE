@@ -37,8 +37,9 @@ frontend, not the definition of the transport protocol.
    setup aggregates preparation success across PP ranks. Communication
    declarations are checked at registration; identical model inputs are the
    responsibility of deployment and external adapters. PM ranks do
-   not load a model. These checks establish communication compatibility and
-   readiness, not model correctness.
+   not prepare or evaluate the GPU model. Entry scripts still run on every
+   rank and may load CPU model objects during import. These checks establish
+   communication compatibility and readiness, not model correctness.
 2. SPONGE migrates atoms when required, refreshes the halo and updates ghost
    coordinates. It builds or reuses the local candidate graph, then publishes
    its view. Coordinates stay fixed throughout the force callbacks.

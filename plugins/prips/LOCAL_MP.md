@@ -148,8 +148,9 @@ on empty ranks. See the [source contract](prips/local_mp/contracts.py).
 Before the first force callback, native SPONGE calls the PP-only setup hook.
 The driver runs `prepare_model` and `validate_atom_types(global_atom_types)`
 once. Native aggregates preparation success before any feature exchange; a
-failed rank stops the MPI world. PM ranks do not prepare models or enter this
-PP collective. There is no new per-step collective or WORLD barrier.
+failed rank stops the MPI world. PM ranks do not prepare GPU models or enter this
+PP collective. Entry scripts still run on every rank and may load CPU model
+objects during import. There is no new per-step collective or WORLD barrier.
 
 Registration checks the communication contract across PP ranks: cutoff/skin,
 interaction depth, exchange layout, units and feature dtype. The driver also
