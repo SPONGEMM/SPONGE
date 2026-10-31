@@ -79,6 +79,83 @@ does not make the host code portable.
 
 ## Configure a native deployment
 
+For an all-atom structure with explicit elements, supply the structure and an
+exported deployment directly. The selected bridge Python environment must have
+ASE installed. For example (MD parameters are illustrative):
+
+```toml
+structure = "si.extxyz"
+mode = "nve"
+dt = 0.0005
+step_limit = 10000
+target_temperature = 300.0
+
+[initial_velocity]
+mode = "maxwell"
+seed = 2026
+
+[mlip]
+model = "models/deployment.pt"
+```
+
+`structure` owns the initial atom count, Cartesian coordinates, cell, masses,
+velocities and element labels. Element labels come from the parsed structure,
+not masses or atom names; no Python entry, adapter name or JSON types file is
+needed. Atom order is preserved as parsed by ASE, including symmetry expansion
+for CIF. Type indices follow the first occurrence of each element. No bond
+inference, primitive-cell reduction, replication or extra coordinate scaling is
+done. Format-defined transformations, including POSCAR scale factors and
+fractional-to-Cartesian conversion, are handled by ASE.
+
+The entry currently accepts XYZ/extxyz, POSCAR/CONTCAR with an explicit element
+line, and fully occupied ordered CIF. It requires an axis-aligned orthorhombic
+cell with periodic boundaries in all three directions. Tilted cells, cells
+requiring rotation, partial occupancies, unresolved species, file constraints
+(including selective dynamics), and nonzero initial charges or magnetic moments
+are rejected. Use the existing explicit SPONGE constraint configuration when
+appropriate; importing a structure does not qualify new constraint/CV modes.
+
+Use a table when a format or frame must be selected, or plain XYZ lacks its
+cell and boundary information:
+
+```toml
+structure = { file = "mixed.xyz", format = "xyz", frame = -1, cell = [20.0, 20.0, 20.0], pbc = [true, true, true] }
+[mlip]
+model = "models/deployment.pt"
+```
+
+Only `file` is required in the table. `format` accepts `xyz`, `extxyz`, `vasp`
+or `cif`; otherwise it is detected from the file. `frame` defaults to 0 and
+accepts a single integer, including negative ASE indices, never a frame slice.
+`cell` gives three lengths in angstrom and only supplements a missing cell.
+`pbc` only supplements missing boundary semantics. These fields do not override
+conflicting file data or turn explicitly nonperiodic extxyz into periodic input.
+Structure and model paths resolve relative to the mdin directory, independently
+of `workspace`, preserving spaces and literal `#` and `@` characters. `@` in a
+filename does not select a frame.
+
+Masses use explicit file values when present, otherwise ASE element masses;
+explicit isotope masses are retained while model labels remain element symbols.
+Recognized standard velocities are converted through ASE units to angstrom per
+picosecond and then to SPONGE units. Custom unitless `vel` or `velocities`
+columns are rejected; provide standard ASE momenta instead. With neither file
+velocities nor `[initial_velocity]`, the
+initial velocities remain zero. `mode = "maxwell"` in `[initial_velocity]`
+uses the existing SPONGE generator and replaces any imported velocities; check
+the startup summary. Reference energies, forces and stresses in a structure are
+not used as model predictions or as initial dynamics data.
+
+The structure entry requires native `[mlip]` pure mode. It cannot be combined
+with `mlip.types`, `default_in_file_prefix`, separate coordinate/mass/velocity
+files, AMBER/GROMACS initial inputs, H5 topology/restart/trajectory inputs, or
+rerun mode. Hybrid and restart/rerun workflows continue to use traditional
+inputs and explicit JSON types as described below. Existing trajectory/restart
+output remains available, but restarting requires the matching external model
+and atom identity/order; the structure entry does not establish that identity
+from a restart atom count.
+
+For traditional SPONGE coordinates and explicit model type labels:
+
 Start from a SPONGE input with coordinates, masses, velocities, units and
 integration parameters appropriate to the model. Add:
 
@@ -88,8 +165,8 @@ model = "models/deployment.pt"
 types = "system.types.json"
 ```
 
-This is an input fragment, not a complete physical system. Both paths are
-required. Relative paths resolve against the directory containing `mdin`, even
+This is an input fragment, not a complete physical system. Without `structure`,
+both paths are required. Relative paths resolve against the directory containing `mdin`, even
 when `workspace` points elsewhere. Absolute paths are also accepted. An ordinary
 pure run needs no adapter name, Python entry file, plugin path, `device`, or
 `PM.MPI_size` setting. Native `[mlip]` cannot be combined with `plugin`, `py`,

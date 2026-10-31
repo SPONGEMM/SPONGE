@@ -720,14 +720,92 @@
       "description": "Force coordinate mapping by whole molecules during output.",
       "default": false
     },
+    "initial_velocity": {
+      "type": "object",
+      "description": "Explicit Maxwell velocity initialization using target_temperature; replaces any imported velocity. Not available in minimization or rerun mode.",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "seed"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "maxwell"
+          ]
+        },
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "structure": {
+      "title": "Initial Atomistic Structure",
+      "description": "Native pure MLIP only. Resolves relative to mdin; owns atoms, coordinates, masses, cell, velocities and element labels. Cannot be combined with traditional initial-state sources, default input prefix, JSON types or restart/rerun input. Requires ASE in the bridge Python environment.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "file"
+          ],
+          "properties": {
+            "file": {
+              "type": "string",
+              "minLength": 1
+            },
+            "format": {
+              "type": "string",
+              "enum": [
+                "xyz",
+                "extxyz",
+                "vasp",
+                "cif"
+              ]
+            },
+            "frame": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647,
+              "default": 0,
+              "description": "Single ASE frame index; negative indices are supported."
+            },
+            "cell": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "number"
+              },
+              "description": "Lengths in angstrom, only to supplement a missing cell; does not scale coordinates."
+            },
+            "pbc": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 3,
+              "items": {
+                "type": "boolean"
+              },
+              "description": "Only supplements missing boundary semantics. Current runtime requires all periodic."
+            }
+          }
+        }
+      ]
+    },
     "mlip": {
       "type": "object",
       "title": "Native Local-MP Deployment",
       "description": "External deployment entry requiring SPONGE_ENABLE_MLIP on Linux CUDA+MPI. Cannot be combined with plugin, py or SPONGE_PRIPS_PY.",
       "additionalProperties": false,
       "required": [
-        "model",
-        "types"
+        "model"
       ],
       "properties": {
         "model": {
@@ -738,7 +816,7 @@
         "types": {
           "type": "string",
           "title": "System Type Sidecar",
-          "description": "JSON type_names and atom_types in global SPONGE atom order; relative paths resolve against mdin. Names are explicit model labels."
+          "description": "JSON type_names and atom_types in global SPONGE atom order; relative paths resolve against mdin. Names are explicit model labels. Required without structure; mutually exclusive with structure."
         },
         "mode": {
           "type": "string",
@@ -2273,6 +2351,41 @@
           "maximum": 512,
           "default": 128
         }
+      }
+    }
+  },
+  "if": {
+    "required": [
+      "structure"
+    ]
+  },
+  "then": {
+    "required": [
+      "mlip"
+    ],
+    "properties": {
+      "mlip": {
+        "properties": {
+          "mode": {
+            "enum": [
+              "pure"
+            ]
+          }
+        },
+        "not": {
+          "required": [
+            "types"
+          ]
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "mlip": {
+        "required": [
+          "types"
+        ]
       }
     }
   }

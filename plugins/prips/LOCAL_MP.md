@@ -70,7 +70,15 @@ not satisfy this object contract. Load only trusted artifacts: loading uses
 `torch.load(model_path, map_location="cpu", weights_only=False)` and therefore
 deserializes Python objects.
 
-Supply system types separately as JSON in SPONGE's global atom order:
+The native `structure` entry obtains element labels and global type indices
+from the ASE CPU reader before MD state allocation. It passes those in-memory
+types to the same deployment constructor used by JSON. It is restricted to
+pure mode and does not change adapter type semantics. See the
+[user guide](LOCAL_MP_USER_GUIDE.md#configure-a-native-deployment) for supported
+formats and state-source restrictions.
+
+For traditional input, supply system types separately as JSON in SPONGE's
+global atom order:
 
 ```json
 {"type_names": ["Si", "O"], "atom_types": [0, 1, 0]}
@@ -101,8 +109,9 @@ mapping before loading the model, then calls `create_adapter`. The factory
 creates an unprepared adapter; device preparation, supported-type admission
 and the global atom-count check remain with `ResidentLocalMPDriver`. The host
 selects the native device before deployment loading.
-The Python helper uses paths as supplied. Native `[mlip]` resolves its required
-`model` and `types` paths relative to mdin, independently of `workspace`, before
+The Python helper uses paths as supplied. Native `[mlip]` resolves `model`,
+`structure` and, when needed, `types` paths relative to mdin, independently of
+`workspace`, before
 calling this same helper through the existing PRIPS interpreter. Native type
 names must already be model labels; `type_map` is a Python-helper option only.
 The native holder exports the returned adapter/types to the same resident
@@ -218,7 +227,8 @@ The driver runs `prepare_model` and `validate_atom_types(global_atom_types)`
 once. Native aggregates preparation success before any feature exchange; a
 failed rank stops the MPI world. PM ranks do not prepare GPU models or enter this
 PP collective. Native deployment deserialization/factory runs on WORLD; advanced
-entry scripts also run on every rank and may load CPU model objects during import. There is no new per-step collective or WORLD barrier.
+entry scripts also run on every rank and may load CPU model objects during
+import. There is no new per-step collective or WORLD barrier.
 
 Registration checks the communication contract across PP ranks: cutoff/skin,
 interaction depth, exchange layout, units and feature dtype. The driver also

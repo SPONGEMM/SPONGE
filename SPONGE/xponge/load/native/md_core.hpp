@@ -105,6 +105,9 @@ static void Native_Load_Charge(System* system, CONTROLLER* controller)
 static void Native_Load_Coordinate_And_Velocity(System* system,
                                                 CONTROLLER* controller)
 {
+    // Structure input populated this state before MD allocation. Reuse it
+    // without a text-file round trip; other input sources retain their loaders.
+    if (!controller->structure_path.empty()) return;
     if (!controller->Command_Exist("coordinate_in_file"))
     {
         const auto input_plan =

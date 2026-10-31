@@ -66,6 +66,11 @@ struct CONTROLLER
     std::string mdin_directory;
     bool native_mlip = false;
     bool mlip_pure = true;
+    std::string structure_path;
+    std::string structure_format;
+    int structure_frame = 0;
+    std::vector<double> structure_cell;
+    std::vector<int> structure_pbc;
     void Configure_Mlip();
     std::string mdin_toml_source_path;
     std::string mdin_toml_content;

@@ -42,7 +42,7 @@ package from the Python search path. Standalone wheel/editable installation
 remains available for advanced use. The selected Python runtime and external
 model dependencies are still environmental dependencies, not bundled models.
 
-The controller retains the mdin directory and resolves only the new model/type
+The controller retains the mdin directory and resolves structure/model/type
 paths against it; existing working-directory-relative inputs keep their prior
 behavior. Resolved strings cross the existing command API as data. The native
 entry enters the same loader, interpreter, adapter registration and resident
@@ -76,6 +76,47 @@ new finalization or teardown ordering. Installation, serialization and startup
 checks do not establish numerical equivalence, dynamics stability or scaling;
 those remain separate qualification tasks.
 
+## Structure input before MD allocation
+
+The optional `structure` request is normalized from a TOML path or table into
+controller-owned strings and CPU values. It is restricted to native pure mode
+and has exclusive ownership of initial coordinates, box, masses, velocities
+and element types. Existing JSON types, traditional inputs and hybrid mode keep
+their original entry. Source conflicts are rejected before input loading;
+explicit native force-field modules are still read so the existing pure-mode
+admission can reject classical parameters.
+
+InputSession invokes the bundled bridge before `md_info.Initial` allocates MD
+arrays. WORLD rank 0 initializes the same CPython interpreter used later by
+PRIPS and calls the lazy ASE reader without loading Torch or an adapter.
+Device selection has already occurred. Root copies CPU buffers through the
+private bundled input interface and broadcasts status before payload using
+SPONGE WORLD MPI. ASE reads with `parallel=False`; it owns no communicator.
+All ranks fill the existing Xponge state, then continue native input assembly.
+No Python objects or extra permanent element field are added to MD storage.
+
+Positions, masses and the cell arrive as float64 CPU data. Optional velocities
+arrive in angstrom per picosecond; native assembly applies SPONGE's existing
+time conversion and final FP32 state conversion. Type indices are int32 into
+first-occurrence element labels. After normal runtime binding refreshes Python
+backend metadata, the bridge hands these types to the same deployment factory
+used for JSON input. The resident driver owns the final global CPU types and
+maps them through global atom IDs after migration. Temporary input types and
+ASE payloads are released after handoff.
+
+Early interpreter bootstrap is separate from runtime binding: it must not
+access uninitialized MD/domain data, load models or run user callbacks. The
+bridge handle and interpreter survive normal plugin initialization. The early
+reader uses checked errors so root can broadcast failure before all ranks take
+the existing fatal-error path. No additional reader, collective or file IO runs
+in the MD loop. Without `structure`, bootstrap retains its previous timing;
+ordinary non-MLIP runs do not import ASE.
+
+Format and metadata admission are input checks, not new physical qualification.
+Structure restart/rerun is intentionally excluded until element identity and
+restart ordering have an explicit shared contract. No hashes or new permanent
+HDF5 fields are introduced by this input path.
+
 ## One force evaluation
 
 1. Before the first model exchange, every PP rank prepares its model. Native
@@ -84,8 +125,8 @@ those remain separate qualification tasks.
    responsibility of deployment and external adapters. PM ranks do
    not prepare or evaluate GPU models. Native CPU deployment construction
    runs on WORLD; advanced entry scripts also run on every rank and may load
-   CPU model objects during import. These checks establish communication compatibility and
-   readiness, not model correctness.
+   CPU model objects during import. These checks establish communication
+   compatibility and readiness, not model correctness.
 2. SPONGE migrates atoms when required, refreshes the halo and updates ghost
    coordinates. It builds or reuses the local candidate graph, then publishes
    its view. Coordinates stay fixed throughout the force callbacks.

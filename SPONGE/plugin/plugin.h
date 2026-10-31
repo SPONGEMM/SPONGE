@@ -53,6 +53,18 @@ struct SPONGE_PLUGIN
     int set_domain_info_func_numbers = 0;
     SetDomainInformationFunction* set_domain_info_funcs = NULL;
 
+    // One-time CPU input data, independent of model tensors and domain state.
+    struct StructureInput
+    {
+        std::vector<double> positions, masses, velocities, cell;
+        std::vector<std::string> type_names;
+        std::vector<int32_t> atom_types;
+    };
+    bool Read_Structure(CONTROLLER* controller, StructureInput& input,
+                        std::string& error);
+    void Set_Structure_Types(std::vector<std::string>&& names,
+                             std::vector<int32_t>&& indices);
+
     void Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                  NEIGHBOR_LIST* neighbor_list);
@@ -76,6 +88,10 @@ struct SPONGE_PLUGIN
     void Mdout_Print();
 
    private:
+    HMODULE native_bridge = nullptr;
+    std::string Native_Bridge_Path() const;
+    std::vector<std::string> structure_type_names;
+    std::vector<int32_t> structure_atom_types;
     bool local_mp_setup_checked = false;
     bool local_mp_setup_ready = false;
     std::vector<int> after_init_plugin_indices;

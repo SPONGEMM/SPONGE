@@ -1,5 +1,6 @@
 ﻿#include "input_session.h"
 
+#include "../plugin/plugin.h"
 #include "../utils/float_classification.hpp"
 
 namespace SpongeIO
@@ -21,9 +22,93 @@ bool Requests_H5_Protocol_State(
 }
 }  // namespace
 
-void InputSession::Load_System()
+void InputSession::Load_Structure(SPONGE_PLUGIN& plugin)
+{
+    auto& controller = runtime_.controller;
+    SPONGE_PLUGIN::StructureInput data;
+    std::string error;
+    int success = 1;
+    if (CONTROLLER::MPI_rank == 0)
+        success = plugin.Read_Structure(&controller, data, error);
+#ifdef USE_MPI
+    MPI_Bcast(&success, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    int error_size = static_cast<int>(error.size());
+    MPI_Bcast(&error_size, 1, MPI_INT, 0, MPI_COMM_WORLD);
+    error.resize(error_size);
+    if (error_size)
+        MPI_Bcast(error.data(), error_size, MPI_CHAR, 0, MPI_COMM_WORLD);
+#endif
+    if (!success)
+        controller.Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                      "Structure input", error.c_str());
+
+    // All WORLD ranks need the initial topology, including any PM/CV rank.
+    // File parsing is root-only; ASE never participates in MPI.
+    int sizes[3] = {static_cast<int>(data.masses.size()),
+                    static_cast<int>(data.type_names.size()),
+                    !data.velocities.empty()};
+#ifdef USE_MPI
+    MPI_Bcast(sizes, 3, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+    const int n = sizes[0];
+    data.positions.resize(3 * n);
+    data.masses.resize(n);
+    data.velocities.resize(sizes[2] ? 3 * n : 0);
+    data.cell.resize(9);
+    data.atom_types.resize(n);
+    data.type_names.resize(sizes[1]);
+#ifdef USE_MPI
+    MPI_Bcast(data.positions.data(), 3 * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(data.masses.data(), n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    if (sizes[2])
+        MPI_Bcast(data.velocities.data(), 3 * n, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(data.cell.data(), 9, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+    MPI_Bcast(data.atom_types.data(), n, MPI_INT32_T, 0, MPI_COMM_WORLD);
+    for (auto& name : data.type_names)
+    {
+        int length = static_cast<int>(name.size());
+        MPI_Bcast(&length, 1, MPI_INT, 0, MPI_COMM_WORLD);
+        name.resize(length);
+        MPI_Bcast(name.data(), length, MPI_CHAR, 0, MPI_COMM_WORLD);
+    }
+#endif
+    auto& system = runtime_.system;
+    system.atoms.coordinate.assign(data.positions.begin(),
+                                   data.positions.end());
+    system.atoms.mass.assign(data.masses.begin(), data.masses.end());
+    system.atoms.velocity.resize(data.velocities.size());
+    for (size_t i = 0; i < data.velocities.size(); ++i)
+        system.atoms.velocity[i] =
+            data.velocities[i] / CONSTANT_TIME_CONVERTION;
+    system.box.box_length = {static_cast<float>(data.cell[0]),
+                             static_cast<float>(data.cell[4]),
+                             static_cast<float>(data.cell[8])};
+    system.box.box_angle = {90.0f, 90.0f, 90.0f};
+    controller.printf("STRUCTURE INPUT: %s, frame %d, %d atoms\n",
+                      controller.structure_path.c_str(),
+                      controller.structure_frame, n);
+    controller.printf(
+        "    cell: %.9g %.9g %.9g A; periodic in all directions\n",
+        data.cell[0], data.cell[4], data.cell[8]);
+    std::vector<int> counts(data.type_names.size(), 0);
+    for (int type : data.atom_types) ++counts[type];
+    for (size_t i = 0; i < counts.size(); ++i)
+        controller.printf("    %s: %d\n", data.type_names[i].c_str(),
+                          counts[i]);
+    controller.printf(
+        "    masses: structure/element values; velocities: %s\n",
+        sizes[2] ? "structure (converted from A/ps)"
+                 : "not supplied (zero unless initial_velocity is configured)");
+    plugin.Set_Structure_Types(std::move(data.type_names),
+                               std::move(data.atom_types));
+    // The full-precision parsing arrays die here. The existing native readers
+    // still load explicit connectivity/force settings for pure-mode checks.
+}
+
+void InputSession::Load_System(SPONGE_PLUGIN& plugin)
 {
     Validate_H5_Input_Plan();
+    if (!runtime_.controller.structure_path.empty()) Load_Structure(plugin);
     runtime_.system.Load_Inputs(&runtime_.controller, input_);
 }
 

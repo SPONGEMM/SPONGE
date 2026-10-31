@@ -20,8 +20,10 @@
 #include <cstring>
 #include <filesystem>
 #include <sstream>
+#include <vector>
 
 #include "../include/sponge_plugin_api.h"
+#include "../include/sponge_structure_input.h"
 #include "Python.h"
 #include "dlpack.h"
 
@@ -960,56 +962,11 @@ PLUGIN_API void Set_Backend_Device_Type(int device_type)
     dlpack_device_type = static_cast<DLDeviceType>(device_type);
 }
 
-PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
+// Structure input needs Python before MD arrays exist. Only module/path setup
+// belongs here; runtime wrappers and model preparation stay in Initial_Stable.
+static void EnsurePythonInitialized(bool native_mlip)
 {
-    if (runtime_error_latched) return;
-    sponge_api = api;
-    if (sponge_api == NULL)
-    {
-        RuntimeFailure("Initial_Stable",
-                       "PRIPS initialization failed: null API.");
-        return;
-    }
-    dlpack_device_type = static_cast<DLDeviceType>(sponge_api->device_type);
-    dlpack_device_index =
-        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_device_index();
-    if (dlpack_device_index < 0) dlpack_device_index = 0;
-    controller_printf("    initializing pyplugin\n");
-    const bool native_mlip = controller_command_exist("mlip_model");
-    if (native_mlip)
-    {
-        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
-        if (controller_command_exist("py") ||
-            (py_env != nullptr && py_env[0] != '\0'))
-        {
-            RuntimeFailure("Initial_Stable",
-                           "Native [mlip] cannot be combined with py or "
-                           "SPONGE_PRIPS_PY");
-            return;
-        }
-    }
-    else if (controller_command_exist("py"))
-    {
-        py_script_path = controller_command("py");
-    }
-    else
-    {
-        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
-        if (py_env != NULL && py_env[0] != '\0')
-        {
-            py_script_path = py_env;
-            controller_printf(
-                "        No 'py' command found. Falling back to "
-                "SPONGE_PRIPS_PY.\n");
-        }
-        else
-        {
-            controller_printf(
-                "        No 'py' command found. Pyplugin will not be "
-                "initialized.\n");
-            return;
-        }
-    }
+    if (Py_IsInitialized() || runtime_error_latched) return;
     if (PyImport_AppendInittab("prips", &PyInit_prips) != 0)
     {
         RuntimeFailure("Initial_Stable",
@@ -1058,10 +1015,6 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
         RuntimeFailure("Initial_Stable", "Python initialization failed");
         return;
     }
-    else
-    {
-        controller_printf("        Python Initialized\n");
-    }
 
     wchar_t* temp_args[1] = {(wchar_t*)L"SPONGE"};
     PySys_SetArgv(1, temp_args);
@@ -1078,7 +1031,8 @@ PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
     std::string package_dir;
 #ifndef _WIN32
     Dl_info library_info = {};
-    if (dladdr(reinterpret_cast<void*>(&Initial_Stable), &library_info) != 0 &&
+    if (dladdr(reinterpret_cast<void*>(&EnsurePythonInitialized),
+               &library_info) != 0 &&
         library_info.dli_fname != nullptr)
     {
         package_dir = std::filesystem::absolute(library_info.dli_fname)
@@ -1129,6 +1083,217 @@ else:
     _prips_module.__path__ = [str(Path(p) / "prips") for p in sys.path
                               if (Path(p) / "prips" / "local_mp" / "__init__.py").is_file()]
 
+)XYJ"))
+        return;
+}
+
+// Pending input types live only until the deployment loader takes ownership.
+static PyObject* structure_type_names = nullptr;
+static PyObject* structure_atom_types = nullptr;
+
+PLUGIN_API int Set_Structure_Types(int type_count, const char* const* names,
+                                   int atom_count, const int32_t* indices)
+{
+    EnsurePythonInitialized(true);
+    if (runtime_error_latched) return -1;
+    structure_type_names = PyTuple_New(type_count);
+    structure_atom_types = PyList_New(atom_count);
+    if (structure_type_names && structure_atom_types)
+    {
+        for (int i = 0; i < type_count; ++i)
+        {
+            PyObject* name = PyUnicode_FromString(names[i]);
+            if (!name) break;
+            PyTuple_SET_ITEM(structure_type_names, i, name);
+        }
+        for (int i = 0; i < atom_count && !PyErr_Occurred(); ++i)
+        {
+            PyObject* index = PyLong_FromLong(indices[i]);
+            if (!index) break;
+            PyList_SET_ITEM(structure_atom_types, i, index);
+        }
+    }
+    if (!structure_type_names || !structure_atom_types || PyErr_Occurred())
+    {
+        Py_CLEAR(structure_type_names);
+        Py_CLEAR(structure_atom_types);
+        CapturePythonFailure("Structure types");
+        return -1;
+    }
+    return 0;
+}
+
+PLUGIN_API int Read_Structure_Input(const SPONGE_STRUCTURE_REQUEST* request,
+                                    SPONGE_STRUCTURE_SINK sink, void* context)
+{
+    EnsurePythonInitialized(true);
+    if (runtime_error_latched) return -1;
+    PyObject* module = PyImport_ImportModule("prips.structure_input");
+    PyObject* reader =
+        module ? PyObject_GetAttrString(module, "read_structure") : nullptr;
+    PyObject* args = Py_BuildValue("(s)", request->path);
+    PyObject* kwargs = Py_BuildValue("{s:i}", "frame", request->frame);
+    auto set = [kwargs](const char* key, PyObject* value)
+    {
+        if (value && kwargs) PyDict_SetItemString(kwargs, key, value);
+        Py_XDECREF(value);
+    };
+    if (request->format) set("format", PyUnicode_FromString(request->format));
+    if (request->has_cell)
+        set("cell", Py_BuildValue("(ddd)", request->cell[0], request->cell[1],
+                                  request->cell[2]));
+    if (request->has_pbc)
+        set("pbc", Py_BuildValue("(OOO)", request->pbc[0] ? Py_True : Py_False,
+                                 request->pbc[1] ? Py_True : Py_False,
+                                 request->pbc[2] ? Py_True : Py_False));
+    PyObject* result = reader && args && kwargs && !PyErr_Occurred()
+                           ? PyObject_Call(reader, args, kwargs)
+                           : nullptr;
+    Py_XDECREF(reader);
+    Py_XDECREF(module);
+    Py_XDECREF(args);
+    Py_XDECREF(kwargs);
+    if (!result)
+    {
+        CapturePythonFailure("Structure input");
+        return -1;
+    }
+    // Reader owns contiguous float64/int32 CPU arrays. Borrow them only while
+    // copying into the native input payload; no NumPy C ABI dependency is
+    // needed.
+    const char* keys[] = {"positions", "masses", "velocities", "cell",
+                          "atom_types"};
+    Py_buffer buffers[5] = {};
+    bool ok = true;
+    for (int i = 0; i < 5 && ok; ++i)
+    {
+        PyObject* value = PyDict_GetItemString(result, keys[i]);
+        if (i == 2 && value == Py_None) continue;
+        ok = value &&
+             PyObject_GetBuffer(value, &buffers[i], PyBUF_CONTIG_RO) == 0;
+    }
+    PyObject* names = PyDict_GetItemString(result, "type_names");
+    std::vector<const char*> labels;
+    if (ok && names)
+    {
+        for (Py_ssize_t i = 0; i < PyList_Size(names); ++i)
+        {
+            const char* name = PyUnicode_AsUTF8(PyList_GetItem(names, i));
+            if (!name)
+            {
+                ok = false;
+                break;
+            }
+            labels.push_back(name);
+        }
+        const Py_ssize_t n = buffers[1].len / sizeof(double);
+        // SPONGE atom counts and MPI array counts are signed int.
+        if (n > INT_MAX / 3)
+        {
+            PyErr_SetString(PyExc_ValueError,
+                            "structure exceeds SPONGE atom count range");
+            ok = false;
+        }
+        if (ok)
+        {
+            SPONGE_STRUCTURE_VIEW view = {
+                static_cast<int>(n),
+                static_cast<const double*>(buffers[0].buf),
+                static_cast<const double*>(buffers[1].buf),
+                static_cast<const double*>(buffers[2].buf),
+                static_cast<const double*>(buffers[3].buf),
+                static_cast<int>(labels.size()),
+                labels.data(),
+                static_cast<const int32_t*>(buffers[4].buf)};
+            sink(&view, context);
+        }
+    }
+    else
+        ok = false;
+    for (auto& buffer : buffers)
+        if (buffer.obj) PyBuffer_Release(&buffer);
+    Py_DECREF(result);
+    if (!ok || PyErr_Occurred())
+    {
+        CapturePythonFailure("Structure input buffers");
+        return -1;
+    }
+    return 0;
+}
+
+PLUGIN_API void Initial_Stable(const SPONGE_PLUGIN_API* api)
+{
+    if (runtime_error_latched) return;
+    sponge_api = api;
+    if (sponge_api == NULL)
+    {
+        RuntimeFailure("Initial_Stable",
+                       "PRIPS initialization failed: null API.");
+        return;
+    }
+    dlpack_device_type = static_cast<DLDeviceType>(sponge_api->device_type);
+    dlpack_device_index =
+        sponge_local_mp == NULL ? 0 : sponge_local_mp->get_device_index();
+    if (dlpack_device_index < 0) dlpack_device_index = 0;
+    controller_printf("    initializing pyplugin\n");
+    const bool native_mlip = controller_command_exist("mlip_model");
+    if (native_mlip)
+    {
+        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+        if (controller_command_exist("py") ||
+            (py_env != nullptr && py_env[0] != '\0'))
+        {
+            RuntimeFailure("Initial_Stable",
+                           "Native [mlip] cannot be combined with py or "
+                           "SPONGE_PRIPS_PY");
+            return;
+        }
+    }
+    else if (controller_command_exist("py"))
+    {
+        py_script_path = controller_command("py");
+    }
+    else
+    {
+        const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+        if (py_env != NULL && py_env[0] != '\0')
+        {
+            py_script_path = py_env;
+            controller_printf(
+                "        No 'py' command found. Falling back to "
+                "SPONGE_PRIPS_PY.\n");
+        }
+        else
+        {
+            controller_printf(
+                "        No 'py' command found. Pyplugin will not be "
+                "initialized.\n");
+            return;
+        }
+    }
+    EnsurePythonInitialized(native_mlip);
+    if (runtime_error_latched) return;
+    PyObject* main = PyImport_AddModule("__main__");
+    // Early structure reading created Sponge with no runtime binding. Publish
+    // the actual rank device and service before constructing tensor wrappers.
+    PyObject* module = PyImport_ImportModule("prips");
+    PyObject* sponge =
+        module ? PyObject_GetAttrString(module, "Sponge") : nullptr;
+    if (sponge == nullptr ||
+        PyModule_AddIntConstant(sponge, "_backend", dlpack_device_type) != 0 ||
+        PyModule_AddIntConstant(sponge, "_backend_index",
+                                dlpack_device_index) != 0 ||
+        PyModule_AddIntConstant(sponge, "_local_mp",
+                                sponge_local_mp != nullptr) != 0)
+    {
+        Py_XDECREF(sponge);
+        Py_XDECREF(module);
+        CapturePythonFailure("Python runtime binding");
+        return;
+    }
+    Py_DECREF(sponge);
+    Py_DECREF(module);
+    if (!RunPythonCode("Python runtime binding", R"XYJ(
 class SpongeDLPackTensor:
     def __init__(self, capsule):
         self.capsule = capsule
@@ -1379,19 +1544,29 @@ Sponge.backend_name = None
             PyImport_ImportModule("prips.local_mp.deployment");
         PyObject* model_path =
             PyUnicode_DecodeFSDefault(controller_command("mlip_model"));
-        const char* types_command = controller_command("mlip_types");
-        PyObject* types_path = types_command == nullptr
-                                   ? nullptr
-                                   : PyUnicode_DecodeFSDefault(types_command);
-        PyObject* loaded =
-            deployment != nullptr && model_path != nullptr &&
-                    types_path != nullptr
-                ? PyObject_CallMethod(deployment, "load_deployment", "OO",
-                                      model_path, types_path)
-                : nullptr;
+        PyObject* loaded = nullptr;
+        if (deployment != nullptr && model_path != nullptr)
+        {
+            if (structure_type_names != nullptr)
+            {
+                loaded = PyObject_CallMethod(
+                    deployment, "load_deployment_with_types", "OOO", model_path,
+                    structure_type_names, structure_atom_types);
+                Py_CLEAR(structure_type_names);
+                Py_CLEAR(structure_atom_types);
+            }
+            else
+            {
+                PyObject* types_path =
+                    PyUnicode_DecodeFSDefault(controller_command("mlip_types"));
+                if (types_path)
+                    loaded = PyObject_CallMethod(deployment, "load_deployment",
+                                                 "OO", model_path, types_path);
+                Py_XDECREF(types_path);
+            }
+        }
         Py_XDECREF(deployment);
         Py_XDECREF(model_path);
-        Py_XDECREF(types_path);
         if (loaded == nullptr ||
             PyObject_SetAttrString(main, "_prips_deployment", loaded) != 0)
         {

@@ -2,6 +2,8 @@
 
 #include <stdexcept>
 
+#include "../../plugins/prips/include/sponge_structure_input.h"
+
 #ifdef SPONGE_ENABLE_MLIP
 #include <filesystem>
 #endif
@@ -345,6 +347,97 @@ const SPONGE_LOCAL_MP_API_V1* BuildLocalMPApi()
 }
 }  // namespace
 
+std::string SPONGE_PLUGIN::Native_Bridge_Path() const
+{
+#ifdef SPONGE_ENABLE_MLIP
+    namespace fs = std::filesystem;
+    const fs::path executable = fs::read_symlink("/proc/self/exe");
+    return (executable == fs::path(SPONGE_MLIP_BUILD_EXECUTABLE)
+                ? fs::path(SPONGE_MLIP_BUILD_BRIDGE)
+                : (executable.parent_path() / SPONGE_MLIP_INSTALL_RELATIVE)
+                      .lexically_normal())
+        .string();
+#else
+    throw std::runtime_error("SPONGE was built without native MLIP support");
+#endif
+}
+
+bool SPONGE_PLUGIN::Read_Structure(CONTROLLER* controller,
+                                   StructureInput& input, std::string& error)
+{
+    // This root-only input call precedes MD allocation. Enable checked errors
+    // before Python bootstrap so the caller can broadcast failure to WORLD.
+    try
+    {
+        const std::string path = Native_Bridge_Path();
+#ifdef _WIN32
+        constexpr int mode = 0;
+#else
+        constexpr int mode = RTLD_LAZY | RTLD_GLOBAL;
+#endif
+        native_bridge = dlopen(path.c_str(), mode);
+        if (!native_bridge) throw std::runtime_error(DlErrorString());
+        auto enable = reinterpret_cast<SPONGE_ENABLE_CHECKED_RUNTIME_ERRORS_V1>(
+            dlsym(native_bridge, "Enable_Checked_Runtime_Errors_V1"));
+        auto query = reinterpret_cast<SPONGE_GET_RUNTIME_ERROR_V1>(
+            dlsym(native_bridge, "Get_Runtime_Error_V1"));
+        auto read = reinterpret_cast<SPONGE_READ_STRUCTURE>(
+            dlsym(native_bridge, "Read_Structure_Input"));
+        if (!enable || !query || !read || enable() != 0)
+            throw std::runtime_error(
+                "Bundled PRIPS lacks the structure input bridge; "
+                "rebuild/reinstall SPONGE");
+        SPONGE_STRUCTURE_REQUEST request = {};
+        request.path = controller->structure_path.c_str();
+        request.format = controller->structure_format.empty()
+                             ? nullptr
+                             : controller->structure_format.c_str();
+        request.frame = controller->structure_frame;
+        request.has_cell = !controller->structure_cell.empty();
+        request.has_pbc = !controller->structure_pbc.empty();
+        for (int i = 0; i < 3; ++i)
+        {
+            if (request.has_cell)
+                request.cell[i] = controller->structure_cell[i];
+            if (request.has_pbc) request.pbc[i] = controller->structure_pbc[i];
+        }
+        auto sink = [](const SPONGE_STRUCTURE_VIEW* view, void* context)
+        {
+            auto& data = *static_cast<StructureInput*>(context);
+            const int n = view->atom_count;
+            data.positions.assign(view->positions, view->positions + 3 * n);
+            data.masses.assign(view->masses, view->masses + n);
+            if (view->velocities)
+                data.velocities.assign(view->velocities,
+                                       view->velocities + 3 * n);
+            data.cell.assign(view->cell, view->cell + 9);
+            data.atom_types.assign(view->atom_types, view->atom_types + n);
+            for (int i = 0; i < view->type_count; ++i)
+                data.type_names.emplace_back(view->type_names[i]);
+        };
+        const int status = read(&request, sink, &input);
+        const char *stage = nullptr, *message = nullptr;
+        if (query(&stage, &message) != 0)
+            throw std::runtime_error(
+                std::string(stage ? stage : "Structure input") + ": " +
+                (message ? message : "failed"));
+        if (status != 0) throw std::runtime_error("Structure reader failed");
+        return true;
+    }
+    catch (const std::exception& failure)
+    {
+        error = failure.what();
+        return false;
+    }
+}
+
+void SPONGE_PLUGIN::Set_Structure_Types(std::vector<std::string>&& names,
+                                        std::vector<int32_t>&& indices)
+{
+    structure_type_names = std::move(names);
+    structure_atom_types = std::move(indices);
+}
+
 void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                             COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                             NEIGHBOR_LIST* neighbor_list)
@@ -385,23 +478,16 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
     std::vector<std::string> plugin_paths;
     if (controller->native_mlip)
     {
-#ifdef SPONGE_ENABLE_MLIP
-        namespace fs = std::filesystem;
-        std::error_code error;
-        const fs::path executable = fs::read_symlink("/proc/self/exe", error);
-        if (error)
+        try
         {
-            controller->Throw_SPONGE_Error(
-                spongeErrorOpenFileFailed, "SPONGE_PLUGIN::Initial",
-                "Cannot locate /proc/self/exe for native [mlip]");
+            plugin_paths.push_back(Native_Bridge_Path());
         }
-        const fs::path bridge =
-            executable == fs::path(SPONGE_MLIP_BUILD_EXECUTABLE)
-                ? fs::path(SPONGE_MLIP_BUILD_BRIDGE)
-                : (executable.parent_path() / SPONGE_MLIP_INSTALL_RELATIVE)
-                      .lexically_normal();
-        plugin_paths.push_back(bridge.string());
-#endif
+        catch (const std::exception& error)
+        {
+            controller->Throw_SPONGE_Error(spongeErrorOpenFileFailed,
+                                           "SPONGE_PLUGIN::Initial",
+                                           error.what());
+        }
     }
     else
     {
@@ -450,7 +536,10 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
 #else
         constexpr int dlopen_mode = RTLD_LAZY | RTLD_GLOBAL;
 #endif
-        plugin_handles[count] = dlopen(plugin_path, dlopen_mode);
+        plugin_handles[count] =
+            controller->native_mlip && native_bridge != nullptr
+                ? native_bridge
+                : dlopen(plugin_path, dlopen_mode);
         if (plugin_handles[count] == NULL)
         {
             std::string error_reason = "Reason:\n\tOpen Dynamic Library from ";
@@ -568,6 +657,29 @@ void SPONGE_PLUGIN::Initial(MD_INFORMATION* md_info, CONTROLLER* controller,
                     spongeErrorConflictingCommand, "SPONGE_PLUGIN::Initial",
                     "Plugin could not enable checked runtime errors.");
             Check_Runtime_Error(count);
+        }
+        if (controller->native_mlip && !structure_type_names.empty())
+        {
+            auto set_types = reinterpret_cast<SPONGE_SET_STRUCTURE_TYPES>(
+                dlsym(plugin_handles[count], "Set_Structure_Types"));
+            if (!set_types)
+                controller->Throw_SPONGE_Error(
+                    spongeErrorConflictingCommand, "SPONGE_PLUGIN::Initial",
+                    "Bundled PRIPS lacks structure type input");
+            std::vector<const char*> names;
+            for (const auto& name : structure_type_names)
+                names.push_back(name.c_str());
+            const int status =
+                set_types(static_cast<int>(names.size()), names.data(),
+                          static_cast<int>(structure_atom_types.size()),
+                          structure_atom_types.data());
+            Check_Runtime_Error(count);
+            if (status != 0)
+                controller->Throw_SPONGE_Error(
+                    spongeErrorValueErrorCommand, "SPONGE_PLUGIN::Initial",
+                    "Could not transfer structure types");
+            std::vector<std::string>().swap(structure_type_names);
+            std::vector<int32_t>().swap(structure_atom_types);
         }
         g_current_plugin_index = count;
 

@@ -76,7 +76,9 @@ install(
 install(
   FILES ${CMAKE_CURRENT_SOURCE_DIR}/prips/__init__.py
         ${CMAKE_CURRENT_SOURCE_DIR}/prips/__main__.py
-        ${CMAKE_CURRENT_SOURCE_DIR}/prips/Sponge.pyi ${PRIPS_INSTALL_EXCLUDE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/prips/structure_input.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/prips/Sponge.pyi
+        ${PRIPS_INSTALL_EXCLUDE}
   COMPONENT python_modules
   DESTINATION ${PRIPS_INSTALL_DIR})
 install(

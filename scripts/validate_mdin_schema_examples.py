@@ -136,6 +136,24 @@ def matches_type(value: Any, expected: str) -> bool:
 
 
 def validate(schema: dict[str, Any], value: Any, path: str) -> None:
+    if "if" in schema:
+        try:
+            validate(schema["if"], value, path)
+        except ValidationError:
+            branch = "else"
+        else:
+            branch = "then"
+        if branch in schema:
+            validate(schema[branch], value, path)
+
+    if "not" in schema:
+        try:
+            validate(schema["not"], value, path)
+        except ValidationError:
+            pass
+        else:
+            raise ValidationError(f"{path}: value matches forbidden schema")
+
     if "anyOf" in schema:
         errors = []
         for candidate in schema["anyOf"]:
@@ -156,6 +174,15 @@ def validate(schema: dict[str, Any], value: Any, path: str) -> None:
             f"{path}: {value!r} is not in enum {schema['enum']!r}"
         )
 
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if "minimum" in schema and value < schema["minimum"]:
+            raise ValidationError(f"{path}: value below minimum")
+        if "maximum" in schema and value > schema["maximum"]:
+            raise ValidationError(f"{path}: value above maximum")
+
+    if isinstance(value, str) and len(value) < schema.get("minLength", 0):
+        raise ValidationError(f"{path}: string shorter than minLength")
+
     if isinstance(value, dict):
         properties = schema.get("properties", {})
         required = schema.get("required", [])
@@ -174,6 +201,10 @@ def validate(schema: dict[str, Any], value: Any, path: str) -> None:
         return
 
     if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0):
+            raise ValidationError(f"{path}: fewer than minItems entries")
+        if "maxItems" in schema and len(value) > schema["maxItems"]:
+            raise ValidationError(f"{path}: more than maxItems entries")
         item_schema = schema.get("items")
         if item_schema:
             for index, item in enumerate(value):

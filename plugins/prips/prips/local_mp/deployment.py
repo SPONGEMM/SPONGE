@@ -66,6 +66,11 @@ def load_deployment(model_path, types_path, *, type_map=None):
             )
         type_names = [type_map.get(name, name) for name in type_names]
 
+    return load_deployment_with_types(model_path, type_names, atom_types)
+
+
+def load_deployment_with_types(model_path, type_names, atom_types):
+    """Internal entry for validated, in-memory structure labels and indices."""
     deployment = torch.load(model_path, map_location="cpu", weights_only=False)
     if not isinstance(deployment, LocalMPDeployment):
         raise TypeError("model file must contain a LocalMPDeployment")

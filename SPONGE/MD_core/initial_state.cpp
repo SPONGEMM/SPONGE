@@ -50,7 +50,7 @@ void InitialStateBuilder::Load_Base_State()
     auto& md_info = bindings_.runtime.md_info;
     auto& cv_controller = bindings_.runtime.cv_controller;
     auto& input_session = bindings_.input;
-    input_session.Load_System();
+    input_session.Load_System(bindings_.plugin);
     cv_controller.atom_numbers =
         Xponge::Load_Get_Atom_Numbers(&bindings_.runtime.system);
     cv_controller.Initial(&controller,
