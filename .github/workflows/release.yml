@@ -49,7 +49,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
           - feature: cuda12
             env_name: dev-cuda12
             target: win-64

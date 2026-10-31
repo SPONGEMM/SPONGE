@@ -38,7 +38,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -154,7 +154,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -248,7 +248,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
             shard: all
             label: osx-arm64
 
