@@ -179,8 +179,14 @@ int PluginGetPPSize() { return CONTROLLER::PP_MPI_size; }
 
 int PluginGetDeviceIndex()
 {
-    return g_plugin_controller == NULL ? -1
-                                       : g_plugin_controller->working_device;
+    if (g_plugin_controller == NULL) return -1;
+#if defined(USE_CUDA) || defined(USE_HIP)
+    return g_plugin_controller->working_device;
+#else
+    // On CPU, working_device is the OpenMP thread count, not a device index.
+    // DLPack identifies ordinary CPU memory with device index zero.
+    return 0;
+#endif
 }
 
 uint64_t PluginGetDomainEpoch() { return Local_MP_Service().Domain_Epoch(); }
