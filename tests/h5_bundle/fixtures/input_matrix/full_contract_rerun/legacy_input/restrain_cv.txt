@@ -1,0 +1,6 @@
+restrain
+{
+    CV = distance
+    weight = 10.0
+    reference = 1.5
+}

@@ -152,16 +152,24 @@ inline void CONTROLLER::Print_First_Line_To_Mdout(FILE* mdout)
         {
             mdout = this->mdout;
         }
-        this->Set_File_Buffer(mdout, sizeof(char) * outputs_key.size() * 16);
+        if (mdout != NULL)
+        {
+            this->Set_File_Buffer(mdout,
+                                  sizeof(char) * outputs_key.size() * 16);
+        }
         char space[4] = " ";
         for (int i = 0; i < outputs_key.size(); i++)
         {
             if (i == outputs_key.size() - 1) space[0] = '\n';
-            fprintf(mdout, "%15s%s", outputs_key[i].c_str(), space);
+            if (mdout != NULL)
+            {
+                fprintf(mdout, "%15s%s", outputs_key[i].c_str(), space);
+            }
         }
         printf(
             "------------------------------------------------------------------"
             "------------------------------------------\n");
+        SpongeLegacyIO::OutputFlushCoordinator::Mark_Dirty(mdout, "mdout");
     }
     core_time.Start();
 }
@@ -181,8 +189,11 @@ inline void CONTROLLER::Print_To_Screen_And_Mdout(FILE* mdout)
         fprintf(stdout, "%15s = %15s, ", outputs_key[i].c_str(),
                 outputs_content[outputs_key[i]].c_str());
         if (i == outputs_key.size() - 1) space[0] = '\n';
-        fprintf(mdout, "%15s%s", outputs_content[outputs_key[i]].c_str(),
-                space);
+        if (mdout != NULL)
+        {
+            fprintf(mdout, "%15s%s", outputs_content[outputs_key[i]].c_str(),
+                    space);
+        }
         outputs_content[outputs_key[i]] = "****";
         if (line_numbers % 3 == 0) fprintf(stdout, "\n");
     }
@@ -190,4 +201,5 @@ inline void CONTROLLER::Print_To_Screen_And_Mdout(FILE* mdout)
     fprintf(stdout,
             "------------------------------------------------------------------"
             "------------------------------------------\n");
+    SpongeLegacyIO::OutputFlushCoordinator::Mark_Dirty(mdout, "mdout");
 }

@@ -29,3 +29,17 @@ include("${TARGETS_FILE}")
 # Suppress Unnecessary Compile Warnings
 set(WARNING_FILE "${PROJECT_ROOT_DIR}/cmake/utils/warning.cmake")
 include("${WARNING_FILE}")
+
+option(SPONGE_BUILD_TESTS "Build SPONGE unit tests" OFF)
+if(SPONGE_BUILD_TESTS)
+  target_compile_definitions(SPONGE PRIVATE SPONGE_H5_TEST_FAULT_INJECTION=1)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+
+install(
+  DIRECTORY "${PROJECT_ROOT_DIR}/schemas/"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/SPONGE/schemas"
+  FILES_MATCHING
+  PATTERN "*.json"
+  PATTERN "*.toml")

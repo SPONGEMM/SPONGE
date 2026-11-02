@@ -1,4 +1,5 @@
 ﻿#pragma once
+#include "../float_classification.hpp"
 
 // SPONGE错误类型
 enum spongeError
@@ -179,8 +180,7 @@ inline void CONTROLLER::Check_Error(float energy)
             "parameters\n\t4. bad force field parameters\n");
     }
 #endif
-    if (isnan(energy) || isinf(energy) || isnan(printf_sum) ||
-        isinf(printf_sum))
+    if (!SpongeFloat::Is_Finite(energy) || !SpongeFloat::Is_Finite(printf_sum))
     {
         Throw_SPONGE_Error(
             spongeErrorSimulationBreakDown, "CONTROLLER::Check_Error",

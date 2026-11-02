@@ -1,12 +1,20 @@
 ﻿#pragma once
 
 #include "../common.hpp"
+#include "utils/h5md/input_plan.hpp"
 
 namespace Xponge
 {
 
 static void Native_Load_Mass(System* system, CONTROLLER* controller)
 {
+    if (!system->atoms.mass.empty())
+    {
+        Load_Ensure_Atom_Numbers(system,
+                                 static_cast<int>(system->atoms.mass.size()),
+                                 controller, "Xponge::Native_Load_Mass");
+        return;
+    }
     if (controller->Command_Exist("mass_in_file"))
     {
         FILE* fp = NULL;
@@ -48,6 +56,13 @@ static void Native_Load_Mass(System* system, CONTROLLER* controller)
 
 static void Native_Load_Charge(System* system, CONTROLLER* controller)
 {
+    if (!system->atoms.charge.empty())
+    {
+        Load_Ensure_Atom_Numbers(system,
+                                 static_cast<int>(system->atoms.charge.size()),
+                                 controller, "Xponge::Native_Load_Charge");
+        return;
+    }
     if (controller->Command_Exist("charge_in_file"))
     {
         FILE* fp = NULL;
@@ -92,6 +107,20 @@ static void Native_Load_Coordinate_And_Velocity(System* system,
 {
     if (!controller->Command_Exist("coordinate_in_file"))
     {
+        const auto input_plan =
+            SpongeH5InputPlan::Resolve_Input_Plan(controller);
+        if (!input_plan.valid)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "Xponge::Native_Load_Coordinate_And_Velocity",
+                input_plan.error_message.c_str());
+        }
+        if (input_plan.restart.binding.enabled ||
+            input_plan.trajectory.binding.enabled)
+        {
+            return;
+        }
         controller->Throw_SPONGE_Error(
             spongeErrorMissingCommand,
             "Xponge::Native_Load_Coordinate_And_Velocity",

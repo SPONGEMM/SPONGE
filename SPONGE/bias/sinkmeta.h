@@ -5,6 +5,11 @@
 #include "../common.h"
 #include "../control.h"
 
+namespace SpongeH5MD
+{
+struct RestartMetadynamicsState;
+}
+
 struct MetaGrid
 {
     int ndim = 0;
@@ -77,6 +82,7 @@ struct META
 
     // ---- public interface ----
     char module_name[CHAR_LENGTH_MAX];
+    std::string h5_object_name = "meta";
     int is_initialized = 0;
     int last_modify_date = 20260326;
     CONTROLLER* controller = NULL;
@@ -84,13 +90,18 @@ struct META
     void Initial(CONTROLLER* controller,
                  COLLECTIVE_VARIABLE_CONTROLLER* cv_controller,
                  char* module_name = NULL);
-    void Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                         LTMatrix3 rcell, int step, int need_potential,
-                         int need_pressure, VECTOR* frc, float* d_potential,
-                         LTMatrix3* d_virial, float sys_temp);
+    void Do_Metadynamics(int atom_numbers, VECTOR* crd, Boundary boundary,
+                         int step, int need_potential, int need_pressure,
+                         VECTOR* frc, float* d_potential, LTMatrix3* d_virial,
+                         float sys_temp);
     void Step_Print(CONTROLLER* controller);
     void Write_Potential(void);
     void Write_Directly(void);
+    bool Export_H5_Restart_State(SpongeH5MD::RestartMetadynamicsState* state,
+                                 std::string* error_message);
+    bool Apply_H5_Restart_State(
+        const SpongeH5MD::RestartMetadynamicsState& state,
+        std::string* error_message);
 
     // ---- internal type ----
     struct Hill
@@ -166,9 +177,9 @@ struct META
     float* Dpotential_local = NULL;
     float sum_max = 0.0;
     float new_max = 0.;
-    int max_index;
+    int max_index = 0;
     float max_force = 0.1;
-    float exit_tag;
+    float exit_tag = 0.0f;
     Axis est_values_;
     Gdata est_sum_force_;
 

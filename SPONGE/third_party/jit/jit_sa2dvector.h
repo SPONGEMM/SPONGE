@@ -84,7 +84,7 @@ struct SA2Dvector
         vec.z = veca.x * vecb.y - veca.y * vecb.x;
         return vec;
     }
-    friend __device__ __host__ __forceinline__ SA2Dvector<N, N2, N2l> Get_Periodic_Displacement(const SA2Dvector<N, N2, N2l> vec_a, const SA2Dvector<N, N2, N2l> vec_b, const SA2Dvector<N, N2, N2l> box_length)
+    friend __device__ __host__ __forceinline__ SA2Dvector<N, N2, N2l> Get_Displacement(const SA2Dvector<N, N2, N2l> vec_a, const SA2Dvector<N, N2, N2l> vec_b, const SA2Dvector<N, N2, N2l> box_length)
     {
         SA2Dvector<N, N2, N2l> dr;
         dr = vec_a - vec_b;

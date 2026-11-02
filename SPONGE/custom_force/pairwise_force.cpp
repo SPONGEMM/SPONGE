@@ -1,5 +1,12 @@
 ﻿#include "pairwise_force.h"
 
+#include <cmath>
+#include <filesystem>
+#include <limits>
+
+#include "../utils/float_classification.hpp"
+#include "../utils/h5md/topology_custom_force_h5_materializer.hpp"
+
 static __global__ void pairwise_force_scatter_types(
     const int total_numbers, const int* atom_local,
     const int* global_pairwise_types, int* local_pairwise_types)
@@ -27,7 +34,63 @@ void PAIRWISE_FORCE::Initial(CONTROLLER* controller, const char* module_name)
     {
         strcpy(this->module_name, module_name);
     }
-    if (controller->Command_Exist(this->module_name, "in_file"))
+    bool loaded_native = false;
+    if (controller->Command_Exist("input_h5_topology_path"))
+    {
+        SpongeH5MD::TopologyCustomForceH5Materializer reader;
+        if (!reader.Open(controller->Command("input_h5_topology_path")))
+        {
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "PAIRWISE_FORCE::Initial",
+                                           reader.Last_Error().c_str());
+        }
+        if (reader.Has_Pairwise())
+        {
+            SpongeH5MD::NativePairwiseForceDefinition definition;
+            if (!reader.Read_Pairwise(&definition))
+            {
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "PAIRWISE_FORCE::Initial",
+                                               reader.Last_Error().c_str());
+            }
+            const bool legacy_descriptor_available =
+                controller->Command_Exist(this->module_name, "in_file") &&
+                std::filesystem::is_regular_file(
+                    controller->Command(this->module_name, "in_file"));
+            const bool legacy_data_available =
+                controller->Command_Exist(definition.name.c_str(), "in_file") &&
+                std::filesystem::is_regular_file(
+                    controller->Command(definition.name.c_str(), "in_file"));
+            if (!legacy_descriptor_available || !legacy_data_available)
+            {
+                controller->printf(
+                    "START INITIALIZING PAIRWISE FORCE FROM NATIVE H5:\n");
+                force_name = definition.name;
+                source_code = definition.potential;
+                parameter_type = definition.parameter_types;
+                parameter_name = definition.parameter_names;
+                n_ij_parameter = definition.ij_parameter_count;
+                with_ele = definition.with_ele;
+                if (with_ele)
+                {
+                    ele_code = definition.electrostatic_potential.empty()
+                                   ? "E_ele = charge_i * charge_j * erfc(beta "
+                                     "* r_ij) / r_ij;"
+                                   : definition.electrostatic_potential;
+                }
+                atom_numbers = definition.atom_count;
+                type_numbers = definition.type_count;
+                native_parameter_values = definition.parameter_values;
+                native_atom_types = definition.atom_type;
+                has_native_parameters = true;
+                JIT_Compile(controller);
+                Real_Initial(controller);
+                loaded_native = true;
+            }
+        }
+    }
+    if (!loaded_native &&
+        controller->Command_Exist(this->module_name, "in_file"))
     {
         controller->printf("START INITIALIZING PAIRWISE FORCE:\n");
         this->Read_Configuration(controller);
@@ -246,7 +309,7 @@ __device__ __forceinline__ int Get_Pairwise_Type(int a, int b)
 }
 extern "C" __global__ void pairwise_force_energy_and_virial(%PARM_ARGS%,
     const float* charge, const float pme_beta, ATOM_GROUP* nl, const int* pairwise_types,
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, const float cutoff,
+    const VECTOR* crd, Boundary boundary, const float cutoff,
     VECTOR* frc, float* atom_energy, LTMatrix3* atom_virial, float* pme_atom_energy,
     float* listed_item_energy, const int local_atom_numbers, int need_atom_energy,
     int need_virial, int atom_numbers)
@@ -285,7 +348,7 @@ extern "C" __global__ void pairwise_force_energy_and_virial(%PARM_ARGS%,
         {
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
-            VECTOR vector_dr = Get_Periodic_Displacement(crd[atom_j], r1, cell, rcell);
+            VECTOR vector_dr = Get_Displacement<BoundaryPolicy::Periodic>(crd[atom_j], r1, boundary);
             float float_dr_ij =
                 sqrtf(vector_dr.x * vector_dr.x + vector_dr.y * vector_dr.y +
                       vector_dr.z * vector_dr.z);
@@ -375,8 +438,9 @@ extern "C" __global__ void pairwise_force_energy_and_virial(%PARM_ARGS%,
 
 void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
 {
-    FILE* fp;
-    if (!controller->Command_Exist(this->force_name.c_str(), "in_file"))
+    FILE* fp = NULL;
+    if (!has_native_parameters &&
+        !controller->Command_Exist(this->force_name.c_str(), "in_file"))
     {
         std::string error_reason = "Reason:\n\tlisted force '" +
                                    this->force_name + "' is defined, but " +
@@ -387,9 +451,13 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
                                        error_reason.c_str());
     }
     controller->printf("    Initializing %s\n", this->force_name.c_str());
-    Open_File_Safely(
-        &fp, controller->Command(this->force_name.c_str(), "in_file"), "r");
-    if (fscanf(fp, "%d %d", &atom_numbers, &type_numbers) != 2)
+    if (!has_native_parameters)
+    {
+        Open_File_Safely(
+            &fp, controller->Command(this->force_name.c_str(), "in_file"), "r");
+    }
+    if (!has_native_parameters &&
+        fscanf(fp, "%d %d", &atom_numbers, &type_numbers) != 2)
     {
         std::string error_reason =
             "Reason:\n\tFail to read the number of atoms and/or types of the "
@@ -400,11 +468,22 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
                                        error_reason.c_str());
     }
     int total_type_pairwise_numbers = type_numbers * (type_numbers + 1) / 2;
+    if (has_native_parameters &&
+        (atom_numbers <= 0 || type_numbers <= 0 ||
+         native_atom_types.size() != static_cast<std::size_t>(atom_numbers) ||
+         native_parameter_values.size() !=
+             static_cast<std::size_t>(n_ij_parameter) *
+                 total_type_pairwise_numbers))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat, "PAIRWISE_FORCE::Initial",
+            "Reason:\n\tnative pairwise parameter dimensions are invalid\n");
+    }
     Malloc_Safely((void**)&cpu_parameters,
                   sizeof(void*) * parameter_name.size());
     Malloc_Safely((void**)&gpu_parameters,
                   sizeof(void*) * parameter_name.size());
-    launch_args = std::vector<void*>(parameter_name.size() + 17);
+    launch_args = std::vector<void*>(parameter_name.size() + 16);
     Malloc_Safely((void**)&cpu_pairwise_types, sizeof(int) * atom_numbers);
     Device_Malloc_Safely((void**)&item_energy, sizeof(float) * atom_numbers);
     Device_Malloc_Safely((void**)&sum_energy, sizeof(float));
@@ -428,8 +507,33 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
     {
         for (int i = 0; i < total_type_pairwise_numbers; i++)
         {
-            int scanf_ret = 0;
-            if (parameter_type[j] == "int")
+            int scanf_ret = 1;
+            if (has_native_parameters)
+            {
+                const float value =
+                    native_parameter_values[static_cast<std::size_t>(j) *
+                                                total_type_pairwise_numbers +
+                                            i];
+                if (!SpongeFloat::Is_Finite(value)) scanf_ret = 0;
+                if (parameter_type[j] == "int")
+                {
+                    if (std::trunc(value) != value ||
+                        value < std::numeric_limits<int>::min() ||
+                        value > std::numeric_limits<int>::max())
+                    {
+                        scanf_ret = 0;
+                    }
+                    else
+                    {
+                        ((int*)cpu_parameters[j])[i] = static_cast<int>(value);
+                    }
+                }
+                else
+                {
+                    ((float*)cpu_parameters[j])[i] = value;
+                }
+            }
+            else if (parameter_type[j] == "int")
             {
                 scanf_ret = fscanf(fp, "%d", ((int*)cpu_parameters[j]) + i);
             }
@@ -437,7 +541,7 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
             {
                 scanf_ret = fscanf(fp, "%f", ((float*)cpu_parameters[j]) + i);
             }
-            if (scanf_ret == 0)
+            if (scanf_ret != 1)
             {
                 std::string error_reason =
                     "Reason:\n\tFail to read the parameters of the pairwise "
@@ -451,7 +555,16 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
     }
     for (int i = 0; i < atom_numbers; i++)
     {
-        if (fscanf(fp, "%d", cpu_pairwise_types + i) != 1)
+        int scanf_ret = 1;
+        if (has_native_parameters)
+        {
+            cpu_pairwise_types[i] = native_atom_types[i];
+        }
+        else
+        {
+            scanf_ret = fscanf(fp, "%d", cpu_pairwise_types + i);
+        }
+        if (scanf_ret != 1)
         {
             std::string error_reason =
                 "Reason:\n\tFail to read the types of the pairwise force '" +
@@ -461,7 +574,7 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
                                            error_reason.c_str());
         }
     }
-    fclose(fp);
+    if (fp != NULL) fclose(fp);
     for (int j = 0; j < n_ij_parameter; j++)
     {
         if (parameter_type[j] == "int")
@@ -488,11 +601,10 @@ void PAIRWISE_FORCE::Real_Initial(CONTROLLER* controller)
 }
 
 void PAIRWISE_FORCE::Compute_Force(ATOM_GROUP* nl, const VECTOR* crd,
-                                   LTMatrix3 cell, LTMatrix3 rcell,
-                                   float cutoff, float pme_beta, float* charge,
-                                   VECTOR* frc, int need_energy,
-                                   float* atom_energy, int need_virial,
-                                   LTMatrix3* atom_virial,
+                                   const Boundary boundary, float cutoff,
+                                   float pme_beta, float* charge, VECTOR* frc,
+                                   int need_energy, float* atom_energy,
+                                   int need_virial, LTMatrix3* atom_virial,
                                    float* pme_direct_atom_energy)
 {
     if (!this->is_initialized || total_local_numbers <= 0) return;
@@ -509,13 +621,12 @@ void PAIRWISE_FORCE::Compute_Force(ATOM_GROUP* nl, const VECTOR* crd,
     launch_args[parameter_name.size() + 2] = &nl;
     launch_args[parameter_name.size() + 3] = &gpu_pairwise_types_local;
     launch_args[parameter_name.size() + 4] = &crd;
-    launch_args[parameter_name.size() + 5] = &cell;
-    launch_args[parameter_name.size() + 6] = &rcell;
-    launch_args[parameter_name.size() + 7] = &cutoff;
-    launch_args[parameter_name.size() + 8] = &frc;
-    launch_args[parameter_name.size() + 9] =
+    launch_args[parameter_name.size() + 5] = (void*)&boundary;
+    launch_args[parameter_name.size() + 6] = &cutoff;
+    launch_args[parameter_name.size() + 7] = &frc;
+    launch_args[parameter_name.size() + 8] =
         need_energy ? &atom_energy : &NULLPTR;
-    launch_args[parameter_name.size() + 10] =
+    launch_args[parameter_name.size() + 9] =
         need_virial ? &atom_virial : &NULL_VIRIAL;
     float* pme_ptr = NULLPTR;
     if (this->with_ele && pme_direct_atom_energy != NULL)
@@ -523,23 +634,23 @@ void PAIRWISE_FORCE::Compute_Force(ATOM_GROUP* nl, const VECTOR* crd,
         pme_ptr = pme_direct_atom_energy;
         deviceMemset(pme_ptr, 0, sizeof(float) * local_atom_numbers);
     }
-    launch_args[parameter_name.size() + 11] = &pme_ptr;
+    launch_args[parameter_name.size() + 10] = &pme_ptr;
     if (listed_item_energy != NULL)
     {
-        launch_args[parameter_name.size() + 12] = &listed_item_energy;
+        launch_args[parameter_name.size() + 11] = &listed_item_energy;
     }
     else
     {
-        launch_args[parameter_name.size() + 12] = &NULLPTR;
+        launch_args[parameter_name.size() + 11] = &NULLPTR;
     }
     int local_atom_numbers_flag = local_atom_numbers;
     int need_atom_energy_flag = need_energy ? 1 : 0;
     int need_virial_flag = need_virial ? 1 : 0;
     int total_numbers_flag = total_local_numbers;
-    launch_args[parameter_name.size() + 13] = &local_atom_numbers_flag;
-    launch_args[parameter_name.size() + 14] = &need_atom_energy_flag;
-    launch_args[parameter_name.size() + 15] = &need_virial_flag;
-    launch_args[parameter_name.size() + 16] = &total_numbers_flag;
+    launch_args[parameter_name.size() + 12] = &local_atom_numbers_flag;
+    launch_args[parameter_name.size() + 13] = &need_atom_energy_flag;
+    launch_args[parameter_name.size() + 14] = &need_virial_flag;
+    launch_args[parameter_name.size() + 15] = &total_numbers_flag;
 
     dim3 blockSize = {CONTROLLER::device_warp,
                       CONTROLLER::device_max_thread / CONTROLLER::device_warp};
@@ -559,7 +670,7 @@ void PAIRWISE_FORCE::Compute_Force(ATOM_GROUP* nl, const VECTOR* crd,
 }
 
 float PAIRWISE_FORCE::Get_Energy(ATOM_GROUP* nl, const VECTOR* crd,
-                                 LTMatrix3 cell, LTMatrix3 rcell, float cutoff,
+                                 const Boundary boundary, float cutoff,
                                  float pme_beta, float* charge,
                                  float* pme_direct_atom_energy)
 {
@@ -573,28 +684,27 @@ float PAIRWISE_FORCE::Get_Energy(ATOM_GROUP* nl, const VECTOR* crd,
     launch_args[parameter_name.size() + 2] = &nl;
     launch_args[parameter_name.size() + 3] = &gpu_pairwise_types_local;
     launch_args[parameter_name.size() + 4] = &crd;
-    launch_args[parameter_name.size() + 5] = &cell;
-    launch_args[parameter_name.size() + 6] = &rcell;
-    launch_args[parameter_name.size() + 7] = &cutoff;
-    launch_args[parameter_name.size() + 8] = &NULLPTR;
-    launch_args[parameter_name.size() + 9] = &item_energy;
-    launch_args[parameter_name.size() + 10] = &NULL_VIRIAL;
+    launch_args[parameter_name.size() + 5] = (void*)&boundary;
+    launch_args[parameter_name.size() + 6] = &cutoff;
+    launch_args[parameter_name.size() + 7] = &NULLPTR;
+    launch_args[parameter_name.size() + 8] = &item_energy;
+    launch_args[parameter_name.size() + 9] = &NULL_VIRIAL;
     float* pme_ptr = NULLPTR;
     if (this->with_ele && pme_direct_atom_energy != NULL)
     {
         pme_ptr = pme_direct_atom_energy;
         deviceMemset(pme_ptr, 0, sizeof(float) * local_atom_numbers);
     }
-    launch_args[parameter_name.size() + 11] = &pme_ptr;
-    launch_args[parameter_name.size() + 12] = &item_energy;
+    launch_args[parameter_name.size() + 10] = &pme_ptr;
+    launch_args[parameter_name.size() + 11] = &item_energy;
     int local_atom_numbers_flag = local_atom_numbers;
     int need_atom_energy_flag = 1;
     int need_virial_flag = 0;
     int total_numbers_flag = total_local_numbers;
-    launch_args[parameter_name.size() + 13] = &local_atom_numbers_flag;
-    launch_args[parameter_name.size() + 14] = &need_atom_energy_flag;
-    launch_args[parameter_name.size() + 15] = &need_virial_flag;
-    launch_args[parameter_name.size() + 16] = &total_numbers_flag;
+    launch_args[parameter_name.size() + 12] = &local_atom_numbers_flag;
+    launch_args[parameter_name.size() + 13] = &need_atom_energy_flag;
+    launch_args[parameter_name.size() + 14] = &need_virial_flag;
+    launch_args[parameter_name.size() + 15] = &total_numbers_flag;
     dim3 blockSize = {CONTROLLER::device_warp,
                       CONTROLLER::device_max_thread / CONTROLLER::device_warp};
     dim3 gridSize = (total_local_numbers + blockSize.y - 1) / blockSize.y;

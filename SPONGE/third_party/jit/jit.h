@@ -2,6 +2,7 @@
 #include "jit_constant.h"
 #include "jit_vector.h"
 #include "jit_matrix.h"
+#include "jit_boundary.h"
 #include "jit_sadfloat.h"
 #include "jit_sadvector.h"
 #include "jit_sa2dfloat.h"

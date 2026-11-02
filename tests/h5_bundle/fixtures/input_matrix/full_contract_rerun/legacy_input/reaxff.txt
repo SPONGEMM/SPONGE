@@ -1,0 +1,65 @@
+Synthetic ReaxFF parameter file
+39 ! Number of general parameters
+50.0000 !p(boc1)
+9.5469 !p(boc2)
+26.5405 !p(coa2)
+1.5105 !p(trip4)
+6.6630 !p(trip3)
+70.0000 !kc2
+1.0588 !p(ovun6)
+4.6000 !p(trip2)
+12.1176 !p(ovun7)
+13.3056 !p(ovun8)
+-70.1292 !p(trip1)
+0.0000 !Lower Taper-radius (swa)
+10.0000 !Upper Taper-radius (swb)
+0.0000 !not used
+33.8667 !p(val7)
+6.0891 !p(lp1)
+1.0563 !p(val9)
+2.0384 !p(val10)
+6.1431 !not used
+6.9290 !p(pen2)
+0.3989 !p(pen3)
+3.9954 !p(pen4)
+0.0000 !not used
+5.7796 !p(tor2)
+10.0000 !p(tor3)
+1.9487 !p(tor4)
+0.0000 !not used
+2.1645 !p(cot2)
+1.5591 !p(vdW1)
+0.1000 !Cutoff for bond order*100 (cutoff)
+2.1365 !p(coa4)
+0.6991 !p(ovun4)
+50.0000 !p(ovun3)
+1.8512 !p(val8)
+0.0000 !not used
+0.0000 !not used
+0.0000 !not used
+0.0000 !not used
+2.6962 !p(coa3)
+2 ! Nr of atoms
+atom header 1
+atom header 2
+atom header 3
+O 1.2 2.0 15.999 1.9 0.09 1.05 1.08 6.0 ! O line 1
+10.2 7.7 4.0 36.9 116.0 8.5 8.9 2.0
+0.9 1.0 60.8 20.4 3.3 0.2 0.9 0.0
+-3.6 2.7 1.0 4.0 2.9 0.0 0.0 0.0
+H 0.7 1.0 1.008 1.5 0.04 1.02 -0.1 1.0 ! H line 1
+9.3 5.0 1.0 0.0 121.1 5.3 7.4 1.0
+-0.1 0.0 62.4 1.9 3.3 0.7 1.0 0.0
+-15.7 2.1 1.0 1.0 2.8 0.0 0.0 0.0
+1 ! Nr of bonds
+bond header
+1 2 170.0 0.0 0.0 -0.5 0.0 1.0 6.0 0.7
+5.2 1.0 0.0 1.0 -0.05 6.8 0.0 0.0
+1 ! Nr of off-diagonal terms
+1 2 0.12 1.4 9.8 1.1 -1.0 -1.0
+1 ! Nr of angles
+1 2 1 70.0 25.0 3.4 0.0 0.0 0.0 3.0
+1 ! Nr of torsions
+0 1 2 0 0.0 0.1 0.02 -2.5 0.0 0.0 0.0
+1 ! Nr of hydrogen bonds
+1 2 1 1.9 -4.4 1.7 3.0

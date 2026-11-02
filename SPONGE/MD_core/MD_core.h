@@ -2,6 +2,23 @@
 
 #include "../common.h"
 #include "../control.h"
+#include "../io/restart_output_state.h"
+#include "../utils/h5md/highfive_backend.hpp"
+#include "../utils/h5md/input_assembler.hpp"
+#include "../utils/h5md/input_plan.hpp"
+#include "../utils/h5md/observable_h5_writer.hpp"
+#include "../utils/h5md/output_plan.hpp"
+#include "../utils/h5md/restart_h5_reader.hpp"
+#include "../utils/h5md/restart_h5_writer.hpp"
+#include "../utils/h5md/trajectory_h5_reader.hpp"
+#include "../utils/h5md/trajectory_h5_writer.hpp"
+#include "../utils/h5md/vds_trajectory_h5_writer.hpp"
+#ifdef SPONGE_HAS_XTC
+// XTC-format trajectory writer. Must be included here rather than in output.h,
+// which is injected inside `struct MD_INFORMATION` and therefore cannot carry
+// any #include of its own.
+#include "../io/xtc_trajectory_writer.h"
+#endif
 
 // 普通分子模拟所涉及的大部分信息
 struct MD_INFORMATION
@@ -68,6 +85,10 @@ struct MD_INFORMATION
     void Read_Coordinate_And_Velocity(CONTROLLER* controller);
     // 读rst7文件获得坐标、速度（可选）、系统时间、盒子
     void Read_Rst7(const char* file_name, int irest, CONTROLLER controller);
+    // 读 H5 restart structural state 获得坐标、速度（可选）、系统时间、盒子
+    void Read_H5_Restart_Structural(
+        const char* file_name, CONTROLLER* controller,
+        SpongeH5InputContract::RestartLoadPolicy load_policy);
     // 读坐标文件获得坐标、速度（可选）、系统时间、盒子
     void Read_Coordinate_In_File(const char* file_name, CONTROLLER controller);
     // 读取质量

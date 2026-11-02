@@ -28,6 +28,10 @@ struct CONTROLLER
     static int PP_MPI_rank;
     static int PM_MPI_rank;
     static int CC_MPI_rank;
+    // World rank that owns the complete coordinate set used by CV and bias
+    // calculations. Rank 0 owns CVs in a single-process run; in an MPI run
+    // the first (and currently only supported) PM rank owns them.
+    static int CV_MPI_rank;
 
     static MPI_Comm pp_comm;
     static MPI_Comm pm_comm;
@@ -177,6 +181,11 @@ struct CONTROLLER
                     const char* reason);
 
     // 输出文件
+    // Resolve the path that Get_Output_File would open, without opening it.
+    // Needed by writers that hand the name to a third-party I/O layer.
+    std::string Resolve_Output_Path(const char* command,
+                                    const char* default_suffix,
+                                    const char* default_filename);
     FILE* Get_Output_File(bool binary, const char* command,
                           const char* default_suffix,
                           const char* default_filename);
@@ -187,10 +196,20 @@ struct CONTROLLER
 
 // 一些常用的控制函数
 #include "utils/control/error.hpp"
+#include "utils/control/h5_output_contract.hpp"
+#include "utils/control/legacy_output_flush.hpp"
 #include "utils/control/malloc_and_file.hpp"
 #include "utils/control/os.hpp"
 #include "utils/control/print.hpp"
 #include "utils/control/warning.hpp"
+#include "utils/h5md/completion_tracker.hpp"
+#include "utils/h5md/h5md_writer.hpp"
+#include "utils/h5md/module_h5_mappings.hpp"
+#include "utils/h5md/observable_h5_writer.hpp"
+#include "utils/h5md/output_plan.hpp"
+#include "utils/h5md/restart_h5_writer.hpp"
+#include "utils/h5md/trajectory_h5_writer.hpp"
+#include "utils/h5md/vds_trajectory_h5_writer.hpp"
 
 // 读入复杂参数
 #include "utils/control/configuration_reader.hpp"

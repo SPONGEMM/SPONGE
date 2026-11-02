@@ -437,7 +437,7 @@ double MD_INFORMATION::system_information::Get_Current_Time(bool plus_one_step)
 
 float MD_INFORMATION::system_information::Get_Volume()
 {
-    LTMatrix3 cell = md_info->pbc.cell;
+    LTMatrix3 cell = md_info->pbc.boundary.cell;
     volume = cell.a11 * cell.a22 * cell.a33;
     return volume;
 }
@@ -561,8 +561,7 @@ void MD_INFORMATION::system_information::Initial(CONTROLLER* controller,
         }
 
         target_temperature = 300.0f;
-        if (md_info->mode >= md_info->NVT &&
-            controller[0].Command_Exist("target_temperature"))
+        if (controller[0].Command_Exist("target_temperature"))
         {
             controller->Check_Float(
                 "target_temperature",
@@ -607,6 +606,14 @@ void MD_INFORMATION::system_information::Initial(CONTROLLER* controller,
                 "MD_INFORMATION::system_information::Initial");
             step_limit = atoi(controller[0].Command("rerun_frame_limit"));
         }
+        if (step_limit <= 0)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "MD_INFORMATION::system_information::Initial",
+                "Reason:\n\trerun frame limit must be greater than 0\n");
+        }
+        step_limit -= 1;
     }
     for (int i = 0; i < md_info->atom_numbers; i++)
     {

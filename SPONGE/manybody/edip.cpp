@@ -1,5 +1,7 @@
 ﻿#include "edip.h"
 
+#include "../utils/h5md/topology_manybody_h5_materializer.hpp"
+
 void EDIP_INFORMATION::Initial(CONTROLLER* controller, const char* module_name,
                                bool* need_full_nl_flag)
 {
@@ -10,6 +12,74 @@ void EDIP_INFORMATION::Initial(CONTROLLER* controller, const char* module_name,
     else
     {
         strcpy(this->module_name, module_name);
+    }
+    if (!controller->Command_Exist(this->module_name, "in_file") &&
+        controller->Command_Exist("input_h5_topology_path"))
+    {
+        SpongeH5MD::TopologyManybodyH5Materializer reader;
+        if (!reader.Open(controller->Command("input_h5_topology_path")))
+        {
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "EDIP_INFORMATION::Initial",
+                                           reader.Last_Error().c_str());
+        }
+        if (reader.Has_EDIP())
+        {
+            SpongeH5MD::NativeEDIPDefinition definition;
+            if (!reader.Read_EDIP(&definition))
+            {
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "EDIP_INFORMATION::Initial",
+                                               reader.Last_Error().c_str());
+            }
+
+            controller->printf(
+                "START INITIALIZING EDIP FORCE FROM NATIVE H5\n");
+            atom_numbers = static_cast<int>(definition.atom_type.size());
+            atom_type_numbers = definition.atom_type_count;
+            pair_type_numbers = atom_type_numbers * atom_type_numbers;
+            triple_type_numbers =
+                atom_type_numbers * atom_type_numbers * atom_type_numbers;
+            Malloc_Safely((void**)&h_energy_atom,
+                          sizeof(float) * (atom_numbers + 1));
+            Device_Malloc_And_Copy_Safely((void**)&d_energy_sum, h_energy_atom,
+                                          sizeof(float) * (atom_numbers + 1));
+            d_energy_atom = d_energy_sum + 1;
+            Device_Malloc_Safely((void**)&z, sizeof(float) * atom_numbers * 2);
+            dE_dz = z + atom_numbers;
+            const std::size_t parameter_count =
+                static_cast<std::size_t>(pair_type_numbers) * 8 +
+                static_cast<std::size_t>(triple_type_numbers) * 9;
+            Malloc_Safely((void**)&h_parameters,
+                          sizeof(float) * parameter_count);
+            Malloc_Safely((void**)&h_atom_type, sizeof(int) * atom_numbers);
+            std::copy(definition.pair_parameters.begin(),
+                      definition.pair_parameters.end(), h_parameters);
+            std::copy(definition.triple_parameters.begin(),
+                      definition.triple_parameters.end(),
+                      h_parameters + pair_type_numbers * 8);
+            std::copy(definition.atom_type.begin(), definition.atom_type.end(),
+                      h_atom_type);
+            Device_Malloc_And_Copy_Safely((void**)&d_parameters, h_parameters,
+                                          sizeof(float) * parameter_count);
+            Device_Malloc_And_Copy_Safely((void**)&d_atom_type, h_atom_type,
+                                          sizeof(int) * atom_numbers);
+            if (need_full_nl_flag != NULL)
+            {
+                *need_full_nl_flag = true;
+                controller->printf(
+                    "EDIP requires full neighbor list for three-body "
+                    "calculations.\n");
+            }
+            is_initialized = true;
+            if (!is_controller_printf_initialized)
+            {
+                controller->Step_Print_Initial(this->module_name, "%14.7e");
+                is_controller_printf_initialized = true;
+            }
+            controller->printf("END INITIALIZING EDIP FORCE\n\n");
+            return;
+        }
     }
     if (!controller->Command_Exist(this->module_name, "in_file"))
     {
@@ -180,7 +250,7 @@ void EDIP_INFORMATION::Initial(CONTROLLER* controller, const char* module_name,
     is_initialized = true;
     if (!is_controller_printf_initialized)
     {
-        controller->Step_Print_Initial(this->module_name, "%.2f");
+        controller->Step_Print_Initial(this->module_name, "%14.7e");
         is_controller_printf_initialized = true;
     }
     controller->printf("END INITIALIZING EDIP FORCE\n\n");
@@ -190,9 +260,9 @@ template <bool need_energy, bool need_virial>
 static __global__
     __launch_bounds__(1024) void EDIP_Force_With_Full_Neighbor_CUDA(
         const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, float* z, float* dE_dz,
-        const ATOM_GROUP* nl, float* atom_energy, LTMatrix3* atom_virial,
-        int* atom_types, float* parameters, const int atom_type_numbers,
+        const Boundary boundary, float* z, float* dE_dz, const ATOM_GROUP* nl,
+        float* atom_energy, LTMatrix3* atom_virial, int* atom_types,
+        float* parameters, const int atom_type_numbers,
         const int pair_type_numbers, float* this_energy)
 {
 #ifdef USE_GPU
@@ -228,7 +298,7 @@ static __global__
             zj = z[atom_j];
             type_j = atom_types[atom_j];
             rj = crd[atom_j];
-            drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            drij = Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             rij = norm3df(drij.x, drij.y, drij.z);
             pair_index_1 = type_i * atom_type_numbers + type_j;
             a1 = parameters[8 * pair_index_1 + 2];
@@ -266,7 +336,8 @@ static __global__
                 atom_k = nl_i.atom_serial[k];
                 type_k = atom_types[atom_k];
                 rk = crd[atom_k];
-                drik = Get_Periodic_Displacement(ri, rk, cell, rcell);
+                drik = Get_Displacement<BoundaryPolicy::Periodic>(ri, rk,
+                                                                  boundary);
                 rik = norm3df(drik.x, drik.y, drik.z);
                 pair_index_2 = type_i * atom_type_numbers + type_k;
                 a2 = parameters[8 * pair_index_2 + 2];
@@ -337,8 +408,8 @@ static __global__
 }
 
 static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
-                             const LTMatrix3 cell, const LTMatrix3 rcell,
-                             const ATOM_GROUP* nl, const float* parameters,
+                             const Boundary boundary, const ATOM_GROUP* nl,
+                             const float* parameters,
                              const int atom_type_numbers, const int* atom_types,
                              float* z)
 {
@@ -367,7 +438,8 @@ static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
             alpha = parameters[8 * type_j];
             c = parameters[8 * type_j + 1];
             a = parameters[8 * type_j + 2];
-            dr = Get_Periodic_Displacement(crd[atom_j], ri, cell, rcell);
+            dr = Get_Displacement<BoundaryPolicy::Periodic>(crd[atom_j], ri,
+                                                            boundary);
             r = norm3df(dr.x, dr.y, dr.z);
             if (r < c)
             {
@@ -386,10 +458,10 @@ static __global__ void Get_Z(const int atom_numbers, const VECTOR* crd,
 
 template <bool need_virial>
 static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float* parameters,
-    const int atom_type_numbers, const int* atom_types, const float* dE_dz,
-    VECTOR* frc, LTMatrix3* atom_virial)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const ATOM_GROUP* nl, const float* parameters, const int atom_type_numbers,
+    const int* atom_types, const float* dE_dz, VECTOR* frc,
+    LTMatrix3* atom_virial)
 {
 #ifdef USE_GPU
     int atom_i = threadIdx.y + blockDim.y * blockIdx.x, atom_j;
@@ -422,7 +494,8 @@ static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
             alpha = parameters[8 * type_j];
             c = parameters[8 * type_j + 1];
             a = parameters[8 * type_j + 2];
-            dr = Get_Periodic_Displacement(ri, crd[atom_j], cell, rcell);
+            dr = Get_Displacement<BoundaryPolicy::Periodic>(ri, crd[atom_j],
+                                                            boundary);
             r.val = norm3df(dr.x, dr.y, dr.z);
             if (r < a && r > c)
             {
@@ -443,7 +516,7 @@ static __global__ __launch_bounds__(1024) void Redistribute_Z_to_Atoms(
 
 void EDIP_INFORMATION::EDIP_Force_With_Atom_Energy_And_Virial_Full_NL(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* fnl_d_nl,
+    const Boundary boundary, const ATOM_GROUP* fnl_d_nl,
     const int need_atom_energy, float* atom_energy, const int need_virial,
     LTMatrix3* atom_virial)
 {
@@ -481,15 +554,15 @@ void EDIP_INFORMATION::EDIP_Force_With_Atom_Energy_And_Virial_Full_NL(
 
     deviceMemset(this->z, 0, sizeof(float) * atom_numbers * 2);
     Launch_Device_Kernel(Get_Z, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         cell, rcell, fnl_d_nl, this->d_parameters,
+                         boundary, fnl_d_nl, this->d_parameters,
                          this->atom_type_numbers, this->d_atom_type, this->z);
     Launch_Device_Kernel(f1, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         frc, cell, rcell, z, dE_dz, fnl_d_nl, atom_energy,
+                         frc, boundary, z, dE_dz, fnl_d_nl, atom_energy,
                          atom_virial, this->d_atom_type, this->d_parameters,
                          this->atom_type_numbers, this->pair_type_numbers,
                          this->d_energy_atom);
     Launch_Device_Kernel(f2, gridSize, blockSize, 0, NULL, atom_numbers, crd,
-                         cell, rcell, fnl_d_nl, this->d_parameters,
+                         boundary, fnl_d_nl, this->d_parameters,
                          this->atom_type_numbers, this->d_atom_type,
                          this->dE_dz, frc, atom_virial);
 }

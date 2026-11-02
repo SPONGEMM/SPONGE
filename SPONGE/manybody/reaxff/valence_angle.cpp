@@ -10,12 +10,11 @@ static __global__ void Calculate_Valence_Angle_Kernel(
     const REAXFF_THBP_Entry* thbp_entries, int atom_type_numbers,
     const float* bo_s, const float* bo_pi, const float* bo_pi2,
     const float* total_bo, const float* nlp, const float* vlpex,
-    const float* dDelta_lp, const LTMatrix3 cell, const LTMatrix3 rcell,
-    float* d_dE_dBO_s, float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta,
-    float* atom_energy, VECTOR* frc, LTMatrix3* atom_virial,
-    float* d_energy_ang_sum, float* d_energy_pen_sum, float* d_energy_coa_sum,
-    const int* bond_count, const int* bond_offset, const int* bond_nbr,
-    const int* bond_idx_arr)
+    const float* dDelta_lp, const Boundary boundary, float* d_dE_dBO_s,
+    float* d_dE_dBO_pi, float* d_dE_dBO_pi2, float* CdDelta, float* atom_energy,
+    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_ang_sum,
+    float* d_energy_pen_sum, float* d_energy_coa_sum, const int* bond_count,
+    const int* bond_offset, const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(j, atom_numbers)
     {
@@ -87,7 +86,8 @@ static __global__ void Calculate_Valence_Angle_Kernel(
                 if (boa_ij_val <= 0) continue;
 
                 VECTOR ri = crd[i];
-                VECTOR dji = Get_Periodic_Displacement(rj, ri, cell, rcell);
+                VECTOR dji = Get_Displacement<BoundaryPolicy::Periodic>(
+                    rj, ri, boundary);
                 float r_ij = norm3df(dji.x, dji.y, dji.z);
 
                 for (int bk = bi + 1; bk < bc_j; bk++)
@@ -102,7 +102,8 @@ static __global__ void Calculate_Valence_Angle_Kernel(
                     if (bo_ij_val * bo_jk_val <= p.thb_cutsq) continue;
 
                     VECTOR rk = crd[k];
-                    VECTOR djk = Get_Periodic_Displacement(rj, rk, cell, rcell);
+                    VECTOR djk = Get_Displacement<BoundaryPolicy::Periodic>(
+                        rj, rk, boundary);
                     float r_jk = norm3df(djk.x, djk.y, djk.z);
 
                     float cos_theta =
@@ -618,12 +619,12 @@ void REAXFF_VALENCE_ANGLE::Initial(CONTROLLER* controller, int atom_numbers,
 }
 
 void REAXFF_VALENCE_ANGLE::Calculate_Valence_Angle_Energy_And_Force(
-    int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module,
-    const float* Delta, const float* Delta_boc, const float* Delta_val,
-    const float* nlp, const float* vlpex, const float* dDelta_lp,
-    float* CdDelta, const int need_atom_energy, float* atom_energy,
-    const int need_virial, LTMatrix3* atom_virial)
+    int atom_numbers, const VECTOR* crd, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module, const float* Delta,
+    const float* Delta_boc, const float* Delta_val, const float* nlp,
+    const float* vlpex, const float* dDelta_lp, float* CdDelta,
+    const int need_atom_energy, float* atom_energy, const int need_virial,
+    LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
 
@@ -640,8 +641,8 @@ void REAXFF_VALENCE_ANGLE::Calculate_Valence_Angle_Energy_And_Force(
         d_p_val5, params, d_thbp_info, d_thbp_entries, atom_type_numbers,
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, bo_module->d_total_corrected_bond_order,
-        nlp, vlpex, dDelta_lp, cell, rcell, d_dE_dBO_s, d_dE_dBO_pi,
-        d_dE_dBO_pi2, CdDelta, need_atom_energy ? atom_energy : NULL, frc,
+        nlp, vlpex, dDelta_lp, boundary, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
+        CdDelta, need_atom_energy ? atom_energy : NULL, frc,
         need_virial ? atom_virial : NULL, d_energy_ang_sum, d_energy_pen_sum,
         d_energy_coa_sum, bo_module->d_bond_count, bo_module->d_bond_offset,
         bo_module->d_bond_nbr, bo_module->d_bond_idx);

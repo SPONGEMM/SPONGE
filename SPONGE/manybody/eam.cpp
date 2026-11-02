@@ -1,5 +1,135 @@
 ﻿#include "eam.h"
 
+#include <algorithm>
+#include <highfive/highfive.hpp>
+#include <stdexcept>
+#include <string>
+#include <vector>
+
+namespace
+{
+struct NativeEAMDefinition
+{
+    int atom_type_count = 0;
+    int nrho = 0;
+    int nr = 0;
+    float drho = 0.0f;
+    float dr = 0.0f;
+    float cut = 0.0f;
+    std::vector<float> embed;
+    std::vector<float> electron_density;
+    std::vector<float> pair_potential;
+    std::vector<int> atom_type;
+};
+
+std::vector<float> Read_EAM_Float_Array(
+    HighFive::File* file, const std::string& path,
+    const std::vector<std::size_t>& expected_dimensions)
+{
+    HighFive::DataSet dataset = file->getDataSet(path);
+    const auto dimensions = dataset.getSpace().getDimensions();
+    if (dimensions != expected_dimensions)
+    {
+        throw std::runtime_error(path + " has invalid dimensions");
+    }
+    std::size_t count = 1;
+    for (const std::size_t dimension : dimensions) count *= dimension;
+    std::vector<float> values(count);
+    if (H5Dread(dataset.getId(), H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL,
+                H5P_DEFAULT, values.data()) < 0)
+    {
+        throw std::runtime_error("failed to read " + path);
+    }
+    return values;
+}
+
+bool Read_H5_EAM_Input(CONTROLLER* controller, const char* module_name,
+                       int atom_numbers, NativeEAMDefinition* definition)
+{
+    constexpr const char* input_key = "input_h5_topology_path";
+    constexpr const char* root = "/manybody/eam";
+    if (strcmp(module_name, "EAM") != 0 ||
+        controller->Command_Exist(module_name, "in_file") ||
+        !controller->Command_Exist(input_key))
+    {
+        return false;
+    }
+    try
+    {
+        HighFive::File file(controller->Command(input_key),
+                            HighFive::File::ReadOnly);
+        if (!file.exist(root)) return false;
+        NativeEAMDefinition result;
+        file.getDataSet(std::string(root) + "/atom_type_count")
+            .read(result.atom_type_count);
+        file.getDataSet(std::string(root) + "/nrho").read(result.nrho);
+        file.getDataSet(std::string(root) + "/nr").read(result.nr);
+        file.getDataSet(std::string(root) + "/drho").read(result.drho);
+        file.getDataSet(std::string(root) + "/dr").read(result.dr);
+        file.getDataSet(std::string(root) + "/cut").read(result.cut);
+        if (result.atom_type_count <= 0 || result.nrho < 2 || result.nr < 2 ||
+            result.drho <= 0.0f || result.dr <= 0.0f || result.cut <= 0.0f)
+        {
+            throw std::runtime_error(
+                "/manybody/eam table dimensions and spacings must be "
+                "positive");
+        }
+        const std::size_t type_count =
+            static_cast<std::size_t>(result.atom_type_count);
+        result.embed = Read_EAM_Float_Array(
+            &file, std::string(root) + "/embed/value",
+            {type_count, static_cast<std::size_t>(result.nrho)});
+        result.electron_density = Read_EAM_Float_Array(
+            &file, std::string(root) + "/electron_density/value",
+            {type_count, static_cast<std::size_t>(result.nr)});
+        result.pair_potential = Read_EAM_Float_Array(
+            &file, std::string(root) + "/pair_potential/value",
+            {type_count, type_count, static_cast<std::size_t>(result.nr)});
+        if (file.exist(std::string(root) + "/atom_type"))
+        {
+            HighFive::DataSet dataset =
+                file.getDataSet(std::string(root) + "/atom_type");
+            const auto dimensions = dataset.getSpace().getDimensions();
+            if (dimensions.size() != 1 ||
+                dimensions[0] != static_cast<std::size_t>(atom_numbers))
+            {
+                throw std::runtime_error(
+                    "/manybody/eam/atom_type must match runtime atom count");
+            }
+            dataset.read(result.atom_type);
+        }
+        else if (result.atom_type_count == 1)
+        {
+            result.atom_type.assign(static_cast<std::size_t>(atom_numbers), 0);
+        }
+        else
+        {
+            throw std::runtime_error(
+                "multi-type /manybody/eam requires /manybody/eam/atom_type");
+        }
+        for (const int type : result.atom_type)
+        {
+            if (type < 0 || type >= result.atom_type_count)
+            {
+                throw std::runtime_error(
+                    "/manybody/eam/atom_type contains an out-of-range type");
+            }
+        }
+        *definition = std::move(result);
+        return true;
+    }
+    catch (const std::exception& error)
+    {
+        const std::string message =
+            std::string("Reason:\n\tfailed to read typed EAM input from ") +
+            root + ": " + error.what() + "\n";
+        controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                       "Read_H5_EAM_Input", message.c_str());
+    }
+    return false;
+}
+}  // namespace
+
 template <int N>
 static __device__ __forceinline__ SADfloat<N> EAM_Interpolate(float* table,
                                                               int n,
@@ -32,9 +162,9 @@ static __device__ __forceinline__ SADfloat<N> EAM_Interpolate(float* table,
 }
 
 static __global__ void EAM_Calculate_Rho_CUDA(
-    const int atom_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, int* atom_types,
-    float* rho_table, int ntypes, int nr, float dr, float cut, float* d_rho)
+    const int atom_numbers, const VECTOR* crd, const Boundary boundary,
+    const ATOM_GROUP* nl, int* atom_types, float* rho_table, int ntypes, int nr,
+    float dr, float cut, float* d_rho)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -48,7 +178,8 @@ static __global__ void EAM_Calculate_Rho_CUDA(
             int type_j = atom_types[atom_j];
 
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij = norm3df(drij.x, drij.y, drij.z);
             if (rij < cut)
             {
@@ -113,10 +244,10 @@ static __global__ void EAM_Calculate_DF_Rho_CUDA(
 template <bool need_energy, bool need_virial>
 static __global__ void EAM_Calculate_Force_CUDA(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    int* atom_types, float* rho_table, float* phi_table, int ntypes, int nr,
-    float dr, float cut, float* d_rho, float* d_df_drho, float* atom_energy,
-    LTMatrix3* atom_virial, float* d_energy_sum)
+    const Boundary boundary, const ATOM_GROUP* nl, int* atom_types,
+    float* rho_table, float* phi_table, int ntypes, int nr, float dr, float cut,
+    float* d_rho, float* d_df_drho, float* atom_energy, LTMatrix3* atom_virial,
+    float* d_energy_sum)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -133,7 +264,8 @@ static __global__ void EAM_Calculate_Force_CUDA(
             int type_j = atom_types[atom_j];
 
             VECTOR rj = crd[atom_j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij_val = norm3df(drij.x, drij.y, drij.z);
             if (rij_val < cut)
             {
@@ -177,9 +309,8 @@ static __global__ void EAM_Calculate_Force_CUDA(
 
 void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial)
+    const Boundary boundary, const ATOM_GROUP* nl, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
 
@@ -195,7 +326,7 @@ void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
     int ntypes = this->atom_type_numbers;
 
     Launch_Device_Kernel(EAM_Calculate_Rho_CUDA, blocks, threads, 0, NULL,
-                         atom_numbers, crd, cell, rcell, nl, atom_type_local,
+                         atom_numbers, crd, boundary, nl, atom_type_local,
                          rho_table, ntypes, nr_local, dr_local, cut_local,
                          d_rho_local);
 
@@ -229,7 +360,7 @@ void EAM_INFORMATION::EAM_Force_With_Atom_Energy_And_Virial(
         force_kernel = EAM_Calculate_Force_CUDA<false, true>;
     }
     Launch_Device_Kernel(force_kernel, blocks, threads, 0, NULL, atom_numbers,
-                         crd, frc, cell, rcell, nl, atom_type_local, rho_table,
+                         crd, frc, boundary, nl, atom_type_local, rho_table,
                          phi_table, ntypes, nr_local, dr_local, cut_local,
                          d_rho_local, d_df_drho_local, atom_energy, atom_virial,
                          d_energy_sum_local);
@@ -383,41 +514,70 @@ void EAM_INFORMATION::Initial(CONTROLLER* controller, const int atom_numbers,
     else
         strcpy(this->module_name, module_name);
 
-    if (!controller->Command_Exist(this->module_name, "in_file"))
+    NativeEAMDefinition native_definition;
+    const bool has_native_definition = Read_H5_EAM_Input(
+        controller, this->module_name, atom_numbers, &native_definition);
+    if (!has_native_definition &&
+        !controller->Command_Exist(this->module_name, "in_file"))
     {
         controller->printf("%s FORCE IS NOT INITIALIZED\n\n",
                            this->module_name);
         return;
     }
 
-    controller->printf("START INITIALIZING EAM FORCE\n");
-    FILE* fp;
-    Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
-                     "r");
-    char line[CHAR_LENGTH_MAX];
-    fgets(line, CHAR_LENGTH_MAX, fp);
-    long pos = ftell(fp);
-    char line2[CHAR_LENGTH_MAX];
-    fgets(line2, CHAR_LENGTH_MAX, fp);
-    int temp_int;
-    float temp_float;
-    int items = sscanf(line2, "%d %f", &temp_int, &temp_float);
-    fseek(fp, pos, SEEK_SET);
-
-    if (items == 2)
+    if (has_native_definition)
     {
-        controller->printf(
-            "    Detected DYNAMO funcfl format (Single Element).\n");
-        Read_Funcfl(fp, controller);
+        controller->printf("START INITIALIZING EAM FORCE FROM NATIVE H5\n");
+        atom_type_numbers = native_definition.atom_type_count;
+        nrho = native_definition.nrho;
+        nr = native_definition.nr;
+        drho = native_definition.drho;
+        dr = native_definition.dr;
+        cut = native_definition.cut;
+        Malloc_Safely((void**)&h_embed,
+                      sizeof(float) * native_definition.embed.size());
+        Malloc_Safely(
+            (void**)&h_electron_density,
+            sizeof(float) * native_definition.electron_density.size());
+        Malloc_Safely((void**)&h_pair_potential,
+                      sizeof(float) * native_definition.pair_potential.size());
+        std::copy(native_definition.embed.begin(),
+                  native_definition.embed.end(), h_embed);
+        std::copy(native_definition.electron_density.begin(),
+                  native_definition.electron_density.end(), h_electron_density);
+        std::copy(native_definition.pair_potential.begin(),
+                  native_definition.pair_potential.end(), h_pair_potential);
     }
     else
     {
-        controller->printf("    Detected DYNAMO setfl format (Alloy).\n");
-        fseek(fp, 0, SEEK_SET);
-        Read_Setfl(fp, controller);
-    }
+        controller->printf("START INITIALIZING EAM FORCE\n");
+        FILE* fp;
+        Open_File_Safely(&fp, controller->Command(this->module_name, "in_file"),
+                         "r");
+        char line[CHAR_LENGTH_MAX];
+        fgets(line, CHAR_LENGTH_MAX, fp);
+        long pos = ftell(fp);
+        char line2[CHAR_LENGTH_MAX];
+        fgets(line2, CHAR_LENGTH_MAX, fp);
+        int temp_int;
+        float temp_float;
+        int items = sscanf(line2, "%d %f", &temp_int, &temp_float);
+        fseek(fp, pos, SEEK_SET);
 
-    fclose(fp);
+        if (items == 2)
+        {
+            controller->printf(
+                "    Detected DYNAMO funcfl format (Single Element).\n");
+            Read_Funcfl(fp, controller);
+        }
+        else
+        {
+            controller->printf("    Detected DYNAMO setfl format (Alloy).\n");
+            fseek(fp, 0, SEEK_SET);
+            Read_Setfl(fp, controller);
+        }
+        fclose(fp);
+    }
 
     this->atom_numbers = atom_numbers;
     Device_Malloc_Safely((void**)&d_energy_sum, sizeof(float));
@@ -453,6 +613,11 @@ void EAM_INFORMATION::Initial(CONTROLLER* controller, const int atom_numbers,
             h_atom_type[i] = type_val;
         }
         fclose(fp_type);
+    }
+    else if (has_native_definition)
+    {
+        std::copy(native_definition.atom_type.begin(),
+                  native_definition.atom_type.end(), h_atom_type);
     }
     else
     {

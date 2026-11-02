@@ -131,8 +131,12 @@ jobs:
   release-prips-sdist:
     name: Release PRIPS sdist
     runs-on: ubuntu-22.04
+    environment:
+      name: pypi
+      url: https://pypi.org/p/prips
     permissions:
       contents: read
+      id-token: write
 
     steps:
       - name: Checkout repository
@@ -152,14 +156,10 @@ jobs:
         run: |
           pixi run -e dev-cpu pip install --force-reinstall plugins/prips/dist/*.tar.gz
 
-      - name: Upload PRIPS package with Twine
-        env:
-          TWINE_REPOSITORY_URL: ${{ secrets.TWINE_REPOSITORY_URL }}
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          pixi run -e dev-cpu pip install --disable-pip-version-check twine
-          pixi run -e dev-cpu twine upload plugins/prips/dist/*.tar.gz
+      - name: Publish PRIPS package to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: plugins/prips/dist/
 
       - name: Stage PRIPS artifacts
         shell: bash
@@ -312,11 +312,46 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           tags: ${{ steps.meta.outputs.tags }}
 
+  verify-conda-channel:
+    name: Verify published conda package
+    runs-on: ubuntu-22.04
+    needs:
+      - release-sponge-conda
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install and run SPONGE from the public channel
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' pixi.toml | head -n 1)"
+          conda_version="${raw_version//-/_}"
+          smoke_dir="${RUNNER_TEMP}/sponge-conda-smoke"
+
+          pixi init "${smoke_dir}" --channel conda-forge
+          pixi project channel add --manifest-path "${smoke_dir}" \
+            https://conda.spongemm.cn
+          pixi add --manifest-path "${smoke_dir}" \
+            "sponge-cpu=${conda_version}"
+          pixi run --manifest-path "${smoke_dir}" SPONGE -v \
+            | tee "${RUNNER_TEMP}/sponge-version.txt"
+          grep -F "v${raw_version}" "${RUNNER_TEMP}/sponge-version.txt"
+
   publish-release:
     name: Publish GitHub Release
     runs-on: ubuntu-22.04
     needs:
       - release-sponge-conda
+      - verify-conda-channel
       - release-prips-sdist
       - release-windows-installer
       - release-docker
@@ -365,13 +400,13 @@ jobs:
             **pixi：**
 
             ```bash
-            pixi global install --channel https://conda.spongemm.cn/conda sponge-cuda13
+            pixi global install --channel https://conda.spongemm.cn --channel conda-forge sponge-cuda13
             ```
 
             **conda / mamba / micromamba：**
 
             ```bash
-            conda install -c https://conda.spongemm.cn/conda sponge-cuda13
+            conda install -c https://conda.spongemm.cn -c conda-forge sponge-cuda13
             ```
 
             ### Windows 安装包

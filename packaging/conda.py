@@ -11,8 +11,8 @@ Examples:
 """
 
 import argparse
-import io
 import hashlib
+import io
 import json
 import platform
 import subprocess
@@ -36,10 +36,13 @@ PATCH_TOOL_BY_SYSTEM = {
     "linux": "patchelf",
     "darwin": "install_name_tool",
 }
+COMMON_RUNTIME_DEPENDENCIES = [
+    "hdf5 >=2.1,<2.2",
+]
 RUNTIME_DEPENDENCIES = {
     "cpu": {
         "linux-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
             "libgomp",
@@ -57,7 +60,8 @@ RUNTIME_DEPENDENCIES = {
             "libgcc-ng",
         ],
         "win-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
+            "intel-cmplr-lib-rt >=2026.1.1,<2027",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
             "vc14_runtime",
@@ -76,7 +80,7 @@ RUNTIME_DEPENDENCIES = {
     },
     "cpu-mpi": {
         "linux-64": [
-            "mkl >=2025",
+            "mkl >=2025,<2026",
             "openmpi >=5,<6",
             "libllvm22 >=22.1,<23",
             "libclang-cpp >=22.1,<23",
@@ -305,7 +309,10 @@ def make_metadata(
             f"Known subdirs: {known_subdirs}"
         )
 
-    depends = list(variant_dependencies[subdir])
+    depends = [
+        *COMMON_RUNTIME_DEPENDENCIES,
+        *variant_dependencies[subdir],
+    ]
 
     return {
         "name": name,
@@ -313,7 +320,7 @@ def make_metadata(
         "build": build_string,
         "build_number": 0,
         "depends": depends,
-        "license": "Apache-2.0",
+        "license": "LicenseRef-SPONGE-NonCommercial-1.0",
         "platform": subdir.rsplit("-", 1)[0] if "-" in subdir else subdir,
         "arch": subdir.rsplit("-", 1)[1] if "-" in subdir else "unknown",
         "subdir": subdir,
@@ -383,6 +390,18 @@ def build_info_tar(
             "info/files",
             "\n".join(archive_paths).encode("utf-8"),
         )
+        for filename in ("LICENSE", "LICENSE.zh-CN.md", "THIRD_PARTY_NOTICES"):
+            _add_text_entry(
+                tar,
+                f"info/{filename}",
+                (PROJECT_ROOT / filename).read_bytes(),
+            )
+        for filename in ("LICENSE", "LICENSE.zh-CN.md", "THIRD_PARTY_NOTICES"):
+            _add_text_entry(
+                tar,
+                f"info/{filename}",
+                (PROJECT_ROOT / filename).read_bytes(),
+            )
 
     return _compress_zst(buf.getvalue())
 

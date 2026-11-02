@@ -44,9 +44,9 @@ template <bool need_force, bool need_energy, bool need_virial,
           bool need_coulomb>
 static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
     const int local_atom_numbers, const int solvent_numbers,
-    const ATOM_GROUP* nl, const VECTOR_LJ* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* LJ_type_A, const float* LJ_type_B,
-    const float cutoff, VECTOR* frc, const float pme_beta, float* atom_energy,
+    const ATOM_GROUP* nl, const VECTOR_LJ* crd, const Boundary boundary,
+    const float* LJ_type_A, const float* LJ_type_B, const float cutoff,
+    VECTOR* frc, const float pme_beta, float* atom_energy,
     LTMatrix3* atom_virial, float* atom_direct_cf_energy, float* atom_LJ_ene)
 {
 #ifdef USE_GPU
@@ -74,7 +74,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -143,46 +144,6 @@ void LENNARD_JONES_INFORMATION::LJ_Malloc()
     Malloc_Safely((void**)&h_LJ_energy_atom, sizeof(float) * atom_numbers);
 }
 
-static __global__ void Total_C6_Get(int atom_numbers, int* atom_lj_type,
-                                    float* d_lj_b, float* d_factor)
-{
-    int j;
-    double temp_sum = 0;
-    int x, y;
-    int itype, jtype, atom_pair_LJ_type;
-#ifdef USE_GPU
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < atom_numbers;
-         i += gridDim.x * blockDim.x)
-#else
-#pragma omp parallel for firstprivate( \
-        j, x, y, itype, jtype, atom_pair_LJ_type) reduction(+ : temp_sum)
-    for (int i = 0; i < atom_numbers; i++)
-#endif
-    {
-        itype = atom_lj_type[i];
-        double temp_small_sum = 0;
-#ifdef USE_GPU
-        for (j = blockIdx.y * blockDim.y + threadIdx.y; j < atom_numbers;
-             j += gridDim.y * blockDim.y)
-#else
-        for (j = 0; j < atom_numbers; j++)
-#endif
-        {
-            jtype = atom_lj_type[j];
-            y = (jtype - itype);
-            x = y >> 31;
-            y = (y ^ x) - x;
-            x = jtype + itype;
-            jtype = (x + y) >> 1;
-            x = (x - y) >> 1;
-            atom_pair_LJ_type = (jtype * (jtype + 1) >> 1) + x;
-            temp_small_sum += d_lj_b[atom_pair_LJ_type];
-        }
-        temp_sum += temp_small_sum;
-    }
-    atomicAdd(d_factor, temp_sum);
-}
-
 void LENNARD_JONES_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
                                         const char* module_name)
 {
@@ -244,24 +205,30 @@ void LENNARD_JONES_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
             CONTROLLER::device_max_thread, 0, NULL, atom_numbers,
             crd_with_LJ_parameters, d_atom_LJ_type);
         controller->printf("    Start initializing long range LJ correction\n");
-        long_range_factor = 0;
-
-        Device_Malloc_And_Copy_Safely((void**)&d_long_range_factor,
-                                      &long_range_factor, sizeof(float));
-        deviceMemset(d_long_range_factor, 0, sizeof(float));
-
-        dim3 gridSize = {(atom_numbers + CONTROLLER::device_max_thread - 1) /
-                             CONTROLLER::device_max_thread,
-                         1};
-        dim3 blockSize = {
-            CONTROLLER::device_warp,
-            CONTROLLER::device_max_thread / CONTROLLER::device_warp};
-        Launch_Device_Kernel(Total_C6_Get, gridSize, blockSize, 0, NULL,
-                             atom_numbers, d_atom_LJ_type, d_LJ_B,
-                             d_long_range_factor);
-
-        deviceMemcpy(&long_range_factor, d_long_range_factor, sizeof(float),
-                     deviceMemcpyDeviceToHost);
+        // 全对求和 Σ_i Σ_j B[type_i, type_j] 等于按类型直方图的
+        // Σ_a count_a · Σ_b count_b · B[pair(a,b)]，后者按固定顺序双精度
+        // 累加，结果确定；此前的全对 kernel 复杂度为 O(N²) 且依赖 float
+        // 原子加顺序，本身就有运行间波动。
+        std::vector<int64_t> type_count(atom_type_numbers, 0);
+        for (int i = 0; i < atom_numbers; i++)
+        {
+            type_count[h_atom_LJ_type[i]] += 1;
+        }
+        double c6_sum = 0.0;
+        for (int itype = 0; itype < atom_type_numbers; itype++)
+        {
+            if (type_count[itype] == 0) continue;
+            double inner_sum = 0.0;
+            for (int jtype = 0; jtype < atom_type_numbers; jtype++)
+            {
+                if (type_count[jtype] == 0) continue;
+                inner_sum +=
+                    static_cast<double>(type_count[jtype]) *
+                    static_cast<double>(h_LJ_B[Get_LJ_Type(itype, jtype)]);
+            }
+            c6_sum += static_cast<double>(type_count[itype]) * inner_sum;
+        }
+        long_range_factor = static_cast<float>(c6_sum);
         printf("        Total C6 factor is %e\n", long_range_factor);
 
         long_range_factor *=
@@ -359,10 +326,10 @@ void LENNARD_JONES_INFORMATION::Parameter_Host_To_Device()
 void LENNARD_JONES_INFORMATION::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-    const float* charge, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_virial, float* atom_direct_pme_energy)
+    const float* charge, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_virial,
+    float* atom_direct_pme_energy)
 {
     if (is_initialized)
     {
@@ -410,8 +377,8 @@ void LENNARD_JONES_INFORMATION::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
-            d_LJ_A, d_LJ_B, cutoff, frc, pme_beta, atom_energy, atom_virial,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary, d_LJ_A,
+            d_LJ_B, cutoff, frc, pme_beta, atom_energy, atom_virial,
             atom_direct_pme_energy, d_LJ_energy_atom);
     }
 }

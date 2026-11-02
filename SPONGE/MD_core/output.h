@@ -1,5 +1,10 @@
 ﻿#pragma once
 
+// NOTE: this header is #included *inside* `struct MD_INFORMATION`
+// (see MD_core.h, clang-format off block), together with min.h / sys.h / pbc.h.
+// It must therefore contain declarations only: no #include, no namespace.
+// Required types are provided by MD_core.h's top-level include block.
+
 struct trajectory_output
 {
     MD_INFORMATION* md_info = NULL;
@@ -12,11 +17,117 @@ struct trajectory_output
     int write_restart_file_interval = 1000;  // restart文件重新创建的所隔步数
     FILE* crd_traj = NULL;
     FILE* box_traj = NULL;
+    SpongeH5OutputPlan::ResolvedOutputPlan h5_output_plan;
+    std::string h5_output_identity_uuid;
+    std::unique_ptr<SpongeH5MD::WriterBackend> h5_trajectory_backend;
+    std::unique_ptr<SpongeH5MD::TrajectoryH5Writer> h5_trajectory_writer;
+    std::unique_ptr<SpongeH5MD::WriterBackendFactory> h5_vds_backend_factory;
+    std::unique_ptr<SpongeH5MD::VdsTrajectoryH5Writer> h5_vds_trajectory_writer;
+    bool h5_trajectory_enabled = false;
+    bool h5_trajectory_vds_enabled = false;
+    bool h5_trajectory_velocity_enabled = false;
+    bool h5_trajectory_force_enabled = false;
+    std::vector<std::string> h5_observable_names;
+    std::unique_ptr<SpongeH5MD::WriterBackend> h5_observable_backend;
+    std::unique_ptr<SpongeH5MD::ObservableH5Writer> h5_observable_writer;
+    bool h5_observable_enabled = false;
+    std::vector<std::string> h5_observable_only_names;
+    bool h5_restart_enabled = false;
+    int64_t h5_restart_generation = 0;
+    bool h5_nhc_observable_enabled = false;
+    std::size_t h5_nhc_chain_length = 0;
+    bool h5_sits_nk_enabled = false;
+    std::string h5_sits_module_name;
+    std::size_t h5_sits_k_count = 0;
+    bool h5_metadynamics_scalar_enabled = false;
+    bool h5_reaxff_energy_enabled = false;
+    bool h5_reaxff_eeq_snapshot_enabled = false;
+    std::size_t h5_reaxff_eeq_atom_count = 0;
+    std::vector<std::string> h5_reaxff_terms;
+    double h5_trajectory_finalize_elapsed_s = 0.0;
+    double h5_observable_finalize_elapsed_s = 0.0;
+    double h5_restart_finalize_elapsed_s = 0.0;
+    std::vector<std::string> h5_output_failures;
     char restart_name[CHAR_LENGTH_MAX];
     void Initial(CONTROLLER* controller, MD_INFORMATION* md_info);
+    void Initial_H5_Trajectory(CONTROLLER* controller);
+    void Initial_H5_Observable(CONTROLLER* controller);
+    void Initial_H5_Restart(CONTROLLER* controller);
+    void Write_H5_Legacy_Sidecar_Provenance(
+        CONTROLLER* controller, SpongeH5MD::TrajectoryH5Writer* writer,
+        const char* context);
+    void Write_H5_Legacy_Sidecar_Provenance(
+        CONTROLLER* controller, SpongeH5MD::VdsTrajectoryH5Writer* writer,
+        const char* context);
+    void Write_H5_Legacy_Sidecar_Provenance(
+        CONTROLLER* controller, SpongeH5MD::ObservableH5Writer* writer,
+        const char* context);
+    void Write_H5_Legacy_Sidecar_Provenance(CONTROLLER* controller,
+                                            SpongeH5MD::RestartH5Writer* writer,
+                                            const char* context);
+    void Initial_H5_Nose_Hoover_Chain(CONTROLLER* controller,
+                                      std::size_t chain_length);
+    void Initial_H5_Sits_Nk(CONTROLLER* controller, const char* module_name,
+                            std::size_t k_count);
+    void Initial_H5_Metadynamics(CONTROLLER* controller, int is_initialized);
+    void Initial_H5_Reaxff(CONTROLLER* controller, int is_initialized,
+                           std::size_t eeq_atom_count);
+    void Prepare_H5_Swmr_Layout(CONTROLLER* controller,
+                                const char* metadynamics_module_name);
+    void Start_H5_Swmr(CONTROLLER* controller);
+    void Append_H5_Trajectory_Frame(CONTROLLER* controller);
+    void Append_H5_Observable_Frame(CONTROLLER* controller);
+    void Append_H5_Observable_Only_Frame(CONTROLLER* controller);
+    void Append_H5_Nose_Hoover_Chain_Frame(CONTROLLER* controller,
+                                           const float* coordinates,
+                                           const float* velocities,
+                                           std::size_t chain_length);
+    void Append_H5_Sits_Nk_Frame(CONTROLLER* controller,
+                                 const char* module_name, const float* values,
+                                 std::size_t k_count);
+    void Append_H5_Metadynamics_Scalar_Frame(CONTROLLER* controller,
+                                             double meta, double rbias,
+                                             double rct);
+    void Append_H5_Reaxff_Frame(CONTROLLER* controller);
+    void Write_H5_Reaxff_Eeq_Charge_Snapshot(CONTROLLER* controller,
+                                             const float* values,
+                                             std::size_t atom_count);
+    void Write_H5_Metadynamics_Diagnostic_File(CONTROLLER* controller,
+                                               const char* module_name,
+                                               const char* component,
+                                               const char* file_name);
+    void Publish_Output(CONTROLLER* controller);
+    void Publish_H5_Output(CONTROLLER* controller);
+    void Finalize_H5_Trajectory(CONTROLLER* controller);
+    void Finalize_H5_Observable(CONTROLLER* controller);
+    void Record_H5_Output_Failure(const char* family, const char* phase,
+                                  const std::string& reason);
+    std::string H5_Output_Failure_Summary() const;
+    void Export_H5_Restart_File(CONTROLLER* controller,
+                                const SpongeIO::RestartOutputState& state);
+    bool Should_Write_Legacy_Restart(CONTROLLER* controller);
     void Export_Restart_File(const char* rst7_name = NULL);
     void Append_Crd_Traj_File(FILE* fp = NULL);
     void Append_Box_Traj_File(FILE* fp = NULL);
+#ifdef SPONGE_HAS_XTC
+    // GROMACS XTC trajectory output. Selected by `trajectory_format = "xtc"`,
+    // configured through the [xtc] mdin table.
+    SpongeXTC::XtcTrajectoryWriter xtc_writer;
+    std::string xtc_path;
+    float xtc_precision = 1000.0f;
+    int xtc_buffer_frames = 10;
+    bool xtc_enabled = false;
+    bool xtc_flush = true;
+    bool xtc_frame_index = false;
+    bool xtc_append = false;
+    bool Xtc_Trajectory_Selected() const { return xtc_enabled; }
+    void Initial_Xtc_Trajectory(CONTROLLER* controller);
+    void Append_Xtc_Traj_File(CONTROLLER* controller);
+    void Flush_Xtc_Trajectory(CONTROLLER* controller);
+    void Finalize_Xtc_Trajectory(CONTROLLER* controller);
+#else
+    bool Xtc_Trajectory_Selected() const { return false; }
+#endif
     // 20210827用于输出速度和力
     int is_frc_traj = 0, is_vel_traj = 0;
     int restart_export_count = 0;

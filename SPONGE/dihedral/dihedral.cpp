@@ -4,12 +4,12 @@
 #include "../xponge/xponge.h"
 
 static __global__ void Dihedral_Force_With_Atom_Energy_And_Virial_Device(
-    const int dihedral_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
-    const int* atom_b, const int* atom_c, const int* atom_d, const int* ipn,
-    const float* pk, const float* gamc, const float* gams, const float* pn,
-    VECTOR* frc, int need_atom_energy, float* ene, float* di_ene,
-    int need_virial, LTMatrix3* virial)
+    const int dihedral_numbers, const VECTOR* crd, Boundary boundary,
+    const int local_atom_numbers, const int* atom_a, const int* atom_b,
+    const int* atom_c, const int* atom_d, const int* ipn, const float* pk,
+    const float* gamc, const float* gams, const float* pn, VECTOR* frc,
+    int need_atom_energy, float* ene, float* di_ene, int need_virial,
+    LTMatrix3* virial)
 {
 #ifdef USE_GPU
     int dihedral_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -31,12 +31,9 @@ static __global__ void Dihedral_Force_With_Atom_Energy_And_Virial_Device(
         float temp_gamc = gamc[dihedral_i];
         float temp_gams = gams[dihedral_i];
 
-        VECTOR drij =
-            Get_Periodic_Displacement(crd[atom_i], crd[atom_j], cell, rcell);
-        VECTOR drkj =
-            Get_Periodic_Displacement(crd[atom_k], crd[atom_j], cell, rcell);
-        VECTOR drkl =
-            Get_Periodic_Displacement(crd[atom_k], crd[atom_l], cell, rcell);
+        VECTOR drij = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
+        VECTOR drkj = Get_Displacement(crd[atom_k], crd[atom_j], boundary);
+        VECTOR drkl = Get_Displacement(crd[atom_k], crd[atom_l], boundary);
 
         VECTOR r1 = drij ^ drkj;
         VECTOR r2 = drkl ^ drkj;
@@ -337,9 +334,8 @@ void DIHEDRAL::Get_Local(int* atom_local, int local_atom_numbers,
 }
 
 void DIHEDRAL::Dihedral_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* frc,
-    int need_atom_energy, float* atom_energy, int need_virial,
-    LTMatrix3* atom_virial)
+    const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+    float* atom_energy, int need_virial, LTMatrix3* atom_virial)
 {
     if (is_initialized)  // 修改：删除MPI_rank==0判断，求和变为局部求和，加入判断是否需要计算atom_energy和virial
     {
@@ -348,7 +344,7 @@ void DIHEDRAL::Dihedral_Force_With_Atom_Energy_And_Virial(
             (dihedral_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, this->num_dihe_local, crd,
-            cell, rcell, this->local_atom_numbers, this->d_atom_a_local,
+            boundary, this->local_atom_numbers, this->d_atom_a_local,
             this->d_atom_b_local, this->d_atom_c_local, this->d_atom_d_local,
             this->d_ipn_local, this->d_pk_local, this->d_gamc_local,
             this->d_gams_local, this->d_pn_local, frc, need_atom_energy,

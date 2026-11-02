@@ -1,131 +1,149 @@
-Copyright (c) 2022-2026 SPONGE Development Team. All rights reserved.
+# SPONGE Licensing Agreement
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+Version: 1\.0
 
-    http://www.apache.org/licenses/LICENSE-2.0
+The Chinese version is provided for convenience of reading only\. In the event of any inconsistency, ambiguity or conflict of interpretation between the Chinese version and the English version, the English version shall prevail\.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+Subject to compliance with this Agreement, SPONGE may be used for non\-commercial purposes, such as non\-commercial scientific research, teaching and personal study, without the need to pay any license fee\.
 
-==============================================================================
-Third-Party Notices
-==============================================================================
+Any commercial use requires prior contact with Sidereus\-AI, and the two parties shall separately negotiate for specific use matters and sign a written commercial authorization contract\. The above is only a summary of the license, and the specific scope, conditions and restrictions of the license shall be subject to the terms and conditions hereinafter\.
 
-SPONGE includes or links to the following third-party software. Each
-component retains its own license terms as described below.
+1. Definition
 
-------------------------------------------------------------------------------
-1. Vendored Components (included in source tree)
-------------------------------------------------------------------------------
+1\.1 "Licensor" or "Sidereus\-AI" refers to Beijing Sidereus Intelligent Computing Technology Co\., Ltd\. Except for third\-party components, the Licensor is the copyright owner of this software, or has obtained sufficient authorization required to grant the license in accordance with this Agreement\.
 
-1.1 tomlplusplus
-    License: MIT
-    Copyright (c) Mark Gillard
-    https://github.com/marzer/tomlplusplus
+1\.2 "Licensee" or "You" refers to any individual or entity that obtains or uses the Software in accordance with this Agreement\.
 
-1.2 DLPack
-    License: Apache License 2.0
-    Copyright (c) 2017 by Contributors
-    https://github.com/dmlc/dlpack
+1\.3 "SPONGE" or "the Software" refers to the software released by the Licensor under the name SPONGE and attached to this Agreement\. Its full name is "Simulation Package tOwards Next GEneration Molecular Modeling", which includes the accompanying source code, object code \(if any\), build scripts, configuration files, examples and documentation, as well as updates or supplementary materials explicitly declared by the Licensor as applicable to this Agreement\.
 
-1.3 Philox PRNG (modified)
-    Source: https://github.com/DiamonDinoia/philox
-    This file contains code under three separate licenses:
+1\.4 "Modified Version" refers to a software version created based on all or part of the source code of the Software through modification, adaptation, translation, supplementation, deletion or other means\. Unless otherwise explicitly specified by the context, the license terms and usage restrictions applicable to the Software under this Agreement shall also apply to the Modified Version\.
 
-    (a) Copyright (c) 2024 Marco Barbone — MIT License
-    (b) Copyright (c) 2017-2023 Advanced Micro Devices, Inc. — MIT License
-    (c) Copyright 2010-2011, D. E. Shaw Research — BSD 3-Clause License
+1\.5 "Third\-Party Components" refer to the software, code, libraries or other materials included, invoked or relied upon by this Software, which are owned by third parties and subject to separate license terms\.
 
-------------------------------------------------------------------------------
-2. Open-Source Runtime Dependencies
-------------------------------------------------------------------------------
+1\.6 "Non\-commercial use" refers to use that is not intended to obtain direct or indirect commercial benefits, and is not used to implement, support or promote commercial activities, including non\-commercial scientific research, teaching, personal study, and public publication of academic achievements\. The fact that researchers receive normal salaries, allowances or research awards, research projects receive non\-commercial research grants, or research results are publicly published, does not in itself constitute commercial use of the relevant content\.
 
-The following open-source libraries are dynamically linked at runtime
-depending on the build configuration chosen:
+1\.7 "Commercial Use" refers to any use that is directly or indirectly employed for commercial activities or that provides benefits to commercial activities, including but not limited to:
 
-2.1 FFTW (Fastest Fourier Transform in the West)
-    License: GPL-2.0-or-later
-    Copyright (c) Matteo Frigo and MIT
-    Used in: ARM / macOS CPU builds for FFT
-    https://www.fftw.org
+\(1\) For the development, testing, verification, optimization, production or operation of products or services that are intended for monetization or have already been monetized;
 
-    NOTE: The pre-built ARM / macOS CPU conda packages distributed by this
-    project link dynamically against FFTW, which is licensed under the
-    GPL-2.0. This means these specific binary builds are subject to GPL
-    copyleft obligations. This does NOT affect the SPONGE source code
-    itself, which remains under Apache License 2.0. If GPL copyleft is a
-    concern for your use case, you may substitute FFTW with Arm Performance
-    Libraries (ArmPL) or Kunpeng Math Library (KML) and build from source.
+\(2\) for commercial operation, internal business R\&D or business decision\-making;
 
-2.2 OpenBLAS
-    License: BSD 3-Clause
-    Copyright (c) Zhang Xianyi and contributors
-    Used in: ARM / macOS CPU builds for BLAS
-    https://github.com/OpenMathLib/OpenBLAS
+\(3\) Providing research, computation, analysis, consulting or other services to a third party based on a commercial entrustment or other commercial arrangement;
 
-2.3 LAPACKE
-    License: BSD 3-Clause
-    Copyright (c) University of Tennessee
-    Used in: ARM / macOS CPU builds for LAPACK
-    https://github.com/Reference-LAPACK/lapack
+\(4\) Incorporate this software or its functions into commercial products, platforms, workflows or services provided to third parties;
 
-2.4 zlib
-    License: zlib License (permissive, OSI-approved)
-    Copyright (c) 1995-2024 Jean-loup Gailly and Mark Adler
-    Used in: All CPU builds for data compression
-    https://zlib.net
+\(5\) Using this software or its output for technology transfer, commercial licensing, monetization production, or other commercial achievement transformation\. Whether the relevant use involves direct charging, or has already generated revenue or profits, shall not affect the determination that such use constitutes commercial use\.
 
-2.5 LLVM / Clang
-    License: Apache 2.0 with LLVM Exceptions
-    Copyright (c) LLVM Project
-    Used in: All CPU builds for JIT compilation backend
-    https://llvm.org
+When it is difficult to define and there is a dispute over whether the licensee's use is commercial or non\-commercial, the licensor shall have the right to make a comprehensive determination based on the usage scenario, funding source and service recipients\.
 
-2.6 OpenMPI
-    License: BSD 3-Clause
-    Copyright (c) The Open MPI Project
-    Used in: CPU-MPI builds for distributed parallel computing
-    https://www.open-mpi.org
+2. Acceptance of Agreement and Grant of License
 
-------------------------------------------------------------------------------
-3. Proprietary / Commercial Runtime Dependencies
-------------------------------------------------------------------------------
+2\.1 Licensee's downloading, copying, installing, compiling, running, modifying or otherwise using the Software or Modified Versions shall be deemed as its acceptance of all terms of this Agreement\. Any individual using the Software on behalf of an organization shall have the authority to accept this Agreement on such organization's behalf\. If you do not agree to this Agreement, you shall not use the Software or Modified Versions\.\.
 
-The following commercial libraries may be linked depending on the build
-variant. Users are responsible for complying with their respective license
-terms.
+2\.2 Subject to the Licensee's compliance with this Agreement, the Licensor hereby grants the Licensee a worldwide, royalty\-free, non\-exclusive, non\-transferable and non\-sublicensable limited license solely for non\-commercial purposes\. The Licensee may:
 
-3.1 Intel oneAPI Math Kernel Library (MKL)
-    License: Intel Simplified Software License
-    Used in: x86_64 CPU builds for BLAS, LAPACK, and FFT
-    https://www.intel.com/content/www/us/en/developer/tools/oneapi/onemkl.html
+\(1\) Obtain and download the Software, and make and save copies of the Software or modified versions thereof as necessary for non\-commercial use;
 
-3.2 NVIDIA CUDA Toolkit
-    License: NVIDIA CUDA Toolkit EULA
-    Used in: CUDA builds (libcufft, libcublas, libcusolver, libcurand, NVRTC)
-    https://developer.nvidia.com/cuda-toolkit
+\(2\) install, compile, run and use this software or its modified versions on computing devices, servers, computing clusters or Cloud Service resources that it legally controls or legally uses;
 
-3.3 NVIDIA NCCL
-    License: BSD 3-Clause
-    Used in: Multi-GPU MPI+CUDA builds
-    https://github.com/NVIDIA/nccl
+\(3\) view, study, modify or adapt the source code of this software, and create modified versions based on this software;
 
-3.4 AMD ROCm / HIP
-    License: MIT / Apache 2.0 (varies by component)
-    Used in: HIP builds (hipFFT, hipBLAS, hipSOLVER, hipRAND)
-    https://rocm.docs.amd.com
+\(4\) Use this software or its modified version for non\-commercial scientific research, teaching and personal study, as well as to generate, analyze and publicly publish relevant research findings\.
 
-3.5 Arm Performance Libraries (ArmPL) — optional alternative
-    License: Arm End User License Agreement
-    May be used as a GPL-free substitute for FFTW + OpenBLAS on ARM platforms.
-    https://developer.arm.com/Tools%20and%20Software/Arm%20Performance%20Libraries
+2\.3 All rights not expressly granted under this Agreement are reserved by the Licensor\.
 
-3.6 Kunpeng Math Library (KML) — optional alternative
-    License: Huawei Kunpeng Software License
-    May be used as a GPL-free substitute for FFTW + OpenBLAS on Kunpeng platforms.
-    https://www.hikunpeng.com/developer/boostkit/math-lib
+3. Non\-commercial Sharing and Redistribution
+
+3\.1 Subject to compliance with this Agreement, the licensee may share or redistribute the Software or modified versions thereof in source code or object code form solely for non\-commercial purposes, provided that all of the following conditions are met:
+
+\(1\) Fully retain and attach this Agreement, as well as the existing copyright, trademark, author attribution and other rights statements in this software;
+
+\(2\) No license fees or other commercial benefits may be charged for sharing or redistributing the Software or its modified versions;
+
+\(3\) When redistributing a modified version, you shall clearly state that the version has been modified, indicate the main modification content and the modification date, and must not represent it as an official version released, endorsed or supported by the licensor;
+
+\(4\) When redistributing the Software or its modified versions in the form of object code, the corresponding source code shall be provided concurrently, or a clear way for the recipient to obtain the corresponding source code free of charge shall be offered\.
+
+3\.2 Any use of the Software or Modified Versions by the Recipient shall be subject to this Agreement\. The Recipient is granted a license directly from the Licensor under this Agreement with respect to the Software and those portions of the Modified Versions that are derived from the Software; any new content added to the Modified Versions shall be governed by Article 5\. When the Licensee shares or redistributes the Software or Modified Versions, it shall be obligated to ensure that each recipient is informed of and agrees to comply with all the terms of this Agreement\. Any recipient's use of the Software or Modified Versions shall be bound by this Agreement; in the event that a recipient breaches this Agreement, the Licensor shall have the right to directly assert copyright infringement liability against such recipient\.
+
+3\.3 Any sharing, redistribution, or provision of access to third parties for commercial purposes shall be subject to a separate written commercial license agreement signed with the licensor in advance\.
+
+4. Commercial License
+
+4\.1 This Agreement does not grant any commercial usage rights\. Prior to engaging in any commercial use, the Licensee must separately negotiate with the Licensor and sign a written commercial authorization contract\.
+
+4\.2 Any consultation, application or authorization request submitted by the licensee to the licensor, or any communication, negotiation or offer between the two parties, shall not constitute a grant of commercial usage right by the licensor\. The commercial usage right shall take effect only within the scope stipulated in the written commercial authorization contract after the said contract is formally signed by both parties\.
+
+4\.3 The Licensor shall have the right to decide whether to grant a commercial license as well as the scope, term, fees and other terms and conditions of such license based on the specific usage matters\. In case of any inconsistency between a separately signed commercial authorization contract and this Agreement, the commercial authorization contract shall prevail only within the scope of usage explicitly agreed therein\.
+
+5. Rights Ownership, Modified Versions, and Input/Output
+
+5\.1 Except for third\-party components, the copyright related to this software shall be legally enjoyed by the Licensor or relevant contributors; with respect to the parts of which the copyright is enjoyed by relevant contributors, the Licensor has obtained sufficient authorization required to grant the license in accordance with this Agreement\. Other intellectual property rights legally enjoyed by the Licensor shall remain vested in the Licensor\. This Agreement only grants a limited license and does not transfer any copyright or other intellectual property rights to the Licensee\.
+
+5\.2 The Licensee shall, in accordance with law, enjoy corresponding rights to the new parts that are independently created by the Licensee in the modified version and do not belong to the original content of the Software\. The Licensee's enjoyment of rights to the new parts does not mean that it acquires any ownership of the original content of the Software, nor does it permit the Licensee to use, license or dispose of the modified version beyond the scope of this Agreement\.
+
+5\.3 Where the licensee shares or redistributes a modified version in accordance with Article 3, it shall ensure that it has the right to redistribute the new content contained therein, and grant to the recipient, under conditions no less restrictive than those required by this Agreement, the rights necessary to use, modify and further redistribute such modified version\.
+
+5\.4 The rights relating to the data input by the licensee and the output generated by using the Software or modified versions shall be vested in the licensee or other legally entitled entities\. The licensor shall not automatically acquire the ownership of such data or output merely by virtue of the Software being used to process the relevant data or generate the relevant results\. Provided, however, that any commercial use of the Software, modified versions or their output shall still be subject to the written commercial authorization obtained in accordance with Article 4\.
+
+6. Academic Citation, Rights Notice and Trademark
+
+6\.1 When the licensee publicly publishes or releases papers, reports, datasets or other research results completed using this software or a modified version, it shall clearly state that SPONGE is used and make appropriate citations and acknowledgements\. If the licensor provides citation instructions along with the relevant software version, the licensee shall cite in accordance with such instructions; if no citation instruction is provided, the licensee shall at least indicate the name of SPONGE, the version used and the official source\.
+
+6\.2 The licensee shall not delete, conceal or arbitrarily modify the existing copyright notices, author attributions, trademark notices or other rights notices in this Software or modified versions thereof\.
+
+6\.3 SPONGEMM™ is the trademark identifier used by the Licensor to identify SPONGE and related products or services\. This Agreement does not grant any right to use any trademark, trade name or logo, except for such reasonable use as is necessary to accurately indicate the source of the software, its compatibility, or to make academic citations\.
+
+6\.4 Without the prior written consent of the Licensor, the Licensee shall not use SPONGE, SPONGEMM™ or any other trademarks of the Licensor in a manner that may mislead the public into believing that such modified versions, products or services are released, endorsed, sponsored or supported by the Licensor\.
+
+7. Third\-party components
+
+7\.1 The third\-party components shall be subject to the license terms stipulated by their respective right holders\. This Agreement does not supersede the license terms of the third\-party components, nor does it grant any rights to third parties that the licensor is not entitled to grant\.
+
+7\.2 In the event of any inconsistency between this Agreement and the license terms of a third\-party component, the license terms of such third\-party component shall prevail exclusively with respect to that third\-party component, and this Agreement shall continue to apply to all other parts of the Software\.
+
+7\.3 The Licensee shall identify and comply with the applicable terms of third\-party components on its own\. The rights granted by third\-party components shall not expand the rights granted to the Software hereunder, nor shall the rights granted hereunder expand the licensing scope of any third\-party component\. The Licensee shall conduct open\-source compliance scanning for third\-party components on its own, and shall bear sole responsibility for any disputes arising from license conflicts of third\-party components\.
+
+8. Compliance Usage, Risks and Liability Limitations
+
+8\.1 The licensee shall comply with the applicable laws and regulations related to the acquisition, use, modification, sharing or redistribution of this software or modified versions thereof, and shall not use this software to infringe upon the intellectual property rights, data rights and interests, privacy rights or other legitimate rights and interests of others\.
+
+8\.2 This software and its output results may be subject to the influence of factors such as models, algorithms, parameters, input data, computing environment and usage methods\. The licensee shall independently judge whether this software is suitable for its research purposes, and shall be responsible for the input data, parameter settings, result verification, result interpretation and the conclusions formed accordingly\.
+
+8\.3 Without sufficient and independent verification, the output of this software or its modified versions shall not be used as the sole basis for clinical diagnosis, treatment decision\-making, conclusions on drug safety or effectiveness, and other decisions concerning personal health, life safety or major property safety\.
+
+8\.4 The licensee shall be responsible for ensuring that it has the right to use the data input into the Software, as well as for its computing environment, data backup, access control and information security\.
+
+8\.5 The Software is provided on an "as is" basis\. To the fullest extent permitted by applicable law, the Licensor makes no express or implied warranties whatsoever with respect to the Software, including but not limited to warranties of quality, performance, accuracy, completeness, reliability, fitness for a particular purpose, compatibility, or non\-infringement of third\-party rights\.
+
+8\.6 The Licensor does not warrant that the Software will be free from errors, defects, security vulnerabilities or operational interruptions, nor does it warrant that any calculation, simulation or research results can be reproduced, verified or adapted for the Licensee's specific purposes\. The Licensee shall solely bear the risks associated with using the Software and relying on its output results\.
+
+8\.7 To the fullest extent permitted by applicable law, the licensor shall not be liable for any indirect, incidental, special, punitive or consequential damages arising from the access to, use of, inability to use, modification, sharing or redistribution of the Software or modified versions, including loss of profits, loss of revenue, loss of data, loss of computing resources, interruption of research or loss of business opportunities, even if the licensor has been advised of the possibility of such damages\.
+
+9. Entry into Force, Term, Termination, Renewal and Version of the Agreement
+
+9\.1 This Agreement shall apply as of the date it is publicly released together with the corresponding version of the SPONGE software, and shall take effect against the Licensee as of the date the Licensee undertakes the acts specified in Article 2\.1\.
+
+9\.2 Unless terminated in accordance with this Agreement, this Agreement shall continue to apply to the version of the software released herewith and any copies lawfully obtained by the Licensee\. The Licensee may terminate this Agreement at any time by ceasing to use the Software and deleting all copies within its control\.
+
+9\.3 If the Licensee breaches this Agreement, the Licensor shall have the right to notify the Licensee in writing or electronic form to remedy such breach; if the Licensee fails to complete the remedy within 15 days after receiving the notice, the Licensor shall have the right to terminate this Agreement\. For serious breaches such as unauthorized commercial use, intentional infringement of the Licensor's rights, intentional deletion of rights notices, or continued redistribution in the knowledge that this Agreement is being violated, the Licensor shall have the right to terminate this Agreement immediately\. Termination of the license shall not affect the Licensor's right to claim compensation for any breach or infringement committed by the Licensee prior to the termination\.
+
+9\.4 Upon termination of this Agreement, the Licensee shall immediately cease using, modifying, sharing and redistributing the Software and its modified versions, and delete all copies thereof within its control, save for a single archival copy required to be retained by applicable law\. Research results that have been legally generated or publicly published prior to such termination shall not be invalidated thereby, but the Licensee shall not continue to use the Software or engage in any unauthorized commercial use on the basis thereof\.
+
+9\.5 The termination of a license for a particular licensee shall not affect other recipients who have lawfully obtained the Software or a modified version in accordance with Article 3 prior to such termination and remain in continuous compliance with this Agreement\. Articles 5,6, 8,9\.4,10, and any other provisions which by their nature should survive termination shall remain in effect after the termination of this Agreement\.
+
+9\.6 The Licensor shall have no obligation to continuously provide updates, upgrades, bug fixes, maintenance, training, consultation or other technical support, and shall have the right to modify, suspend or discontinue the development, maintenance or distribution of the Software at its sole discretion\.
+
+9\.7 The Licensor reserves the right to determine the licensing terms for subsequent versions of SPONGE at its sole discretion, including modifying, restricting or discontinuing the provision of free licenses\. The Licensing Agreement released subsequently shall only apply to the software version explicitly released therewith, and shall not automatically alter the previously applicable Licensing Agreement, unless otherwise agreed in writing by and between the Licensor and the Licensee\.
+
+10. Applicable Law, Dispute Resolution and General Provisions
+
+10\.1 The conclusion, effectiveness, interpretation, performance and dispute resolution hereunder shall be governed by the current laws of the mainland region of the People's Republic of China\.
+
+10\.2 Any dispute arising from or in connection with this Agreement shall first be settled by the Parties through friendly consultation\. Where such consultation fails, either Party may bring a lawsuit to the people's court with jurisdiction over the place where the licensor is domiciled, unless otherwise mandatory provisions of applicable laws provide otherwise\.
+
+10\.3 If any provision of this Agreement is held to be invalid, illegal or unenforceable, the validity of the remaining provisions hereof shall not be affected\. The relevant provision shall be interpreted or adjusted in a manner that most closely approximates its original intent, to the fullest extent permitted by applicable law\.
+
+10\.4 The failure or delay by the Licensor to exercise any right under this Agreement shall not constitute a waiver of such right\. A waiver of a single breach shall not constitute a waiver of any subsequent or similar or other breach\.
+
+10\.5 Save as otherwise provided in the separate written commercial authorization contract signed by both parties and the license terms applicable to third\-party components, this Agreement constitutes the entire agreement between the Licensor and the Licensee with respect to the non\-commercial use of the Software\. No oral statement, promotional material, communication correspondence or other document shall modify this Agreement, unless otherwise explicitly agreed in writing by both parties\.

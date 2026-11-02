@@ -1,0 +1,9 @@
+print
+{
+    CV = distance
+}
+distance
+{
+    CV_type = distance
+    atom = 0 1
+}

@@ -6,12 +6,12 @@
 
 static __global__ void
 Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
-    const int dihedral_14_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const int local_atom_numbers, const int* a_14,
-    const int* b_14, const float* cf_scale_factor, const float* charge,
-    const float* lj_A, const float* lj_B, VECTOR* frc, int need_atom_energy,
-    float* atom_energy, int need_virial, LTMatrix3* atom_virial,
-    float* nb14_cf_ene, float* nb14_lj_ene)
+    const int dihedral_14_numbers, const VECTOR* crd, Boundary boundary,
+    const int local_atom_numbers, const int* a_14, const int* b_14,
+    const float* cf_scale_factor, const float* charge, const float* lj_A,
+    const float* lj_B, VECTOR* frc, int need_atom_energy, float* atom_energy,
+    int need_virial, LTMatrix3* atom_virial, float* nb14_cf_ene,
+    float* nb14_lj_ene)
 {
 #ifdef USE_GPU
     int dihedral_14_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -41,7 +41,7 @@ Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
         r1 = crd[atom_i];
         r2 = crd[atom_j];
 
-        dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+        dr = Get_Displacement(r2, r1, boundary);
 
         dr2 = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
 
@@ -282,9 +282,9 @@ void NON_BOND_14::Get_Local(int* atom_local, int local_atom_numbers,
 }
 
 void NON_BOND_14::Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const float* charge, const LTMatrix3 cell,
-    const LTMatrix3 rcell, VECTOR* frc, int need_atom_energy,
-    float* atom_energy, int need_virial, LTMatrix3* atom_virial)
+    const VECTOR* crd, const float* charge, Boundary boundary, VECTOR* frc,
+    int need_atom_energy, float* atom_energy, int need_virial,
+    LTMatrix3* atom_virial)
 {
     if (is_initialized)
     {
@@ -292,8 +292,8 @@ void NON_BOND_14::Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
             Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device,
             (nb14_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
-            CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd, cell,
-            rcell, this->local_atom_numbers, d_atom_a_local, d_atom_b_local,
+            CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
+            boundary, this->local_atom_numbers, d_atom_a_local, d_atom_b_local,
             d_cf_scale_factor_local, charge, d_A_local, d_B_local, frc,
             need_atom_energy, atom_energy, need_virial, atom_virial,
             d_nb14_cf_energy, d_nb14_lj_energy);

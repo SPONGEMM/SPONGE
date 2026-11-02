@@ -11,13 +11,23 @@ static void Native_Load_Virtual_Atoms(VirtualAtoms* virtual_atoms,
                                       CONTROLLER* controller,
                                       const char* module_name = "virtual_atom")
 {
-    if (!controller->Command_Exist(module_name, "in_file"))
+    const char* input_path = NULL;
+    if (controller->Command_Exist(module_name, "in_file"))
+    {
+        input_path = controller->Command(module_name, "in_file");
+    }
+    else if (strcmp(module_name, "virtual_atom") == 0 &&
+             controller->Command_Exist("virtual_atoms_in_file"))
+    {
+        input_path = controller->Command("virtual_atoms_in_file");
+    }
+    if (input_path == NULL)
     {
         return;
     }
 
     FILE* fp = NULL;
-    Open_File_Safely(&fp, controller->Command(module_name, "in_file"), "r");
+    Open_File_Safely(&fp, input_path, "r");
     char line[CHAR_LENGTH_MAX];
     int line_numbers = 0;
     while (fgets(line, CHAR_LENGTH_MAX, fp) != NULL)
@@ -90,6 +100,16 @@ static void Native_Load_Virtual_Atoms(VirtualAtoms* virtual_atoms,
                     "Xponge::Native_Load_Virtual_Atoms",
                     "Reason:\n\tvirtual_atom_in_file contains an unsupported "
                     "virtual atom type\n");
+        }
+        std::string trailing;
+        if (stream >> trailing && (trailing.empty() || trailing[0] != '#'))
+        {
+            std::ostringstream reason;
+            reason << "Reason:\n\tvirtual_atom_in_file line " << line_numbers
+                   << " contains unexpected trailing fields\n";
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "Xponge::Native_Load_Virtual_Atoms",
+                                           reason.str().c_str());
         }
         virtual_atoms->records.push_back(record);
     }

@@ -1,7 +1,11 @@
 ﻿#include "Andersen_thermostat.h"
 
+#include "../utils/float_classification.hpp"
+#include "../utils/random/restart_rng_state.hpp"
+
 static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
-    Philox4_32_10_t* rand_state, float* rand_float,
+    const std::uint64_t random_seed,
+    const std::uint64_t random_invocation_count, float* rand_float,
     const int local_atom_numbers, const float half_dt, const float dt,
     const float* inverse_mass, const float* factor, VECTOR* vel, VECTOR* crd,
     VECTOR* frc, VECTOR* acc, VECTOR* random_vel)
@@ -21,9 +25,9 @@ static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
             int rand_begin = begin / 4 * 3;
             for (int i = rand_begin; i < rand_begin + 3; ++i)
             {
-                float4* rand_float4 = reinterpret_cast<float4*>(rand_float);
-                device_get_4_normal_distributed_random_numbers(rand_float4,
-                                                               rand_state, i);
+                SPONGE_PHILOX4X32_10 rng(random_seed, i,
+                                         random_invocation_count * 4);
+                rng.Normal4(rand_float + 4 * i);
             }
             for (int i = begin; i < begin + 4; ++i)
             {
@@ -43,9 +47,9 @@ static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
             int rand_end = rand_begin + (size * 3 + 3) / 4;
             for (int i = rand_begin; i < rand_end; ++i)
             {
-                float4* rand_float4 = reinterpret_cast<float4*>(rand_float);
-                device_get_4_normal_distributed_random_numbers(rand_float4,
-                                                               rand_state, i);
+                SPONGE_PHILOX4X32_10 rng(random_seed, i,
+                                         random_invocation_count * 4);
+                rng.Normal4(rand_float + 4 * i);
             }
             for (int i = begin; i < begin + size; ++i)
             {
@@ -62,7 +66,8 @@ static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
 }
 
 static __global__ void MD_Iteration_Leap_Frog_With_Andersen_With_Max_Velocity(
-    Philox4_32_10_t* rand_state, float* rand_float,
+    const std::uint64_t random_seed,
+    const std::uint64_t random_invocation_count, float* rand_float,
     const int local_atom_numbers, const float half_dt, const float dt,
     const float* inverse_mass, const float* factor, VECTOR* vel, VECTOR* crd,
     VECTOR* frc, VECTOR* acc, VECTOR* random_vel, const float max_vel)
@@ -81,9 +86,9 @@ static __global__ void MD_Iteration_Leap_Frog_With_Andersen_With_Max_Velocity(
             int rand_begin = begin / 4 * 3;
             for (int i = rand_begin; i < rand_begin + 3; ++i)
             {
-                float4* rand_float4 = reinterpret_cast<float4*>(rand_float);
-                device_get_4_normal_distributed_random_numbers(rand_float4,
-                                                               rand_state, i);
+                SPONGE_PHILOX4X32_10 rng(random_seed, i,
+                                         random_invocation_count * 4);
+                rng.Normal4(rand_float + 4 * i);
             }
             for (int i = begin; i < begin + 4; ++i)
             {
@@ -104,9 +109,9 @@ static __global__ void MD_Iteration_Leap_Frog_With_Andersen_With_Max_Velocity(
             int rand_end = rand_begin + (size * 3 + 3) / 4;
             for (int i = rand_begin; i < rand_end; ++i)
             {
-                float4* rand_float4 = reinterpret_cast<float4*>(rand_float);
-                device_get_4_normal_distributed_random_numbers(rand_float4,
-                                                               rand_state, i);
+                SPONGE_PHILOX4X32_10 rng(random_seed, i,
+                                         random_invocation_count * 4);
+                rng.Normal4(rand_float + 4 * i);
             }
             for (int i = begin; i < begin + size; ++i)
             {
@@ -156,16 +161,11 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Initial(CONTROLLER* controller,
         random_seed = atoi(controller[0].Command("thermostat", "seed"));
     }
     controller[0].printf("    random seed is %d\n", random_seed);
+    this->random_seed =
+        static_cast<std::uint64_t>(static_cast<std::uint32_t>(random_seed));
+    random_invocation_count = 0;
     float4_numbers = (3 * atom_numbers + 3) / 4;
     Device_Malloc_Safely((void**)&random_vel, sizeof(float4) * float4_numbers);
-    Device_Malloc_Safely((void**)&rand_state,
-                         sizeof(Philox4_32_10_t) * float4_numbers);
-    Launch_Device_Kernel(Setup_Rand_Normal_Kernel,
-                         (float4_numbers + CONTROLLER::device_max_thread - 1) /
-                             CONTROLLER::device_max_thread,
-                         CONTROLLER::device_max_thread, 0, NULL, float4_numbers,
-                         rand_state, random_seed);
-
     float factor = sqrtf(CONSTANT_kB * target_temperature);
     Malloc_Safely((void**)&h_factor, sizeof(float) * atom_numbers);
 
@@ -278,22 +278,23 @@ void ANDERSEN_THERMOSTAT_INFORMATION::MD_Iteration_Leap_Frog(
     {
         if (max_velocity <= 0)
         {
-            Launch_Device_Kernel(MD_Iteration_Leap_Frog_With_Andersen,
-                                 (local_atom_numbers + 32 - 1) / 32, 32, 0,
-                                 NULL, rand_state, (float*)random_vel,
-                                 local_atom_numbers, 0.5f * dt, dt,
-                                 d_mass_inverse_local, d_factor_local, vel, crd,
-                                 frc, acc, random_vel);
+            Launch_Device_Kernel(
+                MD_Iteration_Leap_Frog_With_Andersen,
+                (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
+                random_invocation_count, (float*)random_vel, local_atom_numbers,
+                0.5f * dt, dt, d_mass_inverse_local, d_factor_local, vel, crd,
+                frc, acc, random_vel);
         }
         else
         {
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_Andersen_With_Max_Velocity,
-                (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, rand_state,
-                (float*)random_vel, local_atom_numbers, 0.5f * dt, dt,
-                d_mass_inverse_local, d_factor_local, vel, crd, frc, acc,
-                random_vel, max_velocity);
+                (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
+                random_invocation_count, (float*)random_vel, local_atom_numbers,
+                0.5f * dt, dt, d_mass_inverse_local, d_factor_local, vel, crd,
+                frc, acc, random_vel, max_velocity);
         }
+        random_invocation_count += 1;
     }
 }
 
@@ -310,7 +311,7 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Set_Target_Temperature(
         return;
     }
     float scale = sqrtf(target_temperature_new / target_temperature);
-    if (!(scale > 0.0f) || !isfinite(scale))
+    if (!(scale > 0.0f) || !SpongeFloat::Is_Finite(scale))
     {
         return;
     }
@@ -325,4 +326,45 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Set_Target_Temperature(
         Scale_List(d_factor_local, scale, local_atom_numbers);
     }
     target_temperature = target_temperature_new;
+}
+
+bool ANDERSEN_THERMOSTAT_INFORMATION::Export_H5_Restart_State(
+    SpongeH5MD::RestartDynamicState* state, std::string* error_message) const
+{
+    if (state == nullptr)
+    {
+        if (error_message != nullptr)
+        {
+            *error_message = "Andersen H5 restart state output pointer is null";
+        }
+        return false;
+    }
+    if (!is_initialized) return true;
+    state->rng_states["andersen"] = SpongeRestartRng::Counter_Philox_State(
+        random_seed, random_invocation_count);
+    return true;
+}
+
+bool ANDERSEN_THERMOSTAT_INFORMATION::Apply_H5_Restart_State(
+    const SpongeH5MD::RestartDynamicState& state, std::string* error_message)
+{
+    if (!is_initialized)
+    {
+        if (error_message != nullptr)
+        {
+            *error_message = "Andersen thermostat module is not initialized";
+        }
+        return false;
+    }
+    const auto rng = state.rng_states.find("andersen");
+    if (rng == state.rng_states.end())
+    {
+        if (error_message != nullptr)
+        {
+            *error_message = "Andersen restart is missing typed RNG state";
+        }
+        return false;
+    }
+    return SpongeRestartRng::Decode_Counter_Philox_State(
+        rng->second, &random_seed, &random_invocation_count, error_message);
 }

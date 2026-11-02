@@ -81,7 +81,7 @@ void FULL_NEIGHBOR_LIST::Build_From_Half(const ATOM_GROUP* half_nl,
 static __global__ void Build_Full_Neighbor_List_With_Cutoff_Kernel(
     const ATOM_GROUP* half_nl, ATOM_GROUP* full_nl, int atom_numbers,
     int max_neighbor_numbers, int* overflow_flag, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, float cutoff)
+    const Boundary boundary, float cutoff)
 {
     SIMPLE_DEVICE_FOR(atom_i, atom_numbers)
     {
@@ -91,7 +91,8 @@ static __global__ void Build_Full_Neighbor_List_With_Cutoff_Kernel(
         {
             int atom_j = h_nl_i.atom_serial[k];
             VECTOR rj = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float dist_sq = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
 
             if (dist_sq <= cutoff * cutoff)
@@ -123,9 +124,11 @@ static __global__ void Build_Full_Neighbor_List_With_Cutoff_Kernel(
     }
 }
 
-void FULL_NEIGHBOR_LIST::Build_From_Half_With_Cutoff(
-    const ATOM_GROUP* half_nl, int atom_numbers, const VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, float cutoff)
+void FULL_NEIGHBOR_LIST::Build_From_Half_With_Cutoff(const ATOM_GROUP* half_nl,
+                                                     int atom_numbers,
+                                                     const VECTOR* crd,
+                                                     const Boundary boundary,
+                                                     float cutoff)
 {
     if (!is_initialized) return;
     if (atom_numbers != this->atom_numbers) return;
@@ -143,7 +146,7 @@ void FULL_NEIGHBOR_LIST::Build_From_Half_With_Cutoff(
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, half_nl, d_nl,
                          atom_numbers, max_neighbor_numbers, d_overflow, crd,
-                         cell, rcell, cutoff);
+                         boundary, cutoff);
 }
 
 void FULL_NEIGHBOR_LIST::Clear()

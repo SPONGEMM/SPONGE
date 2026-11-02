@@ -8,6 +8,7 @@ Madison technical report TR1690, May 2011
 */
 
 #pragma once
+#include "float_classification.hpp"
 namespace SVD
 {
 // Constants used for calculation of givens quaternions
@@ -256,7 +257,7 @@ __device__ __forceinline__ givens approximateGivensQuaternion(Symmetric3x3& A)
     givens g{2.f * (A.m_00 - A.m_11), A.m_10};
     bool b = _gamma * g.sh * g.sh < g.ch * g.ch;
     float w = rsqrt(fmaf(g.ch, g.ch, g.sh * g.sh));
-    if (w != w) b = 0;
+    if (SpongeFloat::Is_Nan(w)) b = 0;
     return givens{b ? w * g.ch : (float)_cstar, b ? w * g.sh : (float)_sstar};
 }
 // Function used to apply a givens rotation S. Calculates the weights and

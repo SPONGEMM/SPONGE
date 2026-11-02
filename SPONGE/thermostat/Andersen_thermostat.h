@@ -2,6 +2,7 @@
 
 #include "../common.h"
 #include "../control.h"
+#include "../utils/h5md/h5_structural_state.hpp"
 
 // 用于记录与计算Andersen控温相关的信息
 struct ANDERSEN_THERMOSTAT_INFORMATION
@@ -16,8 +17,9 @@ struct ANDERSEN_THERMOSTAT_INFORMATION
 
     int update_interval = 0;  // 更新间隔
 
-    int float4_numbers;                  // 存储随机数的长度
-    Philox4_32_10_t* rand_state = NULL;  // 用于记录随机数发生器状态
+    int float4_numbers;  // 存储随机数的长度
+    std::uint64_t random_seed = 0;
+    std::uint64_t random_invocation_count = 0;
     VECTOR* random_vel =
         NULL;  // 存储随机速度矢量，要求该数组的长度要能整除4且大于等于atom_numbers
     float* h_factor = NULL;        // 用于计算随机速度的系数
@@ -46,4 +48,8 @@ struct ANDERSEN_THERMOSTAT_INFORMATION
     void MD_Iteration_Leap_Frog(VECTOR* vel, VECTOR* crd, VECTOR* frc,
                                 VECTOR* acc, float dt);
     void Set_Target_Temperature(float target_temperature_new);
+    bool Export_H5_Restart_State(SpongeH5MD::RestartDynamicState* state,
+                                 std::string* error_message) const;
+    bool Apply_H5_Restart_State(const SpongeH5MD::RestartDynamicState& state,
+                                std::string* error_message);
 };

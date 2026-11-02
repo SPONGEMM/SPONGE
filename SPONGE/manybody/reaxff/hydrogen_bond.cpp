@@ -7,11 +7,10 @@ static __global__ void Calculate_HB_Kernel(
     const int* is_hydrogen, const REAXFF_HB_Info* hb_info,
     const REAXFF_HB_Entry* hb_entries, int atom_type_numbers, const float* bo_s,
     const float* bo_pi, const float* bo_pi2, float* d_dE_dBO_s,
-    float* d_dE_dBO_pi, float* d_dE_dBO_pi2, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, float* atom_energy,
-    VECTOR* frc, LTMatrix3* atom_virial, float* d_energy_hb_sum,
-    const int* bond_count, const int* bond_offset, const int* bond_nbr,
-    const int* bond_idx_arr)
+    float* d_dE_dBO_pi, float* d_dE_dBO_pi2, const Boundary boundary,
+    const ATOM_GROUP* nl, float* atom_energy, VECTOR* frc,
+    LTMatrix3* atom_virial, float* d_energy_hb_sum, const int* bond_count,
+    const int* bond_offset, const int* bond_nbr, const int* bond_idx_arr)
 {
     SIMPLE_DEVICE_FOR(h, atom_numbers)
     {
@@ -34,7 +33,8 @@ static __global__ void Calculate_HB_Kernel(
                 if (bo_dh_val < 0.01f) continue;
 
                 VECTOR rd = crd[d];
-                VECTOR ddh = Get_Periodic_Displacement(rd, rh, cell, rcell);
+                VECTOR ddh = Get_Displacement<BoundaryPolicy::Periodic>(
+                    rd, rh, boundary);
                 float r_dh = norm3df(ddh.x, ddh.y, ddh.z);
 
                 for (int pa = 0; pa < nl_h.atom_numbers; pa++)
@@ -50,7 +50,8 @@ static __global__ void Calculate_HB_Kernel(
                     if (info.entry_count == 0) continue;
 
                     VECTOR ra = crd[a];
-                    VECTOR dah = Get_Periodic_Displacement(ra, rh, cell, rcell);
+                    VECTOR dah = Get_Displacement<BoundaryPolicy::Periodic>(
+                        ra, rh, boundary);
                     float r_ah = norm3df(dah.x, dah.y, dah.z);
                     if (r_ah > 7.5f) continue;
 
@@ -425,8 +426,8 @@ void REAXFF_HYDROGEN_BOND::Initial(CONTROLLER* controller, int atom_numbers,
 }
 
 void REAXFF_HYDROGEN_BOND::Calculate_HB_Energy_And_Force(
-    int atom_numbers, const VECTOR* crd, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module,
+    int atom_numbers, const VECTOR* crd, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, REAXFF_BOND_ORDER* bo_module,
     const int need_atom_energy, float* atom_energy, const int need_virial,
     LTMatrix3* atom_virial)
 {
@@ -440,7 +441,7 @@ void REAXFF_HYDROGEN_BOND::Calculate_HB_Energy_And_Force(
         d_atom_type, d_is_hydrogen, d_hb_info, d_hb_entries, atom_type_numbers,
         bo_module->d_corrected_bo_s, bo_module->d_corrected_bo_pi,
         bo_module->d_corrected_bo_pi2, d_dE_dBO_s, d_dE_dBO_pi, d_dE_dBO_pi2,
-        cell, rcell, nl, atom_energy, frc, need_virial ? atom_virial : NULL,
+        boundary, nl, atom_energy, frc, need_virial ? atom_virial : NULL,
         d_energy_hb_sum, bo_module->d_bond_count, bo_module->d_bond_offset,
         bo_module->d_bond_nbr, bo_module->d_bond_idx);
 }

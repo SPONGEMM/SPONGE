@@ -3,6 +3,17 @@
 #include "../common.h"
 #include "../control.h"
 
+__host__ __device__ __forceinline__ int CMAP_Periodic_Grid_Index(
+    const int grid_cell, const int resolution)
+{
+    int grid_index = (grid_cell + resolution / 2) % resolution;
+    if (grid_index < 0)
+    {
+        grid_index += resolution;
+    }
+    return grid_index;
+}
+
 struct CMAP
 {
     char module_name[CHAR_LENGTH_MAX];
@@ -64,9 +75,8 @@ struct CMAP
 
     // 能量和力计算
     void CMAP_Force_With_Atom_Energy_And_Virial(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        VECTOR* frc, int need_potential, float* atom_energy, int need_pressure,
-        LTMatrix3* atom_virial);
+        const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_potential,
+        float* atom_energy, int need_pressure, LTMatrix3* atom_virial);
 
     void Step_Print(CONTROLLER* controller, bool print_sum = true);
     /*

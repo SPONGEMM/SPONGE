@@ -1,5 +1,7 @@
 ﻿#include "restrain.h"
 
+#include "../xponge/ir/protocol.h"
+
 void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
     const int atom_numbers, const MD_INFORMATION& md_info)
 {
@@ -24,8 +26,10 @@ void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
                 h_atom_to_ug[atom] = ug_i;
             }
         }
-        Device_Malloc_And_Copy_Safely((void**)&this->d_atom_to_ug, h_atom_to_ug,
-                                      sizeof(int) * atom_numbers);
+        Device_Malloc_Safely((void**)&this->d_atom_to_ug,
+                             sizeof(int) * atom_numbers);
+        deviceMemcpy(this->d_atom_to_ug, h_atom_to_ug,
+                     sizeof(int) * atom_numbers, deviceMemcpyHostToDevice);
         free(h_atom_to_ug);
 
         Device_Malloc_Safely((void**)&this->d_sum_mass_ug,
@@ -57,9 +61,10 @@ void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
                 h_atom_to_res[atom] = res_i;
             }
         }
-        Device_Malloc_And_Copy_Safely((void**)&this->d_atom_to_res,
-                                      h_atom_to_res,
-                                      sizeof(int) * atom_numbers);
+        Device_Malloc_Safely((void**)&this->d_atom_to_res,
+                             sizeof(int) * atom_numbers);
+        deviceMemcpy(this->d_atom_to_res, h_atom_to_res,
+                     sizeof(int) * atom_numbers, deviceMemcpyHostToDevice);
         free(h_atom_to_res);
 
         Device_Malloc_Safely((void**)&this->d_sum_mass_res,
@@ -91,9 +96,10 @@ void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
                 h_atom_to_mol[atom] = mol_i;
             }
         }
-        Device_Malloc_And_Copy_Safely((void**)&this->d_atom_to_mol,
-                                      h_atom_to_mol,
-                                      sizeof(int) * atom_numbers);
+        Device_Malloc_Safely((void**)&this->d_atom_to_mol,
+                             sizeof(int) * atom_numbers);
+        deviceMemcpy(this->d_atom_to_mol, h_atom_to_mol,
+                     sizeof(int) * atom_numbers, deviceMemcpyHostToDevice);
         free(h_atom_to_mol);
 
         Device_Malloc_Safely((void**)&this->d_sum_mass_mol,
@@ -192,9 +198,9 @@ void RESTRAIN_INFORMATION::Update_Group_COM(
 static __global__ void restrain_force_with_atom_energy_and_virial(
     const int restrain_numbers, const int* restrain_list, const VECTOR* crd,
     const VECTOR* crd_ref, const int if_single_weight,
-    const float single_weight, const VECTOR* weight_list, const LTMatrix3 cell,
-    const LTMatrix3 rcell, int need_atom_energy, float* atom_energy,
-    int need_virial, LTMatrix3* atom_virial, VECTOR* frc, float* res_ene,
+    const float single_weight, const VECTOR* weight_list, Boundary boundary,
+    int need_atom_energy, float* atom_energy, int need_virial,
+    LTMatrix3* atom_virial, VECTOR* frc, float* res_ene,
     const int refcoord_scaling, const int* atom_local, const int* atom_to_group,
     const VECTOR* group_com)
 {
@@ -208,7 +214,7 @@ static __global__ void restrain_force_with_atom_energy_and_virial(
     {
         int atom_i = restrain_list[i];
         VECTOR r_i = crd[atom_i];
-        VECTOR dr = Get_Periodic_Displacement(crd_ref[i], r_i, cell, rcell);
+        VECTOR dr = Get_Displacement(crd_ref[i], r_i, boundary);
         VECTOR temp_force;
         if (if_single_weight)
         {
@@ -240,8 +246,7 @@ static __global__ void restrain_force_with_atom_energy_and_virial(
                 int atom_global = atom_local[atom_i];
                 int group = atom_to_group[atom_global];
                 VECTOR com = group_com[group];
-                VECTOR dr_com =
-                    Get_Periodic_Displacement(com, r_i, cell, rcell);
+                VECTOR dr_com = Get_Displacement(com, r_i, boundary);
                 atom_virial[atom_i] =
                     atom_virial[atom_i] -
                     Get_Virial_From_Force_Dis(temp_force, dr_com);
@@ -456,6 +461,10 @@ void RESTRAIN_INFORMATION::Initial(CONTROLLER* controller,
     else
     {
         strcpy(this->module_name, module_name);
+    }
+    if (controller->Command_Exist("restrain_h5_object_name"))
+    {
+        h5_restraint_name = controller->Command("restrain_h5_object_name");
     }
     if (controller->Command_Exist(this->module_name, "atom_id"))
     {
@@ -678,6 +687,244 @@ void RESTRAIN_INFORMATION::Initial(CONTROLLER* controller,
     }
 }
 
+void RESTRAIN_INFORMATION::Initial(
+    CONTROLLER* controller, const int atom_numbers, const VECTOR* crd,
+    const Xponge::PositionalRestraint& native_restraint,
+    const char* module_name)
+{
+    if (!native_restraint.present)
+    {
+        Initial(controller, atom_numbers, crd, module_name);
+        return;
+    }
+    if (module_name == NULL)
+    {
+        strcpy(this->module_name, "restrain");
+    }
+    else
+    {
+        strcpy(this->module_name, module_name);
+    }
+    controller->printf("START INITIALIZING NATIVE H5 RESTRAIN:\n");
+    this->atom_numbers = atom_numbers;
+    this->h5_restraint_name = native_restraint.name;
+    this->restrain_numbers =
+        static_cast<int>(native_restraint.atom_indices.size());
+    if (atom_numbers <= 0 || restrain_numbers <= 0)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorValueErrorCommand,
+            "RESTRAIN_INFORMATION::Initial(native H5)",
+            "Reason:\n\tnative positional restraint requires positive atom "
+            "and restraint counts\n");
+    }
+
+    Malloc_Safely((void**)&this->h_lists, sizeof(int) * this->restrain_numbers);
+    deviceMemcpy(this->h_lists, native_restraint.atom_indices.data(),
+                 sizeof(int) * this->restrain_numbers, deviceMemcpyHostToHost);
+    Device_Malloc_And_Copy_Safely((void**)&this->d_lists, this->h_lists,
+                                  sizeof(int) * this->restrain_numbers);
+    Device_Malloc_Safely((void**)&this->d_restrain_ene,
+                         sizeof(float) * this->restrain_numbers);
+    Device_Malloc_Safely((void**)&this->d_sum_of_restrain_ene, sizeof(float));
+    Malloc_Safely((void**)&this->h_sum_of_restrain_ene, sizeof(float));
+    deviceMemset(this->d_restrain_ene, 0,
+                 sizeof(float) * this->restrain_numbers);
+    deviceMemset(this->d_sum_of_restrain_ene, 0, sizeof(float));
+    memset(this->h_sum_of_restrain_ene, 0, sizeof(float));
+    Device_Malloc_Safely((void**)&this->d_local_restrain_numbers, sizeof(int));
+    deviceMemset(this->d_local_restrain_numbers, 0, sizeof(int));
+    Device_Malloc_Safely((void**)&this->d_local_restrain_list,
+                         sizeof(int) * atom_numbers);
+    Device_Malloc_Safely((void**)&this->local_crd_ref,
+                         sizeof(VECTOR) * atom_numbers);
+
+    auto set_refcoord_scaling = [&](const std::string& scaling)
+    {
+        if (scaling == "no" || scaling == "none")
+            this->refcoord_scaling = REFCOORD_SCALING_NO;
+        else if (scaling == "all")
+            this->refcoord_scaling = REFCOORD_SCALING_ALL;
+        else if (scaling == "com_ug")
+            this->refcoord_scaling = REFCOORD_SCALING_COM_UG;
+        else if (scaling == "com_res")
+            this->refcoord_scaling = REFCOORD_SCALING_COM_RES;
+        else if (scaling == "com_mol")
+            this->refcoord_scaling = REFCOORD_SCALING_COM_MOL;
+        else
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "RESTRAIN_INFORMATION::Initial(native H5)",
+                "Reason:\n\trefcoord_scaling should be no/all/com_ug/"
+                "com_res/com_mol\n");
+    };
+    this->refcoord_scaling = REFCOORD_SCALING_NO;
+    if (controller->Command_Exist(this->module_name, "refcoord_scaling"))
+    {
+        set_refcoord_scaling(
+            controller->Command(this->module_name, "refcoord_scaling"));
+    }
+    else if (native_restraint.has_refcoord_scaling_default)
+    {
+        set_refcoord_scaling(native_restraint.refcoord_scaling_default);
+    }
+
+    this->calc_virial = native_restraint.has_calc_virial_default
+                            ? native_restraint.calc_virial_default
+                            : true;
+    if (controller->Command_Exist(this->module_name, "calc_virial"))
+    {
+        this->calc_virial =
+            controller->Get_Bool(this->module_name, "calc_virial",
+                                 "RESTRAIN_INFORMATION::Initial(native H5)");
+    }
+
+    Device_Malloc_Safely((void**)&this->d_ref_crd_all,
+                         sizeof(VECTOR) * atom_numbers);
+    if (native_restraint.reference_coordinates.empty())
+    {
+        deviceMemcpy(this->d_ref_crd_all, crd, sizeof(VECTOR) * atom_numbers,
+                     deviceMemcpyDeviceToDevice);
+    }
+    else
+    {
+        if (native_restraint.reference_coordinates.size() !=
+            static_cast<std::size_t>(atom_numbers) * 3)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "RESTRAIN_INFORMATION::Initial(native H5)",
+                "Reason:\n\tnative positional restraint reference must have "
+                "shape [atom_count,3]\n");
+        }
+        std::vector<VECTOR> reference(atom_numbers);
+        for (int atom = 0; atom < atom_numbers; ++atom)
+        {
+            reference[atom].x =
+                native_restraint.reference_coordinates[3 * atom];
+            reference[atom].y =
+                native_restraint.reference_coordinates[3 * atom + 1];
+            reference[atom].z =
+                native_restraint.reference_coordinates[3 * atom + 2];
+        }
+        deviceMemcpy(this->d_ref_crd_all, reference.data(),
+                     sizeof(VECTOR) * atom_numbers, deviceMemcpyHostToDevice);
+    }
+    Device_Malloc_Safely((void**)&this->crd_ref,
+                         sizeof(VECTOR) * this->restrain_numbers);
+    Launch_Device_Kernel(
+        Gather_Ref_From_All_Device,
+        (this->restrain_numbers + CONTROLLER::device_max_thread - 1) /
+            CONTROLLER::device_max_thread,
+        CONTROLLER::device_max_thread, 0, NULL, this->restrain_numbers,
+        this->d_lists, this->d_ref_crd_all, this->crd_ref);
+
+    this->single_weight = 20.0f;
+    if (controller->Command_Exist(this->module_name, "single_weight"))
+    {
+        controller->Check_Float(this->module_name, "single_weight",
+                                "RESTRAIN_INFORMATION::Initial(native H5)");
+        this->single_weight =
+            atof(controller->Command(this->module_name, "single_weight"));
+        this->if_single_weight = 1;
+    }
+    else if (native_restraint.has_single_weight_default)
+    {
+        this->single_weight = native_restraint.single_weight_default;
+        this->if_single_weight = 1;
+    }
+    else
+    {
+        if (native_restraint.weight.size() !=
+            static_cast<std::size_t>(this->restrain_numbers) * 3)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "RESTRAIN_INFORMATION::Initial(native H5)",
+                "Reason:\n\tnative positional restraint weight must have "
+                "shape [restraint_count,3]\n");
+        }
+        Malloc_Safely((void**)&this->h_weights,
+                      sizeof(VECTOR) * this->restrain_numbers);
+        for (int row = 0; row < this->restrain_numbers; ++row)
+        {
+            this->h_weights[row].x = native_restraint.weight[3 * row];
+            this->h_weights[row].y = native_restraint.weight[3 * row + 1];
+            this->h_weights[row].z = native_restraint.weight[3 * row + 2];
+        }
+        Device_Malloc_And_Copy_Safely((void**)&this->d_weights, this->h_weights,
+                                      sizeof(VECTOR) * this->restrain_numbers);
+        Device_Malloc_Safely((void**)&this->local_weights,
+                             sizeof(VECTOR) * atom_numbers);
+        this->if_single_weight = 0;
+    }
+
+    this->is_initialized = 1;
+    if (!this->is_controller_printf_initialized)
+    {
+        controller->Step_Print_Initial(this->module_name, "%.2f");
+        this->is_controller_printf_initialized = 1;
+        controller->printf("    structure last modify date is %d\n",
+                           last_modify_date);
+    }
+    controller->printf("END INITIALIZING NATIVE H5 RESTRAIN\n\n");
+}
+
+bool RESTRAIN_INFORMATION::Export_H5_Reference_Coordinates(
+    std::vector<float>* coordinates, std::string* error) const
+{
+    if (coordinates == NULL)
+    {
+        if (error != NULL) *error = "restraint reference output is null";
+        return false;
+    }
+    coordinates->clear();
+    if (!is_initialized) return true;
+    if (atom_numbers <= 0 || d_ref_crd_all == NULL)
+    {
+        if (error != NULL)
+            *error = "initialized restraint has no global reference state";
+        return false;
+    }
+    coordinates->resize(static_cast<std::size_t>(atom_numbers) * 3);
+    deviceMemcpy(coordinates->data(), d_ref_crd_all,
+                 sizeof(VECTOR) * atom_numbers, deviceMemcpyDeviceToHost);
+    return true;
+}
+
+bool RESTRAIN_INFORMATION::Apply_H5_Reference_Coordinates(
+    const std::vector<float>& coordinates, std::string* error)
+{
+    if (!is_initialized || atom_numbers <= 0 || d_ref_crd_all == NULL ||
+        crd_ref == NULL)
+    {
+        if (error != NULL)
+            *error =
+                "restart contains restraint reference state, but the "
+                "positional restraint module is not initialized";
+        return false;
+    }
+    if (coordinates.size() != static_cast<std::size_t>(atom_numbers) * 3)
+    {
+        if (error != NULL)
+        {
+            *error =
+                "restraint reference atom count does not match the "
+                "initialized system";
+        }
+        return false;
+    }
+    deviceMemcpy(d_ref_crd_all, coordinates.data(),
+                 sizeof(VECTOR) * atom_numbers, deviceMemcpyHostToDevice);
+    Launch_Device_Kernel(
+        Gather_Ref_From_All_Device,
+        (restrain_numbers + CONTROLLER::device_max_thread - 1) /
+            CONTROLLER::device_max_thread,
+        CONTROLLER::device_max_thread, 0, NULL, restrain_numbers, d_lists,
+        d_ref_crd_all, crd_ref);
+    return true;
+}
+
 void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
     MD_INFORMATION* md_info, const LTMatrix3 g, float dt, int* atom_local,
     int local_atom_numbers, char* atom_local_label, int* atom_local_id)
@@ -814,11 +1061,10 @@ void RESTRAIN_INFORMATION::Get_Local(int* atom_local, int local_atom_numbers,
                  sizeof(int), deviceMemcpyDeviceToHost);
 }
 
-void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, const LTMatrix3 cell,
-                                     const LTMatrix3 rcell, int need_potential,
-                                     float* atom_energy, int need_pressure,
-                                     LTMatrix3* atom_virial, VECTOR* frc,
-                                     MD_INFORMATION* md_info,
+void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
+                                     int need_potential, float* atom_energy,
+                                     int need_pressure, LTMatrix3* atom_virial,
+                                     VECTOR* frc, MD_INFORMATION* md_info,
                                      DOMAIN_INFORMATION* dd)
 {
     if (is_initialized)
@@ -915,7 +1161,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, const LTMatrix3 cell,
             CONTROLLER::device_max_thread, 0, NULL, local_restrain_numbers,
             this->d_local_restrain_list, crd, this->local_crd_ref,
             this->if_single_weight, this->single_weight, this->local_weights,
-            cell, rcell, need_potential, atom_energy, need_virial, atom_virial,
+            boundary, need_potential, atom_energy, need_virial, atom_virial,
             frc, this->d_restrain_ene, effective_scaling, atom_local,
             atom_to_group, group_com);
     }

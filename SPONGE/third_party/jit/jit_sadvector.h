@@ -84,7 +84,7 @@ struct SADvector
         vec.z = veca.x * vecb.y - veca.y * vecb.x;
         return vec;
     }
-    friend __device__ __host__ __forceinline__ SADvector<N> Get_Periodic_Displacement(const SADvector<N> vec_a, const SADvector<N> vec_b, const SADvector<N> box_length)
+    friend __device__ __host__ __forceinline__ SADvector<N> Get_Displacement(const SADvector<N> vec_a, const SADvector<N> vec_b, const SADvector<N> box_length)
     {
         SADvector<N> dr;
         dr = vec_a - vec_b;
@@ -98,6 +98,14 @@ struct SADvector
             dr.z.dval[i] = dr.z.val / box_length.z.val * box_length.z.dval[i] + dr.z.dval[i];
         }
         return dr;
+    }
+    friend __device__ __host__ __forceinline__ SADvector<N> Get_Displacement(const SADvector<N> vec_a, const SADvector<N> vec_b, const SADvector<N> box_length, const Boundary& boundary)
+    {
+        if (boundary.policy == BoundaryPolicy::Open)
+        {
+            return vec_a - vec_b;
+        }
+        return Get_Displacement(vec_a, vec_b, box_length);
     }
 };
 

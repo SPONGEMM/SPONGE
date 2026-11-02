@@ -130,10 +130,8 @@ void CMAP::Parameter_Host_to_Device()
                                   sizeof(int) * tot_cmap_num);
     Device_Malloc_And_Copy_Safely((void**)&d_cmap_type, h_cmap_type,
                                   sizeof(int) * tot_cmap_num);
-    Device_Malloc_And_Copy_Safely((void**)&d_coeff_ptr, h_coeff_ptr,
-                                  sizeof(float*) * tot_cmap_num);
     Device_Malloc_And_Copy_Safely((void**)&d_inter_coeff, h_inter_coeff,
-                                  sizeof(int) * 16 * uniq_gridpoint_num);
+                                  sizeof(float) * 16 * uniq_gridpoint_num);
     Device_Malloc_And_Copy_Safely((void**)&d_cmap_resolution, h_cmap_resolution,
                                   sizeof(int) * uniq_cmap_num);
     for (int i = 0; i < tot_cmap_num; i++)
@@ -157,7 +155,7 @@ void CMAP::Parameter_Host_to_Device()
 void CMAP::Memory_Allocate()
 {
     Malloc_Safely((void**)&h_cmap_resolution, sizeof(int) * uniq_cmap_num);
-    Malloc_Safely((void**)&h_cmap_type, sizeof(float) * tot_cmap_num);
+    Malloc_Safely((void**)&h_cmap_type, sizeof(int) * tot_cmap_num);
     Malloc_Safely((void**)&h_atom_a, sizeof(int) * tot_cmap_num);
     Malloc_Safely((void**)&h_atom_b, sizeof(int) * tot_cmap_num);
     Malloc_Safely((void**)&h_atom_c, sizeof(int) * tot_cmap_num);
@@ -257,12 +255,12 @@ void CMAP::Interpolation(CONTROLLER* controller)
 
 static __global__
     __launch_bounds__(1024) void CMAP_Force_With_Atom_Energy_And_Virial_Device(
-        const int cmap_numbers, const VECTOR* crd, const LTMatrix3 cell,
-        const LTMatrix3 rcell, const int* atom_a, const int* atom_b,
-        const int* atom_c, const int* atom_d, const int* atom_e,
-        const int* cmap_type, const int* resolution, float** inter_coeff_ptr,
-        VECTOR* frc, int need_potential, float* ene, float* cmap_ene,
-        int need_pressure, LTMatrix3* virial)
+        const int cmap_numbers, const VECTOR* crd, Boundary boundary,
+        const int* atom_a, const int* atom_b, const int* atom_c,
+        const int* atom_d, const int* atom_e, const int* cmap_type,
+        const int* resolution, float** inter_coeff_ptr, VECTOR* frc,
+        int need_potential, float* ene, float* cmap_ene, int need_pressure,
+        LTMatrix3* virial)
 {
 #ifdef USE_GPU
     int cmap_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -283,9 +281,9 @@ static __global__
         VECTOR rl = crd[atom_l];
         VECTOR rm = crd[atom_m];
         // 计算phi
-        VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
-        VECTOR drkj = Get_Periodic_Displacement(rk, rj, cell, rcell);
-        VECTOR drkl = Get_Periodic_Displacement(rk, rl, cell, rcell);
+        VECTOR drij = Get_Displacement(ri, rj, boundary);
+        VECTOR drkj = Get_Displacement(rk, rj, boundary);
+        VECTOR drkl = Get_Displacement(rk, rl, boundary);
 
         // 法向量夹角
         VECTOR r1_phi = drij ^ drkj;
@@ -312,9 +310,9 @@ static __global__
         float sin_phi = sinf(phi);
 
         // 计算psi
-        VECTOR drjk = Get_Periodic_Displacement(rj, rk, cell, rcell);
-        VECTOR drlk = Get_Periodic_Displacement(rl, rk, cell, rcell);
-        VECTOR drlm = Get_Periodic_Displacement(rl, rm, cell, rcell);
+        VECTOR drjk = Get_Displacement(rj, rk, boundary);
+        VECTOR drlk = Get_Displacement(rl, rk, boundary);
+        VECTOR drlm = Get_Displacement(rl, rm, boundary);
 
         // 法向量夹角
         VECTOR r1_psi = drjk ^ drlk;
@@ -345,10 +343,14 @@ static __global__
         phi = phi / (2.0 * CONSTANT_Pi / temp_reso);
         psi = psi / (2.0 * CONSTANT_Pi / temp_reso);
 
-        float parm_phi = phi - floorf(phi);
-        float parm_psi = psi - floorf(psi);
-        int locate_phi = (int)floorf(phi) + 12;
-        int locate_psi = (int)floorf(psi) + 12;
+        const int phi_cell = static_cast<int>(floorf(phi));
+        const int psi_cell = static_cast<int>(floorf(psi));
+        float parm_phi = phi - phi_cell;
+        float parm_psi = psi - psi_cell;
+        // The zero-angle grid origin is at the center of the periodic CMAP
+        // table. The grid resolution is input data, not a fixed 24x24 table.
+        int locate_phi = CMAP_Periodic_Grid_Index(phi_cell, temp_reso);
+        int locate_psi = CMAP_Periodic_Grid_Index(psi_cell, temp_reso);
 
         // 定义幂次
         float parm_phi_2 = parm_phi * parm_phi;
@@ -415,7 +417,7 @@ static __global__
         VECTOR dphi_drm = {0, 0, 0};
 
         // psi角部分
-        VECTOR drml = Get_Periodic_Displacement(rm, rl, cell, rcell);
+        VECTOR drml = Get_Displacement(rm, rl, boundary);
 
         VECTOR temp_psi_A = drjk ^ drkl;
         VECTOR temp_psi_B = drml ^ drkl;
@@ -496,9 +498,8 @@ static __global__
 }
 
 void CMAP::CMAP_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* frc,
-    int need_potential, float* atom_energy, int need_pressure,
-    LTMatrix3* atom_virial)
+    const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_potential,
+    float* atom_energy, int need_pressure, LTMatrix3* atom_virial)
 {
     if (is_initialized)
     {
@@ -507,7 +508,7 @@ void CMAP::CMAP_Force_With_Atom_Energy_And_Virial(
             (tot_cmap_num + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, this->num_cmap_local, crd,
-            cell, rcell, this->d_atom_a_local, this->d_atom_b_local,
+            boundary, this->d_atom_a_local, this->d_atom_b_local,
             this->d_atom_c_local, this->d_atom_d_local, this->d_atom_e_local,
             this->d_cmap_type_local, this->d_cmap_resolution, this->d_coeff_ptr,
             frc, need_potential, atom_energy, d_cmap_ene, need_pressure,

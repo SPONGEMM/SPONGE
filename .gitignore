@@ -5,6 +5,8 @@ build-*/
 
 mdbox.txt
 mdcrd.dat
+mdcrd.xtc
+mdcrd.xtc.idx
 mdinfo.txt
 mdout.txt
 restart_coordinate.txt

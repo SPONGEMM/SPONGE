@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "source": "benchmarks/validation/thermostat/statics/tip3p_water",
+  "generator": "Xponge legacy-to-bundle",
+  "generator_commit": "2c0dc3e",
+  "initial_velocity_seed": 20260709,
+  "nonorthogonal_box_angles_degrees": [80.0, 100.0, 110.0],
+  "sha256": {
+    "common/mdin.bundled.spg.toml": "e469276fa7f9d2cfcbb4cec8554786b26150c61d052352dbc2cb7bbf7e7be6af",
+    "common/legacy_sidecars/LJ_in_file/tip3p_LJ.txt": "46b3f9741ab2f7e9dcf7b312dcb24cabbe726c9f106a43fd992a6ded8c84607e",
+    "common/legacy_sidecars/bond_in_file/tip3p_bond.txt": "965efaebf32dd08f3011e398b3b17ec74f198a90e7ca6d7b28a300071a864b55",
+    "common/legacy_sidecars/charge_in_file/tip3p_charge.txt": "270a48c9040de173bc20c3033601943e451c3d84f2c14c75da25b0e1d1da006b",
+    "common/legacy_sidecars/exclude_in_file/tip3p_exclude.txt": "fee46218f25e12f9b66aa5b851e5b0deee8f5e8b5dcf2a3202c43557d3203cff",
+    "common/legacy_sidecars/mass_in_file/tip3p_mass.txt": "14307f058cca50eac79cf792b77505c8a19ed917b04ed3a3cc944d252d762f72",
+    "common/topology.spgt.h5": "4d8b1e7892025f37d1cf9a593e51b0013d5d8d1e55a8ccc879a692db3a52fede",
+    "common/protocol.spgp.h5": "64641100291b78f80bb8de79b5a7ec3e96b30433caa340dadf47d980968526ec",
+    "orthogonal/restart.spgr.h5": "67b72a9e445f105ec30eb3d05050f4e12db5924cf891c0b84d6f231c4af1bdea",
+    "nonorthogonal/restart.spgr.h5": "f385115069057409f1d79cee4b629acbf1cea13fb28558da00437c41b5886ef2",
+    "initial_velocity.txt": "1ab0484c9c4e5944934f65bd1519ae490983ac699f9212e5146b97ddcb3b541b"
+  }
+}

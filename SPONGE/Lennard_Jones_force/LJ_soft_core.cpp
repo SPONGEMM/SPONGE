@@ -197,14 +197,15 @@ template <bool need_force, bool need_energy, bool need_virial,
           bool need_coulomb, bool need_du_dlambda>
 static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
     const int atom_numbers, const int solvent_numbers, const ATOM_GROUP* nl,
-    const VECTOR_LJ_SOFT_TYPE* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
+    const VECTOR_LJ_SOFT_TYPE* crd, const Boundary boundary,
     const float* LJ_type_AA, const float* LJ_type_AB, const float* LJ_type_BA,
     const float* LJ_type_BB, const float cutoff, VECTOR* frc,
     const float pme_beta, float* atom_energy, LTMatrix3* atom_virial,
     float* atom_direct_cf_energy, float* atom_du_dlambda_lj,
     float* atom_du_dlambda_direct, const float lambda, const float alpha,
     const float p, const float input_sigma_6, const float input_sigma_6_min,
-    float* this_energy)
+    float* this_energy, float* atom_energy_intersys,
+    float* atom_energy_intrasys)
 {
     float lambda_ = 1.0 - lambda;
     float alpha_lambda_p = alpha * powf(lambda, p);
@@ -222,6 +223,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
         VECTOR frc_record = {0., 0., 0.};
         LTMatrix3 virial_record = {0, 0, 0, 0, 0, 0};
         float energy_lj = 0.;
+        float energy_lj_intersys = 0.;
+        float energy_lj_intrasys = 0.;
         float energy_coulomb = 0.;
         float du_dlambda_lj = 0.;
         float du_dlambda_direct = 0.;
@@ -234,7 +237,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ_SOFT_TYPE r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -278,10 +282,19 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
                     }
                     if (need_energy)
                     {
-                        energy_lj +=
+                        float pair_energy_lj =
                             ij_factor *
                             (lambda_ * Get_LJ_Energy(r1, r2, dr_abs, AA, AB) +
                              lambda * Get_LJ_Energy(r1, r2, dr_abs, BA, BB));
+                        energy_lj += pair_energy_lj;
+                        if (r1.mask == r2.mask)
+                        {
+                            energy_lj_intrasys += pair_energy_lj;
+                        }
+                        else
+                        {
+                            energy_lj_intersys += pair_energy_lj;
+                        }
                     }
                     if (need_du_dlambda)
                     {
@@ -348,12 +361,21 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
                     }
                     if (need_energy)
                     {
-                        energy_lj +=
+                        float pair_energy_lj =
                             ij_factor *
                             (lambda_ *
                                  Get_LJ_Energy(r1, r2, dr_softcore_A, AA, AB) +
                              lambda *
                                  Get_LJ_Energy(r1, r2, dr_softcore_B, BA, BB));
+                        energy_lj += pair_energy_lj;
+                        if (r1.mask == r2.mask)
+                        {
+                            energy_lj_intrasys += pair_energy_lj;
+                        }
+                        else
+                        {
+                            energy_lj_intersys += pair_energy_lj;
+                        }
                     }
                     if (need_du_dlambda)
                     {
@@ -412,6 +434,10 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
             }
             Warp_Sum_To(atom_energy + atom_i, energy_total, warpSize);
             Warp_Sum_To(this_energy + atom_i, energy_lj, warpSize);
+            Warp_Sum_To(atom_energy_intersys + atom_i, energy_lj_intersys,
+                        warpSize);
+            Warp_Sum_To(atom_energy_intrasys + atom_i, energy_lj_intrasys,
+                        warpSize);
         }
         if (need_coulomb && need_energy)
         {
@@ -463,6 +489,10 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
 
     if (lj_soft_to_use != NULL && lj_soft_to_use->atom_numbers > 0)
     {
+        const bool native_h5_parameters =
+            module_name == NULL &&
+            controller->commands.count("input_h5_topology_path") != 0 &&
+            controller->commands.count("LJ_soft_core_in_file") == 0;
         if (controller->Command_Exist("lambda_lj"))
         {
             this->lambda = atof(controller->Command("lambda_lj"));
@@ -543,19 +573,23 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
 
         for (int i = 0; i < pair_type_numbers_A; i++)
         {
-            h_LJ_AA[i] = lj_soft_to_use->LJ_AA[i];
+            h_LJ_AA[i] = lj_soft_to_use->LJ_AA[i] *
+                         (native_h5_parameters ? 12.0f : 1.0f);
         }
         for (int i = 0; i < pair_type_numbers_A; i++)
         {
-            h_LJ_AB[i] = lj_soft_to_use->LJ_AB[i];
+            h_LJ_AB[i] =
+                lj_soft_to_use->LJ_AB[i] * (native_h5_parameters ? 6.0f : 1.0f);
         }
         for (int i = 0; i < pair_type_numbers_B; ++i)
         {
-            h_LJ_BA[i] = lj_soft_to_use->LJ_BA[i];
+            h_LJ_BA[i] = lj_soft_to_use->LJ_BA[i] *
+                         (native_h5_parameters ? 12.0f : 1.0f);
         }
         for (int i = 0; i < pair_type_numbers_B; ++i)
         {
-            h_LJ_BB[i] = lj_soft_to_use->LJ_BB[i];
+            h_LJ_BB[i] =
+                lj_soft_to_use->LJ_BB[i] * (native_h5_parameters ? 6.0f : 1.0f);
         }
         for (int i = 0; i < atom_numbers; i++)
         {
@@ -641,6 +675,8 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
     if (is_initialized && !is_controller_printf_initialized)
     {
         controller->Step_Print_Initial("LJ_soft", "%.2f");
+        controller->Step_Print_Initial("LJ_soft_inter", "%.2f");
+        controller->Step_Print_Initial("LJ_soft_intra", "%.2f");
         controller->Step_Print_Initial("LJ_soft_short", "%.2f");
         controller->Step_Print_Initial("LJ_soft_long", "%.2f");
         is_controller_printf_initialized = 1;
@@ -721,10 +757,10 @@ void LJ_SOFT_CORE::Parameter_Host_To_Device()
 void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
-    const float* charge, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
-    const int need_atom_energy, float* atom_energy, const int need_virial,
-    LTMatrix3* atom_lj_virial, float* atom_direct_pme_energy)
+    const float* charge, VECTOR* frc, const Boundary boundary,
+    const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
+    float* atom_energy, const int need_virial, LTMatrix3* atom_lj_virial,
+    float* atom_direct_pme_energy)
 {
     if (is_initialized)
     {
@@ -739,6 +775,10 @@ void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
         if (need_atom_energy)
         {
             deviceMemset(d_LJ_energy_atom, 0, sizeof(float) * atom_numbers);
+            deviceMemset(d_LJ_energy_atom_intersys, 0,
+                         sizeof(float) * atom_numbers);
+            deviceMemset(d_LJ_energy_atom_intrasys, 0,
+                         sizeof(float) * atom_numbers);
             deviceMemset(atom_direct_pme_energy, 0,
                          sizeof(float) * atom_numbers);
         }
@@ -776,17 +816,18 @@ void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary,
             d_LJ_AA, d_LJ_AB, d_LJ_BA, d_LJ_BB, cutoff, frc, pme_beta,
             atom_energy, atom_lj_virial, atom_direct_pme_energy, NULL, NULL,
-            lambda, alpha, p, sigma_6, sigma_6_min, d_LJ_energy_atom);
+            lambda, alpha, p, sigma_6, sigma_6_min, d_LJ_energy_atom,
+            d_LJ_energy_atom_intersys, d_LJ_energy_atom_intrasys);
     }
 }
 
 float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
-    const int solvent_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* charge, const ATOM_GROUP* nl,
-    const float* charge_B_A, const float pme_beta, const int charge_perturbated)
+    const int solvent_numbers, const VECTOR* crd, const Boundary boundary,
+    const float* charge, const ATOM_GROUP* nl, const float* charge_B_A,
+    const float pme_beta, const int charge_perturbated)
 {
     if (is_initialized)
     {
@@ -821,10 +862,10 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
-            solvent_numbers, nl, crd_with_LJ_parameters_local, cell, rcell,
+            solvent_numbers, nl, crd_with_LJ_parameters_local, boundary,
             d_LJ_AA, d_LJ_AB, d_LJ_BA, d_LJ_BB, cutoff, NULL, pme_beta, NULL,
             NULL, NULL, d_sigma_of_dH_dlambda_lj, d_sigma_of_dH_dlambda_direct,
-            lambda, alpha, p, sigma_6, sigma_6_min, NULL);
+            lambda, alpha, p, sigma_6, sigma_6_min, NULL, NULL, NULL);
 
         deviceMemcpy(h_sigma_of_dH_dlambda_lj, d_sigma_of_dH_dlambda_lj,
                      sizeof(float), deviceMemcpyDeviceToHost);
@@ -837,7 +878,8 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
                       MPI_SUM, CONTROLLER::pp_comm);
 #endif
         return *h_sigma_of_dH_dlambda_lj +
-               long_range_factor_TI / cell.a11 / cell.a22 / cell.a33;
+               long_range_factor_TI / boundary.cell.a11 / boundary.cell.a22 /
+                   boundary.cell.a33;
     }
     else
     {
@@ -850,12 +892,26 @@ void LJ_SOFT_CORE::Step_Print(CONTROLLER* controller)
     if (!is_initialized || CONTROLLER::MPI_rank >= CONTROLLER::PP_MPI_size)
         return;
     Sum_Of_List(d_LJ_energy_atom, d_LJ_energy_sum, atom_numbers);
+    Sum_Of_List(d_LJ_energy_atom_intersys, d_LJ_energy_sum_intersys,
+                atom_numbers);
+    Sum_Of_List(d_LJ_energy_atom_intrasys, d_LJ_energy_sum_intrasys,
+                atom_numbers);
     deviceMemcpy(&h_LJ_energy_sum, d_LJ_energy_sum, sizeof(float),
                  deviceMemcpyDeviceToHost);
+    deviceMemcpy(&h_LJ_energy_sum_intersys, d_LJ_energy_sum_intersys,
+                 sizeof(float), deviceMemcpyDeviceToHost);
+    deviceMemcpy(&h_LJ_energy_sum_intrasys, d_LJ_energy_sum_intrasys,
+                 sizeof(float), deviceMemcpyDeviceToHost);
 #ifdef USE_MPI
     MPI_Allreduce(MPI_IN_PLACE, &h_LJ_energy_sum, 1, MPI_FLOAT, MPI_SUM,
                   CONTROLLER::pp_comm);
+    MPI_Allreduce(MPI_IN_PLACE, &h_LJ_energy_sum_intersys, 1, MPI_FLOAT,
+                  MPI_SUM, CONTROLLER::pp_comm);
+    MPI_Allreduce(MPI_IN_PLACE, &h_LJ_energy_sum_intrasys, 1, MPI_FLOAT,
+                  MPI_SUM, CONTROLLER::pp_comm);
 #endif
+    controller->Step_Print("LJ_soft_inter", h_LJ_energy_sum_intersys);
+    controller->Step_Print("LJ_soft_intra", h_LJ_energy_sum_intrasys);
     controller->Step_Print("LJ_soft_short", h_LJ_energy_sum);
     controller->Step_Print("LJ_soft_long", h_LJ_long_energy);
     controller->Step_Print("LJ_soft", h_LJ_energy_sum + h_LJ_long_energy, true);

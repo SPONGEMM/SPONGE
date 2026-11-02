@@ -38,6 +38,8 @@ struct COLLECTIVE_VARIABLE_PROTOTYPE
 
     // CV本身的值（CPU，GPU）
     float value, *d_value;
+    COLLECTIVE_VARIABLE_CONTROLLER* manager = NULL;
+    bool supports_open_boundary = true;
     // GPU上的对坐标的导数（求力用）和对盒子边长的导数（求维里用）
     VECTOR* crd_grads = NULL;
     LTMatrix3* virial = NULL;
@@ -54,13 +56,14 @@ struct COLLECTIVE_VARIABLE_PROTOTYPE
     // 公用的初始化
     void Super_Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
                        int atom_numbers, const char* module_name);
+    void Validate_Boundary(Boundary boundary) const;
     // 带virtual的是接口函数，必须各自实现
     // 子类自身的初始化
     virtual void Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
                          int atom_numbers, const char* module_name) = 0;
     // 子类计算CV的具体实现细节
-    virtual void Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                         const LTMatrix3 rcell, int need, int step) = 0;
+    virtual void Compute(int atom_numbers, VECTOR* crd, Boundary boundary,
+                         int need, int step) = 0;
 };
 
 // 所有CV的列表
@@ -101,9 +104,8 @@ struct COLLECTIVE_VARIABLE_CONTROLLER : public CONTROLLER
     // 每步打印CV信息
     void Step_Print();
     // 为打印计算
-    void Compute_CV_For_Print(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                              LTMatrix3 rcell, int steps, int interval,
-                              bool print_zeroth_frame);
+    void Compute_CV_For_Print(int atom_numbers, VECTOR* crd, Boundary boundary,
+                              int steps, int interval, bool print_zeroth_frame);
     // 通过CV的名字获取一个新建立的CV结构体
     COLLECTIVE_VARIABLE_PROTOTYPE* get_CV(const char* cv_name);
 
@@ -111,6 +113,15 @@ struct COLLECTIVE_VARIABLE_CONTROLLER : public CONTROLLER
     CheckMap cv_vatom_name;
     // 原子序号的映射到cv定义的虚原子的映射
     std::map<int, std::string> cv_vatom_index;
+    // Native protocol metadata retained for typed bias consumers.
+    std::map<std::string, std::vector<float>> protocol_cv_period;
+    std::map<std::string, std::vector<float>> protocol_cv_sigma;
+    std::map<std::string, std::vector<float>> protocol_cv_reference;
+    std::map<std::string, std::vector<int>> protocol_virtual_atom_indices;
+    std::map<std::string, std::vector<float>> protocol_virtual_atom_weight;
+    // Runtime still consumes the `meta` section; this retains the stable
+    // bundled object identity used by diagnostic and restart paths.
+    std::string protocol_metadynamics_name;
     // 初始化时获得使用的所有CV
     // 传入参数：
     //     name: 需要找寻的CV的任务名

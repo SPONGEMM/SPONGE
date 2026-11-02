@@ -1,10 +1,48 @@
 ﻿#include "reaxff.h"
 
+#include "native_init.h"
+#include "utils/h5md/topology_manybody_h5_materializer.hpp"
+
 void REAXFF::Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
                      float* cutoff_full, bool* need_full_nl_flag)
 {
     is_initialized = 0;
-    if (!controller->Command_Exist("REAXFF", "in_file"))
+    const bool has_legacy_parameter =
+        controller->Command_Exist("REAXFF", "in_file");
+    const bool has_legacy_type =
+        controller->Command_Exist("REAXFF", "type_in_file");
+    if (has_legacy_parameter != has_legacy_type)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorValueErrorCommand, "REAXFF::Initial",
+            "partial ReaxFF legacy override is invalid: both REAXFF_in_file "
+            "and REAXFF_type_in_file are required");
+    }
+    if (!has_legacy_parameter &&
+        controller->Command_Exist("input_h5_topology_path"))
+    {
+        SpongeH5MD::TopologyManybodyH5Materializer reader;
+        if (!reader.Open(controller->Command("input_h5_topology_path")))
+        {
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "REAXFF::Initial",
+                                           reader.Last_Error().c_str());
+        }
+        if (!reader.Has_ReaxFF()) return;
+        SpongeH5MD::NativeReaxFFDefinition definition;
+        if (!reader.Read_ReaxFF(&definition))
+        {
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "REAXFF::Initial",
+                                           reader.Last_Error().c_str());
+        }
+        Initial_ReaxFF_From_Native(this, controller, definition, atom_numbers,
+                                   cutoff, cutoff_full, need_full_nl_flag);
+        Wire_Shared_State();
+        is_initialized = 1;
+        return;
+    }
+    if (!has_legacy_parameter)
     {
         return;
     }
@@ -21,6 +59,10 @@ void REAXFF::Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
     angle.Initial(controller, atom_numbers, "REAXFF");
     torsion.Initial(controller, atom_numbers, "REAXFF");
     hb.Initial(controller, atom_numbers, "REAXFF");
+    if (bond.is_initialized && vdw.is_initialized && eeq.is_initialized)
+    {
+        controller->Step_Print_Initial("REAXFF", "%14.7e");
+    }
 
     Wire_Shared_State();
     is_initialized = 1;
@@ -90,14 +132,19 @@ void REAXFF::Wire_Shared_State()
     hb.d_dE_dBO_pi2 = bond_order.d_dE_dBO_pi2;
 }
 
-void REAXFF::Step_Print(CONTROLLER* controller, const float* d_charge)
+void REAXFF::Step_Print(CONTROLLER* controller, const float* d_charge,
+                        bool write_legacy_eeq_charges)
 {
     bond.Step_Print(controller);
     vdw.Step_Print(controller);
     eeq.Step_Print(controller);
-    if (eeq.is_initialized)
+    if (eeq.is_initialized && CONTROLLER::MPI_rank == 0)
     {
-        eeq.Print_Charges(d_charge);
+        eeq.Capture_Charges(d_charge, &h_eeq_charges, write_legacy_eeq_charges);
+    }
+    else
+    {
+        h_eeq_charges.clear();
     }
     ovun.Step_Print_ELP(controller);
     ovun.Step_Print(controller);
@@ -119,18 +166,17 @@ void REAXFF::Step_Print(CONTROLLER* controller, const float* d_charge)
 void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
                              NEIGHBOR_LIST* neighbor_list)
 {
-    eeq.Calculate_Charges(dd->atom_numbers, md_info->d_charge, dd->crd,
-                          md_info->pbc.cell, md_info->pbc.rcell,
-                          neighbor_list->full_neighbor_list.d_nl,
-                          md_info->nb.cutoff, dd->d_energy, dd->frc,
-                          md_info->need_pressure, dd->d_virial);
+    eeq.Calculate_Charges(
+        dd->atom_numbers, md_info->d_charge, dd->crd, md_info->pbc.boundary,
+        neighbor_list->full_neighbor_list.d_nl, md_info->nb.cutoff,
+        dd->d_energy, dd->frc, md_info->need_pressure, dd->d_virial);
     if (CONTROLLER::PP_MPI_size == 1 && dd->d_charge != md_info->d_charge)
     {
         dd->Sync_Local_Charge_From_Global(md_info->d_charge);
     }
 
     bond_order.Calculate_Bond_Order(
-        dd->atom_numbers, dd->crd, md_info->pbc.cell, md_info->pbc.rcell,
+        dd->atom_numbers, dd->crd, md_info->pbc.boundary,
         neighbor_list->full_neighbor_list.d_nl, md_info->nb.cutoff);
 
     if (bond_order.is_initialized)
@@ -139,40 +185,39 @@ void REAXFF::Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
     }
 
     bond.REAXFF_Bond_Force_With_Atom_Energy_And_Virial(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, neighbor_list->d_nl, md_info->need_potential,
-        dd->d_energy, md_info->need_pressure, dd->d_virial);
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary,
+        neighbor_list->d_nl, md_info->need_potential, dd->d_energy,
+        md_info->need_pressure, dd->d_virial);
     vdw.REAXFF_VDW_Force_With_Atom_Energy_And_Virial(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, neighbor_list->d_nl, md_info->nb.cutoff,
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary,
+        neighbor_list->d_nl, md_info->nb.cutoff, md_info->need_potential,
+        dd->d_energy, md_info->need_pressure, dd->d_virial);
+    ovun.Calculate_Over_Under_Energy_And_Force(
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary, &bond_order,
         md_info->need_potential, dd->d_energy, md_info->need_pressure,
         dd->d_virial);
-    ovun.Calculate_Over_Under_Energy_And_Force(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, &bond_order, md_info->need_potential, dd->d_energy,
-        md_info->need_pressure, dd->d_virial);
     angle.Calculate_Valence_Angle_Energy_And_Force(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, neighbor_list->full_neighbor_list.d_nl, &bond_order,
-        ovun.d_Delta, ovun.d_Delta_boc, ovun.d_Delta_val, ovun.d_nlp,
-        ovun.d_vlpex, ovun.d_dDelta_lp, ovun.d_CdDelta, md_info->need_potential,
-        dd->d_energy, md_info->need_pressure, dd->d_virial);
-    torsion.Calculate_Torsion_Energy_And_Force(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, neighbor_list->full_neighbor_list.d_nl, &bond_order,
-        ovun.d_Delta_boc, md_info->need_potential, dd->d_energy,
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary,
+        neighbor_list->full_neighbor_list.d_nl, &bond_order, ovun.d_Delta,
+        ovun.d_Delta_boc, ovun.d_Delta_val, ovun.d_nlp, ovun.d_vlpex,
+        ovun.d_dDelta_lp, ovun.d_CdDelta, md_info->need_potential, dd->d_energy,
         md_info->need_pressure, dd->d_virial);
+    torsion.Calculate_Torsion_Energy_And_Force(
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary,
+        neighbor_list->full_neighbor_list.d_nl, &bond_order, ovun.d_Delta_boc,
+        md_info->need_potential, dd->d_energy, md_info->need_pressure,
+        dd->d_virial);
     hb.Calculate_HB_Energy_And_Force(
-        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.cell,
-        md_info->pbc.rcell, neighbor_list->full_neighbor_list.d_nl, &bond_order,
+        dd->atom_numbers, dd->crd, dd->frc, md_info->pbc.boundary,
+        neighbor_list->full_neighbor_list.d_nl, &bond_order,
         md_info->need_potential, dd->d_energy, md_info->need_pressure,
         dd->d_virial);
 
     if (bond_order.is_initialized)
     {
         bond_order.Calculate_Forces(dd->atom_numbers, dd->crd, dd->frc,
-                                    md_info->pbc.cell, md_info->pbc.rcell,
-                                    md_info->nb.cutoff, ovun.d_CdDelta,
-                                    md_info->need_pressure, dd->d_virial);
+                                    md_info->pbc.boundary, md_info->nb.cutoff,
+                                    ovun.d_CdDelta, md_info->need_pressure,
+                                    dd->d_virial);
     }
 }

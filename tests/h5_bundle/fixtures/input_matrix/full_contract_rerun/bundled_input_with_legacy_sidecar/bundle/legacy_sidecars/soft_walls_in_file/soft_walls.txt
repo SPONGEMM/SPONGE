@@ -1,0 +1,4 @@
+[[[ z_wall ]]]
+[[ potential ]]
+E = powf((z - 5.0f) * (z - 5.0f), -6.0f);
+[[ end ]]

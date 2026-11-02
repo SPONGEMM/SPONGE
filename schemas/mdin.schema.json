@@ -1,0 +1,2292 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SPONGE mdin.spg.toml schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "md_name": {
+      "type": "string",
+      "title": "MD Task Name",
+      "description": "MD task name.",
+      "default": ""
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "min",
+        "minimization",
+        "npt",
+        "nve",
+        "nvt",
+        "NPT",
+        "NVE",
+        "NVT",
+        "rerun"
+      ],
+      "title": "Mode",
+      "description": "Simulation mode.",
+      "default": "amd"
+    },
+    "pbc": {
+      "type": "boolean",
+      "title": "PBC",
+      "description": "Enable periodic boundary conditions.",
+      "default": false
+    },
+    "step_limit": {
+      "type": "integer",
+      "title": "Step Limit",
+      "description": "Maximum number of steps.",
+      "default": 0
+    },
+    "frame_limit": {
+      "type": "integer",
+      "title": "Frame Limit",
+      "description": "Maximum number of rerun frames. Canonical flat key used by runtime.",
+      "default": 0
+    },
+    "rerun_frame_limit": {
+      "type": "integer",
+      "title": "Rerun Frame Limit",
+      "description": "Compatibility alias for frame_limit.",
+      "default": 0
+    },
+    "rerun_start": {
+      "type": "integer",
+      "title": "Rerun Start",
+      "description": "Starting frame offset for rerun mode.",
+      "default": 0
+    },
+    "rerun_strip": {
+      "type": "integer",
+      "title": "Rerun Strip",
+      "description": "Number of frames skipped between processed rerun frames.",
+      "default": 0
+    },
+    "rerun_need_box_update": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ]
+        },
+        {
+          "type": "boolean"
+        }
+      ],
+      "title": "Rerun Need Box Update",
+      "description": "Whether to update the box deformation tensor during rerun.",
+      "default": 0
+    },
+    "cutoff": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Cutoff",
+      "description": "Cutoff distance.",
+      "default": 0.0
+    },
+    "skin": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Skin",
+      "description": "Neighbor list skin distance.",
+      "default": 0.0
+    },
+    "dt": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "DT",
+      "description": "Time step.",
+      "default": 0.0
+    },
+    "target_temperature": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Target Temperature",
+      "description": "Target temperature.",
+      "default": 0.0
+    },
+    "target_pressure": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Target Pressure",
+      "description": "Target pressure.",
+      "default": 0.0
+    },
+    "target_temperature_schedule_mode": {
+      "type": "string",
+      "enum": [
+        "step",
+        "linear"
+      ],
+      "title": "Temperature Schedule Mode",
+      "description": "Schedule mode for target temperature.",
+      "default": "step"
+    },
+    "target_temperature_schedule_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "step",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "title": "Temperature Schedule Steps",
+      "description": "Control points for target temperature schedule as { step, value } objects.",
+      "default": []
+    },
+    "target_temperature_schedule_values": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "title": "Temperature Schedule Values",
+      "description": "Control values for target temperature schedule in K.",
+      "default": []
+    },
+    "target_temperature_schedule_file": {
+      "type": "string",
+      "title": "Temperature Schedule File",
+      "description": "Path to schedule TOML file for target temperature.",
+      "default": ""
+    },
+    "target_pressure_schedule_mode": {
+      "type": "string",
+      "enum": [
+        "step",
+        "linear"
+      ],
+      "title": "Pressure Schedule Mode",
+      "description": "Schedule mode for target pressure.",
+      "default": "step"
+    },
+    "target_pressure_schedule_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          }
+        },
+        "required": [
+          "step",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "title": "Pressure Schedule Steps",
+      "description": "Control points for target pressure schedule as { step, value } objects.",
+      "default": []
+    },
+    "target_pressure_schedule_values": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "number"
+          }
+        ]
+      },
+      "title": "Pressure Schedule Values",
+      "description": "Control values for target pressure schedule in bar.",
+      "default": []
+    },
+    "target_pressure_schedule_file": {
+      "type": "string",
+      "title": "Pressure Schedule File",
+      "description": "Path to schedule TOML file for target pressure.",
+      "default": ""
+    },
+    "velocity_max": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Velocity Max",
+      "description": "Maximum velocity.",
+      "default": 0.0
+    },
+    "default_in_file_prefix": {
+      "type": "string",
+      "title": "Default In File Prefix",
+      "description": "Default prefix for input files.",
+      "default": ""
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "h5": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "topology": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5 Topology Path",
+                  "description": "Path to topology.spgt.h5. SPONGE flattens this TOML key to input_h5_topology_path.",
+                  "default": ""
+                }
+              },
+              "title": "H5 Topology Input",
+              "description": "Canonical H5 topology input binding."
+            },
+            "protocol": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5 Protocol Path",
+                  "description": "Path to protocol.spgp.h5. SPONGE flattens this TOML key to input_h5_protocol_path.",
+                  "default": ""
+                }
+              },
+              "title": "H5 Protocol Input",
+              "description": "Canonical H5 protocol input binding."
+            },
+            "restart": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5 Restart Path",
+                  "description": "Path to restart.spgr.h5. SPONGE flattens this TOML key to input_h5_restart_path.",
+                  "default": ""
+                },
+                "load": {
+                  "type": "string",
+                  "enum": [
+                    "structural",
+                    "dynamic",
+                    "protocol",
+                    "full",
+                    "custom"
+                  ],
+                  "title": "H5 Restart Load Policy",
+                  "description": "Restart component load policy. structural loads coordinates/box/step/time and optional velocity; missing velocity is initialized to zero. dynamic also loads engine continuation state; protocol also loads protocol continuation state; full loads both dynamic and protocol.",
+                  "default": "structural"
+                }
+              },
+              "title": "H5 Restart Input",
+              "description": "Canonical H5 restart input binding and component restore policy."
+            },
+            "trajectory": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5MD Trajectory Input Path",
+                  "description": "Path to trajectory.spg.h5md for rerun or analysis input. SPONGE flattens this TOML key to input_h5_trajectory_path.",
+                  "default": ""
+                },
+                "particle_stream": {
+                  "type": "string",
+                  "title": "H5MD Particle Stream",
+                  "description": "Particle group name under /particles to read from the H5MD trajectory. SPONGE flattens this TOML key to input_h5_trajectory_particle_stream.",
+                  "default": "all"
+                }
+              },
+              "title": "H5MD Trajectory Input",
+              "description": "H5MD trajectory input binding for rerun and analysis paths."
+            }
+          },
+          "title": "H5 Input",
+          "description": "Canonical H5 input container bindings."
+        }
+      },
+      "title": "Input",
+      "description": "Input container bindings."
+    },
+    "charge_in_file": {
+      "type": "string",
+      "title": "Charge In File",
+      "description": "Input file path for charge.",
+      "default": ""
+    },
+    "coordinate_in_file": {
+      "type": "string",
+      "title": "Coordinate In File",
+      "description": "Input file path for coordinate.",
+      "default": ""
+    },
+    "cv_in_file": {
+      "type": "string",
+      "title": "CV In File",
+      "description": "Input file path for Collective Variables.",
+      "default": ""
+    },
+    "REAXFF_in_file": {
+      "type": "string",
+      "title": "REAXFF In File",
+      "description": "Input file path for ReaxFF force-field parameters (legacy uppercase key).",
+      "default": ""
+    },
+    "REAXFF_type_in_file": {
+      "type": "string",
+      "title": "REAXFF Type In File",
+      "description": "Input file path for ReaxFF type mapping (legacy uppercase key).",
+      "default": ""
+    },
+    "REAXFF": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "in_file": {
+          "type": "string",
+          "title": "REAXFF In File",
+          "description": "Input file path for ReaxFF force-field parameters.",
+          "default": ""
+        },
+        "type_in_file": {
+          "type": "string",
+          "title": "REAXFF Type In File",
+          "description": "Input file path for ReaxFF type mapping.",
+          "default": ""
+        }
+      },
+      "title": "REAXFF",
+      "description": "ReaxFF force-field settings."
+    },
+    "exclude_in_file": {
+      "type": "string",
+      "title": "Exclude In File",
+      "description": "Input file path for exclude.",
+      "default": ""
+    },
+    "pairwise_force_in_file": {
+      "type": "string",
+      "title": "Pairwise Force In File",
+      "description": "Input file path for pairwise force.",
+      "default": ""
+    },
+    "bond_in_file": {
+      "type": "string",
+      "title": "Bond In File",
+      "description": "Input file path for bond.",
+      "default": ""
+    },
+    "bond_soft_in_file": {
+      "type": "string",
+      "title": "Bond Soft In File",
+      "description": "Input file path for soft bond.",
+      "default": ""
+    },
+    "angle_in_file": {
+      "type": "string",
+      "title": "Angle In File",
+      "description": "Input file path for angle.",
+      "default": ""
+    },
+    "cmap_in_file": {
+      "type": "string",
+      "title": "CMAP In File",
+      "description": "Input file path for CMAP.",
+      "default": ""
+    },
+    "dihedral_in_file": {
+      "type": "string",
+      "title": "Dihedral In File",
+      "description": "Input file path for dihedral.",
+      "default": ""
+    },
+    "improper_dihedral_in_file": {
+      "type": "string",
+      "title": "Improper Dihedral In File",
+      "description": "Input file path for improper dihedral.",
+      "default": ""
+    },
+    "listed_forces_in_file": {
+      "type": "string",
+      "title": "Listed Forces In File",
+      "description": "Input file path for listed forces.",
+      "default": ""
+    },
+    "mass_in_file": {
+      "type": "string",
+      "title": "Mass In File",
+      "description": "Input file path for mass.",
+      "default": ""
+    },
+    "residue_in_file": {
+      "type": "string",
+      "title": "Residue In File",
+      "description": "Input file path for residue.",
+      "default": ""
+    },
+    "subsys_division_in_file": {
+      "type": "string",
+      "title": "Subsys Division In File",
+      "description": "Input file path for subsys division.",
+      "default": ""
+    },
+    "velocity_in_file": {
+      "type": "string",
+      "title": "Velocity In File",
+      "description": "Input file path for velocity.",
+      "default": ""
+    },
+    "virtual_atom_in_file": {
+      "type": "string",
+      "title": "Virtual Atom In File",
+      "description": "Input file path for virtual atom.",
+      "default": ""
+    },
+    "LJ_in_file": {
+      "type": "string",
+      "title": "LJ In File",
+      "description": "Input file path for LJ.",
+      "default": ""
+    },
+    "LJ_soft_core_in_file": {
+      "type": "string",
+      "title": "LJ Soft Core In File",
+      "description": "Input file path for LJ soft core.",
+      "default": ""
+    },
+    "nb14_in_file": {
+      "type": "string",
+      "title": "NB14 In File",
+      "description": "Input file path for nb14.",
+      "default": ""
+    },
+    "nb14_extra_in_file": {
+      "type": "string",
+      "title": "NB14 Extra In File",
+      "description": "Input file path for nb14 extra.",
+      "default": ""
+    },
+    "urey_bradley_in_file": {
+      "type": "string",
+      "title": "Urey Bradley In File",
+      "description": "Input file path for urey bradley.",
+      "default": ""
+    },
+    "soft_walls_in_file": {
+      "type": "string",
+      "title": "Soft Walls In File",
+      "description": "Input file path for soft walls.",
+      "default": ""
+    },
+    "default_out_file_prefix": {
+      "type": "string",
+      "title": "Default Out File Prefix",
+      "description": "Default prefix for output files.",
+      "default": ""
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "h5": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trajectory": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5MD Trajectory Output Path",
+                  "description": "Canonical trajectory H5MD output path. SPONGE flattens this TOML key to output_h5_trajectory_path.",
+                  "default": ""
+                },
+                "vds": {
+                  "type": "boolean",
+                  "title": "H5MD Trajectory VDS",
+                  "description": "Write chunked H5MD shards plus an HDF5 VDS wrapper.",
+                  "default": false
+                },
+                "chunk_size": {
+                  "type": "integer",
+                  "title": "H5MD Trajectory Chunk Size",
+                  "description": "Number of trajectory frames per H5MD shard when VDS output is enabled.",
+                  "default": 20
+                },
+                "repair_policy": {
+                  "type": "string",
+                  "enum": [
+                    "strict",
+                    "complete_prefix"
+                  ],
+                  "title": "H5MD Trajectory Repair Policy",
+                  "description": "Finalize policy for VDS trajectory output.",
+                  "default": "strict"
+                }
+              },
+              "title": "H5MD Trajectory Output",
+              "description": "Canonical H5MD trajectory output settings."
+            },
+            "restart": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5 Restart Output Path",
+                  "description": "Canonical restart H5 output path. SPONGE flattens this TOML key to output_h5_restart_path.",
+                  "default": ""
+                },
+                "topology_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "title": "Restart Topology Hash",
+                  "description": "Canonical topology lineage for raw-input runs. Omit when input.h5.topology is bound.",
+                  "default": ""
+                },
+                "atom_order_hash": {
+                  "type": "string",
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "title": "Restart Atom Order Hash",
+                  "description": "Canonical atom-order lineage for raw-input runs. Omit when input.h5.topology is bound.",
+                  "default": ""
+                },
+                "protocol_hash": {
+                  "type": "string",
+                  "pattern": "^$|^sha256:[0-9a-f]{64}$",
+                  "title": "Restart Protocol Hash",
+                  "description": "Optional canonical producer protocol lineage for raw-input runs.",
+                  "default": ""
+                }
+              },
+              "title": "H5 Restart Output",
+              "description": "Canonical H5 restart output settings."
+            },
+            "observable": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "title": "H5MD Observable Output Path",
+                  "description": "Optional observable-only H5MD output path. SPONGE flattens this TOML key to output_h5_observable_path.",
+                  "default": ""
+                }
+              },
+              "title": "H5MD Observable Output",
+              "description": "Optional H5MD observable output settings."
+            }
+          },
+          "title": "H5 Output",
+          "description": "Canonical H5 output container settings."
+        }
+      },
+      "title": "Output",
+      "description": "Output container settings."
+    },
+      "trajectory_format": {
+        "type": "string",
+        "enum": [
+          "dat",
+          "xtc"
+        ],
+        "title": "Trajectory Format",
+        "description": "Legacy coordinate trajectory format. 'dat' writes mdcrd.dat (raw binary VECTOR frames). 'xtc' writes a GROMACS XTC file in nanometre units with 0.001 nm lossy compression, configured through the [xtc] table.",
+        "default": "dat"
+      },
+      "xtc": {
+        "type": "object",
+        "additionalProperties": false,
+        "title": "XTC Trajectory Output",
+        "description": "GROMACS XTC trajectory settings. Only used when trajectory_format = 'xtc'.",
+        "properties": {
+          "path": {
+            "type": "string",
+            "title": "XTC Output Path",
+            "description": "XTC trajectory path. Defaults to mdcrd.xtc, or <default_out_file_prefix>.xtc when a prefix is set.",
+            "default": ""
+          },
+          "precision": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "title": "XTC Precision",
+            "description": "Lossy compression precision. 1000.0 means 0.001 nm (0.01 Angstrom) resolution. Larger values reduce quantization error and enlarge the file.",
+            "default": 1000.0
+          },
+          "flush": {
+            "type": "boolean",
+            "title": "XTC Flush Per Frame",
+            "description": "Flush completed frames to the operating system as they are written, so an interrupted run leaves a readable trajectory ending on a frame boundary.",
+            "default": true
+          },
+          "buffer_frames": {
+            "type": "integer",
+            "title": "XTC Buffer Frames",
+            "description": "Size of the frame-aligned stdio buffer in whole frames. Keeps a single frame from straddling a buffer boundary. Zero keeps the stdio default.",
+            "default": 10
+          },
+          "frame_index": {
+            "type": "boolean",
+            "title": "XTC Frame Index",
+            "description": "Also write <path>.idx holding the end offset of every completed frame, for exact truncation after an abrupt termination.",
+            "default": false
+          },
+          "append": {
+            "type": "boolean",
+            "title": "XTC Append",
+            "description": "Append to an existing XTC trajectory instead of truncating it, so a resumed run continues the same file.",
+            "default": false
+          }
+        }
+      },
+    "box": {
+      "type": "string",
+      "title": "Box",
+      "description": "Path for output box file.",
+      "default": ""
+    },
+    "crd": {
+      "type": "string",
+      "title": "Crd",
+      "description": "Path for output coordinate file.",
+      "default": ""
+    },
+    "frc": {
+      "type": "string",
+      "title": "Frc",
+      "description": "Path for output force file.",
+      "default": ""
+    },
+    "rst": {
+      "type": "string",
+      "title": "Rst",
+      "description": "Path for output restart file.",
+      "default": ""
+    },
+    "vel": {
+      "type": "string",
+      "title": "Vel",
+      "description": "Path for output velocity file.",
+      "default": ""
+    },
+    "mdinfo": {
+      "type": "string",
+      "title": "MDinfo",
+      "description": "Path for output mdinfo file",
+      "default": ""
+    },
+    "mdout": {
+      "type": "string",
+      "title": "MDout",
+      "description": "Path for output mdout file.",
+      "default": ""
+    },
+    "buffer_frame": {
+      "type": "integer",
+      "title": "Buffer Frame",
+      "description": "Number of frames to buffer before writing.",
+      "default": 0
+    },
+    "print_pressure": {
+      "type": "boolean",
+      "title": "Print Pressure",
+      "description": "Whether to print pressure.",
+      "default": false
+    },
+    "print_zeroth_frame": {
+      "type": "boolean",
+      "title": "Print Zeroth Frame",
+      "description": "Whether to print the zeroth frame.",
+      "default": false
+    },
+    "force_whole_output": {
+      "type": "boolean",
+      "title": "Force Whole Output",
+      "description": "Force coordinate mapping by whole molecules during output.",
+      "default": false
+    },
+    "device": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        }
+      ],
+      "title": "Device",
+      "description": "Compute device index or list.",
+      "default": 0
+    },
+    "device_optimized_block": {
+      "type": "integer",
+      "title": "Device Optimized Block",
+      "description": "Device-optimized block size. Set to 64 on AMD GPUs and 32 on NVIDIA GPUs is suggested.",
+      "default": 32
+    },
+    "lambda_bond": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Lambda Bond",
+      "description": "Numeric value.",
+      "default": 0.0
+    },
+    "lambda_lj": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Lambda LJ",
+      "description": "Numeric value.",
+      "default": 0.0
+    },
+    "soft_core_alpha": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Soft Core Alpha",
+      "description": "Numeric value.",
+      "default": 0.5
+    },
+    "soft_core_powfer": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Soft Core Powfer",
+      "description": "Numeric value.",
+      "default": 1.0
+    },
+    "soft_core_sigma": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Soft Core Sigma",
+      "description": "Numeric value.",
+      "default": 3.0
+    },
+    "soft_core_sigma_min": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Soft Core Sigma Min",
+      "description": "Numeric value.",
+      "default": 0.0
+    },
+    "soft_bond_alpha": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "title": "Soft Bond Alpha",
+      "description": "Numeric value.",
+      "default": 0.0
+    },
+    "dont_check_input": {
+      "type": "boolean",
+      "title": "Dont Check Input",
+      "description": "Skip input validation.",
+      "default": false
+    },
+    "end_pause": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "title": "End Pause",
+      "description": "Pause at end of run (0/1).",
+      "default": 0
+    },
+    "force_debug": {
+      "type": "integer",
+      "enum": [
+        0,
+        1
+      ],
+      "title": "Force Debug",
+      "description": "Force debug mode (0/1).",
+      "default": 0
+    },
+    "make_output_whole": {
+      "type": "array",
+      "items": {},
+      "title": "Make Output Whole",
+      "description": "Make output whole for selected atom pairs.",
+      "default": []
+    },
+    "max_restart_export_count": {
+      "type": "integer",
+      "title": "Max Restart Export Count",
+      "description": "Maximum number of restart files to export.",
+      "default": 1
+    },
+    "solvent_LJ": {
+      "type": "boolean",
+      "title": "Solvent LJ",
+      "description": "Enable solvent LJ acceleration.",
+      "default": true
+    },
+    "write": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "information_interval": {
+          "type": "integer",
+          "title": "Information Interval",
+          "description": "Information output interval (steps).",
+          "default": 1000
+        },
+        "mdout_interval": {
+          "type": "integer",
+          "title": "MDOUT Interval",
+          "description": "MDOUT output interval (steps).",
+          "default": 1000
+        },
+        "restart_file_interval": {
+          "type": "integer",
+          "title": "Restart File Interval",
+          "description": "Restart file output interval (steps).",
+          "default": 1000
+        },
+        "trajectory_interval": {
+          "type": "integer",
+          "title": "Trajectory Interval",
+          "description": "Trajectory output interval (steps).",
+          "default": 1000
+        },
+        "interval": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "information": {
+              "type": "integer",
+              "title": "Information Interval",
+              "description": "Alias for write_information_interval.",
+              "default": 1000
+            },
+            "mdout": {
+              "type": "integer",
+              "title": "MDOUT Interval",
+              "description": "Alias for write_mdout_interval.",
+              "default": 1000
+            },
+            "restart": {
+              "type": "integer",
+              "title": "Restart File Interval",
+              "description": "Alias for write_restart_file_interval.",
+              "default": 1000
+            },
+            "restart_file": {
+              "type": "integer",
+              "title": "Restart File Interval",
+              "description": "Alias for write_restart_file_interval.",
+              "default": 1000
+            },
+            "trajectory": {
+              "type": "integer",
+              "title": "Trajectory Interval",
+              "description": "Alias for write_trajectory_interval.",
+              "default": 1000
+            }
+          },
+          "title": "Write Interval Aliases",
+          "description": "TOML-only aliases such as [write.interval] trajectory = 5000. SPONGE normalizes these keys to the existing write_*_interval commands."
+        }
+      },
+      "title": "Write",
+      "description": "Write interval settings."
+    },
+    "amber": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "irest": {
+          "type": "boolean",
+          "title": "Irest",
+          "description": "AMBER restart flag for velocity in rst or not.",
+          "default": false
+        },
+        "parm7": {
+          "type": "string",
+          "title": "Parm7",
+          "description": "AMBER PARM7 file path.",
+          "default": ""
+        },
+        "rst7": {
+          "type": "string",
+          "title": "Rst7",
+          "description": "AMBER RST7 file path.",
+          "default": ""
+        }
+      },
+      "title": "Amber",
+      "description": "AMBER compatibility settings."
+    },
+    "DOM_DEC": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "split_nx": {
+          "type": "integer",
+          "title": "Split Nx",
+          "description": "Domain decomposition splits along X.",
+          "default": 0
+        },
+        "split_ny": {
+          "type": "integer",
+          "title": "Split Ny",
+          "description": "Domain decomposition splits along Y.",
+          "default": 0
+        },
+        "split_nz": {
+          "type": "integer",
+          "title": "Split Nz",
+          "description": "Domain decomposition splits along Z.",
+          "default": 0
+        },
+        "update_interval": {
+          "type": "integer",
+          "title": "Update Interval",
+          "description": "Domain decomposition update interval (steps).",
+          "default": 0
+        }
+      },
+      "title": "DOM_DEC",
+      "description": "Domain decomposition settings."
+    },
+    "minimization": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta1": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Beta1",
+          "description": "Hyperparameter for ADAM minimization algorithm.",
+          "default": 0.9
+        },
+        "dynamic_dt": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Dynamic DT",
+          "description": "Enable dynamic time step algorithm (ADAM) (0/1).",
+          "default": 1
+        },
+        "epsilon": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Epsilon",
+          "description": "Epsilon value for numerical stability",
+          "default": 0.0001
+        },
+        "max_move": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Max Move",
+          "description": "Clip update step to this value.",
+          "default": 0.1
+        },
+        "momentum_keep": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Momentum Keep",
+          "description": "Momentum keep for minimization.",
+          "default": 0.0
+        }
+      },
+      "title": "Minimization",
+      "description": "Minimization mode settings."
+    },
+    "rerun": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "frame_limit": {
+          "type": "integer",
+          "title": "Frame Limit",
+          "description": "Total rerun frames.",
+          "default": 0
+        },
+        "need_box_update": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "enum": [
+                0,
+                1
+              ]
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "title": "Need Box Update",
+          "description": "Update box during rerun.",
+          "default": 0
+        },
+        "start": {
+          "type": "integer",
+          "title": "Start",
+          "description": "Rerun start frame.",
+          "default": 0
+        },
+        "strip": {
+          "type": "integer",
+          "title": "Strip",
+          "description": "Rerun strip frames.",
+          "default": 0
+        }
+      },
+      "title": "Rerun",
+      "description": "Rerun mode settings."
+    },
+    "thermostat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "andersen",
+            "berendsen_thermostat",
+            "bussi_thermostat",
+            "langevin",
+            "middle_langevin",
+            "nose_hoover_chain"
+          ],
+          "title": "Thermostat Mode",
+          "description": "Thermostat mode.",
+          "default": "middle_langevin"
+        },
+        "seed": {
+          "type": "integer",
+          "title": "Seed",
+          "description": "Seed for thermostat random number generator.",
+          "default": 2026
+        },
+        "tau": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Thermostat Tau",
+          "description": "Time constant for thermostat.",
+          "default": 0.0
+        }
+      },
+      "title": "Thermostat",
+      "description": "Thermostat settings."
+    },
+    "nose_hoover_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "crd": {
+          "type": "string",
+          "title": "Nose Hoover Chain Coordinate",
+          "description": "Coordinate file path for Nose-Hoover chain.",
+          "default": ""
+        },
+        "vel": {
+          "type": "string",
+          "title": "Nose Hoover Chain Velocity",
+          "description": "Velocity file path for Nose-Hoover chain.",
+          "default": ""
+        },
+        "restart_input": {
+          "type": "string",
+          "title": "Nose Hoover Chain Restart Input",
+          "description": "Restart input file path for Nose-Hoover chain.",
+          "default": ""
+        },
+        "restart_output": {
+          "type": "string",
+          "title": "Nose Hoover Chain Restart Output",
+          "description": "Restart output file path for Nose-Hoover chain.",
+          "default": ""
+        },
+        "length": {
+          "type": "integer",
+          "title": "Nose Hoover Chain Length",
+          "description": "Chain length for Nose-Hoover chain.",
+          "default": 0
+        },
+        "velocity_max": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Nose Hoover Chain Velocity Max",
+          "description": "Maximum velocity for Nose-Hoover chain.",
+          "default": 0.0
+        }
+      },
+      "title": "Nose Hoover Chain Thermostat",
+      "description": "Nose-Hoover chain thermostat settings."
+    },
+    "barostat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "andersen_barostat",
+            "berendsen_barostat",
+            "bussi_barostat",
+            "monte_carlo_barostat"
+          ],
+          "title": "Barostat Mode",
+          "description": "Barostat mode.",
+          "default": "amd"
+        },
+        "seed": {
+          "type": "integer",
+          "title": "Barostat Random Seed",
+          "description": "Seed for the pressure-based barostat portable Philox random stream.",
+          "default": 2026
+        },
+        "isotropy": {
+          "type": "string",
+          "enum": [
+            "anisotropic",
+            "isotropic",
+            "semianisotropic",
+            "semiisotropic"
+          ],
+          "title": "Barostat Isotropy",
+          "description": "Isotropy setting for barostat.",
+          "default": "anisotropic"
+        },
+        "target_surface_tensor": {
+          "type": "array",
+          "items": {},
+          "title": "Target Surface Tensor",
+          "description": "Target surface tensor for non-isotropic barostats.",
+          "default": []
+        },
+        "compressibility": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Compressibility",
+          "description": "Compressibility for barostat.",
+          "default": 4.5e-05
+        },
+        "g11": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G11",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "g21": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G21",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "g22": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G22",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "g31": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G31",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "g32": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G32",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "g33": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "G33",
+          "description": "Numeric value.",
+          "default": 0.0
+        },
+        "tau": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Barostat Tau",
+          "description": "Time constant for barostat.",
+          "default": 0.0
+        },
+        "update_interval": {
+          "type": "integer",
+          "title": "Barostat Update Interval",
+          "description": "Barostat update interval in steps.",
+          "default": 0
+        },
+        "monte_carlo": {
+          "$ref": "#/properties/monte_carlo_barostat"
+        },
+        "x_constant": {
+          "type": "boolean",
+          "title": "X Constant",
+          "description": "Whether to enable x constant.",
+          "default": false
+        },
+        "y_constant": {
+          "type": "boolean",
+          "title": "Y Constant",
+          "description": "Whether to enable y constant.",
+          "default": false
+        },
+        "z_constant": {
+          "type": "boolean",
+          "title": "Z Constant",
+          "description": "Whether to enable z constant.",
+          "default": false
+        }
+      },
+      "title": "Barostat",
+      "description": "Barostat settings."
+    },
+    "monte_carlo_barostat": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accept_rate_high": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "MC Barostat Accept Rate High",
+          "description": "Ensure accept rate of Monte Carlo barostat is below this value.",
+          "default": 40
+        },
+        "accept_rate_low": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "MC Barostat Accept Rate Low",
+          "description": "Ensure accept rate of Monte Carlo barostat is above this value.",
+          "default": 30
+        },
+        "check_interval": {
+          "type": "integer",
+          "title": "MC Barostat Check Interval",
+          "description": "Check Monte Carlo parameters every this many steps.",
+          "default": 10
+        },
+        "couple_dimension": {
+          "type": "string",
+          "enum": [
+            "NO",
+            "XY",
+            "XYZ",
+            "XZ",
+            "YZ"
+          ],
+          "title": "MC Barostat Couple Dimension",
+          "description": "Couple dimensions in Monte Carlo volume change.",
+          "default": "NO"
+        },
+        "initial_ratio": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "MC Barostat Initial Ratio",
+          "description": "Initial ratio of the change in each box length to the initial box length",
+          "default": 0.001
+        },
+        "only_direction": {
+          "type": "string",
+          "enum": [
+            "x",
+            "xy",
+            "xz",
+            "y",
+            "yz",
+            "z"
+          ],
+          "title": "MC Barostat Only Direction",
+          "description": "Only change volume in this direction.",
+          "default": "x"
+        },
+        "seed": {
+          "type": "integer",
+          "title": "MC Barostat Random Seed",
+          "description": "Seed for the module-owned portable SplitMix64 random stream.",
+          "default": 0
+        },
+        "surface_number": {
+          "type": "integer",
+          "title": "MC Barostat Surface Number",
+          "description": "Number of surfaces in system.",
+          "default": 0
+        },
+        "surface_tension": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "MC Barostat Surface Tension",
+          "description": "Surface tension value for Monte Carlo barostat.",
+          "default": 0.0
+        },
+        "update_interval": {
+          "type": "integer",
+          "title": "MC Barostat Update Interval",
+          "description": "Attempt to change volume every this many steps.",
+          "default": 0
+        }
+      },
+      "title": "Monte Carlo Barostat",
+      "description": "Monte Carlo barostat settings."
+    },
+    "constrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "SETTLE",
+            "SHAKE",
+            "LINCS",
+            "CCMA"
+          ],
+          "title": "Constrain Mode",
+          "description": "Constraint mode."
+        },
+        "angle": {
+          "type": "boolean",
+          "title": "Angle",
+          "description": "Whether to enable angle. Angle constrains are discontinued since SPONGE v1.4 and will raise error if set to true.",
+          "default": false
+        },
+        "in_file": {
+          "type": "string",
+          "title": "Constrain In File",
+          "description": "File path for constraint bonds input.",
+          "default": ""
+        },
+        "mass": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Constrain Mass",
+          "description": "Atoms with mass less than this value will be constrained.",
+          "default": 3.3
+        },
+        "settle_disable": {
+          "type": "boolean",
+          "title": "Settle Disable",
+          "description": "Whether to enable settle disable.",
+          "default": false
+        }
+      },
+      "title": "Constrain",
+      "description": "Constraint settings."
+    },
+    "SHAKE": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "iteration_numbers": {
+          "type": "integer",
+          "title": "SHAKE Iteration Numbers",
+          "description": "Iteration numbers for SHAKE algorithm.",
+          "default": 25
+        },
+        "step_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "SHAKE Step Length",
+          "description": "Step length for SHAKE algorithm.",
+          "default": 1.0
+        },
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.0001,
+          "description": "Relative bond-length tolerance for small-group early stopping. Reaching the iteration cap does not guarantee convergence."
+        }
+      },
+      "title": "SHAKE",
+      "description": "SHAKE constraint algorithm settings."
+    },
+    "restrain": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "amber_rst7": {
+          "type": "string",
+          "title": "Restrain Amber Rst7",
+          "description": "File path for restrain coordinates in amber rst7 format.",
+          "default": ""
+        },
+        "atom_id": {
+          "type": "string",
+          "title": "Restrain Atom Id",
+          "description": "Path for restrain atom IDs.",
+          "default": ""
+        },
+        "coordinate_in_file": {
+          "type": "string",
+          "title": "Restrain Coordinate In File",
+          "description": "Input file path for restrain coordinate.",
+          "default": ""
+        },
+        "single_weight": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Restrain Single Weight",
+          "description": "Force constant for restrain.",
+          "default": 20.0
+        },
+        "weight_in_file": {
+          "type": "string",
+          "title": "Restrain Weight In File",
+          "description": "Input file path for restrain force constants.",
+          "default": ""
+        }
+      },
+      "title": "Restrain",
+      "description": "Restraint settings."
+    },
+    "PM": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "Direct_Tolerance": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Direct Tolerance",
+          "description": "Direct space tolerance.",
+          "default": 1e-05
+        },
+        "MPI_size": {
+          "type": "integer",
+          "title": "PM MPI Size",
+          "description": "MPI size for particle mesh algorithms.",
+          "default": 1
+        },
+        "fftx": {
+          "type": "integer",
+          "title": "Fftx",
+          "description": "Grid numbers for FFT in X direction.",
+          "default": -1
+        },
+        "ffty": {
+          "type": "integer",
+          "title": "Ffty",
+          "description": "Grid numbers for FFT in Y direction.",
+          "default": -1
+        },
+        "fftz": {
+          "type": "integer",
+          "title": "Fftz",
+          "description": "Grid numbers for FFT in Z direction.",
+          "default": -1
+        },
+        "grid_spacing": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Grid Spacing",
+          "description": "Grid spacing for particle mesh algorithms.",
+          "default": 1.0
+        },
+        "print_detail": {
+          "type": "boolean",
+          "title": "Print Detail",
+          "description": "Whether to print detailed energy for particle mesh calculations.",
+          "default": false
+        },
+        "calculate_excluded_part": {
+          "type": "boolean",
+          "title": "Particle Mesh Calculate Excluded Part",
+          "description": "Whether to calculate excluded part in particle mesh calculations.",
+          "default": true
+        },
+        "calculate_reciprocal_part": {
+          "type": "boolean",
+          "title": "Particle Mesh Calculate Reciprocal Part",
+          "description": "Whether to calculate reciprocal part in particle mesh calculations.",
+          "default": true
+        },
+        "replaced_by_PMC_IZ": {
+          "type": "boolean",
+          "title": "Replaced By PMC IZ",
+          "description": "Whether to replace PME algorithm by PMC IZ algorithm.",
+          "default": false
+        },
+        "update_interval": {
+          "type": "integer",
+          "title": "Particle Mesh Update Interval",
+          "description": "Update interval for particle mesh calculations (steps).",
+          "default": 0
+        }
+      },
+      "title": "Particle Mesh",
+      "description": "Particle mesh settings."
+    },
+    "gb": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "epsilon": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "GB Epsilon",
+          "description": "Dielectric constant used in generalized Born calculations.",
+          "default": 78.5
+        },
+        "radii_cutoff": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "GB Radii Cutoff",
+          "description": "Cutoff distance for radii calculation in generalized Born.",
+          "default": 25.0
+        },
+        "radii_offset": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "GB Radii Offset",
+          "description": "Offset added to atomic radii in generalized Born calculations.",
+          "default": 0.09
+        },
+        "in_file": {
+          "type": "string",
+          "title": "GB In File",
+          "description": "File path for generalized Born input.",
+          "default": ""
+        }
+      },
+      "title": "Generalized Born",
+      "description": "Generalized Born settings."
+    },
+    "neighbor_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "check_overflow_interval": {
+          "type": "integer",
+          "title": "Check Overflow Interval",
+          "description": "Check neighbor list overflow interval every this many steps.",
+          "default": 150
+        },
+        "full": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ],
+          "title": "Use Full Neighbor List",
+          "description": "Use full neighbor list or half neighbor list (0/1).",
+          "default": 1
+        },
+        "max_atom_in_grid_numbers": {
+          "type": "integer",
+          "title": "Max Atom In Grid Numbers",
+          "description": "Max number of atoms in each grid.",
+          "default": 150
+        },
+        "max_ghost_in_grid_numbers": {
+          "type": "integer",
+          "title": "Max Ghost In Grid Numbers",
+          "description": "Max number of ghost atoms in each grid.",
+          "default": 150
+        },
+        "max_neighbor_numbers": {
+          "type": "integer",
+          "title": "Max Neighbor Numbers",
+          "description": "Max number of neighbors for each atom.",
+          "default": 0
+        },
+        "refresh_interval": {
+          "type": "integer",
+          "title": "Neighbor List Refresh Interval",
+          "description": "Interval to refresh neighbor list (steps).",
+          "default": 0
+        },
+        "skin_permit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Neighbor List Skin Permit",
+          "description": "Proportion of the skin distance allowed for atom movement in the automatic neighbor-list update logic. A value of 0.5 is accurate; larger values make calculations faster but reduce accuracy.",
+          "default": 0.5
+        },
+        "throw_error_when_overflow": {
+          "type": "boolean",
+          "title": "Throw Error When Overflow",
+          "description": "Whether to throw error when overflow.",
+          "default": false
+        }
+      },
+      "title": "Neighbor List",
+      "description": "Neighbor list settings."
+    },
+    "hard_wall": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x_high": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "X High",
+          "description": "Reflection upper bound on X.",
+          "default": "+inf"
+        },
+        "x_low": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "X Low",
+          "description": "Reflection lower bound on X.",
+          "default": "-inf"
+        },
+        "y_high": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "Y High",
+          "description": "Reflection upper bound on Y.",
+          "default": "+inf"
+        },
+        "y_low": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "Y Low",
+          "description": "Reflection lower bound on Y.",
+          "default": "-inf"
+        },
+        "z_high": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "Z High",
+          "description": "Reflection upper bound on Z.",
+          "default": "+inf"
+        },
+        "z_low": {
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            {
+              "type": "string",
+              "enum": [
+                "inf",
+                "+inf",
+                "-inf"
+              ]
+            }
+          ],
+          "title": "Z Low",
+          "description": "Reflection lower bound on Z.",
+          "default": "-inf"
+        }
+      },
+      "title": "Hard Wall",
+      "description": "Hard reflection wall settings."
+    },
+    "SITS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "T": {
+          "type": "array",
+          "items": {},
+          "title": "SITS T Grid",
+          "description": "Grid for temperature used in SITS.",
+          "default": []
+        },
+        "T_high": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "SITS T High",
+          "description": "Upper bound for SITS temperature.",
+          "default": 600.0
+        },
+        "T_low": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "SITS T Low",
+          "description": "Lower bound for SITS temperature.",
+          "default": 250.0
+        },
+        "atom_in_file": {
+          "type": "string",
+          "title": "SITS Atom In File",
+          "description": "Input file path for atom in SITS.",
+          "default": ""
+        },
+        "atom_numbers": {
+          "type": "integer",
+          "title": "SITS Atom Numbers",
+          "description": "Number of selected atoms in SITS.",
+          "default": 0
+        },
+        "cross_enhance_factor": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "SITS Cross Enhance Factor",
+          "description": "Enhance factor for A/B cross term in SITS.",
+          "default": 0.5
+        },
+        "fb_bias": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "SITS Fb Bias",
+          "description": "Bias for final fb.",
+          "default": 0.0
+        },
+        "fb_interval": {
+          "type": "integer",
+          "title": "SITS Fb Interval",
+          "description": "Fb update interval in steps.",
+          "default": 1
+        },
+        "k_numbers": {
+          "type": "integer",
+          "title": "SITS K Numbers",
+          "description": "Number of temperature used in SITS.",
+          "default": 40
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "amd",
+            "empirical",
+            "gamd",
+            "iteration",
+            "observation",
+            "production"
+          ],
+          "title": "SITS Mode",
+          "description": "SITS mode.",
+          "default": "amd"
+        },
+        "nk_fix": {
+          "type": "boolean",
+          "title": "SITS Nk Fix",
+          "description": "Whether to use fixed nk in SITS.",
+          "default": false
+        },
+        "nk_in_file": {
+          "type": "string",
+          "title": "SITS Nk In File",
+          "description": "Input file path for nk in SITS.",
+          "default": ""
+        },
+        "nk_rest": {
+          "type": "boolean",
+          "title": "SITS Nk Restart",
+          "description": "Whether to re-read nk in SITS.",
+          "default": false
+        },
+        "nk_rest_file": {
+          "type": "string",
+          "title": "SITS Nk Restart File",
+          "description": "File path for nk reststart in SITS.",
+          "default": ""
+        },
+        "nk_traj_file": {
+          "type": "string",
+          "title": "SITS Nk Trajectory File",
+          "description": "File path for nk trajectory in SITS.",
+          "default": ""
+        },
+        "pe_a": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Pe A",
+          "description": "Multiplicative factor applied when recording energy.",
+          "default": 1.0
+        },
+        "pe_b": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Pe B",
+          "description": "Additive offset applied when recording energy.",
+          "default": 0.0
+        },
+        "record_interval": {
+          "type": "integer",
+          "title": "SITS Record Interval",
+          "description": "Record SITS energy every this many steps.",
+          "default": 1
+        },
+        "update_interval": {
+          "type": "integer",
+          "title": "SITS Update Interval",
+          "description": "Update SITS bias potential parameters every this many steps.",
+          "default": 0
+        }
+      },
+      "title": "SITS",
+      "description": "SITS enhanced sampling settings."
+    },
+    "constrain_mode": {
+      "type": "string",
+      "enum": [
+        "SETTLE",
+        "SHAKE",
+        "LINCS",
+        "CCMA"
+      ],
+      "description": "Constraint solver; SETTLE handles independent pairs/triangles first."
+    },
+    "LINCS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 64,
+          "default": 8,
+          "description": "Expansion order. Ordinary 2 fs H-bond MD: try 4; larger-step models: consider 6 and validate. Default remains 8; higher order is not an accuracy guarantee."
+        },
+        "corrections": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 16,
+          "default": 1,
+          "description": "Additional rotational corrections. Ordinary MD: 1; 4 fs or energy-sensitive NVE: consider 2 and validate stability/energy drift."
+        }
+      }
+    },
+    "CCMA": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "iteration_numbers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "default": 8
+        },
+        "tolerance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.0001,
+          "description": "Relative bond-length tolerance for small-group early stopping. Reaching the iteration cap does not guarantee convergence."
+        },
+        "inverse_cutoff": {
+          "type": "number",
+          "minimum": 0,
+          "exclusiveMaximum": 1,
+          "default": 0.01
+        },
+        "inverse_radius": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8,
+          "default": 3
+        },
+        "inverse_max_size": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 512,
+          "default": 128
+        }
+      }
+    }
+  }
+}

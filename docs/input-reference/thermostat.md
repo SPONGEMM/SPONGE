@@ -106,6 +106,9 @@ seed = 2026
 ```
 
 Uses `tau` and `seed` in the `thermostat` scope.
+New H5 checkpoints store the Bussi random stream as typed portable Philox
+state; scalar standard-library engine text is accepted only when reading older
+checkpoints.
 
 ### `nose_hoover_chain`
 

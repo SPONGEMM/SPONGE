@@ -27,10 +27,12 @@ static __global__ void Get_Origin(const int residue_numbers, const int* start,
     }
 }
 
-static __global__ void Map_Center_Of_Mass(
-    const int residue_numbers, const int* start, const int* end,
-    const float scaler, const VECTOR* center_of_mass, const LTMatrix3 cell,
-    const LTMatrix3 rcell, VECTOR* crd, int* periodicity)
+static __global__ void Map_Center_Of_Mass(const int residue_numbers,
+                                          const int* start, const int* end,
+                                          const float scaler,
+                                          const VECTOR* center_of_mass,
+                                          const Boundary boundary, VECTOR* crd,
+                                          int* periodicity)
 {
     VECTOR trans_vec;
     VECTOR com;
@@ -44,11 +46,11 @@ static __global__ void Map_Center_Of_Mass(
         if (periodicity == NULL || periodicity[residue_i] == 0)
         {
             com = center_of_mass[residue_i];
-            VECTOR frac = com * rcell;
+            VECTOR frac = com * boundary.rcell;
             frac.x = frac.x - floorf(frac.x);
             frac.y = frac.y - floorf(frac.y);
             frac.z = frac.z - floorf(frac.z);
-            VECTOR mapped = frac * cell;
+            VECTOR mapped = frac * boundary.cell;
             trans_vec.x = scaler * mapped.x - com.x;
             trans_vec.y = scaler * mapped.y - com.y;
             trans_vec.z = scaler * mapped.z - com.z;
@@ -74,11 +76,11 @@ static __global__ void Map_Center_Of_Mass(
 #endif
             {
                 com = crd[atom_i];
-                VECTOR frac = com * rcell;
+                VECTOR frac = com * boundary.rcell;
                 frac.x = frac.x - floorf(frac.x);
                 frac.y = frac.y - floorf(frac.y);
                 frac.z = frac.z - floorf(frac.z);
-                VECTOR mapped = frac * cell;
+                VECTOR mapped = frac * boundary.cell;
                 trans_vec.x = scaler * mapped.x - com.x;
                 trans_vec.y = scaler * mapped.y - com.y;
                 trans_vec.z = scaler * mapped.z - com.z;
@@ -88,10 +90,12 @@ static __global__ void Map_Center_Of_Mass(
     }
 }
 
-static __global__ void Map_Center_Of_Mass(
-    const int residue_numbers, const int* start, const int* end,
-    const VECTOR scaler, const VECTOR* center_of_mass, const LTMatrix3 cell,
-    const LTMatrix3 rcell, VECTOR* crd, int* periodicity)
+static __global__ void Map_Center_Of_Mass(const int residue_numbers,
+                                          const int* start, const int* end,
+                                          const VECTOR scaler,
+                                          const VECTOR* center_of_mass,
+                                          const Boundary boundary, VECTOR* crd,
+                                          int* periodicity)
 {
     VECTOR trans_vec;
     VECTOR com;
@@ -105,11 +109,11 @@ static __global__ void Map_Center_Of_Mass(
         if (periodicity == NULL || periodicity[residue_i] == 0)
         {
             com = center_of_mass[residue_i];
-            VECTOR frac = com * rcell;
+            VECTOR frac = com * boundary.rcell;
             frac.x = frac.x - floorf(frac.x);
             frac.y = frac.y - floorf(frac.y);
             frac.z = frac.z - floorf(frac.z);
-            VECTOR mapped = frac * cell;
+            VECTOR mapped = frac * boundary.cell;
             trans_vec.x = scaler.x * mapped.x - com.x;
             trans_vec.y = scaler.y * mapped.y - com.y;
             trans_vec.z = scaler.z * mapped.z - com.z;
@@ -135,11 +139,11 @@ static __global__ void Map_Center_Of_Mass(
 #endif
             {
                 com = crd[atom_i];
-                VECTOR frac = com * rcell;
+                VECTOR frac = com * boundary.rcell;
                 frac.x = frac.x - floorf(frac.x);
                 frac.y = frac.y - floorf(frac.y);
                 frac.z = frac.z - floorf(frac.z);
-                VECTOR mapped = frac * cell;
+                VECTOR mapped = frac * boundary.cell;
                 trans_vec.x = scaler.x * mapped.x - com.x;
                 trans_vec.y = scaler.y * mapped.y - com.y;
                 trans_vec.z = scaler.z * mapped.z - com.z;
@@ -158,8 +162,8 @@ void MD_INFORMATION::residue_information::Residue_Crd_Map(VECTOR scaler)
     dim3 block_res = {64, 16};
     Launch_Device_Kernel(Map_Center_Of_Mass, (residue_numbers + 63) / 64,
                          block_res, 0, NULL, residue_numbers, d_res_start,
-                         d_res_end, scaler, d_center_of_mass, md_info->pbc.cell,
-                         md_info->pbc.rcell, md_info->crd, (int*)NULL);
+                         d_res_end, scaler, d_center_of_mass,
+                         md_info->pbc.boundary, md_info->crd, (int*)NULL);
 }
 
 void MD_INFORMATION::residue_information::Read_AMBER_Parm7(
@@ -654,14 +658,16 @@ static void Get_Atom_Group_From_Edges(const int atom_numbers, const int* edges,
 }
 
 static void Get_Molecule_Atoms(CONTROLLER* controller, int atom_numbers,
-                               CONECT connectivity, CPP_ATOM_GROUP& mol_atoms,
+                               const CONECT& connectivity,
+                               CPP_ATOM_GROUP& mol_atoms,
                                std::vector<int>& molecule_belongings)
 {
     // 分子拓扑是一个无向图，邻接表进行描述
     int edge_numbers = 0;
     for (int i = 0; i < atom_numbers; i++)
     {
-        edge_numbers += connectivity[i].size();
+        auto it = connectivity.find(i);
+        if (it != connectivity.end()) edge_numbers += it->second.size();
     }
     edge_numbers *= 2;
     int* first_edge = NULL;  // 每个原子的第一个边（链表的头）
@@ -676,12 +682,13 @@ static void Get_Molecule_Atoms(CONTROLLER* controller, int atom_numbers,
         first_edge[i] = -1;
     }
     int atom_i, atom_j, edge_count = 0;
-    for (int atom_i = 0; atom_i < atom_numbers; atom_i++)
+    for (atom_i = 0; atom_i < atom_numbers; atom_i++)
     {
-        std::set<int> conect_i = connectivity[atom_i];
-        for (auto iter = conect_i.begin(); iter != conect_i.end(); iter++)
+        auto it = connectivity.find(atom_i);
+        if (it == connectivity.end()) continue;
+        for (int atom_j_value : it->second)
         {
-            atom_j = *iter;
+            atom_j = atom_j_value;
             edge_next[edge_count] = first_edge[atom_i];
             first_edge[atom_i] = edge_count;
             edges[edge_count] = atom_j;
@@ -724,11 +731,9 @@ static void Get_Molecule_Atoms(CONTROLLER* controller, int atom_numbers,
     free(edge_next);
 }
 
-static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
-                                                 const CONECT connectivity,
-                                                 const VECTOR* crd,
-                                                 const LTMatrix3 cell,
-                                                 const LTMatrix3 rcell)
+static std::vector<int> Check_Periodic_Molecules(
+    const CPP_ATOM_GROUP& mol_atoms, const CONECT& connectivity,
+    const VECTOR* crd, const Boundary boundary)
 {
     std::vector<int> periodic_mols;
     int max_atom_idx = -1;
@@ -746,6 +751,7 @@ static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
 
     std::vector<int> mark(max_atom_idx + 1, 0);
     std::vector<int> visited(max_atom_idx + 1, 0);
+    std::vector<VECTOR> mapped(max_atom_idx + 1);
     std::deque<int> queue;
 
     for (int i = 0; i < mol_atoms.size(); i++)
@@ -764,13 +770,12 @@ static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
 
         // anchor mapped to primary box
         int anchor = atoms[0];
-        VECTOR frac0 = crd_orig[anchor] * rcell;
+        VECTOR frac0 = crd_orig[anchor] * boundary.rcell;
         frac0.x = frac0.x - floorf(frac0.x);
         frac0.y = frac0.y - floorf(frac0.y);
         frac0.z = frac0.z - floorf(frac0.z);
-        VECTOR mapped_anchor = frac0 * cell;
+        VECTOR mapped_anchor = frac0 * boundary.cell;
 
-        std::vector<VECTOR> mapped(max_atom_idx + 1);
         mapped[anchor] = mapped_anchor;
         visited[anchor] = 1;
         queue.clear();
@@ -791,8 +796,8 @@ static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
                 int nb = *it;
                 if (nb < 0 || nb > max_atom_idx || mark[nb] == 0 || visited[nb])
                     continue;
-                VECTOR dr = Get_Periodic_Displacement(
-                    crd_orig[nb], crd_orig[atom], cell, rcell);
+                VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                    crd_orig[nb], crd_orig[atom], boundary);
                 mapped[nb] = mapped[atom] + dr;
                 visited[nb] = 1;
                 queue.push_back(nb);
@@ -803,7 +808,7 @@ static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
         VECTOR frac_max = {-FLT_MAX, -FLT_MAX, -FLT_MAX};
         for (int idx : atoms)
         {
-            VECTOR frac = mapped[idx] * rcell;
+            VECTOR frac = mapped[idx] * boundary.rcell;
             frac_min.x = fminf(frac_min.x, frac.x);
             frac_min.y = fminf(frac_min.y, frac.y);
             frac_min.z = fminf(frac_min.z, frac.z);
@@ -821,9 +826,8 @@ static std::vector<int> Check_Periodic_Molecules(CPP_ATOM_GROUP mol_atoms,
 }
 
 static void Move_Crd_Nearest_From_Connectivity(
-    CPP_ATOM_GROUP mol_atoms, const CONECT connectivity, VECTOR* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell,
-    std::vector<int> periodic_molecules)
+    const CPP_ATOM_GROUP& mol_atoms, const CONECT& connectivity, VECTOR* crd,
+    const Boundary boundary, std::vector<int> periodic_molecules)
 {
     // 复制原始坐标供最小镜像计算
     int max_atom_idx = -1;
@@ -853,11 +857,11 @@ static void Move_Crd_Nearest_From_Connectivity(
         }
         // 先把第一个原子映射到主盒子
         int anchor = atoms[0];
-        VECTOR frac0 = crd_orig[anchor] * rcell;
+        VECTOR frac0 = crd_orig[anchor] * boundary.rcell;
         frac0.x = frac0.x - floorf(frac0.x);
         frac0.y = frac0.y - floorf(frac0.y);
         frac0.z = frac0.z - floorf(frac0.z);
-        crd[anchor] = frac0 * cell;
+        crd[anchor] = frac0 * boundary.cell;
 
         visited[anchor] = 1;
         queue.clear();
@@ -877,8 +881,8 @@ static void Move_Crd_Nearest_From_Connectivity(
                 int nb = *it;
                 if (nb < 0 || nb > max_atom_idx || mark[nb] == 0 || visited[nb])
                     continue;
-                VECTOR dr = Get_Periodic_Displacement(
-                    crd_orig[nb], crd_orig[atom], cell, rcell);
+                VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                    crd_orig[nb], crd_orig[atom], boundary);
                 crd[nb] = crd[atom] + dr;
                 visited[nb] = 1;
                 queue.push_back(nb);
@@ -906,14 +910,18 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
                        md_info->sys.connectivity, mol_atoms,
                        molecule_belongings);
     molecule_numbers = mol_atoms.size();
-    Move_Crd_Nearest_From_Connectivity(mol_atoms, md_info->sys.connectivity,
-                                       md_info->coordinate, md_info->pbc.cell,
-                                       md_info->pbc.rcell, std::vector<int>());
-    std::vector<int> h_periodicity = Check_Periodic_Molecules(
+    Move_Crd_Nearest_From_Connectivity(
         mol_atoms, md_info->sys.connectivity, md_info->coordinate,
-        md_info->pbc.cell, md_info->pbc.rcell);
-    Device_Malloc_And_Copy_Safely((void**)&d_periodicity, &h_periodicity[0],
-                                  sizeof(int) * molecule_numbers);
+        md_info->pbc.boundary, std::vector<int>());
+    std::vector<int> h_periodicity =
+        Check_Periodic_Molecules(mol_atoms, md_info->sys.connectivity,
+                                 md_info->coordinate, md_info->pbc.boundary);
+    // Own this storage: the CPU combined allocator would alias the temporary
+    // vector.
+    Device_Malloc_Safely((void**)&d_periodicity,
+                         sizeof(int) * molecule_numbers);
+    deviceMemcpy(d_periodicity, h_periodicity.data(),
+                 sizeof(int) * molecule_numbers, deviceMemcpyHostToDevice);
     deviceMemcpy(md_info->crd, md_info->coordinate,
                  sizeof(VECTOR) * md_info->atom_numbers,
                  deviceMemcpyHostToDevice);
@@ -1025,10 +1033,10 @@ void MD_INFORMATION::molecule_information::Molecule_Crd_Map(float scaler)
 
     dim3 block_mol = {64, 16};
     int* periodicity = force_whole_output ? (int*)NULL : d_periodicity;
-    Launch_Device_Kernel(
-        Map_Center_Of_Mass, (molecule_numbers + 63) / 64, block_mol, 0, NULL,
-        molecule_numbers, d_atom_start, d_atom_end, scaler, d_center_of_mass,
-        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, periodicity);
+    Launch_Device_Kernel(Map_Center_Of_Mass, (molecule_numbers + 63) / 64,
+                         block_mol, 0, NULL, molecule_numbers, d_atom_start,
+                         d_atom_end, scaler, d_center_of_mass,
+                         md_info->pbc.boundary, md_info->crd, periodicity);
 }
 
 void MD_INFORMATION::molecule_information::Molecule_Crd_Map(VECTOR scaler)
@@ -1046,8 +1054,8 @@ void MD_INFORMATION::molecule_information::Molecule_Crd_Map(VECTOR scaler)
                          d_mass_inverse, d_center_of_mass);
     dim3 block_mol = {64, 16};
     int* periodicity = force_whole_output ? (int*)NULL : d_periodicity;
-    Launch_Device_Kernel(
-        Map_Center_Of_Mass, (molecule_numbers + 63) / 64, block_mol, 0, NULL,
-        molecule_numbers, d_atom_start, d_atom_end, scaler, d_center_of_mass,
-        md_info->pbc.cell, md_info->pbc.rcell, md_info->crd, periodicity);
+    Launch_Device_Kernel(Map_Center_Of_Mass, (molecule_numbers + 63) / 64,
+                         block_mol, 0, NULL, molecule_numbers, d_atom_start,
+                         d_atom_end, scaler, d_center_of_mass,
+                         md_info->pbc.boundary, md_info->crd, periodicity);
 }

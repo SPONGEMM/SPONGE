@@ -44,9 +44,9 @@ __device__ __forceinline__ SADfloat<N> reax_vdw_energy_sad(SADfloat<N> r,
 
 static __global__ void REAXFF_VDW_Force_CUDA(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    int* atom_types, float* params, int ntypes, float cutoff, float p_vdw1,
-    float* atom_energy, LTMatrix3* atom_virial, float* d_energy_sum)
+    const Boundary boundary, const ATOM_GROUP* nl, int* atom_types,
+    float* params, int ntypes, float cutoff, float p_vdw1, float* atom_energy,
+    LTMatrix3* atom_virial, float* d_energy_sum)
 {
     SIMPLE_DEVICE_FOR(i, atom_numbers)
     {
@@ -65,7 +65,8 @@ static __global__ void REAXFF_VDW_Force_CUDA(
             if (j <= i) continue;
 
             VECTOR rj = crd[j];
-            VECTOR drij = Get_Periodic_Displacement(ri, rj, cell, rcell);
+            VECTOR drij =
+                Get_Displacement<BoundaryPolicy::Periodic>(ri, rj, boundary);
             float rij = norm3df(drij.x, drij.y, drij.z);
 
             if (rij >= cutoff) continue;
@@ -402,9 +403,9 @@ void REAXFF_VDW::Initial(CONTROLLER* controller, int atom_numbers,
 
 void REAXFF_VDW::REAXFF_VDW_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const float cutoff, const int need_atom_energy, float* atom_energy,
-    const int need_virial, LTMatrix3* atom_virial)
+    const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+    const int need_atom_energy, float* atom_energy, const int need_virial,
+    LTMatrix3* atom_virial)
 {
     if (!is_initialized) return;
 
@@ -419,7 +420,7 @@ void REAXFF_VDW::REAXFF_VDW_Force_With_Atom_Energy_And_Virial(
     dim3 gridSize((atom_numbers + blockSize.x - 1) / blockSize.x);
 
     Launch_Device_Kernel(REAXFF_VDW_Force_CUDA, gridSize, blockSize, 0, NULL,
-                         atom_numbers, crd, frc, cell, rcell, nl, d_atom_type,
+                         atom_numbers, crd, frc, boundary, nl, d_atom_type,
                          d_twobody_params, atom_type_numbers, cutoff,
                          this->p_vdw1, atom_energy,
                          need_virial ? atom_virial : NULL, d_energy_sum);

@@ -177,12 +177,12 @@ static __global__ void Get_Rotation_Matrix(float* m, float* R)
 {
     SVD::Mat3x3 M(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]);
     SVD::SVDSet result = SVD::svd(M);
-    result.S.m_00 = 1;
-    result.S.m_11 = 1;
     result.V = result.V.transpose();
     SVD::Mat3x3 r = result.U * result.V;
-    result.S.m_22 = copysign(1.0f, r.det());
-    r = result.U * result.S * result.V;
+    // S contains QR residuals off the diagonal. Kabsch needs a pure sign
+    // correction, otherwise those residuals introduce shear into the rotation.
+    SVD::Mat3x3 correction(1, 0, 0, 0, 1, 0, 0, 0, copysignf(1.0f, r.det()));
+    r = result.U * correction * result.V;
     R[0] = r.m_00;
     R[1] = r.m_01;
     R[2] = r.m_02;
@@ -198,8 +198,7 @@ static __global__ void get_diff_and_rmsd(int atom_numbers, const VECTOR* points,
                                          const VECTOR* rotated_reference,
                                          float* d_value, int* atom,
                                          VECTOR* crd_grads, LTMatrix3* virial,
-                                         const LTMatrix3 cell,
-                                         const LTMatrix3 rcell)
+                                         const Boundary boundary)
 {
 #ifdef USE_GPU
     __shared__ float rmsd[1024];
@@ -232,9 +231,12 @@ static __global__ void get_diff_and_rmsd(int atom_numbers, const VECTOR* points,
     {
         atom_i = atom[i];
         diff = points[i] - rotated_reference[i];
-        diff.x /= rmsd0;
-        diff.y /= rmsd0;
-        diff.z /= rmsd0;
+        if (rmsd0 > 0.0f)
+        {
+            diff.x /= rmsd0;
+            diff.y /= rmsd0;
+            diff.z /= rmsd0;
+        }
         crd_grads[atom_i] = diff;
         local_virial =
             local_virial + Get_Virial_From_Force_Dis(diff, points[i]);
@@ -371,8 +373,8 @@ void CV_RMSD::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager, int atom_numbers,
     Super_Initial(manager, atom_numbers, module_name);
 }
 
-void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                      const LTMatrix3 rcell, int need, int step)
+void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                      int need, int step)
 {
     need = Check_Whether_Computed_At_This_Step(step, need);
     if (need)
@@ -401,14 +403,14 @@ void CV_RMSD::Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
             Launch_Device_Kernel(get_diff_and_rmsd, 1, 1024, 0,
                                  this->device_stream, this->atom_numbers,
                                  this->points, this->rotated_ref, d_value, atom,
-                                 crd_grads, virial, cell, rcell);
+                                 crd_grads, virial, boundary);
         }
         else
         {
             Launch_Device_Kernel(get_diff_and_rmsd, 1, 1024, 0,
                                  this->device_stream, this->atom_numbers,
                                  this->points, this->references, d_value, atom,
-                                 crd_grads, virial, cell, rcell);
+                                 crd_grads, virial, boundary);
         }
         deviceMemcpyAsync(&value, d_value, sizeof(float),
                           deviceMemcpyDeviceToHost, this->device_stream);

@@ -8,13 +8,23 @@ namespace Xponge
 static void Native_Load_Impropers(Torsions* impropers, CONTROLLER* controller,
                                   const char* module_name = "improper_dihedral")
 {
-    if (!controller->Command_Exist(module_name, "in_file"))
+    const char* input_path = nullptr;
+    if (controller->Command_Exist(module_name, "in_file"))
+    {
+        input_path = controller->Command(module_name, "in_file");
+    }
+    else if (strcmp(module_name, "improper_dihedral") == 0 &&
+             controller->Command_Exist("improper_in_file"))
+    {
+        input_path = controller->Command("improper_in_file");
+    }
+    if (input_path == nullptr)
     {
         return;
     }
 
     FILE* fp = NULL;
-    Open_File_Safely(&fp, controller->Command(module_name, "in_file"), "r");
+    Open_File_Safely(&fp, input_path, "r");
     int improper_numbers = 0;
     if (fscanf(fp, "%d", &improper_numbers) != 1)
     {

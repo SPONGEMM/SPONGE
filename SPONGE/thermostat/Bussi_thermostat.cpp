@@ -1,5 +1,7 @@
 ﻿#include "Bussi_thermostat.h"
 
+#include "../utils/random/portable_philox_sampler.hpp"
+
 void BUSSI_THERMOSTAT_INFORMATION::Initial(CONTROLLER* controller,
                                            float target_temperature,
                                            const char* module_name)
@@ -41,8 +43,9 @@ void BUSSI_THERMOSTAT_INFORMATION::Initial(CONTROLLER* controller,
         seed = atoi(controller[0].Command("thermostat", "seed"));
     }
     controller->printf("    The random seed is %d\n", seed);
-    e.seed(seed);
-    normal01 = std::normal_distribution<float>(0.0f, 1.0f);
+    random_seed = static_cast<std::uint64_t>(static_cast<std::uint32_t>(seed));
+    random_invocation_count = 0;
+    use_legacy_rng = false;
 
     controller->Deprecated("berendsen_thermostat_tau",
                            "thermostat_tau = %VALUE%", "2.0",
@@ -78,10 +81,23 @@ void BUSSI_THERMOSTAT_INFORMATION::Record_Temperature(float temperature,
     double c = exp(-static_cast<double>(dt) / static_cast<double>(tauT));
     double one_minus_c = 1.0 - c;
     double dof = static_cast<double>(freedom);
-    double R = static_cast<double>(normal01(e));
-    std::gamma_distribution<double> chi_square_distribution(0.5 * (dof - 1.0),
-                                                            2.0);
-    double S = chi_square_distribution(e);
+    double R = 0.0;
+    double S = 0.0;
+    if (use_legacy_rng)
+    {
+        R = static_cast<double>(legacy_normal01(legacy_engine));
+        std::gamma_distribution<double> chi_square_distribution(
+            0.5 * (dof - 1.0), 2.0);
+        S = chi_square_distribution(legacy_engine);
+    }
+    else
+    {
+        SPONGE_PORTABLE_PHILOX_SAMPLER sampler(random_seed,
+                                               random_invocation_count);
+        R = sampler.Normal();
+        S = sampler.Gamma(0.5 * (dof - 1.0), 2.0);
+        random_invocation_count += 1;
+    }
     double lambda_square = c + one_minus_c * ratio * (S + R * R) / dof +
                            2.0 * R * sqrt(c * one_minus_c * ratio / dof);
 

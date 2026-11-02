@@ -26,9 +26,9 @@ struct SOLVENT_LENNARD_JONES
     void LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
         const int atom_numbers, const int residue_numbers,
         const int* d_res_start, const VECTOR* crd, const float* charge,
-        VECTOR* frc, const LTMatrix3 cell, const LTMatrix3 rcell,
-        const ATOM_GROUP* nl, const float pme_beta, const int need_atom_energy,
-        float* atom_energy, const int need_virial, LTMatrix3* atom_lj_virial,
+        VECTOR* frc, const Boundary boundary, const ATOM_GROUP* nl,
+        const float pme_beta, const int need_atom_energy, float* atom_energy,
+        const int need_virial, LTMatrix3* atom_lj_virial,
         float* atom_direct_pme_energy);
 
     /*

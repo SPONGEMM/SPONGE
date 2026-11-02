@@ -1,6 +1,6 @@
 # SPONGE
 
-! 注意：当前仓库版本为 SPONGE2 `v2.0.0-beta.1` 预发布版本
+! 注意：当前仓库版本为 SPONGE2 `v2.0.0-beta.2` 预发布版本
 
 [English](README_en.md)
 
@@ -20,7 +20,8 @@
 
 当你需要了解或操作 SPONGE 时：
 
-- 如果你是人类用户：请阅读 `docs` 文件夹中的开发与使用文档。
+- 如果你是人类用户：请从[快速入门](docs/getting-started.md)和
+  [输入参数参考](docs/input-reference/README.md)开始。
 - 如果你是 AI 助手：
   - 若用于使用 SPONGE：将本项目的 `skills` 安装到你的全局 skills 目录，例如 `~/.claude/skills` 或 `~/.agents/skills`。
   - 若用于开发 SPONGE：将你的项目级 skills 目录链接到本项目的 `skills`，例如 `.claude/skills` 或 `.agents/skills`。
@@ -34,4 +35,4 @@
 
 ## 许可证
 
-[Apache License 2.0](LICENSE) - Copyright (c) 2022-2026 SPONGE Development Team
+[SPONGE Licensing Agreement (English, controlling)](LICENSE) · [中文译本](LICENSE.zh-CN.md) · [第三方声明](THIRD_PARTY_NOTICES)

@@ -9,14 +9,14 @@ description: >
   - pixi task 接入
 ---
 
-本技能适配 SPONGE 版本号：2.0.0-beta.1
+本技能适配 SPONGE 版本号：2.0.0-beta.2
 
 用于新建或调整 `benchmarks/` 下的测试时，目标是让 benchmark 分类清楚、结构统一、可复用、可维护。
 
 ## 先判断 benchmark 属于哪一类
 
 - `comparison`
-  用于和外部程序对比结果，例如 AMBER、GROMACS、LAMMPS、PySCF。
+  用于和外部程序对比结果，例如 AMBER、GROMACS、LAMMPS。
 - `validation`
   用于验证 SPONGE 自身功能正确性、物理合理性、回归稳定性。
 - `performance`

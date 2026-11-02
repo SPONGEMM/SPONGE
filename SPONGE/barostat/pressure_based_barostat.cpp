@@ -1,5 +1,7 @@
 ﻿#include "pressure_based_barostat.h"
 
+#include "../utils/random/portable_philox_sampler.hpp"
+
 void PRESSURE_BASED_BAROSTAT_INFORMATION::Initial(
     CONTROLLER* controller, float target_pressure, LTMatrix3 cell,
     float (*box_updator)(LTMatrix3, int, int, int))
@@ -159,8 +161,17 @@ void PRESSURE_BASED_BAROSTAT_INFORMATION::Initial(
         "%8e %8e\n        %8e %8e %8e\n        %8e %8e %8e\n",
         g.a11, 0.0, 0.0, g.a21, g.a22, 0.0, g.a31, g.a32, g.a33);
 
-    generator = std::default_random_engine(rand());
-    distribution = std::normal_distribution<float>(0.0, 1.0);
+    int seed = rand();
+    if (controller->Command_Exist("barostat", "seed"))
+    {
+        controller->Check_Int("barostat", "seed",
+                              "PRESSURE_BASED_BAROSTAT_INFORMATION::Initial");
+        seed = atoi(controller->Command("barostat", "seed"));
+    }
+    random_seed = static_cast<std::uint64_t>(static_cast<std::uint32_t>(seed));
+    random_invocation_count = 0;
+    use_legacy_rng = false;
+    controller->printf("    The random seed is %d\n", seed);
 
     x_constant = false;
     y_constant = false;
@@ -189,11 +200,35 @@ void PRESSURE_BASED_BAROSTAT_INFORMATION::Initial(
     is_initialized = 1;
 
     controller->Step_Print_Initial("density", "%.4f");
-    controller->Step_Print_Initial("pressure", "%.2f");
+    if (controller->outputs_content.count("pressure") == 0)
+    {
+        controller->Step_Print_Initial("pressure", "%.2f");
+    }
     if (Isotropy == this->Anisotropic)
         controller->Step_Print_Initial("surface_tensor", "%.2f");
 
     controller->printf("END INITIALIZING ANDERSEN BAROSTAT\n\n");
+}
+
+void PRESSURE_BASED_BAROSTAT_INFORMATION::Fill_Random_Normal(float* values,
+                                                             int count)
+{
+    if (values == nullptr || count <= 0) return;
+    if (use_legacy_rng)
+    {
+        for (int index = 0; index < count; ++index)
+        {
+            values[index] = distribution(generator);
+        }
+        return;
+    }
+    SPONGE_PORTABLE_PHILOX_SAMPLER sampler(random_seed,
+                                           random_invocation_count);
+    for (int index = 0; index < count; ++index)
+    {
+        values[index] = static_cast<float>(sampler.Normal());
+    }
+    random_invocation_count += 1;
 }
 
 void PRESSURE_BASED_BAROSTAT_INFORMATION::Control_Velocity_Of_Box(
@@ -202,15 +237,16 @@ void PRESSURE_BASED_BAROSTAT_INFORMATION::Control_Velocity_Of_Box(
     if (!is_initialized) return;
     float gamma_ln;
     LTMatrix3 random_velocity;
+    float random_values[6] = {};
     switch (Algorithm)
     {
         case Andersen:
             gamma_ln = 1.0f / CONSTANT_TIME_CONVERTION;
             gamma_ln = exp(-gamma_ln * update_interval * dt);
-            random_velocity = {
-                distribution(generator), distribution(generator),
-                distribution(generator), distribution(generator),
-                distribution(generator), distribution(generator)};
+            Fill_Random_Normal(random_values, 6);
+            random_velocity = {random_values[0], random_values[1],
+                               random_values[2], random_values[3],
+                               random_values[4], random_values[5]};
             g = dg + gamma_ln * g +
                 sqrt((1 - gamma_ln * gamma_ln) * target_temperature *
                      CONSTANT_kB * piston_mass_inverse) *
@@ -218,10 +254,10 @@ void PRESSURE_BASED_BAROSTAT_INFORMATION::Control_Velocity_Of_Box(
             break;
 
         case Bussi:
-            random_velocity = {
-                distribution(generator), distribution(generator),
-                distribution(generator), distribution(generator),
-                distribution(generator), distribution(generator)};
+            Fill_Random_Normal(random_values, 6);
+            random_velocity = {random_values[0], random_values[1],
+                               random_values[2], random_values[3],
+                               random_values[4], random_values[5]};
             g = dg +
                 sqrt(target_temperature * CONSTANT_kB * piston_mass_inverse) *
                     random_velocity;

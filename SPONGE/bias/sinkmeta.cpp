@@ -1,5 +1,8 @@
 ﻿#include "sinkmeta.h"
 
+#include "../utils/float_classification.hpp"
+#include "../utils/h5md/h5_structural_state.hpp"
+
 static float Evaluate_Gaussian_Switch(const float rij, const float center,
                                       const float inv_w, const float period,
                                       float& df)
@@ -1126,7 +1129,7 @@ void META::Step_Print(CONTROLLER* controller)
     {
         return;
     }
-    if (CONTROLLER::MPI_size == 1 && CONTROLLER::PM_MPI_size == 1)
+    if (CONTROLLER::MPI_size == 1)
     {
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
@@ -1134,7 +1137,7 @@ void META::Step_Print(CONTROLLER* controller)
         return;
     }
 #ifdef USE_MPI
-    if (CONTROLLER::MPI_rank == CONTROLLER::MPI_size - 1)
+    if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
         MPI_Send(&potential_local, 1, MPI_FLOAT, 0, 0, MPI_COMM_WORLD);
         MPI_Send(&rbias, 1, MPI_FLOAT, 0, 1, MPI_COMM_WORLD);
@@ -1142,12 +1145,12 @@ void META::Step_Print(CONTROLLER* controller)
     }
     if (CONTROLLER::MPI_rank == 0)
     {
-        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 0,
+        MPI_Recv(&potential_local, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 0,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 1,
+        MPI_Recv(&rbias, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 1,
                  MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::MPI_size - 1, 2,
-                 MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        MPI_Recv(&rct, 1, MPI_FLOAT, CONTROLLER::CV_MPI_rank, 2, MPI_COMM_WORLD,
+                 MPI_STATUS_IGNORE);
         controller->Step_Print(this->module_name, potential_local);
         controller->Step_Print("rbias", rbias);
         controller->Step_Print("rct", rct);
@@ -1990,6 +1993,9 @@ void META::Initial(CONTROLLER* controller,
     {
         strcpy(this->module_name, module_name);
     }
+    h5_object_name = cv_controller->protocol_metadynamics_name.empty()
+                         ? this->module_name
+                         : cv_controller->protocol_metadynamics_name;
     if (!cv_controller->Command_Exist(this->module_name, "CV"))
     {
         controller->printf("META IS NOT INITIALIZED\n\n");
@@ -2317,6 +2323,347 @@ void META::Initial(CONTROLLER* controller,
     controller->printf("END INITIALIZING META\n\n");
 }
 
+namespace
+{
+bool Meta_State_Is_Finite(const std::vector<float>& values)
+{
+    return std::all_of(values.begin(), values.end(), [](const float value)
+                       { return SpongeFloat::Is_Finite(value); });
+}
+
+bool Meta_State_Almost_Equal(const float lhs, const float rhs)
+{
+    const float scale =
+        std::max(1.0f, std::max(std::fabs(lhs), std::fabs(rhs)));
+    return std::fabs(lhs - rhs) <= 1.0e-5f * scale;
+}
+}  // namespace
+
+bool META::Export_H5_Restart_State(SpongeH5MD::RestartMetadynamicsState* state,
+                                   std::string* error_message)
+{
+    if (state == NULL)
+    {
+        if (error_message != NULL)
+            *error_message = "metadynamics restart state output is null";
+        return false;
+    }
+    if (!is_initialized || mgrid == NULL || ndim <= 0)
+    {
+        if (error_message != NULL)
+            *error_message = "metadynamics is not initialized for H5 export";
+        return false;
+    }
+
+    SpongeH5MD::RestartMetadynamicsState result;
+    result.name = h5_object_name;
+    result.has_typed_state = true;
+    result.state_schema_version = 1;
+    result.ndim = static_cast<std::size_t>(ndim);
+
+    mgrid->Sync_To_Host();
+    result.grid_count.reserve(result.ndim);
+    for (const int count : mgrid->num_points)
+    {
+        result.grid_count.push_back(static_cast<std::int64_t>(count));
+    }
+    result.grid_min = mgrid->lower;
+    result.grid_max = mgrid->upper;
+    result.potential_value = mgrid->potential;
+    result.potential_force = mgrid->force;
+    result.edge_log_normalization = mgrid->normal_lse;
+    result.edge_normal_force = mgrid->normal_force;
+
+    if (mscatter != NULL)
+    {
+        mscatter->Sync_To_Host();
+        result.scatter_count = static_cast<std::size_t>(mscatter->num_points);
+        result.scatter_position = mscatter->coordinates_flat;
+        result.scatter_potential = mscatter->potential;
+        result.scatter_force = mscatter->force;
+    }
+
+    result.hill_count = hills.size();
+    result.hill_center.reserve(result.hill_count * result.ndim);
+    result.hill_height.reserve(result.hill_count);
+    result.hill_inverse_width.reserve(result.hill_count * result.ndim);
+    result.hill_period.reserve(result.hill_count * result.ndim);
+    for (const Hill& hill : hills)
+    {
+        if (hill.centers_.size() != result.ndim ||
+            hill.inv_w_.size() != result.ndim ||
+            hill.periods_.size() != result.ndim)
+        {
+            if (error_message != NULL)
+                *error_message = "metadynamics hill dimension is inconsistent";
+            return false;
+        }
+        result.hill_center.insert(result.hill_center.end(),
+                                  hill.centers_.begin(), hill.centers_.end());
+        result.hill_height.push_back(hill.height);
+        result.hill_inverse_width.insert(result.hill_inverse_width.end(),
+                                         hill.inv_w_.begin(),
+                                         hill.inv_w_.end());
+        result.hill_period.insert(result.hill_period.end(),
+                                  hill.periods_.begin(), hill.periods_.end());
+    }
+    result.hill_sink = vsink;
+
+    result.has_runtime_state = true;
+    result.potential_max = potential_max;
+    result.sum_max = sum_max;
+    result.new_max = new_max;
+    result.max_index = static_cast<std::int64_t>(max_index);
+    result.exit_tag = exit_tag;
+    result.rct = rct;
+    result.rbias = rbias;
+    result.bias = bias;
+    result.minus_beta_f = minus_beta_f;
+    result.minus_beta_f_plus_v = minus_beta_f_plus_v;
+    *state = std::move(result);
+    return true;
+}
+
+bool META::Apply_H5_Restart_State(
+    const SpongeH5MD::RestartMetadynamicsState& state,
+    std::string* error_message)
+{
+    auto fail = [error_message](const std::string& message)
+    {
+        if (error_message != NULL) *error_message = message;
+        return false;
+    };
+    if (!is_initialized || mgrid == NULL)
+    {
+        return fail("metadynamics is not initialized for typed H5 restart");
+    }
+    if (!state.has_typed_state)
+    {
+        return fail("metadynamics restart does not contain typed state");
+    }
+    if (state.name != h5_object_name)
+    {
+        return fail(
+            "metadynamics restart object does not match the active "
+            "protocol object");
+    }
+    if (state.ndim != static_cast<std::size_t>(ndim) ||
+        state.grid_count.size() != state.ndim ||
+        state.grid_min.size() != state.ndim ||
+        state.grid_max.size() != state.ndim)
+    {
+        return fail(
+            "metadynamics restart grid dimension does not match the "
+            "active protocol");
+    }
+    for (std::size_t dim = 0; dim < state.ndim; ++dim)
+    {
+        if (state.grid_count[dim] != mgrid->num_points[dim] ||
+            !Meta_State_Almost_Equal(state.grid_min[dim], mgrid->lower[dim]) ||
+            !Meta_State_Almost_Equal(state.grid_max[dim], mgrid->upper[dim]))
+        {
+            return fail(
+                "metadynamics restart grid does not match the active "
+                "protocol");
+        }
+    }
+    if (!Meta_State_Is_Finite(state.grid_min) ||
+        !Meta_State_Is_Finite(state.grid_max) ||
+        !Meta_State_Is_Finite(state.potential_value) ||
+        !Meta_State_Is_Finite(state.potential_force) ||
+        !Meta_State_Is_Finite(state.edge_log_normalization) ||
+        !Meta_State_Is_Finite(state.edge_normal_force) ||
+        !Meta_State_Is_Finite(state.scatter_position) ||
+        !Meta_State_Is_Finite(state.scatter_potential) ||
+        !Meta_State_Is_Finite(state.scatter_force) ||
+        !Meta_State_Is_Finite(state.hill_center) ||
+        !Meta_State_Is_Finite(state.hill_height) ||
+        !Meta_State_Is_Finite(state.hill_inverse_width) ||
+        !Meta_State_Is_Finite(state.hill_period) ||
+        !Meta_State_Is_Finite(state.hill_sink))
+    {
+        return fail("metadynamics restart contains a non-finite value");
+    }
+
+    const std::size_t grid_size = static_cast<std::size_t>(mgrid->total_size);
+    if (usegrid || mask > 0)
+    {
+        if (state.potential_value.size() != grid_size)
+        {
+            return fail(
+                "metadynamics restart grid potential size does not "
+                "match the active protocol");
+        }
+        mgrid->potential = state.potential_value;
+        if (!mgrid->force.empty())
+        {
+            if (state.potential_force.size() != grid_size * state.ndim)
+            {
+                return fail(
+                    "metadynamics restart grid force size does not "
+                    "match the active protocol");
+            }
+            mgrid->force = state.potential_force;
+        }
+    }
+    if (!state.edge_log_normalization.empty())
+    {
+        if (state.edge_log_normalization.size() != grid_size)
+        {
+            return fail(
+                "metadynamics restart edge normalization size does "
+                "not match the active protocol");
+        }
+        mgrid->normal_lse = state.edge_log_normalization;
+    }
+    else if (do_negative)
+    {
+        return fail(
+            "sink metadynamics restart requires typed edge "
+            "normalization state");
+    }
+    if (!state.edge_normal_force.empty())
+    {
+        if (state.edge_normal_force.size() != grid_size * state.ndim)
+        {
+            return fail(
+                "metadynamics restart edge force size does not match "
+                "the active protocol");
+        }
+        mgrid->normal_force = state.edge_normal_force;
+    }
+    else if (do_negative)
+    {
+        return fail(
+            "sink metadynamics restart requires typed edge force "
+            "state");
+    }
+
+    if (use_scatter)
+    {
+        if (mscatter == NULL ||
+            state.scatter_count !=
+                static_cast<std::size_t>(mscatter->num_points) ||
+            state.scatter_position.size() != state.scatter_count * state.ndim ||
+            state.scatter_potential.size() != state.scatter_count ||
+            state.scatter_force.size() != state.scatter_count * state.ndim)
+        {
+            return fail(
+                "metadynamics restart scatter state does not match "
+                "the active protocol");
+        }
+        for (std::size_t i = 0; i < state.scatter_position.size(); ++i)
+        {
+            if (!Meta_State_Almost_Equal(state.scatter_position[i],
+                                         mscatter->coordinates_flat[i]))
+            {
+                return fail(
+                    "metadynamics restart scatter point order does "
+                    "not match the active protocol");
+            }
+        }
+        mscatter->potential = state.scatter_potential;
+        mscatter->force = state.scatter_force;
+    }
+
+    if (state.hill_center.size() != state.hill_count * state.ndim ||
+        state.hill_height.size() != state.hill_count)
+    {
+        return fail("metadynamics restart hill state has invalid dimensions");
+    }
+    const bool has_typed_hill_shape =
+        state.hill_inverse_width.size() == state.hill_count * state.ndim &&
+        state.hill_period.size() == state.hill_count * state.ndim;
+    if ((!state.hill_inverse_width.empty() || !state.hill_period.empty()) &&
+        !has_typed_hill_shape)
+    {
+        return fail(
+            "metadynamics restart hill shape state has invalid "
+            "dimensions");
+    }
+    hills.clear();
+    hills.reserve(state.hill_count);
+    for (std::size_t index = 0; index < state.hill_count; ++index)
+    {
+        Axis center(state.hill_center.begin() + index * state.ndim,
+                    state.hill_center.begin() + (index + 1) * state.ndim);
+        Axis inverse_width;
+        Axis period;
+        if (has_typed_hill_shape)
+        {
+            inverse_width.assign(
+                state.hill_inverse_width.begin() + index * state.ndim,
+                state.hill_inverse_width.begin() + (index + 1) * state.ndim);
+            period.assign(state.hill_period.begin() + index * state.ndim,
+                          state.hill_period.begin() + (index + 1) * state.ndim);
+        }
+        else
+        {
+            inverse_width = sigmas;
+            period = periods;
+        }
+        hills.emplace_back(center, inverse_width, period,
+                           state.hill_height[index]);
+    }
+    vsink = state.hill_sink;
+
+    if (state.has_runtime_state)
+    {
+        const std::vector<float> runtime_values = {
+            state.potential_max, state.sum_max,      state.new_max,
+            state.exit_tag,      state.rct,          state.rbias,
+            state.bias,          state.minus_beta_f, state.minus_beta_f_plus_v};
+        if (!Meta_State_Is_Finite(runtime_values))
+        {
+            return fail(
+                "metadynamics restart runtime state contains a "
+                "non-finite value");
+        }
+        if (use_scatter &&
+            (state.max_index < 0 ||
+             state.max_index >= static_cast<std::int64_t>(state.scatter_count)))
+        {
+            return fail(
+                "metadynamics restart maximum scatter index is "
+                "invalid");
+        }
+        potential_max = state.potential_max;
+        sum_max = state.sum_max;
+        new_max = state.new_max;
+        max_index = static_cast<int>(state.max_index);
+        exit_tag = state.exit_tag;
+        rct = state.rct;
+        rbias = state.rbias;
+        bias = state.bias;
+        minus_beta_f = state.minus_beta_f;
+        minus_beta_f_plus_v = state.minus_beta_f_plus_v;
+    }
+    else
+    {
+        const std::vector<float>& active_potential =
+            use_scatter ? mscatter->potential : mgrid->potential;
+        if (!active_potential.empty())
+        {
+            potential_max = *std::max_element(active_potential.begin(),
+                                              active_potential.end());
+        }
+        if (!mgrid->normal_lse.empty())
+        {
+            sum_max = *std::max_element(mgrid->normal_lse.begin(),
+                                        mgrid->normal_lse.end());
+        }
+    }
+    mgrid->Sync_To_Device();
+    if (mscatter != NULL) mscatter->Sync_To_Device();
+    if (controller != NULL)
+    {
+        controller->printf(
+            "Applied typed H5 metadynamics state: %s (%zu hills)\n",
+            h5_object_name.c_str(), hills.size());
+    }
+    return true;
+}
+
 META::Hill::Hill(const Axis& centers, const Axis& inv_w, const Axis& period,
                  const float& theight)
     : centers_(centers), inv_w_(inv_w), periods_(period), height(theight)
@@ -2454,10 +2801,10 @@ void META::Border_Derivative(float* border_upper, float* border_lower,
     }
 }
 
-void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                           LTMatrix3 rcell, int step, int need_potential,
-                           int need_pressure, VECTOR* frc, float* d_potential,
-                           LTMatrix3* d_virial, float sys_temp)
+void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, Boundary boundary,
+                           int step, int need_potential, int need_pressure,
+                           VECTOR* frc, float* d_potential, LTMatrix3* d_virial,
+                           float sys_temp)
 {
     if (this->is_initialized)
     {
@@ -2469,7 +2816,7 @@ void META::Do_Metadynamics(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
 
         for (int i = 0; i < cvs.size(); i = i + 1)
         {
-            this->cvs[i]->Compute(atom_numbers, crd, cell, rcell, need, step);
+            this->cvs[i]->Compute(atom_numbers, crd, boundary, need, step);
         }
         temperature = sys_temp;
         Meta_Force_With_Energy_And_Virial(atom_numbers, frc, need_potential,

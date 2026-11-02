@@ -10,7 +10,12 @@ CPP_SUFFIXES = (".cpp", ".h", ".hpp")
 PY_SUFFIXES = (".py", ".pyi", ".ipynb")
 CMAKE_SUFFIXES = (".cmake",)
 PY_HOOK_FILES = {"scripts/pre-commit", "scripts/pre-push"}
-EXCLUDED_CPP_FILES = set()
+EXCLUDED_CPP_FILES = {
+    # Vendored upstream C library: keep byte-identical to upstream 1.1.4 so the
+    # recorded patch stays applicable. Formatting and BOM insertion are skipped.
+    "SPONGE/third_party/xdrfile/include/xdrfile.h",
+    "SPONGE/third_party/xdrfile/include/xdrfile_xtc.h",
+}
 
 
 def env_flag(name, default):

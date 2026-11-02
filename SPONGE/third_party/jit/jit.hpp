@@ -6,20 +6,10 @@ directly compiling for CPU backend
 
 #include "../../common.h"
 #include "../../control.h"
+#include "embedded_common_header.hpp"
 
 namespace sponge_jit_detail
 {
-inline const std::string& Embedded_Common_Header()
-{
-    static const std::string header = []()
-    {
-        std::string value;
-        value.reserve(65536);
-#include "jit.h"
-        return value;
-    }();
-    return header;
-}
 inline std::string Extract_Function_Name(const std::string& source)
 {
     size_t pos1 = source.find("extern");
@@ -237,6 +227,7 @@ struct JIT_Function
 #include <clang/Frontend/TextDiagnosticPrinter.h>
 #include <clang/Lex/PreprocessorOptions.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
+#include <llvm/ExecutionEngine/Orc/JITTargetMachineBuilder.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
@@ -614,7 +605,16 @@ extern "C" float floorf(float x);
             error_reason = openmp_load_error;
             return false;
         }
-        auto jit = llvm::orc::LLJITBuilder().create();
+        auto jit_builder = llvm::orc::LLJITBuilder();
+#if defined(_WIN32)
+        // Keep JIT code portable when a virtualized host over-reports CPU
+        // features that its execution environment does not support.
+        auto target_builder = llvm::orc::JITTargetMachineBuilder(
+            llvm::Triple(llvm::sys::getDefaultTargetTriple()));
+        target_builder.setCPU("generic").setFeatures("");
+        jit_builder.setJITTargetMachineBuilder(std::move(target_builder));
+#endif
+        auto jit = jit_builder.create();
         if (!jit)
         {
             error_reason =

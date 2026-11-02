@@ -12,6 +12,40 @@ using DecodeNode = sponge::toml_decode::node;
 using DecodeArray = sponge::toml_decode::array;
 using DecodeTable = sponge::toml_decode::table;
 
+std::string CanonicalCommandKey(const std::string& full_key)
+{
+    struct Alias
+    {
+        const char* alias;
+        const char* canonical;
+    };
+    static const Alias aliases[] = {
+        {"write_interval_information", "write_information_interval"},
+        {"write_interval_trajectory", "write_trajectory_interval"},
+        {"write_interval_mdout", "write_mdout_interval"},
+        {"write_interval_restart", "write_restart_file_interval"},
+        {"write_interval_restart_file", "write_restart_file_interval"},
+        // Flat shorthand for [xtc] path; the table form already flattens to
+        // xtc_path and needs no alias.
+        {"xtc", "xtc_path"},
+    };
+
+    for (const auto& alias : aliases)
+    {
+        if (full_key == alias.alias)
+        {
+            return alias.canonical;
+        }
+    }
+    const std::string mc_barostat_prefix = "barostat_monte_carlo_";
+    if (full_key.rfind(mc_barostat_prefix, 0) == 0)
+    {
+        return "monte_carlo_barostat_" +
+               full_key.substr(mc_barostat_prefix.size());
+    }
+    return full_key;
+}
+
 bool RequiresStructuredSerialization(const DecodeNode& node)
 {
     if (node.as_table() != nullptr)
@@ -218,7 +252,16 @@ bool FlattenTable(const DecodeTable& table, const std::string& prefix,
         {
             return false;
         }
-        (*parsed_commands)[full_key] = value_str;
+        const std::string canonical_key = CanonicalCommandKey(full_key);
+        const auto insert_result =
+            parsed_commands->emplace(canonical_key, value_str);
+        if (!insert_result.second)
+        {
+            *error_message = "TOML key '" + full_key +
+                             "' conflicts with an existing command for '" +
+                             canonical_key + "'";
+            return false;
+        }
     }
     return true;
 }

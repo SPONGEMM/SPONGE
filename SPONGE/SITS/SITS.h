@@ -1,9 +1,12 @@
 ﻿#pragma once
 
+#include <string>
+
 #include "../Lennard_Jones_force/LJ_soft_core.h"
 #include "../Lennard_Jones_force/Lennard_Jones_force.h"
 #include "../common.h"
 #include "../control.h"
+#include "../utils/h5md/h5_structural_state.hpp"
 
 enum SITS_MODE
 {
@@ -93,6 +96,8 @@ struct CLASSIC_SITS_INFORMATION
 
     float* nk_record_cpu;
     float* log_norm_record_cpu;
+    int h5_nk_pending = 0;
+    int h5_nk_step = 0;
 
     void Initial(CONTROLLER* controller, SITS_INFORMATION* sits);
 
@@ -146,8 +151,11 @@ struct SITS_INFORMATION
 
     bool selectively_applied;
     CLASSIC_SITS_INFORMATION classic_sits;
+    bool has_h5_restart_state = false;
+    SpongeH5MD::RestartSitsState h5_restart_state;
 
     void Initial(CONTROLLER* controller, int atom_numbers_,
+                 BoundaryPolicy boundary_policy,
                  const char* module_name = NULL);
     void Memory_Allocate();
 
@@ -160,24 +168,28 @@ struct SITS_INFORMATION
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
         const float* charge, LENNARD_JONES_INFORMATION* lj_info, VECTOR* md_frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-        const float cutoff, const float pme_beta, const int need_energy,
-        float* atom_energy_ww, const int need_pressure,
-        LTMatrix3* atom_virial_ww, float* elect_atom_ene);
+        const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+        const float pme_beta, const int need_energy, float* atom_energy_ww,
+        const int need_pressure, LTMatrix3* atom_virial_ww,
+        float* elect_atom_ene);
 
     void SITS_LJ_Soft_Core_Direct_CF_Force_With_Atom_Energy_And_Virial(
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
         const float* charge, LJ_SOFT_CORE* lj_info, VECTOR* frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-        const float cutoff, const float pme_beta, const int need_energy,
-        float* atom_energy_ww, const int need_pressure,
-        LTMatrix3* atom_virial_ww, float* elect_atom_ene);
+        const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+        const float pme_beta, const int need_energy, float* atom_energy_ww,
+        const int need_pressure, LTMatrix3* atom_virial_ww,
+        float* elect_atom_ene);
 
     void Step_Print(CONTROLLER* controller, const float beta0);
 
     void Check_Solvent(CONTROLLER* controller, int atom_numbers,
                        int solvent_numbers);
+    bool Export_H5_Restart_State(SpongeH5MD::RestartSitsState* state,
+                                 std::string* error_message) const;
+    bool Apply_H5_Restart_State(const SpongeH5MD::RestartProtocolState& state,
+                                std::string* error_message);
 
     /*
         以下用于区域分解

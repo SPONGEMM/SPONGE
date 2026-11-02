@@ -33,7 +33,7 @@ void MD_INFORMATION::update_group_information::Read_Update_Group(
     int atom_i, atom_j, edge_count = 0;
     for (atom_i = 0; atom_i < atom_numbers; atom_i++)
     {
-        std::set<int> conect_i = connectivity[atom_i];
+        const std::set<int>& conect_i = connectivity[atom_i];
         for (auto iter = conect_i.begin(); iter != conect_i.end(); iter++)
         {
             atom_j = *iter;
@@ -111,20 +111,18 @@ void MD_INFORMATION::update_group_information::Copy_UG_To_Device()
     // 创建临时数组用于存储设备上的 ATOM_GROUP 数据
     ATOM_GROUP* h_ug_tmp = (ATOM_GROUP*)malloc(sizeof(ATOM_GROUP) * ug_numbers);
 
-    // 逐个复制 ATOM_GROUP 数据
     int offset = 0;
     for (int i = 0; i < ug_numbers; i++)
     {
         h_ug_tmp[i].atom_numbers = ug[i].atom_numbers;
         h_ug_tmp[i].ghost_numbers = ug[i].ghost_numbers;
         h_ug_tmp[i].atom_serial = d_atom_serials + offset;
-
-        // 将 atom_serial 数据复制到设备
-        deviceMemcpy(d_atom_serials + offset, ug[i].atom_serial,
-                     sizeof(int) * ug[i].atom_numbers,
-                     deviceMemcpyHostToDevice);
         offset += ug[i].atom_numbers;
     }
+
+    // ug[i].atom_serial 指向同一块连续主机内存且按组序排列，一次拷贝即可
+    deviceMemcpy(d_atom_serials, ug[0].atom_serial,
+                 sizeof(int) * total_atom_serials, deviceMemcpyHostToDevice);
 
     // 将 ATOM_GROUP 数组复制到设备
     deviceMemcpy(d_ug, h_ug_tmp, sizeof(ATOM_GROUP) * ug_numbers,

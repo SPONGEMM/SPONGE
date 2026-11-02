@@ -1,0 +1,5 @@
+steer
+{
+    CV = distance
+    weight = 2.0
+}

@@ -17,9 +17,8 @@ struct UREY_BRADLEY
 
     void Initial(CONTROLLER* controller, char* module_name = NULL);
     void Urey_Bradley_Force_With_Atom_Energy_And_Virial(
-        const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell,
-        VECTOR* frc, int need_atom_energy, float* atom_energy, int need_virial,
-        LTMatrix3* atom_virial);
+        const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+        float* atom_energy, int need_virial, LTMatrix3* atom_virial);
 
     // 区域分解
     //  局部函数：allocated模块，查询当前进程domain内需要计算的angle&bond序号

@@ -1,0 +1,116 @@
+--- a/include/xdrfile.h
++++ b/include/xdrfile.h
+@@ -137,6 +137,40 @@
+  */
+ int xdrfile_close(XDRFILE* xfp);
+ 
++/* ------------------------------------------------------------------------
++ * SPONGE local extensions (not part of upstream libxdrfile).
++ * See patches/0001-sponge-runtime-extensions.patch and README.md.
++ * ------------------------------------------------------------------------ */
++
++/*! \brief Flush pending stdio bytes to the host environment without closing.
++ *
++ *  Mirrors fflush(FILE*) for the encapsulated stream. XTC frames carry their
++ *  own self-describing header, so nothing is appended on close; flushing at a
++ *  frame boundary is therefore a complete durability guarantee against an
++ *  abrupt process termination (it does not fsync to the storage device).
++ *
++ *  \param xfp  Pointer to an abstract XDRFILE datatype
++ *
++ *  \return     exdrOK on success, an enum error code otherwise.
++ */
++int xdrfile_flush(XDRFILE* xfp);
++
++/*! \brief Install a frame-aligned stdio buffer on an already opened handle.
++ *
++ *  Must be called after xdrfile_open() and before the first write. Sizing the
++ *  buffer to whole frames keeps a single frame from straddling a buffer
++ *  boundary, so an interrupted write drops the whole frame instead of leaving
++ *  a partial one on disk. Also reduces write syscalls by orders of magnitude.
++ *
++ *  \param xfp         Pointer to an abstract XDRFILE datatype
++ *  \param frame_bytes Payload size of one frame in bytes; <=0 disables
++ *  \param frames      Number of frames the buffer should hold; <=0 disables
++ *
++ *  \return     exdrOK on success, exdrNOMEM when allocation fails, or the
++ *              error code reported by setvbuf().
++ */
++int xdrfile_setvbuf(XDRFILE* xfp, size_t frame_bytes, int frames);
++
+ /*! \brief Read one or more \a char type variable(s)
+  *
+  *  \param ptr    Pointer to memory where data should be written
+--- a/src/xdrfile.c
++++ b/src/xdrfile.c
+@@ -135,6 +135,7 @@
+     int buf1size; /**< Current allocated length of buf1          */
+     int* buf2;    /**< Buffer for internal use                   */
+     int buf2size; /**< Current allocated length of buf2          */
++    char* stdio_buffer; /**< SPONGE extension: owned stdio buffer  */
+ };
+ 
+ /*************************************************************
+@@ -178,6 +179,7 @@
+     xdrstdio_create((XDR*)(xfp->xdr), xfp->fp, xdrmode);
+     xfp->buf1 = xfp->buf2 = NULL;
+     xfp->buf1size = xfp->buf2size = 0;
++    xfp->stdio_buffer = NULL;
+     return xfp;
+ }
+ 
+@@ -197,11 +199,54 @@
+         if (xfp->buf2size) {
+             free(xfp->buf2);
+         }
++        free(xfp->stdio_buffer);
+         free(xfp);
+     }
+     return ret; /* return 0 if ok */
+ }
+ 
++/* ------------------------------------------------------------------------
++ * SPONGE local extensions (not part of upstream libxdrfile).
++ * See patches/0001-sponge-runtime-extensions.patch and README.md.
++ * ------------------------------------------------------------------------ */
++
++int xdrfile_flush(XDRFILE* xfp) {
++    if (xfp == NULL || xfp->fp == NULL) {
++        return exdrCLOSE;
++    }
++    return fflush(xfp->fp) == 0 ? exdrOK : exdrCLOSE;
++}
++
++int xdrfile_setvbuf(XDRFILE* xfp, size_t frame_bytes, int frames) {
++    size_t total;
++    char* buffer;
++
++    if (xfp == NULL || xfp->fp == NULL) {
++        return exdrCLOSE;
++    }
++    if (frame_bytes == 0 || frames <= 0) {
++        return exdrOK; /* keep the stdio default */
++    }
++    if (xfp->stdio_buffer != NULL) {
++        return exdrOK; /* already installed; setvbuf only applies once */
++    }
++
++    total = frame_bytes * (size_t)frames;
++    if (total / frame_bytes != (size_t)frames) {
++        return exdrNOMEM; /* size overflow */
++    }
++    buffer = (char*)malloc(total);
++    if (buffer == NULL) {
++        return exdrNOMEM;
++    }
++    if (setvbuf(xfp->fp, buffer, _IOFBF, total) != 0) {
++        free(buffer);
++        return exdrCLOSE;
++    }
++    xfp->stdio_buffer = buffer;
++    return exdrOK;
++}
++
+ int xdrfile_read_int(int* ptr, int ndata, XDRFILE* xfp) {
+     int i = 0;
+ 

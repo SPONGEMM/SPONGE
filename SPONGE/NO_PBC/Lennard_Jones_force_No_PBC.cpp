@@ -1,5 +1,8 @@
 ﻿#include "Lennard_Jones_force_No_PBC.h"
 
+#include "../xponge/load/native/lj.hpp"
+#include "../xponge/xponge.h"
+
 static __global__ void LJ_Force_Device(const int atom_numbers,
                                        const VECTOR* crd, const int* LJ_types,
                                        const float* LJ_A, const float* LJ_B,
@@ -152,13 +155,22 @@ void LENNARD_JONES_NO_PBC_INFORMATION::Initial(CONTROLLER* controller,
     }
     controller[0].printf("START INITIALIZING LENNADR JONES INFORMATION:\n");
     this->cutoff = cutoff;
-    if (controller[0].Command_Exist(this->module_name, "in_file"))
+    const auto& system_lj = Xponge::system.classical_force_field.lj;
+    Xponge::LennardJones local_lj;
+    const Xponge::LennardJones* lj_to_use = NULL;
+    if (module_name == NULL)
     {
-        FILE* fp = NULL;
-        Open_File_Safely(
-            &fp, controller[0].Command(this->module_name, "in_file"), "r");
-
-        int scanf_ret = fscanf(fp, "%d %d", &atom_numbers, &atom_type_numbers);
+        lj_to_use = &system_lj;
+    }
+    else if (controller[0].Command_Exist(this->module_name, "in_file"))
+    {
+        Xponge::Native_Load_LJ(&local_lj, controller, 0, this->module_name);
+        lj_to_use = &local_lj;
+    }
+    if (lj_to_use != NULL && !lj_to_use->atom_type.empty())
+    {
+        atom_numbers = static_cast<int>(lj_to_use->atom_type.size());
+        atom_type_numbers = lj_to_use->atom_type_numbers;
         controller[0].printf("    atom_numbers is %d\n", atom_numbers);
         controller[0].printf("    atom_LJ_type_number is %d\n",
                              atom_type_numbers);
@@ -167,19 +179,16 @@ void LENNARD_JONES_NO_PBC_INFORMATION::Initial(CONTROLLER* controller,
 
         for (int i = 0; i < pair_type_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%f", h_LJ_A + i);
-            h_LJ_A[i] *= 12.0f;
+            h_LJ_A[i] = lj_to_use->pair_A[i];
         }
         for (int i = 0; i < pair_type_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%f", h_LJ_B + i);
-            h_LJ_B[i] *= 6.0f;
+            h_LJ_B[i] = lj_to_use->pair_B[i];
         }
         for (int i = 0; i < atom_numbers; i++)
         {
-            scanf_ret = fscanf(fp, "%d", h_atom_LJ_type + i);
+            h_atom_LJ_type[i] = lj_to_use->atom_type[i];
         }
-        fclose(fp);
         Parameter_Host_To_Device();
         is_initialized = 1;
     }

@@ -1,17 +1,8 @@
 ﻿/*
  * Copyright 2021-2023 Gao's lab, Peking University, CCME. All rights reserved.
  *
- * NOTICE TO LICENSEE:
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * http://www.apache.org/licenses/LICENSE-2.0
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * This file is part of SPONGE and is licensed under the SPONGE Licensing
+ * Agreement in the repository root. The English text in LICENSE controls.
  */
 
 #pragma once
@@ -49,18 +40,20 @@ struct LISTED_FORCE
     int local_atom_numbers = 0;
     int use_domain_decomposition = 0;
     int last_atom_numbers = 0;
+    bool has_native_parameters = false;
+    int native_item_count = 0;
+    std::vector<float> native_parameter_values;
     void Initialize_Parameters(CONTROLLER* controller,
                                std::string parameter_string);
     void Compile(CONTROLLER* controller);
     void Initial(CONTROLLER* controller, CONECT* connectivity,
                  PAIR_DISTANCE* con_dis);
-    void Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                       LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                       float* atom_energy, int need_pressure,
-                       LTMatrix3* atom_virial);
+    void Compute_Force(int atom_numbers, VECTOR* crd, Boundary boundary,
+                       VECTOR* frc, int need_energy, float* atom_energy,
+                       int need_pressure, LTMatrix3* atom_virial);
     void Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
                    char* atom_local_label, int* atom_local_id);
-    float Get_Energy(VECTOR* crd, VECTOR box_length);
+    float Get_Energy(VECTOR* crd, Boundary boundary);
     void Step_Print(CONTROLLER* controller);
 };
 
@@ -74,10 +67,9 @@ struct LISTED_FORCES
     std::vector<LISTED_FORCE*> forces;
     void Initial(CONTROLLER* controller, CONECT* connectivity,
                  PAIR_DISTANCE* con_dis, const char* module_name = NULL);
-    void Compute_Force(int atom_numbers, VECTOR* crd, LTMatrix3 cell,
-                       LTMatrix3 rcell, VECTOR* frc, int need_energy,
-                       float* atom_energy, int need_pressure,
-                       LTMatrix3* atom_virial);
+    void Compute_Force(int atom_numbers, VECTOR* crd, Boundary boundary,
+                       VECTOR* frc, int need_energy, float* atom_energy,
+                       int need_pressure, LTMatrix3* atom_virial);
     void Get_Local(int* atom_local, int local_atom_numbers, int ghost_numbers,
                    char* atom_local_label, int* atom_local_id);
     void Step_Print(CONTROLLER* controller);

@@ -1,0 +1,401 @@
+name: Bundled I/O A/B Shadow
+
+on:
+  pull_request:
+    branches:
+      - master
+      - 'lab/**'
+    paths:
+      - "SPONGE/**"
+      - "benchmarks/bundled_io/**"
+      - "tests/h5_bundle/**"
+      - "pixi.toml"
+      - ".github/workflows/bundled-io-ab-shadow.yml"
+  schedule:
+    - cron: "17 18 * * 6"
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: A/B shadow tier
+        required: true
+        default: contract
+        type: choice
+        options:
+          - contract
+          - medium
+          - production
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bundled-io-ab-shadow-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SPONGE_XPONGE_ROOT: ${{ github.workspace }}/.xponge-source
+
+jobs:
+  contract:
+    name: Contract and promotion guards (shadow)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CPU environment
+        run: pixi install -e dev-cpu
+
+      - name: Validate contract and promotion guards
+        run: |
+          pixi run -e dev-cpu python -m benchmarks.bundled_io.execution_matrix
+          pixi run -e dev-cpu smoke-bundled-io-contract
+
+  medium:
+    name: Medium behavior matrix (shadow)
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.tier == 'medium'
+    needs: contract
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      SPONGE_BUNDLED_IO_AB_RUN_ROOT: ${{ github.workspace }}/outputs/ab-medium
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CPU environment
+        run: pixi install -e dev-cpu
+
+      - name: Configure and compile SPONGE
+        run: |
+          pixi run -e dev-cpu configure
+          pixi run -e dev-cpu compile
+
+      - name: Run medium A/B tier
+        run: pixi run -e dev-cpu ab-bundled-io-medium
+
+      - name: Run CPU rank-1 execution matrix
+        if: always()
+        env:
+          SPONGE_BUNDLED_IO_AB_PROFILE: medium
+          SPONGE_BUNDLED_IO_AB_BACKEND: cpu
+          SPONGE_BUNDLED_IO_AB_MATRIX_SCENARIOS: cpu-rank1
+        run: >-
+          pixi run -e dev-cpu python -X utf8 -m pytest
+          benchmarks/bundled_io/tests/test_bundled_io_ab_execution_matrix.py
+          -s --tb=short
+
+      - name: Upload medium evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-io-ab-medium-${{ github.run_id }}
+          path: outputs/ab-medium
+          if-no-files-found: warn
+
+  production:
+    name: Production behavior matrix (shadow)
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.tier == 'production')
+    needs: contract
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      SPONGE_BUNDLED_IO_AB_RUN_ROOT: ${{ github.workspace }}/outputs/ab-production
+      SPONGE_BUNDLED_IO_AB_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_COMMIT: ${{ github.sha }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_TREE_STATE: clean
+      SPONGE_BUNDLED_IO_AB_COMPARATOR_EVIDENCE: ${{ github.workspace }}/outputs/ab-production/ab_comparator_evidence.json
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Attest clean CPU source checkout
+        run: test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CPU environment
+        run: pixi install -e dev-cpu
+
+      - name: Configure and compile SPONGE
+        run: |
+          pixi run -e dev-cpu configure
+          pixi run -e dev-cpu compile
+
+      - name: Run production A/B tier
+        run: pixi run -e dev-cpu ab-bundled-io-production
+
+      - name: Run CPU rank-1 execution matrix
+        if: always()
+        env:
+          SPONGE_BUNDLED_IO_AB_PROFILE: production
+          SPONGE_BUNDLED_IO_AB_BACKEND: cpu
+          SPONGE_BUNDLED_IO_AB_MATRIX_SCENARIOS: cpu-rank1
+        run: >-
+          pixi run -e dev-cpu python -X utf8 -m pytest
+          benchmarks/bundled_io/tests/test_bundled_io_ab_execution_matrix.py
+          -s --tb=short
+
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-io-ab-production-${{ github.run_id }}
+          path: outputs/ab-production
+          if-no-files-found: warn
+
+  production-mpi:
+    name: CPU MPI rank-2 behavior matrix (shadow)
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.tier == 'production')
+    needs: contract
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+    env:
+      SPONGE_BUNDLED_IO_AB_RUN_ROOT: ${{ github.workspace }}/outputs/ab-mpi
+      SPONGE_BUNDLED_IO_AB_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_COMMIT: ${{ github.sha }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_TREE_STATE: clean
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Attest clean CPU MPI source checkout
+        run: test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CPU MPI environment
+        run: pixi install -e dev-cpu-mpi
+
+      - name: Configure and compile SPONGE CPU MPI
+        run: |
+          pixi run -e dev-cpu-mpi configure
+          pixi run -e dev-cpu-mpi compile
+
+      - name: Run CPU rank-2 execution matrix
+        env:
+          SPONGE_BUNDLED_IO_AB_PROFILE: production
+          SPONGE_BUNDLED_IO_AB_BACKEND: cpu
+          SPONGE_BUNDLED_IO_AB_MATRIX_SCENARIOS: cpu-rank2
+        run: >-
+          pixi run -e dev-cpu-mpi python -X utf8 -m pytest
+          benchmarks/bundled_io/tests/test_bundled_io_ab_execution_matrix.py
+          -s --tb=short
+
+      - name: Upload MPI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-io-ab-mpi-${{ github.run_id }}
+          path: outputs/ab-mpi
+          if-no-files-found: warn
+
+  production-gpu:
+    name: GPU rank-1 behavior matrix (shadow)
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.tier == 'production')
+    needs: contract
+    continue-on-error: true
+    runs-on: [self-hosted, linux, x64, gpu, cuda13]
+    timeout-minutes: 360
+    env:
+      SPONGE_BUNDLED_IO_AB_RUN_ROOT: ${{ github.workspace }}/outputs/ab-gpu
+      SPONGE_BUNDLED_IO_AB_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_COMMIT: ${{ github.sha }}
+      SPONGE_BUNDLED_IO_AB_GPU_DEVICES: "0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Attest clean GPU source checkout
+        run: test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Record GPU hardware
+        run: nvidia-smi --query-gpu=name,driver_version --format=csv
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CUDA environment
+        run: pixi install -e dev-cuda13
+
+      - name: Configure and compile SPONGE CUDA
+        run: |
+          pixi run -e dev-cuda13 configure
+          pixi run -e dev-cuda13 compile
+
+      - name: Run GPU rank-1 execution matrix
+        env:
+          SPONGE_BUNDLED_IO_AB_PROFILE: production
+          SPONGE_BUNDLED_IO_AB_BACKEND: gpu
+          SPONGE_BUNDLED_IO_AB_MATRIX_SCENARIOS: gpu-rank1
+          SPONGE_BUNDLED_IO_AB_SOURCE_TREE_STATE: clean
+        run: >-
+          pixi run -e dev-cuda13 python -X utf8 -m pytest
+          benchmarks/bundled_io/tests/test_bundled_io_ab_execution_matrix.py
+          -s --tb=short
+
+      - name: Upload GPU evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-io-ab-gpu-${{ github.run_id }}
+          path: outputs/ab-gpu
+          if-no-files-found: error
+
+  production-gpu-mpi:
+    name: GPU MPI rank-2 behavior matrix (shadow)
+    if: >-
+      github.event_name == 'schedule' ||
+      (github.event_name == 'workflow_dispatch' && inputs.tier == 'production')
+    needs: contract
+    continue-on-error: true
+    runs-on: [self-hosted, linux, x64, gpu, cuda13, mpi]
+    timeout-minutes: 360
+    env:
+      SPONGE_BUNDLED_IO_AB_RUN_ROOT: ${{ github.workspace }}/outputs/ab-gpu-mpi
+      SPONGE_BUNDLED_IO_AB_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SPONGE_BUNDLED_IO_AB_SOURCE_COMMIT: ${{ github.sha }}
+      SPONGE_BUNDLED_IO_AB_GPU_DEVICES: "0"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Attest clean GPU MPI source checkout
+        run: test -z "$(git status --porcelain --untracked-files=all)"
+
+      - name: Checkout pinned XPONGE converter
+        uses: actions/checkout@v5
+        with:
+          repository: SPONGEMM/XPONGE
+          ref: d607b8965d18c4ac3c307d00aba974da7e81fa89
+          path: .xponge-source
+
+      - name: Apply reviewed XPONGE converter runtime patch
+        run: >-
+          git -C .xponge-source apply
+          "$GITHUB_WORKSPACE/benchmarks/bundled_io/contracts/xponge_converter_runtime.patch"
+
+      - name: Record GPU MPI hardware
+        run: nvidia-smi --query-gpu=name,driver_version --format=csv
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.4
+        with:
+          run-install: false
+
+      - name: Install CUDA MPI environment
+        run: pixi install -e dev-cuda13-mpi
+
+      - name: Configure and compile SPONGE CUDA MPI
+        run: |
+          pixi run -e dev-cuda13-mpi configure-cuda-mpi
+          pixi run -e dev-cuda13-mpi compile
+
+      - name: Run GPU rank-2 execution matrix
+        env:
+          SPONGE_BUNDLED_IO_AB_PROFILE: production
+          SPONGE_BUNDLED_IO_AB_BACKEND: gpu
+          SPONGE_BUNDLED_IO_AB_MATRIX_SCENARIOS: gpu-rank2
+          SPONGE_BUNDLED_IO_AB_SOURCE_TREE_STATE: clean
+        run: >-
+          pixi run -e dev-cuda13-mpi python -X utf8 -m pytest
+          benchmarks/bundled_io/tests/test_bundled_io_ab_execution_matrix.py
+          -s --tb=short
+
+      - name: Upload GPU MPI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundled-io-ab-gpu-mpi-${{ github.run_id }}
+          path: outputs/ab-gpu-mpi
+          if-no-files-found: error

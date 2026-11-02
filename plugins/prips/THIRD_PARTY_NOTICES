@@ -1,0 +1,13 @@
+Third-Party Notices
+===================
+
+PRIPS includes source code from the following third-party project. That
+component retains its own license terms.
+
+DLPack
+------
+
+License: Apache License 2.0
+Copyright (c) 2017 by Contributors
+Source: https://github.com/dmlc/dlpack
+License text: LICENSE-DLPACK

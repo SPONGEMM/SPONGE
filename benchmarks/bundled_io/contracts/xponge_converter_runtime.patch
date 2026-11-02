@@ -1,0 +1,93 @@
+diff --git a/Xponge/io_bundle/contracts.py b/Xponge/io_bundle/contracts.py
+index bb1939e..8c8f51d 100644
+--- a/Xponge/io_bundle/contracts.py
++++ b/Xponge/io_bundle/contracts.py
+@@ -553,6 +553,11 @@ CONTRACTS: tuple[IOContract, ...] = (
+         comparison_rule="typed",
+         status="compatibility_import",
+         payload_kind="file",
++        reverse_policy=(
++            "typed_required"
++            if key in {"improper_dihedral_in_file", "residue_in_file"}
++            else None
++        ),
+     )
+     for key, path in TOPOLOGY_FILE_CONTRACTS.items()
+ ) + tuple(
+diff --git a/Xponge/io_bundle/converter.py b/Xponge/io_bundle/converter.py
+index e7fd13a..4d5ec50 100644
+--- a/Xponge/io_bundle/converter.py
++++ b/Xponge/io_bundle/converter.py
+@@ -13,7 +13,13 @@ import numpy as np
+ from Xponge.load import load_coordinate
+ 
+ from .bundle_builder import BundleBuilder, BundleIO, BundleMetadata, BundlePaths
+-from .contracts import CONTRACTS, PROTOCOL_RESTART_SIDECAR_KEYS, IOContract, contracts_by_legacy_key
++from .contracts import (
++    CONTRACTS,
++    LEGACY_KEY_ALIASES,
++    PROTOCOL_RESTART_SIDECAR_KEYS,
++    IOContract,
++    contracts_by_legacy_key,
++)
+ from .h5_writer import (
+     ensure_dataset,
+     ensure_group,
+@@ -257,7 +263,8 @@ class LegacyToBundleConverter:
+                         self._builder.add_datasets(contract.bundle_file, typed_datasets)
+                     if contract.bundle_file == "restart.spgr.h5":
+                         self._track_restart_state_component(key)
+-                    self._stage_legacy_sidecar(contract, key, source_path, dry_run=dry_run)
++                    if self._typed_payload_requires_legacy_sidecar(key):
++                        self._stage_legacy_sidecar(contract, key, source_path, dry_run=dry_run)
+                     self._add_manifest_entry(
+                         contract,
+                         "typed_converted",
+@@ -454,6 +461,15 @@ class LegacyToBundleConverter:
+             shutil.copyfile(source_path, sidecar_abs)
+         return sidecar_rel
+ 
++    def _typed_payload_requires_legacy_sidecar(self, key: str) -> bool:
++        canonical_key = LEGACY_KEY_ALIASES.get(key, key)
++        canonical_contracts = self._contract_index.get(canonical_key, ())
++        return not any(
++            contract.status == "compatibility_import"
++            and contract.reverse_policy == "typed_required"
++            for contract in canonical_contracts
++        )
++
+     def _stage_legacy_sidecar(
+         self, contract: IOContract, key: str, source_path: Path, *, dry_run: bool
+     ) -> None:
+diff --git a/Xponge/io_bundle/topology_exporters.py b/Xponge/io_bundle/topology_exporters.py
+index c4598d5..6265356 100644
+--- a/Xponge/io_bundle/topology_exporters.py
++++ b/Xponge/io_bundle/topology_exporters.py
+@@ -72,10 +72,13 @@ def export_dihedral(contract, reader, context) -> list[LegacyPayload]:
+ 
+ 
+ def export_improper(contract, reader, context) -> list[LegacyPayload]:
++    parameter_path = "/forcefield/improper/pk"
++    if not reader.contains(contract.bundle_file, parameter_path):
++        parameter_path = "/forcefield/improper/k"
+     return _fixed_table(
+         contract,
+         reader,
+-        ("/forcefield/improper/atoms", "/forcefield/improper/k", "/forcefield/improper/phi0"),
++        ("/forcefield/improper/atoms", parameter_path, "/forcefield/improper/phi0"),
+     )
+ 
+ 
+diff --git a/Xponge/io_bundle/topology_parsers.py b/Xponge/io_bundle/topology_parsers.py
+index a8910fb..2c7eb2c 100644
+--- a/Xponge/io_bundle/topology_parsers.py
++++ b/Xponge/io_bundle/topology_parsers.py
+@@ -70,7 +70,7 @@ def parse_topology_file(key: str, path: Path) -> list[TypedDataset] | None:
+             atom_columns=4,
+             datasets=(
+                 ("/forcefield/improper/atoms", np.int32, slice(0, 4)),
+-                ("/forcefield/improper/k", np.float32, 4),
++                ("/forcefield/improper/pk", np.float32, 4),
+                 ("/forcefield/improper/phi0", np.float32, 5),
+             ),
+         )

@@ -1,6 +1,8 @@
 ﻿#pragma once
 #include "../common.h"
 #include "../control.h"
+#include "../utils/h5md/h5_structural_state.hpp"
+#include "mc_barostat_math.h"
 
 // 用于记录与计算MC控压相关的信息
 struct MC_BAROSTAT_INFORMATION
@@ -63,6 +65,8 @@ struct MC_BAROSTAT_INFORMATION
     float extra_term;
     float accept_possibility;
 
+    std::uint64_t random_state = 0;
+
     // scale coordinate atomically
     void Scale_Coordinate_Atomically(int atom_numbers, VECTOR* crd);
 
@@ -89,4 +93,12 @@ struct MC_BAROSTAT_INFORMATION
 
     // 判断步数条件，决定是否让计算力的时候也计算能量
     void Ask_For_Calculate_Potential(int steps, int* need_potential);
+    bool Export_H5_Restart_State(SpongeH5MD::RestartDynamicState* state,
+                                 std::string* error_message) const;
+    bool Apply_H5_Restart_State(const SpongeH5MD::RestartDynamicState& state,
+                                std::string* error_message);
+
+    std::uint64_t Next_Random_U64();
+    float Next_Uniform();
+    int Next_Random_Index(int upper_bound);
 };

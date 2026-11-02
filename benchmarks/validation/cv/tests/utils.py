@@ -151,6 +151,36 @@ def write_distance_bias_cv_file(
     )
 
 
+def write_displacement_cv_file(case_dir, cv_file="cv.txt"):
+    lines = ["print", "{", "    CV = distance dx dy dz", "}"]
+    for name, cv_type in (
+        ("distance", "distance"),
+        ("dx", "displacement_x"),
+        ("dy", "displacement_y"),
+        ("dz", "displacement_z"),
+    ):
+        lines.extend(
+            [name, "{", f"    CV_type = {cv_type}", "    atom = 4 6", "}"]
+        )
+    Path(case_dir, cv_file).write_text(
+        "\n".join(lines) + "\n", encoding="utf-8"
+    )
+
+
+def rewrite_coordinate_for_open_boundary(
+    coordinate_path, *, shifted_atom=None, shift_x=0.0, box_length=1000.0
+):
+    path = Path(coordinate_path)
+    tokens = path.read_text(encoding="utf-8").split()
+    atom_numbers = int(tokens[0])
+    if shifted_atom is not None:
+        x_index = 1 + 3 * shifted_atom
+        tokens[x_index] = str(float(tokens[x_index]) + shift_x)
+    box_start = 1 + 3 * atom_numbers
+    tokens[box_start : box_start + 3] = [str(box_length)] * 3
+    path.write_text("\n".join(tokens) + "\n", encoding="utf-8")
+
+
 def write_bias_cv_file(
     case_dir,
     *,

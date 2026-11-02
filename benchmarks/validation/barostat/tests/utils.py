@@ -27,6 +27,7 @@ def write_barostat_mdin(
     barostat_isotropy="isotropic",
     barostat_tau=1.0,
     barostat_update_interval=10,
+    barostat_seed=2026,
     write_information_interval=1000,
     write_mdout_interval=1000,
     default_in_file_prefix="tip3p",
@@ -67,6 +68,7 @@ def write_barostat_mdin(
         mdin += (
             f"barostat_tau = {barostat_tau}\n"
             f"barostat_update_interval = {barostat_update_interval}\n"
+            f"barostat_seed = {barostat_seed}\n"
         )
     Path(case_dir, "mdin.spg.toml").write_text(mdin)
 

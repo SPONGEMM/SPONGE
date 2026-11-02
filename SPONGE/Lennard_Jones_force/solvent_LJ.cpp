@@ -27,9 +27,9 @@ template <int WAT_POINTS, bool need_force, bool need_energy, bool need_virial,
 static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
     const int atom_numbers, const ATOM_GROUP* nl,
     const int solvent_start_residue, const int res_numbers,
-    const int* d_res_start, const VECTOR_LJ* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const float* LJ_type_A, const float* LJ_type_B,
-    const float cutoff, VECTOR* frc, const float pme_beta, float* atom_energy,
+    const int* d_res_start, const VECTOR_LJ* crd, const Boundary boundary,
+    const float* LJ_type_A, const float* LJ_type_B, const float cutoff,
+    VECTOR* frc, const float pme_beta, float* atom_energy,
     LTMatrix3* atom_lj_virial, float* atom_direct_cf_energy, float* this_energy)
 {
     __shared__ float r1s_x[128];
@@ -76,7 +76,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Device(
                     {r1s_x[shared_idx], r1s_y[shared_idx], r1s_z[shared_idx]},
                     r1s_lj_type[shared_idx],
                     r1s_charge[shared_idx]};
-                VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+                VECTOR dr = Get_Displacement<BoundaryPolicy::Periodic>(
+                    r2, r1, boundary);
                 float dr_abs = norm3df(dr.x, dr.y, dr.z);
                 if (dr_abs < cutoff)
                 {
@@ -254,8 +255,8 @@ void SOLVENT_LENNARD_JONES::Initial(CONTROLLER* controller,
 */
 void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int residue_numbers, const int* d_res_start,
-    const VECTOR* crd, const float* charge, VECTOR* frc, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const ATOM_GROUP* nl, const float pme_beta,
+    const VECTOR* crd, const float* charge, VECTOR* frc,
+    const Boundary boundary, const ATOM_GROUP* nl, const float pme_beta,
     const int need_atom_energy, float* atom_energy, const int need_virial,
     LTMatrix3* atom_lj_virial, float* atom_direct_pme_energy)
 {
@@ -302,7 +303,7 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
                     Launch_Device_Kernel(
                         f, gridSize, blockSize, 0, NULL, atom_numbers, nl,
                         solvent_start_local, residue_numbers, d_res_start,
-                        lj_info->crd_with_LJ_parameters_local, cell, rcell,
+                        lj_info->crd_with_LJ_parameters_local, boundary,
                         lj_info->d_LJ_A, lj_info->d_LJ_B, lj_info->cutoff, frc,
                         pme_beta, atom_energy, atom_lj_virial,
                         atom_direct_pme_energy, lj_info->d_LJ_energy_atom);
@@ -343,7 +344,7 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
                     Launch_Device_Kernel(
                         f, gridSize, blockSize, 0, NULL, atom_numbers, nl,
                         solvent_start_local, residue_numbers, d_res_start,
-                        soft_to_hard_crd, cell, rcell, lj_soft_info->d_LJ_AA,
+                        soft_to_hard_crd, boundary, lj_soft_info->d_LJ_AA,
                         lj_soft_info->d_LJ_AB, lj_soft_info->cutoff, frc,
                         pme_beta, atom_energy, atom_lj_virial,
                         atom_direct_pme_energy, lj_soft_info->d_LJ_energy_atom);
@@ -378,7 +379,7 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
                     Launch_Device_Kernel(
                         f, gridSize, blockSize, 0, NULL, atom_numbers, nl,
                         solvent_start_local, residue_numbers, d_res_start,
-                        lj_info->crd_with_LJ_parameters_local, cell, rcell,
+                        lj_info->crd_with_LJ_parameters_local, boundary,
                         lj_info->d_LJ_A, lj_info->d_LJ_B, lj_info->cutoff, frc,
                         pme_beta, atom_energy, atom_lj_virial,
                         atom_direct_pme_energy, lj_info->d_LJ_energy_atom);
@@ -419,7 +420,7 @@ void SOLVENT_LENNARD_JONES::LJ_PME_Direct_Force_With_Atom_Energy_And_Virial(
                     Launch_Device_Kernel(
                         f, gridSize, blockSize, 0, NULL, atom_numbers, nl,
                         solvent_start_local, residue_numbers, d_res_start,
-                        soft_to_hard_crd, cell, rcell, lj_soft_info->d_LJ_AA,
+                        soft_to_hard_crd, boundary, lj_soft_info->d_LJ_AA,
                         lj_soft_info->d_LJ_AB, lj_soft_info->cutoff, frc,
                         pme_beta, atom_energy, atom_lj_virial,
                         atom_direct_pme_energy, lj_soft_info->d_LJ_energy_atom);

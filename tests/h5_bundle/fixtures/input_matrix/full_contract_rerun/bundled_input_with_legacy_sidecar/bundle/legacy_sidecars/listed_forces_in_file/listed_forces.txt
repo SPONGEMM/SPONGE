@@ -1,0 +1,10 @@
+[[[ custom_bond ]]]
+[[ potential ]]
+E = k * (r_ab - r0) * (r_ab - r0);
+[[ parameters ]]
+int atom_a, int atom_b, float k, float r0
+[[ connected_atoms ]]
+ab
+[[ constrain_distance ]]
+r0
+[[ end ]]

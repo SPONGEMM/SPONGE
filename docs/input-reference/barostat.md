@@ -10,6 +10,7 @@ target_pressure = 1.0
 
 [barostat]
 mode = "andersen_barostat"
+seed = 2026
 tau = 0.1
 update_interval = 10
 ```
@@ -51,6 +52,7 @@ share the same parameter set.
 ```toml
 [barostat]
 mode = "andersen_barostat"
+seed = 2026
 tau = 0.1
 compressibility = 4.5e-5
 update_interval = 10
@@ -61,6 +63,7 @@ isotropy = "isotropic"
 
 | Parameter | Scope | Type | Default | Description |
 |-----------|-------|------|---------|-------------|
+| `seed` | `barostat` | int | random | Seed for the portable Philox stream used by stochastic pressure-based barostats |
 | `tau` | `barostat` | float | `1.0` | Barostat time constant (ps) |
 | `compressibility` | `barostat` | float | `4.5e-5` | Isothermal compressibility in `bar^-1` |
 | `update_interval` | `barostat` | int | `10` | Pressure-coupling update interval |
@@ -101,7 +104,7 @@ orthogonal boxes only.
 [barostat]
 mode = "monte_carlo_barostat"
 
-[monte_carlo_barostat]
+[barostat.monte_carlo]
 initial_ratio = 0.001
 update_interval = 100
 check_interval = 10
@@ -109,6 +112,10 @@ accept_rate_low = 30
 accept_rate_high = 40
 couple_dimension = "XYZ"
 ```
+
+`[barostat.monte_carlo]` is a TOML alias group for existing
+`monte_carlo_barostat_*` runtime commands. The legacy top-level
+`[monte_carlo_barostat]` table remains accepted for compatibility.
 
 ### Parameters
 

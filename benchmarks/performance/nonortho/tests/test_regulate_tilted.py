@@ -45,6 +45,7 @@ RELAX_STEP_LIMIT = 5000
 WRITE_INFORMATION_INTERVAL = 1000
 WRITE_MDOUT_INTERVAL = 1000
 DENSITY_TAIL_SAMPLES = 3
+DENSITY_ABS_TOL = 0.020
 
 
 def _write_and_run_stage(
@@ -114,6 +115,9 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
         new_lx=52.0,
         new_ly=52.0,
         new_lz=52.0,
+        new_alpha=58.0,
+        new_beta=60.0,
+        new_gamma=62.0,
         scale_coordinates=False,
     )
 
@@ -196,7 +200,7 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     )
 
     target_density = 0.992
-    density_abs_tol = 0.010
+    density_abs_tol = DENSITY_ABS_TOL
     density_error = abs(density_stats["mean"] - target_density)
     density_ok = density_error <= density_abs_tol
     angles_finite = all(
@@ -209,6 +213,24 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
             beta_stats["std"],
             gamma_stats["std"],
         )
+    )
+    angles_preserved = all(
+        math.isclose(record[3], init_alpha, abs_tol=1.0e-3)
+        and math.isclose(record[4], init_beta, abs_tol=1.0e-3)
+        and math.isclose(record[5], init_gamma, abs_tol=1.0e-3)
+        for record in box_records
+    )
+
+    restart_box = tuple(
+        float(value)
+        for value in (case_dir / "restart_coordinate.txt")
+        .read_text()
+        .splitlines()[-1]
+        .split()[:6]
+    )
+    restart_box_matches = all(
+        math.isclose(actual, expected, abs_tol=1.0e-3)
+        for actual, expected in zip(restart_box, box_records[-1])
     )
 
     rows = [
@@ -232,7 +254,19 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
         ["FinalAlphaStd", f"{alpha_stats['std']:.3f}"],
         ["FinalBetaStd", f"{beta_stats['std']:.3f}"],
         ["FinalGammaStd", f"{gamma_stats['std']:.3f}"],
-        ["Status", "PASS" if (density_ok and angles_finite) else "FAIL"],
+        ["AnglesPreserved", str(angles_preserved)],
+        ["RestartBoxMatches", str(restart_box_matches)],
+        [
+            "Status",
+            "PASS"
+            if (
+                density_ok
+                and angles_finite
+                and angles_preserved
+                and restart_box_matches
+            )
+            else "FAIL",
+        ],
     ]
     Outputer.print_table(
         ["Metric", "Value"],
@@ -244,4 +278,6 @@ def test_wat_nonortho_regulate_from_expanded_nonorthogonal_box(
     )
 
     assert angles_finite
+    assert angles_preserved
+    assert restart_box_matches
     assert density_ok

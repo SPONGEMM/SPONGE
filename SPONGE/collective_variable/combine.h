@@ -15,6 +15,6 @@ struct CV_COMBINE : public COLLECTIVE_VARIABLE_PROTOTYPE
     float** df_dcv;
     void Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager, int atom_numbers,
                  const char* module_name);
-    void Compute(int atom_numbers, VECTOR* crd, const LTMatrix3 cell,
-                 const LTMatrix3 rcell, int need, int step);
+    void Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,
+                 int need, int step);
 };

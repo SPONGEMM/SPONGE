@@ -1,7 +1,6 @@
 ﻿#include "control.h"
 
-#define SPONGE_CODENAME "2026-04-01 April Fools' Day"
-#define SPONGE_VERSION "v" SPONGE_VERSION_STR " " SPONGE_CODENAME
+#define SPONGE_VERSION "v" SPONGE_VERSION_STR
 
 static const char* SPONGE_ASCII_ART = R"( ____  ____   ___  _   _  ____ _____
 / ___||  _ \ / _ \| \ | |/ ___| ____|
@@ -23,6 +22,7 @@ int CONTROLLER::MPI_rank = 0;
 int CONTROLLER::PP_MPI_rank = -1;
 int CONTROLLER::PM_MPI_rank = -1;
 int CONTROLLER::CC_MPI_rank = -1;
+int CONTROLLER::CV_MPI_rank = 0;
 int CONTROLLER::MPI_size = 1;
 int CONTROLLER::PP_MPI_size = 1;
 int CONTROLLER::PM_MPI_size = 1;
@@ -488,7 +488,10 @@ void CONTROLLER::Commands_From_In_File(int argc, char** argv,
 
     mdinfo = this->Get_Output_File(false, MDINFO_COMMAND, ".info",
                                    MDINFO_DEFAULT_FILENAME);
-    setvbuf(mdinfo, NULL, _IONBF, 0);
+    if (mdinfo != NULL)
+    {
+        setvbuf(mdinfo, NULL, _IONBF, 0);
+    }
     mdout = this->Get_Output_File(false, MDOUT_COMMAND, ".out",
                                   MDOUT_DEFAULT_FILENAME);
     printf("%s\n", SPONGE_ASCII_ART);
@@ -505,39 +508,46 @@ void CONTROLLER::Commands_From_In_File(int argc, char** argv,
     printf("SPONGE Path:\n    %s\n\n", Get_SPONGE_Directory().c_str());
     printf("Start Wall Time:\n    %s\n", Get_Wall_Time().c_str());
     printf("MD TASK NAME:\n    %s\n\n", commands["md_name"].c_str());
-    int scanf_ret = fprintf(mdinfo, "Terminal Commands:\n    ");
-    for (int i = 0; i < argc; i++)
+    int scanf_ret = 0;
+    if (mdinfo != NULL)
     {
-        scanf_ret = fprintf(mdinfo, "%s ", argv[i]);
-    }
-    scanf_ret = fprintf(mdinfo, "\n\n");
-    if (command_only)
-    {
-        scanf_ret = fprintf(
-            mdinfo,
-            "Mdin File:\n    command_only mode: no mdin file is loaded.\n\n");
-    }
-    else if (mdin_format == MdinInputFormat::Toml)
-    {
-        scanf_ret = fprintf(mdinfo, "Mdin File:\n");
-        std::istringstream content_stream(toml_content);
-        std::string content_line;
-        while (std::getline(content_stream, content_line))
+        scanf_ret = fprintf(mdinfo, "Terminal Commands:\n    ");
+        for (int i = 0; i < argc; i++)
         {
-            scanf_ret = fprintf(mdinfo, "    %s\n", content_line.c_str());
+            scanf_ret = fprintf(mdinfo, "%s ", argv[i]);
         }
         scanf_ret = fprintf(mdinfo, "\n\n");
-    }
-    else if (In_File != NULL)
-    {
-        scanf_ret = fprintf(mdinfo, "Mdin File:\n");
-        fseek(In_File, 0, SEEK_SET);
-        char temp[CHAR_LENGTH_MAX];
-        while (fgets(temp, CHAR_LENGTH_MAX, In_File) != NULL)
+        if (command_only)
         {
-            scanf_ret = fprintf(mdinfo, "    %s", temp);
+            scanf_ret = fprintf(mdinfo,
+                                "Mdin File:\n    command_only mode: no mdin "
+                                "file is loaded.\n\n");
         }
-        scanf_ret = fprintf(mdinfo, "\n\n");
+        else if (mdin_format == MdinInputFormat::Toml)
+        {
+            scanf_ret = fprintf(mdinfo, "Mdin File:\n");
+            std::istringstream content_stream(toml_content);
+            std::string content_line;
+            while (std::getline(content_stream, content_line))
+            {
+                scanf_ret = fprintf(mdinfo, "    %s\n", content_line.c_str());
+            }
+            scanf_ret = fprintf(mdinfo, "\n\n");
+        }
+        else if (In_File != NULL)
+        {
+            scanf_ret = fprintf(mdinfo, "Mdin File:\n");
+            fseek(In_File, 0, SEEK_SET);
+            char temp[CHAR_LENGTH_MAX];
+            while (fgets(temp, CHAR_LENGTH_MAX, In_File) != NULL)
+            {
+                scanf_ret = fprintf(mdinfo, "    %s", temp);
+            }
+            scanf_ret = fprintf(mdinfo, "\n\n");
+        }
+    }
+    if (In_File != NULL)
+    {
         fclose(In_File);
     }
 }
@@ -546,28 +556,30 @@ void CONTROLLER::Set_Command(const char* Flag, const char* Value, int Check,
                              const char* prefix)
 {
     if (prefix && strcmp(prefix, "comments") == 0) return;
-    char temp[CHAR_LENGTH_MAX] = {0}, temp2[CHAR_LENGTH_MAX];
+    std::string key;
     if (prefix && prefix[0] != 0 && strcmp(prefix, "main") != 0)
     {
-        strcpy(temp, prefix);
-        strcat(temp, "_");
+        key = prefix;
+        key += "_";
     }
-    strcat(temp, Flag);
-    if (commands.count(temp))
+    key += Flag;
+    if (commands.count(key))
     {
-        sprintf(temp2, "Reason:\n\t'%s' is set more than once\n", temp);
+        const std::string reason =
+            "Reason:\n\t'" + key + "' is set more than once\n";
         Throw_SPONGE_Error(spongeErrorConflictingCommand,
-                           "CONTROLLER::Set_Command", temp2);
+                           "CONTROLLER::Set_Command", reason.c_str());
     }
-    strcpy(temp2, Value);
-    char* real_value = strtok(temp2, "#");
-    original_commands[temp] = real_value;
-    if (sscanf(real_value, "%s", temp2))
-        commands[temp] = temp2;
-    else
-        commands[temp] = "";
+    std::string real_value = Value == nullptr ? "" : Value;
+    const std::size_t comment = real_value.find('#');
+    if (comment != std::string::npos) real_value.erase(comment);
+    original_commands[key] = real_value;
+    std::istringstream input(real_value);
+    std::string first_token;
+    input >> first_token;
+    commands[key] = first_token;
 
-    command_check[temp] = Check;
+    command_check[key] = Check;
 }
 
 void CONTROLLER::Default_Set()
@@ -841,11 +853,10 @@ void CONTROLLER::Input_Check()
         if (no_warning)
         {
             printf(
-                "\nWarning: inputs raised %d warning(s). If You know WHAT YOU "
-                "ARE DOING, press any key to continue. Set dont_check_input = "
-                "1 to disable this warning.\n",
+                "\nWarning: inputs raised %d warning(s). Continuing "
+                "execution. Set dont_check_input = 1 to disable this "
+                "warning.\n",
                 no_warning);
-            getchar();
         }
     }
 }

@@ -2,6 +2,7 @@
 
 #include "../common.h"
 #include "../control.h"
+#include "../utils/h5md/h5_structural_state.hpp"
 
 // 该方法的主要实现的参考文献
 // A unified thermostat scheme for efficient configurational sampling for
@@ -21,7 +22,8 @@ struct MIDDLE_Langevin_INFORMATION
 
     float exp_gamma;     // 刘剑动力学中参数( = expf(-gamma_ln*dt));
     int float4_numbers;  // 存储随机数的长度
-    Philox4_32_10_t* rand_state = NULL;  // 用于记录随机数发生器状态
+    std::uint64_t random_seed = 0;
+    std::uint64_t random_invocation_count = 0;
     VECTOR* random_force =
         NULL;  // 存储随机力矢量，要求该数组的长度要能整除4且大于等于atom_numbers
     float* d_sqrt_mass = NULL;     // 用于刘剑热浴过程中随机力的原子等效质量
@@ -51,4 +53,8 @@ struct MIDDLE_Langevin_INFORMATION
     void MD_Iteration_Leap_Frog(VECTOR* frc, VECTOR* vel, VECTOR* acc,
                                 VECTOR* crd);
     void Set_Target_Temperature(float target_temperature_new);
+    bool Export_H5_Restart_State(SpongeH5MD::RestartDynamicState* state,
+                                 std::string* error_message) const;
+    bool Apply_H5_Restart_State(const SpongeH5MD::RestartDynamicState& state,
+                                std::string* error_message);
 };

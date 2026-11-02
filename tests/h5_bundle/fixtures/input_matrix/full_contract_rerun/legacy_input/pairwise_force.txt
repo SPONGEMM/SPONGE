@@ -1,0 +1,8 @@
+[[[ custom_pair ]]]
+[[ potential ]]
+E = epsilon_ij * powf(sigma_ij / r_ij, 12.0f);
+[[ parameters ]]
+float epsilon_ij, float sigma_ij
+[[ with_ele ]]
+false
+[[ end ]]

@@ -1,12 +1,25 @@
 ﻿#include "soft_wall.h"
 
-static SOFT_WALL* Read_One_Force(CONTROLLER* controller, std::string section,
-                                 Configuration_Reader* cfg)
+#include "../xponge/load/native/soft_wall_h5.hpp"
+
+static SOFT_WALL* Create_One_Force(CONTROLLER* controller,
+                                   const std::string& section,
+                                   const std::string& potential)
 {
     SOFT_WALL* force = new SOFT_WALL;
     strcpy(force->module_name, section.c_str());
     controller->printf("    reading the soft wall named %s\n",
                        force->module_name);
+    force->source_code = potential;
+    force->Compile(controller);
+    controller->printf("    end reading the soft wall named %s\n",
+                       force->module_name);
+    return force;
+}
+
+static SOFT_WALL* Read_One_Force(CONTROLLER* controller, std::string section,
+                                 Configuration_Reader* cfg)
+{
     if (!cfg->Key_Exist(section, "potential"))
     {
         controller->Throw_SPONGE_Error(
@@ -16,11 +29,8 @@ static SOFT_WALL* Read_One_Force(CONTROLLER* controller, std::string section,
                           {{"FORCE", section}})
                 .c_str());
     }
-    force->source_code = cfg->Get_Value(section, "potential");
-    force->Compile(controller);
-    controller->printf("    end reading the listed force named %s\n",
-                       force->module_name);
-    return force;
+    return Create_One_Force(controller, section,
+                            cfg->Get_Value(section, "potential"));
 }
 
 void SOFT_WALLS::Initial(CONTROLLER* controller, int atom_numbers,
@@ -60,6 +70,33 @@ void SOFT_WALLS::Initial(CONTROLLER* controller, int atom_numbers,
             controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
                                            "SOFT_WALLS::Initial",
                                            error_reason.c_str());
+        }
+    }
+    else if (controller->Command_Exist("input_h5_protocol_path"))
+    {
+        SpongeH5MD::NativeSoftWallH5Reader reader;
+        if (!reader.Open(controller->Command("input_h5_protocol_path")))
+        {
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "SOFT_WALLS::Initial",
+                                           reader.Last_Error().c_str());
+        }
+        if (reader.Has_Soft_Wall())
+        {
+            controller->printf(
+                "START INITIALIZING SOFT WALLS FROM NATIVE H5:\n");
+            std::vector<SpongeH5MD::NativeSoftWallDefinition> definitions;
+            if (!reader.Read(&definitions))
+            {
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "SOFT_WALLS::Initial",
+                                               reader.Last_Error().c_str());
+            }
+            for (const auto& definition : definitions)
+            {
+                forces.push_back(Create_One_Force(controller, definition.name,
+                                                  definition.potential));
+            }
         }
     }
     if (forces.size() != 0)

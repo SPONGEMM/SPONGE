@@ -1,14 +1,18 @@
 ﻿#include "SITS.h"
 
+#include "../utils/float_classification.hpp"
+#include "../utils/h5md/input_assembler.hpp"
+#include "sits_h5_input.hpp"
+
 template <bool need_force, bool need_energy, bool need_virial,
           bool need_coulomb>
 static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
     const int local_atom_numbers, const int solvent_numbers,
     const ATOM_GROUP* nl, float* atom_ene_LJ, const VECTOR_LJ* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const float* LJ_type_A,
-    const float* LJ_type_B, const int* atom_sys_mark, const float cutoff,
-    VECTOR* frc, VECTOR* frc_enhancing, const float pme_beta,
-    float* atom_energy, float* atom_energy_enhancing, LTMatrix3* atom_virial,
+    const Boundary boundary, const float* LJ_type_A, const float* LJ_type_B,
+    const int* atom_sys_mark, const float cutoff, VECTOR* frc,
+    VECTOR* frc_enhancing, const float pme_beta, float* atom_energy,
+    float* atom_energy_enhancing, LTMatrix3* atom_virial,
     LTMatrix3* atom_virial_enhancing, float* atom_direct_cf_energy,
     const float pwwp_factor)
 {
@@ -38,7 +42,8 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -129,15 +134,15 @@ static __global__ void
 Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
     const int local_atom_numbers, const int solvent_numbers,
     const ATOM_GROUP* nl, float* atom_ene_LJ, const VECTOR_LJ_SOFT_TYPE* crd,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const int* atom_sys_mark,
-    const float* LJ_type_AA, const float* LJ_type_AB, const float* LJ_type_BA,
-    const float* LJ_type_BB, const float cutoff, VECTOR* frc,
-    VECTOR* frc_enhancing, const float pme_beta, float* atom_energy,
-    float* atom_energy_enhancing, LTMatrix3* atom_virial,
-    LTMatrix3* atom_virial_enhancing, float* atom_direct_cf_energy,
-    float* atom_du_dlambda_lj, float* atom_du_dlambda_direct,
-    float* atom_du_dlambda_enhancing, const float lambda, const float alpha,
-    const float p, const float input_sigma_6, const float input_sigma_6_min,
+    const Boundary boundary, const int* atom_sys_mark, const float* LJ_type_AA,
+    const float* LJ_type_AB, const float* LJ_type_BA, const float* LJ_type_BB,
+    const float cutoff, VECTOR* frc, VECTOR* frc_enhancing,
+    const float pme_beta, float* atom_energy, float* atom_energy_enhancing,
+    LTMatrix3* atom_virial, LTMatrix3* atom_virial_enhancing,
+    float* atom_direct_cf_energy, float* atom_du_dlambda_lj,
+    float* atom_du_dlambda_direct, float* atom_du_dlambda_enhancing,
+    const float lambda, const float alpha, const float p,
+    const float input_sigma_6, const float input_sigma_6_min,
     const float pwwp_factor)
 {
     float lambda_ = 1.0 - lambda;
@@ -173,7 +178,8 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
             int atom_j = nl_i.atom_serial[j];
             float ij_factor = atom_j < local_atom_numbers ? 1.0f : 0.5f;
             VECTOR_LJ_SOFT_TYPE r2 = crd[atom_j];
-            VECTOR dr = Get_Periodic_Displacement(r2, r1, cell, rcell);
+            VECTOR dr =
+                Get_Displacement<BoundaryPolicy::Periodic>(r2, r1, boundary);
             float dr_abs = norm3df(dr.x, dr.y, dr.z);
             if (dr_abs < cutoff)
             {
@@ -967,9 +973,36 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
         }
         else
         {
-            FILE* nk_read_file;
-            if (controller->Command_Exist(sits->module_name, "nk_in_file"))
+            const auto h5_nk = sits->h5_restart_state.float_states.find("nk");
+            if (sits->has_h5_restart_state &&
+                h5_nk != sits->h5_restart_state.float_states.end())
             {
+                if (h5_nk->second.size() != static_cast<std::size_t>(k_numbers))
+                {
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorValueErrorCommand,
+                        "CLASSIC_SITS_INFORMATION::Initial",
+                        "Reason:\n\tH5 SITS nk count does not match "
+                        "SITS_k_numbers\n");
+                }
+                controller->printf("    Read Nk from native H5 restart\n");
+                for (int i = 0; i < k_numbers; ++i)
+                {
+                    const float value = h5_nk->second[i];
+                    if (!(value > 0.0f) || !SpongeFloat::Is_Finite(value))
+                    {
+                        controller->Throw_SPONGE_Error(
+                            spongeErrorValueErrorCommand,
+                            "CLASSIC_SITS_INFORMATION::Initial",
+                            "Reason:\n\tH5 SITS nk values must be finite "
+                            "and positive\n");
+                    }
+                    beta_lin[i] = logf(value);
+                }
+            }
+            else if (controller->Command_Exist(sits->module_name, "nk_in_file"))
+            {
+                FILE* nk_read_file;
                 controller->printf(
                     "    Read Nk from %s\n",
                     controller->Command(sits->module_name, "nk_in_file"));
@@ -978,9 +1011,20 @@ void CLASSIC_SITS_INFORMATION::Initial(CONTROLLER* controller,
                     controller->Command(sits->module_name, "nk_in_file"), "r");
                 for (int i = 0; i < k_numbers; ++i)
                 {
-                    int retval = fscanf(nk_read_file, "%f", beta_lin + i);
+                    if (fscanf(nk_read_file, "%f", beta_lin + i) != 1 ||
+                        !(beta_lin[i] > 0.0f) ||
+                        !SpongeFloat::Is_Finite(beta_lin[i]))
+                    {
+                        fclose(nk_read_file);
+                        controller->Throw_SPONGE_Error(
+                            spongeErrorBadFileFormat,
+                            "CLASSIC_SITS_INFORMATION::Initial",
+                            "Reason:\n\tSITS_nk_in_file must contain finite "
+                            "positive values\n");
+                    }
                     beta_lin[i] = logf(beta_lin[i]);
                 }
+                fclose(nk_read_file);
             }
             else
             {
@@ -1212,9 +1256,15 @@ void CLASSIC_SITS_INFORMATION::SITS_Write_Nk_Norm()
 #endif
     deviceMemcpy(nk_record_cpu, Nk, sizeof(float) * k_numbers,
                  deviceMemcpyDeviceToHost);
+    h5_nk_pending = 1;
+    h5_nk_step = sits_controller->is_initialized
+                     ? sits_controller->classic_sits.record_count
+                     : 0;
     if (nk_traj_file != NULL)
     {
         fwrite(nk_record_cpu, sizeof(float), k_numbers, nk_traj_file);
+        SpongeLegacyIO::OutputFlushCoordinator::Mark_Dirty(
+            nk_traj_file, "SITS nk trajectory");
     }
 
     Open_File_Safely(&nk_rest_file, nk_rest_file_name, "w");
@@ -1226,6 +1276,7 @@ void CLASSIC_SITS_INFORMATION::SITS_Write_Nk_Norm()
 }
 
 void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
+                               const BoundaryPolicy boundary_policy,
                                const char* given_module_name)
 {
     if (given_module_name == NULL)
@@ -1242,6 +1293,10 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
         strcpy(print_bias_name, given_module_name);
         strcpy(print_fb_name, given_module_name);
     }
+    const SpongeH5MD::SitsH5Input h5_input =
+        SpongeH5MD::Load_H5_SITS_Input(controller, module_name, atom_numbers_);
+    has_h5_restart_state = h5_input.has_restart_state;
+    h5_restart_state = h5_input.restart_state;
     strcat(print_aa_kab_name, "_AA_kAB");
     strcat(print_bias_name, "_bias");
     strcat(print_fb_name, "_fb");
@@ -1324,19 +1379,26 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                            pwwp_enhance_factor);
 
         this->selectively_applied = true;
-        if (controller->Command_Exist(module_name, "atom_in_file") ||
+        if (h5_input.has_atom_indices ||
+            controller->Command_Exist(module_name, "atom_in_file") ||
             controller->Command_Exist(module_name, "atom_numbers"))
         {
             controller->printf("    Set atom atribution information\n");
             int* atom_sys_mark_cpu;
             Malloc_Safely((void**)&atom_sys_mark_cpu,
                           sizeof(int) * atom_numbers);
-            if (controller->Command_Exist(module_name, "atom_in_file"))
+            for (int i = 0; i < atom_numbers; i++) atom_sys_mark_cpu[i] = 1;
+            if (h5_input.has_atom_indices)
             {
-                for (int i = 0; i < atom_numbers; i++)
+                controller->printf(
+                    "    Read atom selection from native H5 SITS protocol\n");
+                for (const int atom : h5_input.atom_indices)
                 {
-                    atom_sys_mark_cpu[i] = 1;
+                    atom_sys_mark_cpu[atom] = 0;
                 }
+            }
+            else if (controller->Command_Exist(module_name, "atom_in_file"))
+            {
                 controller->printf("    reading %s_atom_in_file\n",
                                    module_name);
                 FILE* fr = NULL;
@@ -1355,6 +1417,10 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                             "ALL") == 0)
             {
                 this->selectively_applied = false;
+                for (int i = 0; i < atom_numbers; i++)
+                {
+                    atom_sys_mark_cpu[i] = 0;
+                }
             }
             else
             {
@@ -1383,6 +1449,14 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                 "SITS_atom_in_file or SITS_atom_numbers\n");
         }
 
+        if (boundary_policy == BoundaryPolicy::Open && selectively_applied)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "SITS_INFORMATION::Initial",
+                "Reason:\n\tselective SITS requires periodic boundary "
+                "conditions; NOPBC supports only full-system ITS/ALL\n");
+        }
+
         classic_sits.Initial(controller, this);
 
         h_factor = 1.0f;
@@ -1405,6 +1479,163 @@ void SITS_INFORMATION::Memory_Allocate()
     Device_Malloc_Safely((void**)&atom_sys_mark, sizeof(int) * atom_numbers);
     Device_Malloc_Safely((void**)&atom_sys_mark_local,
                          sizeof(int) * atom_numbers);
+}
+
+bool SITS_INFORMATION::Export_H5_Restart_State(
+    SpongeH5MD::RestartSitsState* state, std::string* error_message) const
+{
+    auto fail = [error_message](const std::string& message)
+    {
+        if (error_message != NULL)
+        {
+            *error_message = message;
+        }
+        return false;
+    };
+    if (state == NULL) return fail("SITS restart state output is null");
+    *state = {};
+    if (!is_initialized || !classic_sits.is_initialized)
+    {
+        return true;
+    }
+    state->module_name = module_name;
+    if (classic_sits.k_numbers <= 0) return true;
+
+    const std::size_t count = static_cast<std::size_t>(classic_sits.k_numbers);
+    auto& nk = state->float_states["nk"];
+    auto& log_norm = state->float_states["log_norm"];
+    auto& log_nk = state->float_states["log_nk"];
+    nk.resize(count);
+    log_norm.resize(count);
+    log_nk.resize(count);
+    deviceMemcpy(nk.data(), classic_sits.Nk, sizeof(float) * count,
+                 deviceMemcpyDeviceToHost);
+    deviceMemcpy(log_norm.data(), classic_sits.log_norm, sizeof(float) * count,
+                 deviceMemcpyDeviceToHost);
+    deviceMemcpy(log_nk.data(), classic_sits.log_nk, sizeof(float) * count,
+                 deviceMemcpyDeviceToHost);
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        if (!(nk[index] > 0.0f) || !SpongeFloat::Is_Finite(nk[index]) ||
+            !SpongeFloat::Is_Finite(log_norm[index]) ||
+            !SpongeFloat::Is_Finite(log_nk[index]))
+        {
+            return fail(
+                "SITS restart state contains a non-finite or "
+                "non-positive value");
+        }
+    }
+    return true;
+}
+
+bool SITS_INFORMATION::Apply_H5_Restart_State(
+    const SpongeH5MD::RestartProtocolState& state, std::string* error_message)
+{
+    auto fail = [error_message](const std::string& message)
+    {
+        if (error_message != NULL)
+        {
+            *error_message = message;
+        }
+        return false;
+    };
+
+    if (!is_initialized || !classic_sits.is_initialized)
+    {
+        return fail("SITS module is not initialized");
+    }
+
+    std::vector<float> nk_values;
+    if (!SpongeH5MD::Extract_Sits_Nk_Protocol_State(state, module_name,
+                                                    classic_sits.k_numbers,
+                                                    &nk_values, error_message))
+    {
+        return false;
+    }
+
+    const SpongeH5MD::RestartSitsState* module_state = NULL;
+    for (const auto& candidate : state.sits_states)
+    {
+        if (candidate.module_name == module_name)
+        {
+            module_state = &candidate;
+            break;
+        }
+    }
+    if (module_state == NULL)
+    {
+        return fail("H5 restart does not contain the active SITS module");
+    }
+    std::vector<float> log_nk_values(nk_values.size());
+    const auto log_nk_state = module_state->float_states.find("log_nk");
+    if (log_nk_state != module_state->float_states.end())
+    {
+        if (log_nk_state->second.size() != nk_values.size())
+        {
+            return fail("H5 SITS log_nk count does not match nk count");
+        }
+        log_nk_values = log_nk_state->second;
+    }
+    else
+    {
+        for (std::size_t i = 0; i < nk_values.size(); ++i)
+        {
+            log_nk_values[i] = logf(nk_values[i]);
+        }
+    }
+    const std::vector<float>* log_norm_values = NULL;
+    const auto log_norm_state = module_state->float_states.find("log_norm");
+    if (log_norm_state != module_state->float_states.end())
+    {
+        if (log_norm_state->second.size() != nk_values.size())
+        {
+            return fail("H5 SITS log_norm count does not match nk count");
+        }
+        for (const float value : log_norm_state->second)
+        {
+            if (!SpongeFloat::Is_Finite(value))
+            {
+                return fail("H5 SITS log_norm values must be finite");
+            }
+        }
+        log_norm_values = &log_norm_state->second;
+    }
+    std::vector<float> log_nk_inverse_values(nk_values.size());
+    for (std::size_t i = 0; i < nk_values.size(); ++i)
+    {
+        if (!SpongeFloat::Is_Finite(log_nk_values[i]))
+        {
+            return fail("H5 SITS log_nk values must be finite");
+        }
+    }
+    for (std::size_t i = 0; i < nk_values.size(); ++i)
+    {
+        classic_sits.nk_record_cpu[i] = nk_values[i];
+        log_nk_inverse_values[i] = -log_nk_values[i];
+    }
+
+    deviceMemcpy(classic_sits.Nk, nk_values.data(),
+                 sizeof(float) * nk_values.size(), deviceMemcpyHostToDevice);
+    deviceMemcpy(classic_sits.log_nk, log_nk_values.data(),
+                 sizeof(float) * log_nk_values.size(),
+                 deviceMemcpyHostToDevice);
+    deviceMemcpy(classic_sits.log_nk_inverse, log_nk_inverse_values.data(),
+                 sizeof(float) * log_nk_inverse_values.size(),
+                 deviceMemcpyHostToDevice);
+    if (log_norm_values != NULL)
+    {
+        for (std::size_t i = 0; i < nk_values.size(); ++i)
+        {
+            classic_sits.log_norm_record_cpu[i] = (*log_norm_values)[i];
+        }
+        deviceMemcpy(classic_sits.log_norm, log_norm_values->data(),
+                     sizeof(float) * log_norm_values->size(),
+                     deviceMemcpyHostToDevice);
+        deviceMemcpy(classic_sits.log_norm_old, log_norm_values->data(),
+                     sizeof(float) * log_norm_values->size(),
+                     deviceMemcpyHostToDevice);
+    }
+    return true;
 }
 
 void SITS_INFORMATION::Reset_Force_Energy(int* md_need_potential)
@@ -1487,10 +1718,9 @@ void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
     const int atom_numbers, const int local_atom_numbers,
     const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
     const float* charge, LENNARD_JONES_INFORMATION* lj_info, VECTOR* md_frc,
-    const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-    const float cutoff, const float pme_beta, const int need_potential,
-    float* atom_energy, const int need_pressure, LTMatrix3* atom_virial,
-    float* coulomb_atom_ene)
+    const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+    const float pme_beta, const int need_potential, float* atom_energy,
+    const int need_pressure, LTMatrix3* atom_virial, float* coulomb_atom_ene)
 {
     if (is_initialized && lj_info->is_initialized)
     {
@@ -1543,7 +1773,7 @@ void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
             solvent_numbers, nl, lj_info->d_LJ_energy_atom,
-            lj_info->crd_with_LJ_parameters_local, cell, rcell, lj_info->d_LJ_A,
+            lj_info->crd_with_LJ_parameters_local, boundary, lj_info->d_LJ_A,
             lj_info->d_LJ_B, atom_sys_mark_local, cutoff, md_frc,
             pw_select.select_force[0], pme_beta, atom_energy,
             pw_select.select_atom_energy[0], atom_virial,
@@ -1557,9 +1787,9 @@ void SITS_INFORMATION::
         const int atom_numbers, const int local_atom_numbers,
         const int solvent_numbers, const int ghost_numbers, const VECTOR* crd,
         const float* charge, LJ_SOFT_CORE* lj_info, VECTOR* md_frc,
-        const LTMatrix3 cell, const LTMatrix3 rcell, const ATOM_GROUP* nl,
-        const float cutoff, const float pme_beta, const int need_potential,
-        float* atom_energy, const int need_pressure, LTMatrix3* atom_virial,
+        const Boundary boundary, const ATOM_GROUP* nl, const float cutoff,
+        const float pme_beta, const int need_potential, float* atom_energy,
+        const int need_pressure, LTMatrix3* atom_virial,
         float* coulomb_atom_ene)
 {
     if (is_initialized && lj_info->is_initialized)
@@ -1612,7 +1842,7 @@ void SITS_INFORMATION::
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
             solvent_numbers, nl, lj_info->d_LJ_energy_atom,
-            lj_info->crd_with_LJ_parameters_local, cell, rcell,
+            lj_info->crd_with_LJ_parameters_local, boundary,
             atom_sys_mark_local, lj_info->d_LJ_AA, lj_info->d_LJ_AB,
             lj_info->d_LJ_BA, lj_info->d_LJ_BB, cutoff, md_frc,
             pw_select.select_force[0], pme_beta, atom_energy,

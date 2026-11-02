@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "schemas": [
+    {
+      "name": "SPONGE MD Input",
+      "description": "MD input file for SPONGE (Simulation Package tOward Next GEneration molecular modelling, https://spongemm.cn)",
+      "url": "./mdin.schema.json",
+      "fileMatch": [
+        "*in.spg.toml"
+      ]
+    },
+    {
+      "name": "SPONGE CV Input",
+      "description": "CV input file for SPONGE (Simulation Package tOward Next GEneration molecular modelling, https://spongemm.cn)",
+      "url": "./cv.schema.json",
+      "fileMatch": [
+        "*cv.spg.toml"
+      ]
+    }
+  ]
+}

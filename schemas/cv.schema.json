@@ -1,0 +1,92 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "SPONGE mdin.spg.toml schema",
+    "type": "object",
+    "patternProperties": {
+        ".*_CV^$": {}
+    },
+    "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "CV": {
+                "type": "string",
+                "title": "CV",
+                "description": "CV to use in 1D metadynamics.",
+                "default": ""
+            },
+            "CV_maximum": {
+                "type": "number",
+                "title": "CV Maximum",
+                "description": "Numeric value.",
+                "default": 0
+            },
+            "CV_minimal": {
+                "type": "number",
+                "title": "CV Minimal",
+                "description": "Numeric value.",
+                "default": 0
+            },
+            "CV_period": {
+                "type": "integer",
+                "enum": [
+                    0,
+                    1
+                ],
+                "title": "CV Period",
+                "description": "Boolean flag (0/1).",
+                "default": 0
+            },
+            "dCV": {
+                "type": "number",
+                "title": "Dcv",
+                "description": "Numeric value.",
+                "default": 0.01
+            },
+            "height": {
+                "type": "number",
+                "title": "Height",
+                "description": "Numeric value.",
+                "default": 1
+            },
+            "sigma": {
+                "type": "number",
+                "title": "Sigma",
+                "description": "Numeric value.",
+                "default": 1
+            },
+            "potential_in_file": {
+                "type": "string",
+                "title": "Potential In File",
+                "description": "Input file path for potential.",
+                "default": ""
+            },
+            "potential_out_file": {
+                "type": "string",
+                "title": "Potential Out File",
+                "description": "Output file path for potential.",
+                "default": ""
+            },
+            "potential_update_interval": {
+                "type": "integer",
+                "title": "Potential Update Interval",
+                "description": "Interval in steps.",
+                "default": 0
+            },
+            "wall_height": {
+                "type": "number",
+                "title": "Wall Height",
+                "description": "Numeric value.",
+                "default": 0.0
+            },
+            "welltemp_factor": {
+                "type": "number",
+                "title": "Welltemp Factor",
+                "description": "Numeric value.",
+                "default": 0.0
+            }
+        },
+        "title": "Meta1d",
+        "description": "1D metadynamics settings."
+    }
+}

@@ -25,12 +25,14 @@ struct REAXFF
     REAXFF_VALENCE_ANGLE angle;
     REAXFF_TORSION torsion;
     REAXFF_HYDROGEN_BOND hb;
+    std::vector<float> h_eeq_charges;
 
     void Initial(CONTROLLER* controller, int atom_numbers, float cutoff,
                  float* cutoff_full, bool* need_full_nl_flag);
     void Calculate_Force(DOMAIN_INFORMATION* dd, MD_INFORMATION* md_info,
                          NEIGHBOR_LIST* neighbor_list);
-    void Step_Print(CONTROLLER* controller, const float* d_charge);
+    void Step_Print(CONTROLLER* controller, const float* d_charge,
+                    bool write_legacy_eeq_charges);
 
    private:
     void Wire_Shared_State();

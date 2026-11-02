@@ -7,7 +7,7 @@ keywords = ["SPONGE", "molecular dynamics"]
 classifiers = [
         "Development Status :: 4 - Beta",
         "Environment :: Plugins",
-        "License :: OSI Approved :: Apache Software License",
+        "License :: OSI Approved :: MIT License",
         "Topic :: Scientific/Engineering :: Physics",
         "Topic :: Scientific/Engineering :: Chemistry",
         "Programming Language :: Python :: 3",
@@ -24,7 +24,13 @@ build-backend = "py_build_cmake.build"
 directory = "."
 
 [tool.py-build-cmake.sdist]
-include = ["CMakeLists.txt", "src/*", "include/*"]
+include = [
+        "CMakeLists.txt",
+        "src/*",
+        "include/*",
+        "THIRD_PARTY_NOTICES",
+        "LICENSE-DLPACK",
+]
 
 [tool.py-build-cmake.cmake]
 build_type = "Release"

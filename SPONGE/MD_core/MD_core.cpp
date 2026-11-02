@@ -192,6 +192,20 @@ void MD_INFORMATION::Read_Coordinate_And_Velocity(CONTROLLER* controller)
         rerun.Iteration(rerun.start_frame);
         return;
     }
+    const auto input_plan = SpongeH5InputPlan::Resolve_Input_Plan(controller);
+    if (!input_plan.valid)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorValueErrorCommand,
+            "MD_INFORMATION::Read_Coordinate_And_Velocity",
+            input_plan.error_message.c_str());
+    }
+    if (input_plan.restart.binding.enabled)
+    {
+        Read_H5_Restart_Structural(input_plan.restart.binding.path.c_str(),
+                                   controller, input_plan.restart.load_policy);
+        return;
+    }
     if (Xponge::system.atoms.coordinate.empty())
     {
         controller->Throw_SPONGE_Error(
@@ -499,6 +513,124 @@ void MD_INFORMATION::Read_Coordinate_In_File(const char* file_name,
     controller.printf("    End reading coordinate_in_file\n\n");
     fclose(fp);
 }
+
+void MD_INFORMATION::Read_H5_Restart_Structural(
+    const char* file_name, CONTROLLER* controller,
+    SpongeH5InputContract::RestartLoadPolicy load_policy)
+{
+    controller->printf("    Start reading H5 restart structural state:\n");
+    if (atom_numbers <= 0)
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorMissingCommand,
+            "MD_INFORMATION::Read_H5_Restart_Structural",
+            "Reason:\n\tatom_numbers must be known before applying H5 restart "
+            "structural state\n");
+    }
+
+    SpongeH5MD::RestartH5Reader reader;
+    if (!reader.Open(file_name))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat,
+            "MD_INFORMATION::Read_H5_Restart_Structural",
+            reader.Last_Error().c_str());
+    }
+    SpongeH5MD::RestartStructuralState state;
+    if (!reader.Read_Structural_State(&state))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorBadFileFormat,
+            "MD_INFORMATION::Read_H5_Restart_Structural",
+            reader.Last_Error().c_str());
+    }
+    if (load_policy != SpongeH5InputContract::RestartLoadPolicy::structural)
+    {
+        SpongeH5InputMetadata::RestartMetadata metadata;
+        if (!reader.Read_Metadata(&metadata))
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat,
+                "MD_INFORMATION::Read_H5_Restart_Structural",
+                reader.Last_Error().c_str());
+        }
+        const bool requests_dynamic =
+            load_policy == SpongeH5InputContract::RestartLoadPolicy::dynamic ||
+            load_policy == SpongeH5InputContract::RestartLoadPolicy::full;
+        const bool requests_protocol =
+            load_policy == SpongeH5InputContract::RestartLoadPolicy::protocol ||
+            load_policy == SpongeH5InputContract::RestartLoadPolicy::full;
+        if (requests_dynamic && !metadata.has_dynamic_state)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorMissingCommand,
+                "MD_INFORMATION::Read_H5_Restart_Structural",
+                "Reason:\n\tinput_h5_restart_load requests dynamic state, but "
+                "the restart H5 does not contain dynamic restart state\n");
+        }
+        if (requests_protocol && !metadata.has_protocol_state)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorMissingCommand,
+                "MD_INFORMATION::Read_H5_Restart_Structural",
+                "Reason:\n\tinput_h5_restart_load requests protocol state, but "
+                "the restart H5 does not contain protocol restart state\n");
+        }
+    }
+
+    Malloc_Safely(
+        (void**)&coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_Safely(
+        (void**)&last_crd,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    deviceMemset(last_crd, 0,
+                 sizeof(VECTOR) * (this->atom_numbers +
+                                   no_direct_interaction_virtual_atom_numbers));
+    Malloc_Safely(
+        (void**)&velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+
+    std::string error_message;
+    if (!SpongeH5MD::Apply_Restart_Structural_State(
+            state, atom_numbers, coordinate, velocity, &sys.box_length,
+            &sys.box_angle, &sys.start_time, &error_message))
+    {
+        controller->Throw_SPONGE_Error(
+            spongeErrorConflictingCommand,
+            "MD_INFORMATION::Read_H5_Restart_Structural",
+            error_message.c_str());
+    }
+
+    Device_Malloc_And_Copy_Safely(
+        (void**)&crd, coordinate,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    Device_Malloc_And_Copy_Safely(
+        (void**)&vel, velocity,
+        sizeof(VECTOR) *
+            (this->atom_numbers + no_direct_interaction_virtual_atom_numbers));
+    controller->printf("        atom_numbers is %d\n", this->atom_numbers);
+    controller->printf("        restart step is %lld\n",
+                       static_cast<long long>(state.step));
+    controller->printf("        system start time is %lf\n",
+                       this->sys.start_time);
+    controller->printf("        box lengths are %f %f %f\n",
+                       this->sys.box_length.x, this->sys.box_length.y,
+                       this->sys.box_length.z);
+    controller->printf("        box angles are %f %f %f\n",
+                       this->sys.box_angle.x, this->sys.box_angle.y,
+                       this->sys.box_angle.z);
+    if (!state.has_velocity)
+    {
+        controller->printf("        All velocity will be set to 0\n");
+    }
+    controller->printf("    End reading H5 restart structural state\n\n");
+}
+
 void MD_INFORMATION::Read_Rst7(const char* file_name, int irest,
                                CONTROLLER controller)
 {

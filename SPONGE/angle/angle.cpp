@@ -4,11 +4,11 @@
 #include "../xponge/xponge.h"
 
 static __global__ void Angle_Force_With_Atom_Energy_And_Virial_Device(
-    const int angle_numbers, const VECTOR* crd, const LTMatrix3 cell,
-    const LTMatrix3 rcell, const int local_atom_numbers, const int* atom_a,
-    const int* atom_b, const int* atom_c, const float* angle_k,
-    const float* angle_theta0, VECTOR* frc, int need_atom_energy,
-    float* atom_energy, float* angle_energy, int need_virial, LTMatrix3* virial)
+    const int angle_numbers, const VECTOR* crd, Boundary boundary,
+    const int local_atom_numbers, const int* atom_a, const int* atom_b,
+    const int* atom_c, const float* angle_k, const float* angle_theta0,
+    VECTOR* frc, int need_atom_energy, float* atom_energy, float* angle_energy,
+    int need_virial, LTMatrix3* virial)
 {
 #ifdef USE_GPU
     int angle_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -26,10 +26,8 @@ static __global__ void Angle_Force_With_Atom_Energy_And_Virial_Device(
         float k = angle_k[angle_i];
         float k2 = k;  // 复制一份k
 
-        VECTOR drij =
-            Get_Periodic_Displacement(crd[atom_i], crd[atom_j], cell, rcell);
-        VECTOR drkj =
-            Get_Periodic_Displacement(crd[atom_k], crd[atom_j], cell, rcell);
+        VECTOR drij = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
+        VECTOR drkj = Get_Displacement(crd[atom_k], crd[atom_j], boundary);
 
         float rij_2 = 1. / (drij * drij);
         float rkj_2 = 1. / (drkj * drkj);
@@ -253,9 +251,8 @@ void ANGLE::Get_Local(int* atom_local, int local_atom_numbers,
 }
 
 void ANGLE::Angle_Force_With_Atom_Energy_And_Virial(
-    const VECTOR* crd, const LTMatrix3 cell, const LTMatrix3 rcell, VECTOR* frc,
-    int need_atom_energy, float* atom_energy, int need_virial,
-    LTMatrix3* atom_virial_tensor)
+    const VECTOR* crd, Boundary boundary, VECTOR* frc, int need_atom_energy,
+    float* atom_energy, int need_virial, LTMatrix3* atom_virial_tensor)
 {
     if (is_initialized)
     {
@@ -264,7 +261,7 @@ void ANGLE::Angle_Force_With_Atom_Energy_And_Virial(
             (angle_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, this->num_angle_local, crd,
-            cell, rcell, this->local_atom_numbers, this->d_atom_a_local,
+            boundary, this->local_atom_numbers, this->d_atom_a_local,
             this->d_atom_b_local, this->d_atom_c_local, this->d_angle_k_local,
             this->d_angle_theta0_local, frc, need_atom_energy, atom_energy,
             this->d_angle_ene, need_virial, atom_virial_tensor);

@@ -48,6 +48,12 @@ static void Native_Load_CMap(CMap* cmap, CONTROLLER* controller,
                 spongeErrorBadFileFormat, "Xponge::Native_Load_CMap",
                 "Reason:\n\tthe format of cmap_in_file is not right\n");
         }
+        if (cmap->resolution[i] <= 0)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat, "Xponge::Native_Load_CMap",
+                "Reason:\n\tCMAP resolution must be positive\n");
+        }
         cmap->type_offset[i] = 16 * cmap->unique_gridpoint_numbers;
         cmap->unique_gridpoint_numbers +=
             cmap->resolution[i] * cmap->resolution[i];

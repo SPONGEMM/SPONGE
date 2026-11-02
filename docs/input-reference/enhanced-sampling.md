@@ -12,6 +12,12 @@ compatibility. See
 [Collective Variables Guide](collective-variables.md) for the supported CV
 types, virtual atoms, printing, and complete examples.
 
+Bundled `sponge.input.v2` protocols store CV virtual atoms as typed HDF5
+objects below `/cv/virtual_atom/<name>`. Each object contains `type`,
+`atom_indices`, `enabled_default`, and, for a `center`, `weight`. A regular CV
+can use `/cv/<name>/atom_refs` to mix physical atom indices and virtual-atom
+names without embedding a large legacy configuration string.
+
 ## Metadynamics
 
 Configured via `[META]` or `[meta]` section:
