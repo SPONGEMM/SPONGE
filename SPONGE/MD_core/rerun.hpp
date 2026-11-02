@@ -293,9 +293,13 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
         fabsf(old_box_angle.x - md_info->sys.box_angle.x) > 1e-4 ||
         fabsf(old_box_angle.y - md_info->sys.box_angle.y) > 1e-4 ||
         fabsf(old_box_angle.z - md_info->sys.box_angle.z) > 1e-4;
-    if (box_changed && md_info->pbc.pbc)
+    // Never carry a previous frame increment into this call, including EOF.
+    g = LTMatrix3(0, 0, 0, 0, 0, 0);
+    if (loaded_frame && md_info->pbc.pbc)
     {
-        // 通过盒子变化计算g
+        // Derive the increment from the actual cell for every loaded frame,
+        // including repeated boxes and changes below the notification
+        // threshold.
         LTMatrix3 new_cell = md_info->pbc.Get_Cell(md_info->sys.box_length,
                                                    md_info->sys.box_angle);
         g = (1 / md_info->dt) * (new_cell * inv(md_info->pbc.boundary.cell) -
