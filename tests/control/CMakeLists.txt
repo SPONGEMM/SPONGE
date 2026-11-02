@@ -68,6 +68,7 @@ set_tests_properties(test_mdin_schema_examples PROPERTIES LABELS
                                                           "control;schema;mdin")
 
 add_executable(test_rerun_output_guard test_rerun_output_guard.cpp)
-target_include_directories(test_rerun_output_guard PRIVATE ${PROJECT_ROOT_DIR}/SPONGE)
+target_include_directories(test_rerun_output_guard
+                           PRIVATE ${PROJECT_ROOT_DIR}/SPONGE)
 add_test(NAME test_rerun_output_guard COMMAND test_rerun_output_guard)
 set_tests_properties(test_rerun_output_guard PROPERTIES LABELS "control;rerun")

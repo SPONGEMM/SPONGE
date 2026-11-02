@@ -4,12 +4,12 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
-#include "utils/control/rerun_output_guard.hpp"
 #include <map>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "utils/control/rerun_output_guard.hpp"
 #include "utils/h5md/atomic_file_publish.hpp"
 #include "utils/h5md/h5_legacy_sidecar_contract.hpp"
 #include "utils/h5md/h5_structural_state.hpp"
@@ -411,22 +411,27 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
                                                 MD_INFORMATION* md_info)
 {
     this->md_info = md_info;
-    // Check before opening any trajectory output: fopen("w") truncates immediately.
-    const auto check_rerun_output = [&](const char* output) {
+    // Check before opening any trajectory output: fopen("w") truncates
+    // immediately.
+    const auto check_rerun_output = [&](const char* output)
+    {
         if (md_info->mode != md_info->RERUN || output == NULL) return;
         for (const char* input_key : {TRAJ_COMMAND, BOX_TRAJ_COMMAND})
         {
             if (controller->Command_Exist(input_key) &&
-                SpongeRerunOutput::Same_File(output, controller->Command(input_key)))
+                SpongeRerunOutput::Same_File(output,
+                                             controller->Command(input_key)))
             {
                 const std::string reason =
-                    std::string("Reason:\n\trerun output would overwrite input '") +
+                    std::string(
+                        "Reason:\n\trerun output would overwrite input '") +
                     controller->Command(input_key) +
                     "'. Use a separate rerun_output_crd/box path or set "
                     "write_trajectory_interval = 0.\n";
                 controller->Throw_SPONGE_Error(
                     spongeErrorValueErrorCommand,
-                    "MD_INFORMATION::trajectory_output::Initial", reason.c_str());
+                    "MD_INFORMATION::trajectory_output::Initial",
+                    reason.c_str());
             }
         }
     };

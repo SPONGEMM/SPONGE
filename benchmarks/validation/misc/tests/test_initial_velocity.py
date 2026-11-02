@@ -357,6 +357,7 @@ def test_maxwell_is_rejected_for_non_dynamical_modes(tmp_path, mode):
                 "crd": "trajectory.dat",
                 "box": "box.txt",
                 "rerun_need_box_update": 1,
+                "write_trajectory_interval": 0,
             }
         )
     _write_native_case(
