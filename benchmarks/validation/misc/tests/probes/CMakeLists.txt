@@ -25,6 +25,14 @@ add_executable(settle_triangle_precision_probe
                ../settle_triangle_precision_probe.cpp)
 add_executable(settle_triangle_precision_strict_probe
                ../settle_triangle_precision_probe.cpp)
+add_executable(matrix_constraint_precision_probe
+               ../matrix_constraint_precision_probe.cpp)
+target_sources(matrix_constraint_precision_probe
+               PRIVATE "${SPONGE_SOURCE_DIR}/SPONGE/constrain/constrain.cpp")
+add_executable(settle_triangle_double_precision_probe
+               ../settle_triangle_precision_probe.cpp)
+target_compile_definitions(settle_triangle_double_precision_probe
+                           PRIVATE SPONGE_CONSTRAINT_DOUBLE_PROBE)
 add_executable(pme_virial_probe ../pme_virial_probe.cpp)
 
 # Including the PME implementation also exposes FFT initialization references.
@@ -43,9 +51,13 @@ endif()
 
 foreach(
   target
-  constraint_velocity_projection_probe settle_pair_guard_probe
-  settle_triangle_precision_probe settle_triangle_precision_strict_probe
-  pme_virial_probe)
+  constraint_velocity_projection_probe
+  settle_pair_guard_probe
+  settle_triangle_precision_probe
+  settle_triangle_precision_strict_probe
+  pme_virial_probe
+  matrix_constraint_precision_probe
+  settle_triangle_double_precision_probe)
   target_sources(${target} PRIVATE controller_stubs.cpp
                                    "${SPONGE_SOURCE_DIR}/SPONGE/common.cpp")
   target_compile_features(${target} PRIVATE cxx_std_17)

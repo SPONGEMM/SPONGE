@@ -1,4 +1,4 @@
-﻿#include "constrain.h"
+#include "constrain.h"
 
 #include <set>
 
@@ -44,13 +44,14 @@ void CONSTRAIN::Initial_Constrain(CONTROLLER* controller,
         int count = bond_constrain_pair_numbers;
         for (int i = 0; i < extra_numbers; i = i + 1)
         {
-            int scanf_ret = fscanf(fp, "%d %d %f", &atom_i, &atom_j,
+            int scanf_ret = fscanf(fp, "%d %d %lf", &atom_i, &atom_j,
                                    &h_constrain_pair[count].constant_r);
             h_constrain_pair[count].atom_i_serial = atom_i;
             h_constrain_pair[count].atom_j_serial = atom_j;
             h_constrain_pair[count].constrain_k =
-                atom_mass[atom_i] * atom_mass[atom_j] /
-                (atom_mass[atom_i] + atom_mass[atom_j]) / this->x_factor;
+                double(atom_mass[atom_i]) * double(atom_mass[atom_j]) /
+                (double(atom_mass[atom_i]) + double(atom_mass[atom_j])) /
+                this->x_factor;
             count += 1;
         }
         fclose(fp);
@@ -104,6 +105,20 @@ void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
     {
         strcpy(this->module_name, module_name);
     }
+    if (controller->Command_Exist("constrain_precision"))
+    {
+        if (controller->Command_Choice("constrain_precision", "single"))
+            precision = ConstraintPrecision::Single;
+        else if (controller->Command_Choice("constrain_precision", "double"))
+            precision = ConstraintPrecision::Double;
+        else
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand, "CONSTRAIN::Initial_List",
+                "constrain_precision must be single or double");
+    }
+    controller->printf(
+        "    constraint internal precision: %s (MD storage remains float)\n",
+        precision == ConstraintPrecision::Double ? "double" : "single");
     constrain_mass = 3.3f;
     if (controller->Command_Exist(this->module_name, "in_file"))
         constrain_mass = 0.0f;
@@ -120,9 +135,9 @@ void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
                   sizeof(CONSTRAIN_PAIR) *
                       (con_dis.size() + explicit_constraints.r0.size()));
     int s = 0;
-    float mass_a, mass_b;
+    double mass_a, mass_b;
     int atom_a, atom_b;
-    float r0;
+    double r0;
     std::set<std::pair<int, int>> added_pairs;
     for (auto& i : con_dis)
     {

@@ -1,26 +1,28 @@
-﻿#pragma once
+#pragma once
 
 #include <cfloat>
 
-#include "../common.h"
+#include "precision.h"
 
-// A relative residual alone is unattainable when two stored float velocities
+// A relative residual alone is unattainable when two stored Real velocities
 // are nearly equal.  Bound the subtraction and three-component dot-product
 // roundoff by the scale of the operands that are actually represented.
-static __device__ __host__ __forceinline__ float
-Velocity_Constraint_Residual_Tolerance(const float displacement_squared,
-                                       const VECTOR velocity_i,
-                                       const VECTOR velocity_j,
-                                       const VECTOR velocity_difference,
-                                       const float relative_tolerance)
+template <class Real>
+static __device__ __host__ __forceinline__ Real
+Velocity_Constraint_Residual_Tolerance(
+    const Real displacement_squared, const ConstraintVector<Real> velocity_i,
+    const ConstraintVector<Real> velocity_j,
+    const ConstraintVector<Real> velocity_difference,
+    const Real relative_tolerance)
 {
-    const float displacement_norm = sqrtf(displacement_squared);
-    const float relative_scale =
+    const Real displacement_norm = ConstraintSqrt(displacement_squared);
+    const Real relative_scale =
         displacement_norm *
-        sqrtf(fmaxf(velocity_difference * velocity_difference, 1.0e-12f));
-    const float velocity_scale =
-        fmaxf(sqrtf(velocity_i * velocity_i), sqrtf(velocity_j * velocity_j));
-    const float roundoff_floor =
-        8.0f * FLT_EPSILON * displacement_norm * velocity_scale;
-    return fmaxf(relative_tolerance * relative_scale, roundoff_floor);
+        ConstraintSqrt(
+            fmax(velocity_difference * velocity_difference, Real(1.0e-12)));
+    const Real velocity_scale = fmax(ConstraintSqrt(velocity_i * velocity_i),
+                                     ConstraintSqrt(velocity_j * velocity_j));
+    const Real roundoff_floor = Real(8.0) * ConstraintEpsilon<Real>() *
+                                displacement_norm * velocity_scale;
+    return fmax(relative_tolerance * relative_scale, roundoff_floor);
 }

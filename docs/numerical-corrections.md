@@ -28,7 +28,7 @@ W = fi ⊗ a + fk ⊗ b + fl ⊗ (b-c)
 The corrected two signs retain the existing bonded image convention. Torsion
 energy and Cartesian forces are unchanged; the pressure contribution changes.
 
-## Float SETTLE with local coordinate corrections
+## Constraint precision and local SETTLE corrections
 
 The old triangle path formed an absolute center of mass, subtracted it from
 the absolute A coordinate, and reconstructed the absolute constrained positions.
@@ -44,17 +44,28 @@ The existing gamma and half-exp-gamma factors are retained. Coordinates can
 remain in their individual periodic images; the correction does not rebuild a
 different molecular image at each call.
 
-The per-step triangle solve and its stored parameters remain float. Geometry
-coefficients are calculated in double during initialization and narrowed once.
-This is different from promoting the entire per-step triangle solve to double.
-The existing exceptional double recomputation in the separate pair guard is
-unchanged.
+The top-level `constrain_precision = "single" | "double"` selects internal
+arithmetic for SETTLE, SHAKE, LINCS and CCMA, including position updates, saved
+old bonds, coefficients, iteration buffers, velocity projection and constraint
+virial. The default is `double`. Both paths instantiate the same solver source.
+There is no runtime geometry lookup by rounded float coefficients. Owned
+precision-specific buffers are released with the solver and reused across
+operations; local constraint remapping keeps the selected precision.
 
-The local-distance formulation and incremental updates retain the existing
-triangle formulas and integrator factors. Float arithmetic
-still has local rounding error and cannot recover precision already lost in
-stored coordinates. This correction makes no GPU speedup or full-double
-accuracy claim.
+Global MD coordinates, velocities, masses, nonbonded forces and output stress
+remain float. Conversion happens at the operation boundary, after all internal
+iterations and constraint-stress accumulation; this is mixed precision, not
+full-double dynamics. Explicit constraint-file distances are parsed as double,
+while topology-derived distances retain their source precision. Solver
+tolerance/order and iteration counts remain independent settings. Even in
+single mode, initialization and exceptional pair-discriminant guards retain
+selected existing double safety calculations.
+
+The local-distance formulation retains the existing triangle formulas and
+integrator factors. Internal double precision reduces local roundoff but does
+not remove float write-back error, change the integrator, or establish GPU
+performance or long-term viscosity accuracy. See
+[input precision parameters](input-reference/constraint.md#internal-precision).
 
 An independent old-bond Newton solve tests deformed equal-B/C-mass triangles.
 Unequal-B/C-mass stationary triangles are included in the translation tests;
@@ -90,7 +101,8 @@ python -m pytest -q \
   benchmarks/validation/misc/tests/test_pme_virial.py \
   benchmarks/validation/misc/tests/test_settle_triangle_precision.py \
   benchmarks/validation/misc/tests/test_settle_pair_guard.py \
-  benchmarks/validation/misc/tests/test_constraint_velocity_projection.py
+  benchmarks/validation/misc/tests/test_constraint_velocity_projection.py \
+  benchmarks/validation/misc/tests/test_matrix_constraint_precision.py
 ```
 
 The PME probe directly excites boundary and interior Fourier planes, including
@@ -99,7 +111,10 @@ signal cannot vanish under Ewald damping. It also checks rebuilt coefficients
 against the independent strain derivative of a conjugate reciprocal-mode pair
 at two box sizes. The SETTLE probe compares local corrections with a double
 Newton position solve across translations, axes, time steps and gamma factors,
-and checks mass-weighted correction and translation-independent virial.
+and checks mass-weighted correction and translation-independent virial. It
+also checks the three final bond lengths and the constraint virial against
+the independent Newton corrections. PME coefficient rebuilding is tested
+with both orthogonal and skew reciprocal cells.
 
 These probes compile production source with the established optimized CPU
 flags. The triangle probe also runs with strict floating-point evaluation,
@@ -107,3 +122,14 @@ because compiler reassociation can hide cancellation in the old inlined solve.
 They require CMake, a C++ compiler, OpenMP and FFTW-compatible headers in
 the development environment. GPU execution, performance profiling and molecular
 NPT validation are separate checks.
+
+The constraint-precision runtime regression runs all four algorithms in both
+precisions. It compares a force-free position update to an independent mass-
+weighted old-bond Newton solve and checks the corresponding velocity impulse,
+momentum and six mdout pressure components. SHAKE/LINCS/CCMA tests disable
+SETTLE extraction and cover both small and larger connected components. It also
+checks default/invalid precision and generated-velocity initialization. The
+matrix probe independently checks LINCS/CCMA velocity projection against a dense
+mass-metric projection; the SETTLE/SHAKE velocity probe runs both scalar types.
+These finite small-system regressions do not establish long-time ensemble or
+transport accuracy. The known unequal-B/C-mass dynamic SETTLE limitation remains.
