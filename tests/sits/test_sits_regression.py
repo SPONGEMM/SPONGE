@@ -157,6 +157,14 @@ def test_observation_preserves_dynamics(
     for before, after in zip(baseline, observed):
         assert after["SITS_fb"] == 1
         assert after["SITS_bias"] == 0
+        # Charged systems must include direct Coulomb energy exactly once,
+        # without contaminating the separate LJ or PME energy outputs.
+        assert after["eff_pot"] == pytest.approx(
+            before["eff_pot"], rel=1e-6, abs=1e-6
+        )
+        lj_column = "LJ" if interaction == "lj" else "LJ_soft"
+        for column in (lj_column, "PM"):
+            assert after[column] == pytest.approx(before[column], abs=0.011)
         for column in ("pressure", "Pxx", "Pyy", "Pzz", "Pxy", "Pxz", "Pyz"):
             assert after[column] == pytest.approx(
                 before[column], rel=1e-5, abs=0.011

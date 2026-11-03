@@ -104,18 +104,17 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
             Warp_Sum_To(frc + atom_i, frc_record, warpSize);
             Warp_Sum_To(frc_enhancing + atom_i, frc_enhancing_record, warpSize);
         }
-        if (need_coulomb && need_energy)
-        {
-            Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
-                        warpSize);
-        }
         if (need_energy)
         {
-            Warp_Sum_To(atom_energy + atom_i, energy_lj, warpSize);
-#ifdef USE_GPU
-            if (threadIdx.x == 0)
-#endif
-                atomicAdd(atom_ene_LJ + atom_i, energy_lj);
+            // Form the total before Warp_Sum_To modifies its inputs in place.
+            float energy_with_coulomb = energy_lj + energy_coulomb;
+            Warp_Sum_To(atom_energy + atom_i, energy_with_coulomb, warpSize);
+            Warp_Sum_To(atom_ene_LJ + atom_i, energy_lj, warpSize);
+            if (need_coulomb)
+            {
+                Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
+                            warpSize);
+            }
             Warp_Sum_To(atom_energy_enhancing + atom_i, energy_enhancing,
                         warpSize);
         }
@@ -369,18 +368,17 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
             Warp_Sum_To(frc + atom_i, frc_record, warpSize);
             Warp_Sum_To(frc_enhancing + atom_i, frc_enhancing_record, warpSize);
         }
-        if (need_coulomb && need_energy)
-        {
-            Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
-                        warpSize);
-        }
         if (need_energy)
         {
-            Warp_Sum_To(atom_energy + atom_i, energy_total, warpSize);
-#ifdef USE_GPU
-            if (threadIdx.x == 0)
-#endif
-                atomicAdd(atom_ene_LJ + atom_i, energy_total);
+            // Form the total before Warp_Sum_To modifies its inputs in place.
+            float energy_with_coulomb = energy_total + energy_coulomb;
+            Warp_Sum_To(atom_energy + atom_i, energy_with_coulomb, warpSize);
+            Warp_Sum_To(atom_ene_LJ + atom_i, energy_total, warpSize);
+            if (need_coulomb)
+            {
+                Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
+                            warpSize);
+            }
             Warp_Sum_To(atom_energy_enhancing + atom_i, energy_enhancing,
                         warpSize);
         }
