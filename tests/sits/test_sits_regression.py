@@ -24,6 +24,7 @@ def run_case(
     interaction="lj",
     weight=0.5,
     mode="observation",
+    isolated_pair=False,
 ):
     case.mkdir()
     files = {
@@ -51,6 +52,15 @@ def run_case(
         "mdout": "mdout.txt",
         "frc": "force.dat",
     }
+    if isolated_pair:
+        # Only atoms 0 and 1 interact. Keep coordinates fixed so the force
+        # scaling oracle applies at every frame, without pressure feedback.
+        files["coordinate.txt"] = (
+            "3\n1 2 3\n4 3 5\n16 16 16\n24 24 24 90 90 90\n"
+        )
+        files["charge.txt"] = "3\n0\n0\n0\n"
+        files["velocity.txt"] = "3\n0 0 0\n0 0 0\n0 0 0\n"
+        settings.update(dt=0, print_pressure=0)
     if interaction == "lj":
         files["lj.txt"] = "3 1\n10000000\n1000\n0\n0\n0\n"
         settings["LJ_in_file"] = "lj.txt"
@@ -76,6 +86,11 @@ def run_case(
                 SITS_record_interval=1,
                 SITS_update_interval=2,
                 target_temperature=300,
+            )
+        if mode == "empirical":
+            # Equal endpoint temperatures give a constant fb = 300 / 600.
+            settings.update(
+                SITS_T_low=600, SITS_T_high=600, target_temperature=300
             )
     for name, body in files.items():
         (case / name).write_text(body)
@@ -169,3 +184,40 @@ def test_observation_preserves_dynamics(
             assert after[column] == pytest.approx(
                 before[column], rel=1e-5, abs=0.011
             ), column
+
+
+@pytest.mark.parametrize("interaction", ["lj", "soft_regular", "soft_core"])
+@pytest.mark.parametrize(
+    "selection,weight", [(1, 0.0), (1, 0.5), (1, 1.0), (2, 0.5)]
+)
+def test_enhanced_pair_force_balance(
+    executable, tmp_path, interaction, selection, weight
+):
+    _, baseline = run_case(
+        executable,
+        tmp_path / "base",
+        interaction=interaction,
+        isolated_pair=True,
+    )
+    rows, forces = run_case(
+        executable,
+        tmp_path / "enhanced",
+        interaction=interaction,
+        isolated_pair=True,
+        selection=selection,
+        weight=weight,
+        mode="empirical",
+    )
+    assert max(abs(value) for value in baseline) > 0.01
+    pair_weight = weight if selection == 1 else 1.0
+    scale = 1.0 + (0.5 - 1.0) * pair_weight
+    for frame, row in enumerate(rows):
+        assert row["SITS_fb"] == pytest.approx(0.5, abs=1e-4)
+        offset = frame * 9
+        pair = forces[offset : offset + 9]
+        expected = [scale * value for value in baseline[offset : offset + 9]]
+        assert pair == pytest.approx(expected, rel=1e-5, abs=1e-6)
+        for axis in range(3):
+            assert pair[axis] == pytest.approx(-pair[axis + 3], abs=1e-6)
+            assert sum(pair[axis::3]) == pytest.approx(0.0, abs=1e-6)
+        assert pair[6:9] == pytest.approx((0.0, 0.0, 0.0), abs=1e-6)

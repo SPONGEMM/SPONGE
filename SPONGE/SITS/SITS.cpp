@@ -72,7 +72,10 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
                     VECTOR frc_lin = frc_abs * dr;
                     frc_record = frc_record + frc_lin;
                     if (atom_j < local_atom_numbers)
+                    {
                         atomicAdd(frc + atom_j, -frc_lin);
+                        atomicAdd(frc_enhancing + atom_j, -factor * frc_lin);
+                    }
                     frc_enhancing_record =
                         frc_enhancing_record + factor * frc_lin;
                     if (need_virial)
