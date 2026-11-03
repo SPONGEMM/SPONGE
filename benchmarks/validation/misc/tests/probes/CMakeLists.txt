@@ -4,11 +4,12 @@ project(SpongeConstraintProbes LANGUAGES CXX)
 get_filename_component(SPONGE_SOURCE_DIR
                        "${CMAKE_CURRENT_SOURCE_DIR}/../../../../.." ABSOLUTE)
 find_package(OpenMP REQUIRED COMPONENTS CXX)
+find_package(MKL CONFIG QUIET)
 # MKL supplies FFTW compatibility headers in include/fftw (Library/include/fftw
 # on Windows). Open-source FFTW installs fftw3.h directly in include.
 find_path(
   PROBE_FFTW_INCLUDE_DIR fftw3.h
-  HINTS "$ENV{CONDA_PREFIX}"
+  HINTS "$ENV{CONDA_PREFIX}" "${MKL_ROOT}"
   PATH_SUFFIXES include include/fftw Library/include Library/include/fftw
                 REQUIRED)
 
@@ -20,13 +21,31 @@ add_executable(
   "${SPONGE_SOURCE_DIR}/SPONGE/constrain/shake.cpp")
 # The guard probe includes settle.cpp to exercise its internal guard directly.
 add_executable(settle_pair_guard_probe ../settle_pair_guard_probe.cpp)
-add_executable(settle_triangle_precision_probe ../settle_triangle_precision_probe.cpp)
-add_executable(settle_triangle_precision_strict_probe ../settle_triangle_precision_probe.cpp)
+add_executable(settle_triangle_precision_probe
+               ../settle_triangle_precision_probe.cpp)
+add_executable(settle_triangle_precision_strict_probe
+               ../settle_triangle_precision_probe.cpp)
 add_executable(pme_virial_probe ../pme_virial_probe.cpp)
 
-foreach(target constraint_velocity_projection_probe settle_pair_guard_probe
-               settle_triangle_precision_probe settle_triangle_precision_strict_probe
-               pme_virial_probe)
+# Including the PME implementation also exposes FFT initialization references.
+# Resolve them explicitly: MSVC need not discard those references before
+# linking.
+if(TARGET MKL::MKL)
+  target_link_libraries(pme_virial_probe PRIVATE MKL::MKL)
+else()
+  find_library(
+    PROBE_FFTW_LIBRARY
+    NAMES fftw3f libfftw3f fftw3f-3 libfftw3f-3
+    HINTS "$ENV{CONDA_PREFIX}"
+    PATH_SUFFIXES lib Library/lib REQUIRED)
+  target_link_libraries(pme_virial_probe PRIVATE "${PROBE_FFTW_LIBRARY}")
+endif()
+
+foreach(
+  target
+  constraint_velocity_projection_probe settle_pair_guard_probe
+  settle_triangle_precision_probe settle_triangle_precision_strict_probe
+  pme_virial_probe)
   target_sources(${target} PRIVATE controller_stubs.cpp
                                    "${SPONGE_SOURCE_DIR}/SPONGE/common.cpp")
   target_compile_features(${target} PRIVATE cxx_std_17)
@@ -58,8 +77,9 @@ endforeach()
 # Reassociation can hide absolute-coordinate cancellation in an inlined CPU
 # probe. Also exercise ordinary IEEE arithmetic rather than relying on it.
 if(MSVC)
-  target_compile_options(settle_triangle_precision_strict_probe PRIVATE /fp:precise)
+  target_compile_options(settle_triangle_precision_strict_probe
+                         PRIVATE /fp:precise)
 else()
-  target_compile_options(settle_triangle_precision_strict_probe PRIVATE
-                         -fno-fast-math -ffp-contract=off)
+  target_compile_options(settle_triangle_precision_strict_probe
+                         PRIVATE -fno-fast-math -ffp-contract=off)
 endif()

@@ -110,15 +110,17 @@ update_interval = 200
            "Expected floating point input to parse");
     ExpectValue(commands, "dt", "0.000123456789");
     ExpectValue(commands, "value", "1.0");
-    Expect(commands.at("array").find("0.12345678912345678") != std::string::npos,
-           "Array float precision was lost");
+    Expect(
+        commands.at("array").find("0.12345678912345678") != std::string::npos,
+        "Array float precision was lost");
     commands.clear();
     Expect(sponge::toml_wrap::ParseAndFlatten(
                "items=[{value=1.0, precise=0.12345678912345678}]",
                "structured_precision.toml", &commands, &error),
            "Expected structured floating point input to parse");
     Expect(commands.at("items").find("value=1.0") != std::string::npos &&
-               commands.at("items").find("0.12345678912345678") != std::string::npos,
+               commands.at("items").find("0.12345678912345678") !=
+                   std::string::npos,
            "Structured float type or precision was lost");
     const auto decoded = sponge::toml_decode::detail::parse_toml_string(
         "items=" + commands.at("items"), "roundtrip.toml");
