@@ -1,4 +1,5 @@
 add_subdirectory(control)
+add_subdirectory(numerics)
 add_subdirectory(cmap)
 add_subdirectory(boundary)
 add_subdirectory(barostat)

@@ -20,8 +20,13 @@ add_executable(
   "${SPONGE_SOURCE_DIR}/SPONGE/constrain/shake.cpp")
 # The guard probe includes settle.cpp to exercise its internal guard directly.
 add_executable(settle_pair_guard_probe ../settle_pair_guard_probe.cpp)
+add_executable(settle_triangle_precision_probe ../settle_triangle_precision_probe.cpp)
+add_executable(settle_triangle_precision_strict_probe ../settle_triangle_precision_probe.cpp)
+add_executable(pme_virial_probe ../pme_virial_probe.cpp)
 
-foreach(target constraint_velocity_projection_probe settle_pair_guard_probe)
+foreach(target constraint_velocity_projection_probe settle_pair_guard_probe
+               settle_triangle_precision_probe settle_triangle_precision_strict_probe
+               pme_virial_probe)
   target_sources(${target} PRIVATE controller_stubs.cpp
                                    "${SPONGE_SOURCE_DIR}/SPONGE/common.cpp")
   target_compile_features(${target} PRIVATE cxx_std_17)
@@ -49,3 +54,12 @@ foreach(target constraint_velocity_projection_probe settle_pair_guard_probe)
     endif()
   endif()
 endforeach()
+
+# Reassociation can hide absolute-coordinate cancellation in an inlined CPU
+# probe. Also exercise ordinary IEEE arithmetic rather than relying on it.
+if(MSVC)
+  target_compile_options(settle_triangle_precision_strict_probe PRIVATE /fp:precise)
+else()
+  target_compile_options(settle_triangle_precision_strict_probe PRIVATE
+                         -fno-fast-math -ffp-contract=off)
+endif()

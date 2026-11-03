@@ -54,18 +54,22 @@ static __device__ __host__ void Get_Rabcde_From_SSS(
     float rAB, float rAC, float rBC, float mA, float mB, float mC, float& ra,
     float& rb, float& rc, float& rd, float& re)
 {
-    float mTotal = mA + mB + mC;
-    float Ax = 0;
-    float Ay = 0;
-    float Bx = -rAB;
-    float By = 0;
-    float costemp = (rBC * rBC - rAC * rAC - rAB * rAB) / (2 * rAC * rAB);
-    float Cx = rAC * costemp;
-    float sintemp = sqrtf(1.0f - costemp * costemp);
-    float Cy = rAC * sintemp;
+    // Geometry is initialized once. Evaluate the coefficients in double, while
+    // retaining float parameters and the float per-step triangle solve.
+    const double ab = rAB, ac = rAC, bc = rBC;
+    const double ma = mA, mb = mB, mc = mC;
+    double mTotal = ma + mb + mc;
+    double Ax = 0;
+    double Ay = 0;
+    double Bx = -ab;
+    double By = 0;
+    double costemp = (bc * bc - ac * ac - ab * ab) / (2 * ac * ab);
+    double Cx = ac * costemp;
+    double sintemp = sqrt(1.0 - costemp * costemp);
+    double Cy = ac * sintemp;
 
-    float Ox = (Bx * mB + Cx * mC) / mTotal;
-    float Oy = Cy * mC / mTotal;
+    double Ox = (Bx * mb + Cx * mc) / mTotal;
+    double Oy = Cy * mc / mTotal;
 
     Ax -= Ox;
     Ay -= Oy;
@@ -74,7 +78,7 @@ static __device__ __host__ void Get_Rabcde_From_SSS(
     Cx -= Ox;
     Cy -= Oy;
 
-    costemp = 1.0f / sqrtf(1.0f + Ax * Ax / Ay / Ay);
+    costemp = 1.0 / sqrt(1.0 + Ax * Ax / Ay / Ay);
     sintemp = costemp * Ax / Ay;
 
     ra = Ax * sintemp + Ay * costemp;
@@ -102,9 +106,8 @@ static __device__ __host__ void Get_Rabcde_From_SSS(
 // rb, 0)，C点放置于(rd, re, 0)
 //  mA、mB、mC：ABC三个的质量 dt:步长
 //  half_exp_gamma_plus_half, exp_gamma: 同simple_constrain
-// 输出：rA3 这一步限制后的A原子坐标（质心为原点） rB3
-// 这一步限制后的B原子坐标（质心为 原点） rC3
-// 这一步限制后的C原子坐标（质心为原点）vA vB vC 约束后的速度（原位替换） virial
+// 输出：rA3/rB3/rC3 为局部坐标修正量，调用方将其加回试探坐标。
+// vA/vB/vC 为约束后的速度（原位替换）；virial 为约束维里。
 // virial_vector 约束后的维里（原位替换）
 static __device__ void SETTLE_DO_TRIANGLE(
     VECTOR rB0, VECTOR rC0, VECTOR rA1, VECTOR rB1, VECTOR rC1, float ra,
@@ -193,21 +196,28 @@ static __device__ void SETTLE_DO_TRIANGLE(
            rC3d.x * base_vector_x.z + rC3d.y * base_vector_y.z +
                rC3d.z * base_vector_z.z};
 
+    // Return local corrections, not reconstructed absolute positions. Use the
+    // same correction for coordinate and velocity updates (as in the stable
+    // distance-based SETTLE formulation). No absolute COM enters this solve.
+    rA3 = rA3 - rA1;
+    rB3 = rB3 - rB1;
+    rC3 = rC3 - rC1;
+
     // 第6步：计算约束造成的速度变化和维里变化
     // 节约寄存器，把不用的rX1d拿来当delta vX用
     temp = exp_gamma / dt / half_exp_gamma_plus_half;
-    rA1d = temp * (rA3 - rA1);
-    rB1d = temp * (rB3 - rB1);
-    rC1d = temp * (rC3 - rC1);
+    rA1d = temp * rA3;
+    rB1d = temp * rB3;
+    rC1d = temp * rC3;
 
     vA = vA + rA1d;
     vB = vB + rB1d;
     vC = vC + rC1d;
     // 节约寄存器，把不用的rX0d拿来当FX用
     temp = 1.0f / dt / dt / half_exp_gamma_plus_half;
-    // rA0d = temp * mA * (rA3 - rA1);
-    rB0d = temp * mB * (rB3 - rB1);
-    rC0d = temp * mC * (rC3 - rC1);
+    // rA0d = temp * mA * rA3;
+    rB0d = temp * mB * rB3;
+    rC0d = temp * mC * rC3;
 
     virial_tensor = Get_Virial_From_Force_Dis(rB0d, rB0) +
                     Get_Virial_From_Force_Dis(rC0d, rC0);
@@ -220,27 +230,28 @@ static __global__ void settle_triangle(
     float half_exp_gamma_plus_half, VECTOR* vel, LTMatrix3* virial_tensor)
 {
     CONSTRAIN_TRIANGLE triangle;
-    VECTOR rO;
     VECTOR rA, rB, rC;
     float mA, mB, mC;
 #ifdef USE_GPU
     int triangle_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (triangle_i < num_task_local)
 #else
-#pragma omp parallel for private(triangle, rO, rA, rB, rC, mA, mB, mC)
+#pragma omp parallel for private(triangle, rA, rB, rC, mA, mB, mC)
     for (int triangle_i = 0; triangle_i < num_task_local; triangle_i++)
 #endif
     {
         triangle = triangles[triangle_i];
-        rA = crd[triangle.atom_A];
-        rB = Get_Displacement(crd[triangle.atom_B], rA, boundary);
-        rC = Get_Displacement(crd[triangle.atom_C], rA, boundary);
+        rB = Get_Displacement(crd[triangle.atom_B], crd[triangle.atom_A],
+                              boundary);
+        rC = Get_Displacement(crd[triangle.atom_C], crd[triangle.atom_A],
+                              boundary);
         mA = d_mass[triangle.atom_A];
         mB = d_mass[triangle.atom_B];
         mC = d_mass[triangle.atom_C];
 
-        rO = 1.0f / (mA + mB + mC) * (mB * rB + mC * rC) + rA;
-        rA = rA - rO;
+        // Construct local offsets directly from distances. Never form an
+        // absolute COM and subtract it from the absolute A coordinate.
+        rA = -1.0f / (mA + mB + mC) * (mB * rB + mC * rC);
         rB = rB + rA;
         rC = rC + rA;
 
@@ -251,9 +262,9 @@ static __global__ void settle_triangle(
             vel[triangle.atom_A], vel[triangle.atom_B], vel[triangle.atom_C],
             virial_tensor[triangle_i], triangle_i);
 
-        crd[triangle.atom_A] = rA + rO;
-        crd[triangle.atom_B] = rB + rO;
-        crd[triangle.atom_C] = rC + rO;
+        crd[triangle.atom_A] = crd[triangle.atom_A] + rA;
+        crd[triangle.atom_B] = crd[triangle.atom_B] + rB;
+        crd[triangle.atom_C] = crd[triangle.atom_C] + rC;
     }
 }
 
