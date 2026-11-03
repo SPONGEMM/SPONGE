@@ -2,6 +2,7 @@
 
 #include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
+#include "sits_accumulator.hpp"
 #include "sits_h5_input.hpp"
 
 template <bool need_force, bool need_energy, bool need_virial,
@@ -403,10 +404,7 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
     }
 }
 
-static __device__ float log_add_log(float a, float b)
-{
-    return fmaxf(a, b) + logf(1.0 + expf(-fabsf(a - b)));
-}
+using SitsAccumulator::Log_Add;
 
 static __global__ void SITS_Record_Ene_Device(float* ene_record,
                                               const float* enhancing_energy,
@@ -439,7 +437,7 @@ static __global__ void SITS_Update_gfsum_Device(const int kn, float* gfsum,
     float temp = -FLT_MAX;
     for (int i = 0; i < kn; i = i + 1)
     {
-        temp = log_add_log(temp, gf[i]);
+        temp = Log_Add(temp, gf[i]);
     }
     gfsum[0] = temp;
 }
@@ -457,10 +455,7 @@ static __global__ void SITS_Update_log_pk_Device(const int kn, float* log_pk,
     for (int i = 0; i < kn; i++)
 #endif
     {
-        float gfi = gf[i];
-        log_pk[i] =
-            ((float)reset) * gfi +
-            ((float)(1 - reset)) * log_add_log(log_pk[i], gfi - gfsum[0]);
+        SitsAccumulator::Accumulate(log_pk[i], gf[i], gfsum[0], reset != 0);
     }
 }
 
@@ -479,11 +474,11 @@ static __global__ void SITS_Update_log_mk_inverse_Device(
         log_weight[i] = (log_pk[i] + log_pk[i + 1]) * 0.5;
         log_mk_inverse[i] = log_nk[i] - log_nk[i + 1];
         log_norm_old[i] = log_norm[i];
-        log_norm[i] = log_add_log(log_norm[i], log_weight[i]);
+        log_norm[i] = Log_Add(log_norm[i], log_weight[i]);
         log_mk_inverse[i] =
-            log_add_log(log_mk_inverse[i] + log_norm_old[i] - log_norm[i],
-                        log_pk[i + 1] - log_pk[i] + log_mk_inverse[i] +
-                            log_weight[i] - log_norm[i]);
+            Log_Add(log_mk_inverse[i] + log_norm_old[i] - log_norm[i],
+                    log_pk[i + 1] - log_pk[i] + log_mk_inverse[i] +
+                        log_weight[i] - log_norm[i]);
     }
 }
 
@@ -541,8 +536,8 @@ static __global__ void SITS_For_Enhanced_Force_Sum_Of_Above_And_Below_Device(
     float below = -FLT_MAX;
     for (int i = 0; i < k_numbers; i++)
     {
-        above = log_add_log(above, logf(beta_k[i]) + nkexpbetaku[i]);
-        below = log_add_log(below, nkexpbetaku[i]);
+        above = Log_Add(above, logf(beta_k[i]) + nkexpbetaku[i]);
+        below = Log_Add(below, nkexpbetaku[i]);
     }
     sum_of_above[0] = above;
     sum_of_below[0] = below;
@@ -1115,16 +1110,14 @@ void CLASSIC_SITS_INFORMATION::Memory_Allocate()
     Device_Malloc_Safely((void**)&log_weight, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_mk_inverse, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_norm_old, sizeof(float) * k_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&log_norm, log_norm_record_cpu,
-                                  sizeof(float) * k_numbers);
+    Device_Malloc_Safely((void**)&log_norm, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_pk, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_nk_inverse, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_nk, sizeof(float) * k_numbers);
 
     Device_Malloc_Safely((void**)&beta_k, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&NkExpBetakU, sizeof(float) * k_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&Nk, nk_record_cpu,
-                                  sizeof(float) * k_numbers);
+    Device_Malloc_Safely((void**)&Nk, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&sum_a, sizeof(float));
     Device_Malloc_Safely((void**)&sum_b, sizeof(float));
     Device_Malloc_And_Copy_Safely((void**)&factor, &sits_controller->h_factor,
