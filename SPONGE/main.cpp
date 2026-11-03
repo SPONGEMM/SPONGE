@@ -428,12 +428,6 @@ void Main_Calculate_Force()
             pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
                                dd.atom_numbers);
         }
-        sits.Update_And_Enhance(
-            md_info.sys.steps, md_info.sys.d_potential, md_info.need_pressure,
-            dd.d_virial, dd.frc,
-            1.0f / (CONSTANT_kB * md_info.sys.target_temperature));
-        output_session.Write_Pending_Sits();
-        vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     else if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
@@ -467,6 +461,22 @@ void Main_Calculate_Force()
         vatom.Force_Redistribute_CV(pm.g_crd, boundary, pm.g_frc);
         pm.add_force_g_to_l(md_info.frc);
         pm.Send_Recv_Force(&controller, md_info.frc, dd.frc, dd.atom_numbers);
+    }
+    // Full-system ITS needs this step's energy before updating its weights and
+    // forces. Include reciprocal/CV contributions and enter the reduction on
+    // every MPI rank, not only the particle ranks.
+    if (sits.is_initialized && !sits.selectively_applied)
+    {
+        dd.Get_Potential(&controller, &md_info);
+    }
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+    {
+        sits.Update_And_Enhance(
+            md_info.sys.steps, md_info.sys.d_potential, md_info.need_pressure,
+            dd.d_virial, dd.frc,
+            1.0f / (CONSTANT_kB * md_info.sys.target_temperature));
+        output_session.Write_Pending_Sits();
+        vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     md_info.min.Scale_Force_For_Dynamic_Dt(dd.atom_numbers, dd.d_mass_inverse,
                                            dd.frc, dd.vel, dd.acc);

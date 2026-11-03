@@ -73,15 +73,15 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
                     frc_record = frc_record + frc_lin;
                     if (atom_j < local_atom_numbers)
                         atomicAdd(frc + atom_j, -frc_lin);
-                    frc_lin = factor * frc_lin;
-                    frc_enhancing_record = frc_enhancing_record + frc_lin;
+                    frc_enhancing_record =
+                        frc_enhancing_record + factor * frc_lin;
                     if (need_virial)
                     {
                         LTMatrix3 virial0 =
                             Get_Virial_From_Force_Dis(frc_lin, dr);
-                        virial_record = virial_record + ij_factor * virial0;
+                        virial_record = virial_record - ij_factor * virial0;
                         virial_enhancing =
-                            virial_enhancing + ij_factor * factor * virial0;
+                            virial_enhancing - ij_factor * factor * virial0;
                     }
                 }
                 if (need_coulomb && need_energy)
@@ -227,9 +227,9 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
                         {
                             LTMatrix3 virial0 =
                                 Get_Virial_From_Force_Dis(frc_lin, dr);
-                            virial_record = virial_record + ij_factor * virial0;
+                            virial_record = virial_record - ij_factor * virial0;
                             virial_enhancing =
-                                virial_enhancing + ij_factor * factor * virial0;
+                                virial_enhancing - ij_factor * factor * virial0;
                         }
                     }
                     if (need_coulomb && need_energy)
@@ -301,9 +301,9 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
                         {
                             LTMatrix3 virial0 =
                                 Get_Virial_From_Force_Dis(frc_lin, dr);
-                            virial_record = virial_record + ij_factor * virial0;
+                            virial_record = virial_record - ij_factor * virial0;
                             virial_enhancing =
-                                virial_enhancing + ij_factor * factor * virial0;
+                                virial_enhancing - ij_factor * factor * virial0;
                         }
                     }
                     if (need_coulomb && need_energy)
@@ -1692,8 +1692,14 @@ void SITS_INFORMATION::Update_And_Enhance(const int step,
                          sizeof(float), deviceMemcpyDeviceToDevice);
         }
     }
-    if (sits_mode != SITS_MODE_OBSERVATION && !classic_sits.nk_fix &&
-        step % classic_sits.record_interval == 0)
+    // Observation only records the selected energy. Even a zero enhancement
+    // factor cannot neutralize NaNs in unused enhancement buffers.
+    if (sits_mode == SITS_MODE_OBSERVATION)
+    {
+        deviceMemset(classic_sits.d_bias, 0, sizeof(float));
+        return;
+    }
+    if (!classic_sits.nk_fix && step % classic_sits.record_interval == 0)
     {
         classic_sits.SITS_Update_Common(beta0);
         if (classic_sits.record_count % classic_sits.update_interval == 0)
@@ -1701,10 +1707,7 @@ void SITS_INFORMATION::Update_And_Enhance(const int step,
             classic_sits.SITS_Update_Nk();
         }
     }
-    if (sits_mode != SITS_MODE_OBSERVATION)
-    {
-        classic_sits.SITS_Update_Fb(beta0, step);
-    }
+    classic_sits.SITS_Update_Fb(beta0, step);
     Launch_Device_Kernel(SITS_For_Enhanced_Force_Protein_Water_Device,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
