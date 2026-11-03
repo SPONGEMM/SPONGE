@@ -156,7 +156,7 @@ void Run_Case(const std::filesystem::path& executable,
     Write_Text(root / "lj.txt", lj.str());
     SpongeH5OutputPlan::ResolvedOutputPlan plan;
     plan.trajectory.enabled = true;
-    plan.trajectory.path = (root / "input.spg.h5md").string();
+    plan.trajectory.path = (root / "input.spg.h5md").generic_string();
     SpongeH5MD::HighFiveBackend backend;
     SpongeH5MD::TrajectoryH5Writer writer(&backend);
     REQUIRE_TRUE(writer.Open_Single_File(plan));
