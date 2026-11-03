@@ -79,7 +79,6 @@ step_limit = 100
 rerun_frame_limit = 100
 rerun_start = 0
 rerun_strip = 1
-rerun_need_box_update = 0
 
 [input.h5.topology]
 path = "topologies/protein.topology.spgt.h5"
@@ -191,6 +190,20 @@ def main() -> int:
 
     schema_path = args.schema.resolve()
     schema = json.loads(schema_path.read_text())
+    # Deprecated rerun inputs must never advertise a disabling default.
+    for option in (
+        schema["properties"]["rerun_need_box_update"],
+        schema["properties"]["rerun"]["properties"]["need_box_update"],
+    ):
+        assert option["deprecated"] and "default" not in option
+        for value in (1, True):
+            validate(option, value, "rerun cell compatibility")
+        for value in (0, False, 2, -1, 0.5, "invalid"):
+            try:
+                validate(option, value, "rerun cell compatibility")
+            except ValidationError:
+                continue
+            raise ValidationError(f"rerun cell schema accepted {value!r}")
     for name, toml_text in EXAMPLES.items():
         data = tomllib.loads(toml_text)
         validate(schema, data, name)

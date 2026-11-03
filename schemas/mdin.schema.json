@@ -67,18 +67,16 @@
       "anyOf": [
         {
           "type": "integer",
-          "enum": [
-            0,
-            1
-          ]
+          "enum": [1]
         },
         {
-          "type": "boolean"
+          "type": "boolean",
+          "enum": [true]
         }
       ],
       "title": "Rerun Need Box Update",
-      "description": "Whether to update the box deformation tensor during rerun.",
-      "default": 0
+      "description": "Deprecated compatibility input: rerun always uses each frame's box. Omit this key; only 1 or true is accepted.",
+      "deprecated": true
     },
     "cutoff": {
       "anyOf": [
@@ -1090,18 +1088,16 @@
           "anyOf": [
             {
               "type": "integer",
-              "enum": [
-                0,
-                1
-              ]
+              "enum": [1]
             },
             {
-              "type": "boolean"
+              "type": "boolean",
+              "enum": [true]
             }
           ],
           "title": "Need Box Update",
-          "description": "Update box during rerun.",
-          "default": 0
+          "description": "Deprecated compatibility input: rerun always uses each frame's box. Omit this key; only 1 or true is accepted.",
+          "deprecated": true
         },
         "start": {
           "type": "integer",

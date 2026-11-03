@@ -394,8 +394,6 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
     Append_If_Missing(&mdin, "rerun_start", "rerun_start = 0");
     Append_If_Missing(&mdin, "rerun_strip", "rerun_strip = 0");
     Append_If_Missing(&mdin, "rerun_frame_limit", "rerun_frame_limit = 2");
-    Append_If_Missing(&mdin, "rerun_need_box_update",
-                      "rerun_need_box_update = 0");
     Append_If_Missing(&mdin, "write_mdout_interval",
                       "write_mdout_interval = 1");
     if (Has_Key_Line(mdin, "input_h5_restart_path"))

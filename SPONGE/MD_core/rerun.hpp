@@ -10,6 +10,25 @@ void MD_INFORMATION::RERUN_information::Initial(CONTROLLER* controller,
     if (md_info->mode == RERUN)
     {
         controller->printf("    Start initializing rerun:\n");
+        // A rerun frame is defined by its coordinates and cell together.
+        // Keep the old enabling value only as a migration aid.
+        if (controller->Command_Exist("rerun_need_box_update"))
+        {
+            if (!controller->Command_Choice("rerun_need_box_update", "1") &&
+                !controller->Command_Choice("rerun_need_box_update", "true"))
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorValueErrorCommand,
+                    "MD_INFORMATION::RERUN_information::Initial",
+                    "Reason:\n\trerun always uses each trajectory frame's "
+                    "box. Remove deprecated rerun_need_box_update; only "
+                    "1 (or true) is accepted for compatibility.\n");
+            }
+            controller->printf(
+                "        Warning: rerun_need_box_update is deprecated; "
+                "rerun always uses each trajectory frame's box. "
+                "Remove this parameter.\n");
+        }
         std::string filename;
         const auto input_plan =
             SpongeH5InputPlan::Resolve_Input_Plan(controller);
@@ -132,15 +151,6 @@ void MD_INFORMATION::RERUN_information::Initial(CONTROLLER* controller,
                 "rerun_strip", "MD_INFORMATION::RERUN_information::Initial");
             strip_frame = atoi(controller->Command("rerun_strip"));
         }
-        need_box_update = 0;
-        if (controller->Command_Exist("rerun_need_box_update"))
-        {
-            controller->Check_Float(
-                "rerun_need_box_update",
-                "MD_INFORMATION::RERUN_information::Initial");
-            need_box_update =
-                atoi(controller->Command("rerun_need_box_update"));
-        }
         md_info->sys.step_limit = INT_MAX;
         controller->printf("    End initializing rerun\n\n");
     }
@@ -258,11 +268,6 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
                 loaded_frame = 1;
             }
         }
-        if (loaded_frame && loaded_frame_count > 0 && !need_box_update)
-        {
-            md_info->sys.box_length = old_box_length;
-            md_info->sys.box_angle = old_box_angle;
-        }
         if ((h5_trajectory_enabled && !h5_velocity_present) ||
             (!h5_trajectory_enabled && vel_file == NULL))
         {
@@ -288,7 +293,6 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
     MPI_Bcast(&md_info->sys.box_angle, sizeof(VECTOR), MPI_BYTE, 0,
               MPI_COMM_WORLD);
 #endif
-    if (loaded_frame) loaded_frame_count += 1;
     bool box_changed =
         loaded_frame && (old_box_length.x != md_info->sys.box_length.x ||
                          old_box_length.y != md_info->sys.box_length.y ||

@@ -672,7 +672,7 @@ void Main_Iteration()
         // frame.
         md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
                                      dd.atom_local_id, main_stream);
-        if (md_info.rerun.need_box_update && box_changed)
+        if (box_changed)
         {
             Main_Rerun_Box_Change();
         }

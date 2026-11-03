@@ -43,7 +43,11 @@ slots. Otherwise the previous frame can overwrite the newly read frame.
 
 Use the loaded cell directly for rerun, updating its inverse and domain/PM
 geometry, instead of reconstructing it through a strain and a time step.
-Only a newly loaded, changed box triggers this path. Explicit 90-degree
+Every selected frame supplies its own cell; there is no mutable box-update
+policy. Only a newly loaded, changed box triggers this path. The deprecated
+`rerun_need_box_update` key accepts only `1`/`true`, with a migration warning;
+disabling values and malformed values are rejected before opening the
+trajectory. Explicit 90-degree
 angles construct an exact diagonal cell; other angles retain their geometric
 tilt. Ordinary pressure-driven strain updates remain unchanged.
 
@@ -114,6 +118,15 @@ trajectory and observable streams keep their existing publication protocol.
 
 All operations remain synchronous. There is no output queue or background
 writer, and `RestartOutputState` is not a complete asynchronous checkpoint.
+
+The `test_rerun_cells` runtime test covers legacy and H5 trajectories with no
+box-update key, deprecated enabling values, and rejected disabling/malformed
+values. Analytic two-atom LJ energies and forces check the effective periodic
+geometry; the long-range dispersion correction checks volume. Cases include
+sub-1e-4 cell changes, large changes, repeated cells, tilted cells, selected
+frames and EOF. Enable it with `SPONGE_H5_ENABLE_RUNTIME_SMOKE=1` in a runnable
+CPU/GPU environment. This focused check does not qualify PME grid boundaries
+or long-trajectory ensemble behavior.
 
 ## Validation
 
