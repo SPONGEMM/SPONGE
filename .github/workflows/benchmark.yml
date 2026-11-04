@@ -1,4 +1,4 @@
-name: Andersen macOS diagnostic
+name: Andersen macOS long diagnostic
 
 on:
   workflow_dispatch:
@@ -6,7 +6,7 @@ on:
 jobs:
   diagnostic:
     runs-on: macos-14
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: read
     steps:
@@ -18,33 +18,26 @@ jobs:
           run-install: false
       - name: Install CPU environment
         run: pixi install -e dev-cpu
-      - name: Build unchanged head and merged baseline
+      - name: Build unchanged head
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/andersen-evidence"
           git rev-parse HEAD > "$RUNNER_TEMP/andersen-evidence/diagnostic-commit.txt"
           git diff --exit-code 2fe3373c44b9ee170f1f4b2b6b535c3dcc170c6b HEAD -- SPONGE CMakeLists.txt cmake > "$RUNNER_TEMP/andersen-evidence/production-parity.diff"
-          git worktree add --detach "$RUNNER_TEMP/andersen-base" ffb710903732a8f1ccbc32109f98987af59d7e34
           pixi run -e dev-cpu configure
           pixi run -e dev-cpu cmake --build build-dev-cpu --target SPONGE --parallel 2
-          pixi run -e dev-cpu bash -c '
-            set -euo pipefail
-            cmake -S "$RUNNER_TEMP/andersen-base" -B "$RUNNER_TEMP/andersen-base-build" -G Ninja -DPARALLEL=none -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" -DCMAKE_INSTALL_PREFIX="$CONDA_PREFIX"
-            cmake --build "$RUNNER_TEMP/andersen-base-build" --target SPONGE --parallel 2
-          '
       - name: Run predeclared paired and timestep diagnostics
         run: >-
           pixi run -e dev-cpu python benchmarks/diagnostics/andersen_temperature.py
           --source "$GITHUB_WORKSPACE"
           --head-binary "$GITHUB_WORKSPACE/build-dev-cpu/SPONGE"
-          --base-binary "$RUNNER_TEMP/andersen-base-build/SPONGE"
           --output "$RUNNER_TEMP/andersen-evidence/cases"
-          --plan mac
+          --plan mac-long
       - name: Upload all diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: andersen-macos-diagnostic-${{ github.run_id }}
+          name: andersen-macos-long-${{ github.run_id }}
           path: ${{ runner.temp }}/andersen-evidence
           retention-days: 14
