@@ -151,8 +151,12 @@ def test_sits_nb14_extra_without_regular_lj(
 def test_sits_nb14_invalid_without_regular_lj(
     statics_path, outputs_path, mpi_np, capsys, contents, expected_error
 ):
+    # Only rank 0 prints diagnostics. Another rank can call MPI_Abort before
+    # that output is delivered, so validate the message with a single rank.
+    # The successful loading/energy cases above retain the requested MPI size.
+    diagnostic_mpi_np = 1 if mpi_np is not None else None
     case_dir = _prepare_sits_softcore_case(
-        statics_path, outputs_path, mpi_np, "sits_nb14_invalid"
+        statics_path, outputs_path, diagnostic_mpi_np, "sits_nb14_invalid"
     )
     (case_dir / "sits_nb14.txt").write_text(contents)
     mdin_path = case_dir / "mdin.spg.in"
@@ -165,7 +169,7 @@ def test_sits_nb14_invalid_without_regular_lj(
         Runner.run_sponge(
             case_dir,
             timeout=1800,
-            mpi_np=mpi_np,
+            mpi_np=diagnostic_mpi_np,
             mdin_name="mdin.spg.in",
         )
     assert expected_error in capsys.readouterr().out
