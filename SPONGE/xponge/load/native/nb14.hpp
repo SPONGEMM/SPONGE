@@ -17,19 +17,26 @@ static void Native_Load_NB14(NB14* nb14, const int* atom_type,
 
     if (controller->Command_Exist(module_name, "in_file"))
     {
-        if (atom_type == NULL || pair_A == NULL || pair_B == NULL)
-        {
-            controller->Throw_SPONGE_Error(
-                spongeErrorConflictingCommand, "Xponge::Native_Load_NB14",
-                "Reason:\n\t'nb14_in_file' should be provided with initialized "
-                "LJ parameters\n");
-        }
         Open_File_Safely(&fp, controller->Command(module_name, "in_file"), "r");
-        if (fscanf(fp, "%d", &nb14_numbers) != 1)
+        if (fscanf(fp, "%d", &nb14_numbers) != 1 || nb14_numbers < 0)
         {
             controller->Throw_SPONGE_Error(
                 spongeErrorBadFileFormat, "Xponge::Native_Load_NB14",
                 "Reason:\n\tthe format of nb14_in_file is not right\n");
+        }
+        if (nb14_numbers > 0 &&
+            (atom_type == NULL || pair_A == NULL || pair_B == NULL))
+        {
+            const std::string reason =
+                "Reason:\n\tNon-empty '" + std::string(module_name) +
+                "_in_file' requires initialized regular LJ parameters. "
+                "Use '" +
+                std::string(module_name) +
+                "_extra_in_file' with explicit A, B and Coulomb scaling "
+                "coefficients when regular LJ parameters are unavailable.\n";
+            controller->Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                           "Xponge::Native_Load_NB14",
+                                           reason.c_str());
         }
     }
 
