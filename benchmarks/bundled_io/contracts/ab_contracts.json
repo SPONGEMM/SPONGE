@@ -1241,8 +1241,8 @@
       "component": "rerun_selection",
       "status": "supported",
       "minimum_evidence": "E3",
-      "legacy_surface": "rerun_need_box_update",
-      "bundled_surface": "rerun_need_box_update with H5 trajectory",
+      "legacy_surface": "per-frame box trajectory; deprecated rerun_need_box_update=1 accepted",
+      "bundled_surface": "per-frame H5 trajectory cell; deprecated rerun_need_box_update=1 accepted",
       "case_ids": ["rerun_boundary_start0_strip0_limit1_vds_off", "rerun_boundary_start1_strip0_unlimited_no_velocity_vds_on", "rerun_boundary_start0_strip1_beyond_selected_vds_on", "rerun_boundary_start0_strip0_exact_eof_box_vds_off", "rerun_boundary_start1_strip1_limit1_selected_no_velocity_vds_off"],
       "assertion_ids": ["rerun_selection_equivalence"],
       "inventory_refs": ["rerun_control_keys:rerun_need_box_update"]

@@ -431,6 +431,14 @@ void Load_Target_Schedule(
 
 double MD_INFORMATION::system_information::Get_Current_Time(bool plus_one_step)
 {
+    if (md_info->mode == RERUN && md_info->rerun.h5_trajectory_enabled)
+    {
+        // H5 rerun loads each frame's absolute time into start_time. No MD
+        // integration occurs, so neither the step index nor plus_one_step
+        // advances that timestamp.
+        current_time = start_time;
+        return current_time;
+    }
     current_time = start_time + (double)dt_in_ps * (steps + plus_one_step);
     return current_time;
 }

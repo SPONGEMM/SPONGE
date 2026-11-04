@@ -694,7 +694,7 @@ def require_rerun_smoke_branch_assertions(smoke_text):
         [
             "if (spec.vds)",
             "Require_VDS_Shards_Are_Complete(sidecar_bundled.h5_trajectory",
-            "trajectory_times, {0}",
+            "observable_times, {0}",
             "{observable_times.front()}",
         ],
     )

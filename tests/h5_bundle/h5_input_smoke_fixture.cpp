@@ -238,7 +238,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                "rerun_start = 0\n"
                "rerun_strip = 0\n"
                "rerun_frame_limit = 1\n"
-               "rerun_need_box_update = 0\n"
                "print_zeroth_frame = 1\n"
                "mass_in_file = \"" +
                    mass.string() +
@@ -260,7 +259,6 @@ void Write_Mdin_Files(const std::filesystem::path& output_dir,
                "step_limit = 0\n"
                "rerun_start = 0\n"
                "rerun_strip = 0\n"
-               "rerun_need_box_update = 0\n"
                "print_zeroth_frame = 1\n"
                "mass_in_file = \"" +
                    mass.string() +

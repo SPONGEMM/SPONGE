@@ -34,6 +34,32 @@ readers, structural restart loading in MD core and rerun's streaming reader
 retain their existing implementations; the context does not cache trajectory
 frames or claim to eliminate every H5 open in the program.
 
+## Rerun frame ownership and cell reconstruction
+
+Ordinary MD advances the domain-decomposed (DD) state; rerun loads a frame
+into the global arrays. Before a box rebuild can gather DD state back into
+those arrays, copy the loaded coordinates and velocities into the owned DD
+slots. Otherwise the previous frame can overwrite the newly read frame.
+
+Use the loaded cell directly for rerun, updating its inverse and domain/PM
+geometry, instead of reconstructing it through a strain and a time step.
+Every selected frame supplies its own cell; there is no mutable box-update
+policy. Only a newly loaded, changed box triggers this path. The deprecated
+`rerun_need_box_update` key accepts only `1`/`true`, with a migration warning;
+disabling values and malformed values are rejected before opening the
+trajectory. Explicit 90-degree
+angles construct an exact diagonal cell; other angles retain their geometric
+tilt. Ordinary pressure-driven strain updates remain unchanged.
+
+Reduce the evaluated frame's energy and publish its outputs before loading
+the next frame. Broadcast the frame counter when input frames are skipped,
+so every rank participates in the same output events. Rerun retains its last
+selected frame even when the corresponding ordinary-MD schedule would skip
+the final trajectory or restart write. H5 rerun outputs use the evaluated
+frame's absolute input time, without adding an integration step or the frame
+index times `dt`. Legacy trajectories have no stored timestamps and retain
+the existing derived clock. Ordinary MD retains its output phase and clock.
+
 ## Output events
 
 `OutputSession` routes synchronous H5 and legacy output. It exposes schedule
@@ -55,6 +81,26 @@ Simulation orchestration invokes events where their source data is ready:
 Streams retain their original `steps`/`steps + 1` and time conventions. Moving
 all module output to one end-of-step callback would change those semantics.
 
+Force capture is separate from writing. On a scheduled force-output step,
+`Prepare_Force_Output()` uses the existing DD force-gather routine to populate
+the host buffer while the current atom mapping is still valid. Ordinary MD
+calls it after integration, thermostat and constraint processing, before a
+pressure-driven box rebuild or ownership exchange can
+replace DD force storage or change the global-to-local map. Rerun calls it
+before publishing the current frame and loading the next one. Gathering after
+migration would associate old force slots with new atom identities.
+
+The standalone force writer and H5 trajectory writer consume this same host
+snapshot; neither gathers again. The capture condition uses the output plan
+shared by all ranks, rather than the H5 writer state owned by rank zero, so
+all particle ranks enter the same force collective even when the standalone
+and H5 schedules differ. No additional force buffer or force evaluation is
+needed. Coordinate/velocity writes, timestamps and schedules are unchanged;
+this does not make ordinary MD forces and post-integration coordinates refer
+to the same integrator stage. Changes here require checking migration on a
+force-output step, H5/standalone schedules, pressure-driven DD rebuilds and
+rerun frame alignment.
+
 The force gather applies the atom mapping even with one particle rank.
 Domain decomposition packs atoms by update group even in a single domain;
 groups such as `(0,2)` and `(1,3)` produce local order `0,2,1,3`. A direct copy
@@ -72,6 +118,15 @@ trajectory and observable streams keep their existing publication protocol.
 
 All operations remain synchronous. There is no output queue or background
 writer, and `RestartOutputState` is not a complete asynchronous checkpoint.
+
+The `test_rerun_cells` runtime test covers legacy and H5 trajectories with no
+box-update key, deprecated enabling values, and rejected disabling/malformed
+values. Analytic two-atom LJ energies and forces check the effective periodic
+geometry; the long-range dispersion correction checks volume. Cases include
+sub-1e-4 cell changes, large changes, repeated cells, tilted cells, selected
+frames and EOF. Enable it with `SPONGE_H5_ENABLE_RUNTIME_SMOKE=1` in a runnable
+CPU/GPU environment. This focused check does not qualify PME grid boundaries
+or long-trajectory ensemble behavior.
 
 ## Validation
 

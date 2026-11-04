@@ -141,6 +141,7 @@ struct DOMAIN_INFORMATION
     void Get_Ek_and_Temperature(CONTROLLER* controller,
                                 MD_INFORMATION* md_info);
     void Get_Potential(CONTROLLER* controller, MD_INFORMATION* md_info);
+    void Set_Box(VECTOR box_length);
     void Update_Box(LTMatrix3 g, float dt);
     void Res_Crd_Map(LTMatrix3 g, float dt);
     int is_initialized = 0;

@@ -94,10 +94,12 @@ def run_case(
         if line.strip()
     ]
     forces = np.fromfile(case / "forces.dat", dtype=np.float32)
-    assert len(rows) >= 2, f"missing CV frames in {case}"
-    # Rerun writes the final force snapshot, while mdout contains both frames.
-    assert forces.size == count * 3, f"missing force snapshot in {case}"
-    forces = forces.reshape(1, count, 3)
+    assert len(rows) == 2, f"expected two CV frames in {case}"
+    # Both evaluated frames, including the last one, must have a force record.
+    assert forces.size == 2 * count * 3, (
+        f"expected two force snapshots in {case}"
+    )
+    forces = forces.reshape(2, count, 3)
     assert np.isfinite(forces).all(), f"non-finite bias force in {case}"
     return rows, forces
 
