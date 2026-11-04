@@ -135,6 +135,13 @@ bool MD_INFORMATION::periodic_box_condition_information::Check_Change_Large()
 LTMatrix3 MD_INFORMATION::periodic_box_condition_information::Get_Cell(
     VECTOR box_length, VECTOR box_angle)
 {
+    // Preserve explicitly orthogonal input without trigonometric roundoff.
+    // Other angles retain their geometric tilt; no tolerance is applied here.
+    if (box_angle.x == 90.0f && box_angle.y == 90.0f && box_angle.z == 90.0f)
+    {
+        return LTMatrix3(box_length.x, 0.0f, box_length.y, 0.0f, 0.0f,
+                         box_length.z);
+    }
     LTMatrix3 cell;
     double a = box_length.x;
     double b = box_length.y;

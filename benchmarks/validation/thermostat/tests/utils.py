@@ -24,6 +24,7 @@ def write_thermostat_mdin(
     default_in_file_prefix="sys_flexible",
     md_name="benchmark thermostat validation",
     velocity_in_file=None,
+    initial_velocity_seed=None,
 ):
     mdin = (
         f'md_name = "{md_name}"\n'
@@ -46,6 +47,11 @@ def write_thermostat_mdin(
         mdin += f'constrain_mode = "{constrain_mode}"\n'
     if velocity_in_file is not None:
         mdin += f'velocity_in_file = "{velocity_in_file}"\n'
+    if initial_velocity_seed is not None:
+        mdin += (
+            '\n[initial_velocity]\nmode = "maxwell"\n'
+            f"seed = {initial_velocity_seed}\n"
+        )
     Path(case_dir, "mdin.spg.toml").write_text(mdin)
 
 
