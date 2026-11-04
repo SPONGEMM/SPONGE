@@ -1,14 +1,30 @@
 ﻿#pragma once
 #include "../common.h"
 #include "../control.h"
+#include "precision.h"
 
 struct CONSTRAIN_PAIR
 {
     int atom_i_serial;
     int atom_j_serial;
-    float constant_r;
-    float
+    double constant_r;
+    double
         constrain_k;  // 这个并不是说有个弹性系数来固定，而是迭代时，有个系数k=m1*m2/(m1+m2)
+};
+
+template <class Real>
+struct ConstraintPair
+{
+    int atom_i_serial, atom_j_serial;
+    Real constant_r, constrain_k;
+    __host__ __device__ ConstraintPair(const CONSTRAIN_PAIR& p)
+        : atom_i_serial(p.atom_i_serial),
+          atom_j_serial(p.atom_j_serial),
+          constant_r(Real(p.constant_r)),
+          constrain_k(Real(p.constrain_k))
+    {
+    }
+    __host__ __device__ ConstraintPair() = default;
 };
 
 struct CONSTRAIN
@@ -18,14 +34,15 @@ struct CONSTRAIN
     int is_controller_printf_initialized = 0;
     int last_modify_date = 20260216;
 
+    ConstraintPrecision precision = ConstraintPrecision::Double;
     int atom_numbers = 0;
-    float dt = 0.001f;
-    float dt_inverse;
+    double dt = 0.001f;
+    double dt_inverse;
 
-    float v_factor = 1.0f;  // 一个积分步中,一个微小的力F对速度的影响，即dv =
-                            // v_factor * F * dt/m
-    float x_factor = 1.0f;  // 一个积分步中,一个微小的力F对位移的影响，即dx =
-                            // x_factor * F * dt * dt/m
+    double v_factor = 1.0f;  // 一个积分步中,一个微小的力F对速度的影响，即dv =
+                             // v_factor * F * dt/m
+    double x_factor = 1.0f;  // 一个积分步中,一个微小的力F对位移的影响，即dx =
+                             // x_factor * F * dt * dt/m
     float constrain_mass = 3.3;  // 对质量小于该值的原子进行限制
 
     // 在初始化的时候用到，在实际计算中不会使用,在初始化时已经被释放
@@ -92,8 +109,9 @@ struct SMALL_CONSTRAINT_GROUPS
 
 // Explicit selection avoids dynamic indexing of short per-thread arrays,
 // which otherwise materializes these arrays in CUDA local memory.
-static __device__ __forceinline__ VECTOR
-Small_Group_Vector(const VECTOR* values, int i)
+template <class Real>
+static __device__ __forceinline__ ConstraintVector<Real> Small_Group_Vector(
+    const ConstraintVector<Real>* values, int i)
 {
     return i == 0 ? values[0]
                   : (i == 1 ? values[1] : (i == 2 ? values[2] : values[3]));
@@ -104,8 +122,9 @@ Small_Group_Vector(const VECTOR* values, int i)
 // in r^2 - l^2. Box size and coordinate-storage error must not tighten the
 // user's convergence target; later coordinate rounding is a separate accuracy
 // issue.
+template <class Real>
 static __device__ __forceinline__ bool Constraint_Within_Tolerance(
-    const VECTOR& displacement, float target, float tolerance)
+    const ConstraintVector<Real>& displacement, Real target, Real tolerance)
 {
     const double x = displacement.x, y = displacement.y, z = displacement.z;
     const double r2 = x * x + y * y + z * z;

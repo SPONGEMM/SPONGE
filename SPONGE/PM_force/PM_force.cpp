@@ -589,16 +589,16 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
                                 2 / msq * (1 + mprefactor * msq) * m.x * m.x;
                             h_PME_virial_BC[index].a21 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.y * m.x;
+                                4 / msq * (1 + mprefactor * msq) * m.y * m.x;
                             h_PME_virial_BC[index].a22 =
                                 1 -
                                 2 / msq * (1 + mprefactor * msq) * m.y * m.y;
                             h_PME_virial_BC[index].a31 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.z * m.x;
+                                4 / msq * (1 + mprefactor * msq) * m.z * m.x;
                             h_PME_virial_BC[index].a32 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.z * m.y;
+                                4 / msq * (1 + mprefactor * msq) * m.z * m.y;
                             h_PME_virial_BC[index].a33 =
                                 1 -
                                 2 / msq * (1 + mprefactor * msq) * m.z * m.z;
@@ -606,7 +606,7 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
                         h_PME_BC0[index] = B1[kx] * B2[ky] * B3[kz];
                         h_PME_BC[index] *= h_PME_BC0[index];
                         h_PME_virial_BC[index] =
-                            0.5f * h_PME_BC[index] * h_PME_virial_BC[index];
+                            h_PME_BC[index] * h_PME_virial_BC[index];
                     }
                 }
             }
@@ -1021,6 +1021,10 @@ static __global__ void device_add_force(const int atom_numbers,
     }
 }
 
+// BC is the reciprocal potential kernel. The R2C weights below already
+// include the energy 1/2 (boundary planes 1/2, interior conjugate pairs 1).
+// Virial is -dU/dstrain: add BC * [I - 2(1 + pi^2*m^2/beta^2) mm/m^2].
+// Its off-diagonals are stored doubled to match LTMatrix3's symmetric sum.
 static __global__ void PME_Sum_Virial(const int nfft,
                                       const LTMatrix3* virial_BC,
                                       const FFT_COMPLEX* FQ, LTMatrix3* virial,
@@ -1035,12 +1039,13 @@ static __global__ void PME_Sum_Virial(const int nfft,
     {
         int fftc = fftz / 2 + 1;
         int nz = index % fftc;
-        float factor = (nz == 0 || nz == fftc - 1) ? 0.5f : 1.0f;
+        float factor =
+            (nz == 0 || (fftz % 2 == 0 && nz == fftc - 1)) ? 0.5f : 1.0f;
         FFT_COMPLEX FQ0 = FQ[index];
         LTMatrix3 vir0 =
             factor * (REAL(FQ0) * REAL(FQ0) + IMAGINARY(FQ0) * IMAGINARY(FQ0)) *
             virial_BC[index];
-        vir = vir - vir0;
+        vir = vir + vir0;
     }
 #else
     float v11 = 0.0f, v21 = 0.0f, v22 = 0.0f;
@@ -1050,17 +1055,18 @@ static __global__ void PME_Sum_Virial(const int nfft,
     {
         int fftc = fftz / 2 + 1;
         int nz = index % fftc;
-        float factor = (nz == 0 || nz == fftc - 1) ? 0.5f : 1.0f;
+        float factor =
+            (nz == 0 || (fftz % 2 == 0 && nz == fftc - 1)) ? 0.5f : 1.0f;
         FFT_COMPLEX FQ0 = FQ[index];
         LTMatrix3 vir0 =
             factor * (REAL(FQ0) * REAL(FQ0) + IMAGINARY(FQ0) * IMAGINARY(FQ0)) *
             virial_BC[index];
-        v11 -= vir0.a11;
-        v21 -= vir0.a21;
-        v22 -= vir0.a22;
-        v31 -= vir0.a31;
-        v32 -= vir0.a32;
-        v33 -= vir0.a33;
+        v11 += vir0.a11;
+        v21 += vir0.a21;
+        v22 += vir0.a22;
+        v31 += vir0.a31;
+        v32 += vir0.a32;
+        v33 += vir0.a33;
     }
     vir = {v11, v21, v22, v31, v32, v33};
 #endif
@@ -1224,16 +1230,16 @@ static __global__ void up_box_bc(int fftx, int ffty, int fftz, float* PME_BC,
                     virial_bc_local.a11 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.x * m.x;
                     virial_bc_local.a21 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.y * m.x;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.y * m.x;
                     virial_bc_local.a22 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.y * m.y;
                     virial_bc_local.a31 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.z * m.x;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.z * m.x;
                     virial_bc_local.a32 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.z * m.y;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.z * m.y;
                     virial_bc_local.a33 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.z * m.z;
-                    PME_virial_BC[index] = 0.5f * bc_local * virial_bc_local;
+                    PME_virial_BC[index] = bc_local * virial_bc_local;
                     PME_BC[index] = bc_local;
                 }
             }
