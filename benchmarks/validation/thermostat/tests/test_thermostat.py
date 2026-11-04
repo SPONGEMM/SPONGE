@@ -1,7 +1,6 @@
 import pytest
 
 from benchmarks.utils import Outputer
-
 from benchmarks.validation.thermostat.tests.utils import (
     evaluate_temperature_block_average,
     parse_temperature_series,
@@ -44,6 +43,14 @@ THERMOSTAT_CASES = [
             **COMMON_CFG,
             "id": "andersen",
             "thermostat": "andersen",
+            # Massive Andersen resamples every 0.1 ps. Equilibrate for
+            # 40 collision periods, then sample 18 blocks of 20 periods;
+            # two-collision blocks from a 2 ps run can underestimate uncertainty.
+            "step_limit": 20000,
+            "burn_in": 2000,
+            "block_size": 1000,
+            "threads": 1,
+            "timeout": 2400,
         },
         id="andersen",
     ),
@@ -76,7 +83,17 @@ THERMOSTAT_CASES = [
 
 
 @pytest.mark.parametrize("cfg", THERMOSTAT_CASES)
-def test_thermostat_tip3p_water(statics_path, outputs_path, cfg, mpi_np):
+def test_thermostat_tip3p_water(
+    statics_path, outputs_path, cfg, mpi_np, monkeypatch
+):
+    if "threads" in cfg:
+        # Keep the statistical reference independent of runner core count.
+        for variable in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+        ):
+            monkeypatch.setenv(variable, str(cfg["threads"]))
     case_name = "tip3p_water"
     file_prefix = "tip3p"
     case_dir = Outputer.prepare_output_case(
