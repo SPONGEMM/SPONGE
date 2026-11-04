@@ -5,6 +5,7 @@
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `constrain_mode` | string | none (constraints disabled) | Constraint algorithm |
+| `constrain_precision` | string | `"double"` | Internal constraint arithmetic: `"single"` or `"double"` |
 
 `constrain_mode` options:
 
@@ -19,10 +20,42 @@ The base constraint list is configured through the `[constrain]` prefix:
 
 ```toml
 constrain_mode = "SHAKE"
+constrain_precision = "double"
 
 [constrain]
 mass = 3.3
 ```
+
+## Internal Precision
+
+The top-level `constrain_precision` applies to SETTLE, SHAKE, LINCS and CCMA,
+including SETTLE pairs/triangles extracted before another selected solver runs.
+The selected type covers geometry coefficients, saved old bond vectors,
+iteration work arrays, position corrections, velocity projection and constraint
+virial accumulation. Invalid values fail during constraint initialization.
+
+`double` is the default precision reference. `single` retains a lower-precision
+solver for comparison and hardware-specific performance evaluation. The same
+algorithm implementation is instantiated for each precision; this setting does
+not change SHAKE/CCMA tolerance, LINCS order or iteration limits.
+
+The MD state (coordinates, velocities, masses, forces and output stress) remains
+float. Each constraint operation loads that state into selected-precision
+working buffers and writes it back once after the complete operation. Double
+constraint arithmetic therefore does not recover input precision already lost
+in float state, nor make the rest of MD double precision. Explicit distances
+from `constrain_in_file` and initialized shared pair coefficients are retained
+as double before the selected solver loads them; distances imported through
+existing float topology data retain that topology precision.
+
+Constraint velocity projection uses a roundoff bound for its internal scalar
+type. Writing final velocities back to float introduces a separate storage
+error. A tolerance smaller than the attainable coordinate precision is not a
+promise of that accuracy; in particular, excessively tight single-precision
+CCMA iteration can accumulate velocity corrections after coordinates stop
+changing. Check residuals, momentum, constraint stress and NVE energy drift for
+the intended model. GPU throughput and long-time transport accuracy require
+separate validation.
 
 ## SETTLE Parameters
 

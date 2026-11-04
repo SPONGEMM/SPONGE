@@ -3,12 +3,14 @@
 #include "../utils/float_classification.hpp"
 #include "velocity_projection.h"
 
+template <class Real>
 static __global__ void remember_triangle_BA_CA(
-    const int num_triangle_local, const CONSTRAIN_TRIANGLE* triangles,
-    const VECTOR* crd, Boundary boundary, VECTOR* last_triangle_BA,
-    VECTOR* last_triangle_CA)
+    const int num_triangle_local, const ConstraintTriangle<Real>* triangles,
+    const ConstraintVector<Real>* crd, Boundary boundary,
+    ConstraintVector<Real>* last_triangle_BA,
+    ConstraintVector<Real>* last_triangle_CA)
 {
-    CONSTRAIN_TRIANGLE triangle;
+    ConstraintTriangle<Real> triangle;
 #ifdef USE_GPU
     int triangle_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (triangle_i < num_triangle_local)
@@ -25,12 +27,14 @@ static __global__ void remember_triangle_BA_CA(
     }
 }
 
+template <class Real>
 static __global__ void remember_pair_AB(const int num_task_local,
                                         const CONSTRAIN_PAIR* pairs,
-                                        const VECTOR* crd, Boundary boundary,
-                                        VECTOR* last_pair_AB)
+                                        const ConstraintVector<Real>* crd,
+                                        Boundary boundary,
+                                        ConstraintVector<Real>* last_pair_AB)
 {
-    CONSTRAIN_PAIR pair;
+    ConstraintPair<Real> pair;
 #ifdef USE_GPU
     int pair_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (pair_i < num_task_local)
@@ -50,22 +54,29 @@ static __global__ void remember_pair_AB(const int num_task_local,
 // 输入：mA、mB、mC：ABC三个的质量
 // 输出：ra rb rc rd re：位置参数，当刚体三角形质心放置于原点时
 // A点放置于(0,ra,0)，B点放置于(rc, rb, 0)，C点放置于(rd, re, 0)
-static __device__ __host__ void Get_Rabcde_From_SSS(
-    float rAB, float rAC, float rBC, float mA, float mB, float mC, float& ra,
-    float& rb, float& rc, float& rd, float& re)
+template <class Real>
+static __device__ __host__ void Get_Rabcde_From_SSS(Real rAB, Real rAC,
+                                                    Real rBC, Real mA, Real mB,
+                                                    Real mC, Real& ra, Real& rb,
+                                                    Real& rc, Real& rd,
+                                                    Real& re)
 {
-    float mTotal = mA + mB + mC;
-    float Ax = 0;
-    float Ay = 0;
-    float Bx = -rAB;
-    float By = 0;
-    float costemp = (rBC * rBC - rAC * rAC - rAB * rAB) / (2 * rAC * rAB);
-    float Cx = rAC * costemp;
-    float sintemp = sqrtf(1.0f - costemp * costemp);
-    float Cy = rAC * sintemp;
+    // Geometry is initialized once. Evaluate the coefficients in double, while
+    // retaining Real parameters and the Real per-step triangle solve.
+    const double ab = rAB, ac = rAC, bc = rBC;
+    const double ma = mA, mb = mB, mc = mC;
+    double mTotal = ma + mb + mc;
+    double Ax = 0;
+    double Ay = 0;
+    double Bx = -ab;
+    double By = 0;
+    double costemp = (bc * bc - ac * ac - ab * ab) / (2 * ac * ab);
+    double Cx = ac * costemp;
+    double sintemp = sqrt(1.0 - costemp * costemp);
+    double Cy = ac * sintemp;
 
-    float Ox = (Bx * mB + Cx * mC) / mTotal;
-    float Oy = Cy * mC / mTotal;
+    double Ox = (Bx * mb + Cx * mc) / mTotal;
+    double Oy = Cy * mc / mTotal;
 
     Ax -= Ox;
     Ay -= Oy;
@@ -74,7 +85,7 @@ static __device__ __host__ void Get_Rabcde_From_SSS(
     Cx -= Ox;
     Cy -= Oy;
 
-    costemp = 1.0f / sqrtf(1.0f + Ax * Ax / Ay / Ay);
+    costemp = 1.0 / sqrt(1.0 + Ax * Ax / Ay / Ay);
     sintemp = costemp * Ax / Ay;
 
     ra = Ax * sintemp + Ay * costemp;
@@ -102,74 +113,82 @@ static __device__ __host__ void Get_Rabcde_From_SSS(
 // rb, 0)，C点放置于(rd, re, 0)
 //  mA、mB、mC：ABC三个的质量 dt:步长
 //  half_exp_gamma_plus_half, exp_gamma: 同simple_constrain
-// 输出：rA3 这一步限制后的A原子坐标（质心为原点） rB3
-// 这一步限制后的B原子坐标（质心为 原点） rC3
-// 这一步限制后的C原子坐标（质心为原点）vA vB vC 约束后的速度（原位替换） virial
+// 输出：rA3/rB3/rC3 为局部坐标修正量，调用方将其加回试探坐标。
+// vA/vB/vC 为约束后的速度（原位替换）；virial 为约束维里。
 // virial_vector 约束后的维里（原位替换）
+template <class Real>
 static __device__ void SETTLE_DO_TRIANGLE(
-    VECTOR rB0, VECTOR rC0, VECTOR rA1, VECTOR rB1, VECTOR rC1, float ra,
-    float rb, float rc, float rd, float re, float mA, float mB, float mC,
-    float dt, float half_exp_gamma_plus_half, float exp_gamma, VECTOR& rA3,
-    VECTOR& rB3, VECTOR& rC3, VECTOR& vA, VECTOR& vB, VECTOR& vC,
-    LTMatrix3& virial_tensor, int triangle_i)
+    ConstraintVector<Real> rB0, ConstraintVector<Real> rC0,
+    ConstraintVector<Real> rA1, ConstraintVector<Real> rB1,
+    ConstraintVector<Real> rC1, Real ra, Real rb, Real rc, Real rd, Real re,
+    Real mA, Real mB, Real mC, Real dt, Real half_exp_gamma_plus_half,
+    Real exp_gamma, ConstraintVector<Real>& rA3, ConstraintVector<Real>& rB3,
+    ConstraintVector<Real>& rC3, ConstraintVector<Real>& vA,
+    ConstraintVector<Real>& vB, ConstraintVector<Real>& vC,
+    ConstraintTensor<Real>& virial_tensor, int triangle_i)
 {
     // 第0步：构建新坐标系
-    // z轴垂直于上一步的BA和BC。 VECTOR ^ VECTOR 是外积
-    VECTOR base_vector_z = rB0 ^ rC0;
+    // z轴垂直于上一步的BA和BC。 ConstraintVector<Real> ^ ConstraintVector<Real>
+    // 是外积
+    ConstraintVector<Real> base_vector_z = rB0 ^ rC0;
     // x轴垂直于z轴和这一步的AO
-    VECTOR base_vector_x = rA1 ^ base_vector_z;
+    ConstraintVector<Real> base_vector_x = rA1 ^ base_vector_z;
     // y轴垂直于z轴和x轴
-    VECTOR base_vector_y = base_vector_z ^ base_vector_x;
+    ConstraintVector<Real> base_vector_y = base_vector_z ^ base_vector_x;
     // 归一化
-    base_vector_x =
-        rnorm3df(base_vector_x.x, base_vector_x.y, base_vector_x.z) *
-        base_vector_x;
-    base_vector_y =
-        rnorm3df(base_vector_y.x, base_vector_y.y, base_vector_y.z) *
-        base_vector_y;
-    base_vector_z =
-        rnorm3df(base_vector_z.x, base_vector_z.y, base_vector_z.z) *
-        base_vector_z;
+    base_vector_x = ConstraintReciprocalNorm(base_vector_x.x, base_vector_x.y,
+                                             base_vector_x.z) *
+                    base_vector_x;
+    base_vector_y = ConstraintReciprocalNorm(base_vector_y.x, base_vector_y.y,
+                                             base_vector_y.z) *
+                    base_vector_y;
+    base_vector_z = ConstraintReciprocalNorm(base_vector_z.x, base_vector_z.y,
+                                             base_vector_z.z) *
+                    base_vector_z;
 
     // 第1步：投影至新坐标系
     //      rA0d = {0, 0, 0};
-    VECTOR rB0d = {base_vector_x * rB0, base_vector_y * rB0, 0};
-    VECTOR rC0d = {base_vector_x * rC0, base_vector_y * rC0, 0};
-    VECTOR rA1d = {0, 0, base_vector_z * rA1};
-    VECTOR rB1d = {base_vector_x * rB1, base_vector_y * rB1,
-                   base_vector_z * rB1};
-    VECTOR rC1d = {base_vector_x * rC1, base_vector_y * rC1,
-                   base_vector_z * rC1};
+    ConstraintVector<Real> rB0d = {base_vector_x * rB0, base_vector_y * rB0, 0};
+    ConstraintVector<Real> rC0d = {base_vector_x * rC0, base_vector_y * rC0, 0};
+    ConstraintVector<Real> rA1d = {0, 0, base_vector_z * rA1};
+    ConstraintVector<Real> rB1d = {base_vector_x * rB1, base_vector_y * rB1,
+                                   base_vector_z * rB1};
+    ConstraintVector<Real> rC1d = {base_vector_x * rC1, base_vector_y * rC1,
+                                   base_vector_z * rC1};
 
     // 第2步：绕base_vector_y旋转psi，绕base_vector_x旋转phi得到rX2d
-    float sinphi = rA1d.z / ra;
-    float cosphi = sqrtf(1.0f - sinphi * sinphi);
-    float sinpsi =
-        (rB1d.z - rC1d.z - (rb - re) * sinphi) / ((rd - rc) * cosphi);
-    float cospsi = sqrtf(1.0f - sinpsi * sinpsi);
+    Real sinphi = rA1d.z / ra;
+    Real cosphi = ConstraintSqrt(Real(1.0) - sinphi * sinphi);
+    Real sinpsi = (rB1d.z - rC1d.z - (rb - re) * sinphi) / ((rd - rc) * cosphi);
+    Real cospsi = ConstraintSqrt(Real(1.0) - sinpsi * sinpsi);
 
-    VECTOR rA2d = {0.0f, ra * cosphi, rA1d.z};
-    VECTOR rB2d = {rc * cospsi, rb * cosphi + rc * sinpsi * sinphi, rB1d.z};
-    VECTOR rC2d = {rd * cospsi, re * cosphi + rd * sinpsi * sinphi, rC1d.z};
+    ConstraintVector<Real> rA2d = {Real(0.0), ra * cosphi, rA1d.z};
+    ConstraintVector<Real> rB2d = {rc * cospsi,
+                                   rb * cosphi + rc * sinpsi * sinphi, rB1d.z};
+    ConstraintVector<Real> rC2d = {rd * cospsi,
+                                   re * cosphi + rd * sinpsi * sinphi, rC1d.z};
 
     // 第3步：计算辅助变量 alpha、beta、gamma
-    float alpha =
+    Real alpha =
         rB2d.x * rB0d.x + rC2d.x * rC0d.x + rB2d.y * rB0d.y + rC2d.y * rC0d.y;
-    float beta =
+    Real beta =
         -rB2d.x * rB0d.y - rC2d.x * rC0d.y + rB2d.y * rB0d.x + rC2d.y * rC0d.x;
-    float gamma =
+    Real gamma =
         rB1d.y * rB0d.x - rB1d.x * rB0d.y + rC1d.y * rC0d.x - rC1d.x * rC0d.y;
 
     // 第4步：绕base_vector_z旋转theta
-    float temp = alpha * alpha + beta * beta;
-    float sintheta =
-        (alpha * gamma - beta * sqrtf(temp - gamma * gamma)) / temp;
-    float costheta = sqrt(1.0f - sintheta * sintheta);
-    VECTOR rA3d = {-rA2d.y * sintheta, rA2d.y * costheta, rA2d.z};
-    VECTOR rB3d = {rB2d.x * costheta - rB2d.y * sintheta,
-                   rB2d.x * sintheta + rB2d.y * costheta, rB2d.z};
-    VECTOR rC3d = {rC2d.x * costheta - rC2d.y * sintheta,
-                   rC2d.x * sintheta + rC2d.y * costheta, rC2d.z};
+    Real temp = alpha * alpha + beta * beta;
+    Real sintheta =
+        (alpha * gamma - beta * ConstraintSqrt(temp - gamma * gamma)) / temp;
+    Real costheta = sqrt(Real(1.0) - sintheta * sintheta);
+    ConstraintVector<Real> rA3d = {-rA2d.y * sintheta, rA2d.y * costheta,
+                                   rA2d.z};
+    ConstraintVector<Real> rB3d = {rB2d.x * costheta - rB2d.y * sintheta,
+                                   rB2d.x * sintheta + rB2d.y * costheta,
+                                   rB2d.z};
+    ConstraintVector<Real> rC3d = {rC2d.x * costheta - rC2d.y * sintheta,
+                                   rC2d.x * sintheta + rC2d.y * costheta,
+                                   rC2d.z};
 
     // 第5步：投影回去
     rA3 = {rA3d.x * base_vector_x.x + rA3d.y * base_vector_y.x +
@@ -193,67 +212,78 @@ static __device__ void SETTLE_DO_TRIANGLE(
            rC3d.x * base_vector_x.z + rC3d.y * base_vector_y.z +
                rC3d.z * base_vector_z.z};
 
+    // Return local corrections, not reconstructed absolute positions. Use the
+    // same correction for coordinate and velocity updates (as in the stable
+    // distance-based SETTLE formulation). No absolute COM enters this solve.
+    rA3 = rA3 - rA1;
+    rB3 = rB3 - rB1;
+    rC3 = rC3 - rC1;
+
     // 第6步：计算约束造成的速度变化和维里变化
     // 节约寄存器，把不用的rX1d拿来当delta vX用
     temp = exp_gamma / dt / half_exp_gamma_plus_half;
-    rA1d = temp * (rA3 - rA1);
-    rB1d = temp * (rB3 - rB1);
-    rC1d = temp * (rC3 - rC1);
+    rA1d = temp * rA3;
+    rB1d = temp * rB3;
+    rC1d = temp * rC3;
 
     vA = vA + rA1d;
     vB = vB + rB1d;
     vC = vC + rC1d;
     // 节约寄存器，把不用的rX0d拿来当FX用
-    temp = 1.0f / dt / dt / half_exp_gamma_plus_half;
-    // rA0d = temp * mA * (rA3 - rA1);
-    rB0d = temp * mB * (rB3 - rB1);
-    rC0d = temp * mC * (rC3 - rC1);
+    temp = Real(1.0) / dt / dt / half_exp_gamma_plus_half;
+    // rA0d = temp * mA * rA3;
+    rB0d = temp * mB * rB3;
+    rC0d = temp * mC * rC3;
 
     virial_tensor = Get_Virial_From_Force_Dis(rB0d, rB0) +
                     Get_Virial_From_Force_Dis(rC0d, rC0);
 }
 
+template <class Real>
 static __global__ void settle_triangle(
-    int num_task_local, CONSTRAIN_TRIANGLE* triangles, const float* d_mass,
-    VECTOR* crd, Boundary boundary, VECTOR* last_triangle_BA,
-    VECTOR* last_triangle_CA, float dt, float exp_gamma,
-    float half_exp_gamma_plus_half, VECTOR* vel, LTMatrix3* virial_tensor)
+    int num_task_local, ConstraintTriangle<Real>* triangles, const Real* d_mass,
+    ConstraintVector<Real>* crd, Boundary boundary,
+    ConstraintVector<Real>* last_triangle_BA,
+    ConstraintVector<Real>* last_triangle_CA, Real dt, Real exp_gamma,
+    Real half_exp_gamma_plus_half, ConstraintVector<Real>* vel,
+    ConstraintTensor<Real>* virial_tensor)
 {
-    CONSTRAIN_TRIANGLE triangle;
-    VECTOR rO;
-    VECTOR rA, rB, rC;
-    float mA, mB, mC;
+    ConstraintTriangle<Real> triangle;
+    ConstraintVector<Real> rA, rB, rC;
+    Real mA, mB, mC;
 #ifdef USE_GPU
     int triangle_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (triangle_i < num_task_local)
 #else
-#pragma omp parallel for private(triangle, rO, rA, rB, rC, mA, mB, mC)
+#pragma omp parallel for private(triangle, rA, rB, rC, mA, mB, mC)
     for (int triangle_i = 0; triangle_i < num_task_local; triangle_i++)
 #endif
     {
         triangle = triangles[triangle_i];
-        rA = crd[triangle.atom_A];
-        rB = Get_Displacement(crd[triangle.atom_B], rA, boundary);
-        rC = Get_Displacement(crd[triangle.atom_C], rA, boundary);
+        rB = Get_Displacement(crd[triangle.atom_B], crd[triangle.atom_A],
+                              boundary);
+        rC = Get_Displacement(crd[triangle.atom_C], crd[triangle.atom_A],
+                              boundary);
         mA = d_mass[triangle.atom_A];
         mB = d_mass[triangle.atom_B];
         mC = d_mass[triangle.atom_C];
 
-        rO = 1.0f / (mA + mB + mC) * (mB * rB + mC * rC) + rA;
-        rA = rA - rO;
+        // Construct local offsets directly from distances. Never form an
+        // absolute COM and subtract it from the absolute A coordinate.
+        rA = -Real(1.0) / (mA + mB + mC) * (mB * rB + mC * rC);
         rB = rB + rA;
         rC = rC + rA;
 
-        SETTLE_DO_TRIANGLE(
+        SETTLE_DO_TRIANGLE<Real>(
             last_triangle_BA[triangle_i], last_triangle_CA[triangle_i], rA, rB,
             rC, triangle.ra, triangle.rb, triangle.rc, triangle.rd, triangle.re,
             mA, mB, mC, dt, half_exp_gamma_plus_half, exp_gamma, rA, rB, rC,
             vel[triangle.atom_A], vel[triangle.atom_B], vel[triangle.atom_C],
             virial_tensor[triangle_i], triangle_i);
 
-        crd[triangle.atom_A] = rA + rO;
-        crd[triangle.atom_B] = rB + rO;
-        crd[triangle.atom_C] = rC + rO;
+        crd[triangle.atom_A] = crd[triangle.atom_A] + rA;
+        crd[triangle.atom_B] = crd[triangle.atom_B] + rB;
+        crd[triangle.atom_C] = crd[triangle.atom_C] + rC;
     }
 }
 
@@ -266,9 +296,10 @@ static __device__ __forceinline__ bool Settle_Double_Is_Finite_Nonnegative(
            ((bits & 0x8000000000000000ULL) == 0ULL || magnitude == 0ULL);
 }
 
+template <class Real>
 static __device__ __forceinline__ double Settle_Pair_Precise_Radicand(
-    const VECTOR& r1, const VECTOR& r2, const float target,
-    double* perpendicular_squared)
+    const ConstraintVector<Real>& r1, const ConstraintVector<Real>& r2,
+    const Real target, double* perpendicular_squared)
 {
     const double r1x = static_cast<double>(r1.x);
     const double r1y = static_cast<double>(r1.y);
@@ -290,13 +321,16 @@ static __device__ __forceinline__ double Settle_Pair_Precise_Radicand(
     return r2_squared * target_double * target_double - cross_squared;
 }
 
-// Keep the ordinary float path away from the tangent boundary.  Recompute an
+// Keep the ordinary Real path away from the tangent boundary.  Recompute an
 // uncertain discriminant so cancellation is not mistaken for either a valid
 // or a physically impossible constraint update.
+template <class Real>
 static __device__ __noinline__ bool Settle_Try_Precise_Pair_Solution(
-    const VECTOR& r1, const VECTOR& r2, const float target, float* k)
+    const ConstraintVector<Real>& r1, const ConstraintVector<Real>& r2,
+    const Real target, Real* k)
 {
-    const double radicand = Settle_Pair_Precise_Radicand(r1, r2, target, NULL);
+    const double radicand =
+        Settle_Pair_Precise_Radicand<Real>(r1, r2, target, NULL);
     const double r1r2 = static_cast<double>(r1.x) * r2.x +
                         static_cast<double>(r1.y) * r2.y +
                         static_cast<double>(r1.z) * r2.z;
@@ -309,13 +343,15 @@ static __device__ __noinline__ bool Settle_Try_Precise_Pair_Solution(
         return false;
     }
     const double precise_k = (sqrt(radicand) - r1r2) / r2r2;
-    const double maximum_float = static_cast<double>(FLT_MAX);
-    if (!SpongeFloat::Is_Finite(precise_k) || precise_k > maximum_float ||
-        precise_k < -maximum_float)
+    const double maximum_scalar = std::is_same<Real, float>::value
+                                      ? static_cast<double>(FLT_MAX)
+                                      : DBL_MAX;
+    if (!SpongeFloat::Is_Finite(precise_k) || precise_k > maximum_scalar ||
+        precise_k < -maximum_scalar)
     {
         return false;
     }
-    const float narrowed_k = static_cast<float>(precise_k);
+    const Real narrowed_k = static_cast<Real>(precise_k);
     if (!SpongeFloat::Is_Finite(narrowed_k))
     {
         return false;
@@ -324,14 +360,15 @@ static __device__ __noinline__ bool Settle_Try_Precise_Pair_Solution(
     return true;
 }
 
+template <class Real>
 static __device__ __forceinline__ void Settle_Fail_Invalid_Pair(
-    const int pair_i, const CONSTRAIN_PAIR& pair, const int* atom_local,
-    const VECTOR& r1, const VECTOR& r2, const float radicand, const float dt,
-    int* invalid_pair)
+    const int pair_i, const ConstraintPair<Real>& pair, const int* atom_local,
+    const ConstraintVector<Real>& r1, const ConstraintVector<Real>& r2,
+    const Real radicand, const Real dt, int* invalid_pair)
 {
 #ifdef GPU_ARCH_NAME
     double perpendicular_squared = 0.0;
-    const double precise_radicand = Settle_Pair_Precise_Radicand(
+    const double precise_radicand = Settle_Pair_Precise_Radicand<Real>(
         r1, r2, pair.constant_r, &perpendicular_squared);
     const double perpendicular =
         Settle_Double_Is_Finite_Nonnegative(perpendicular_squared)
@@ -341,7 +378,7 @@ static __device__ __forceinline__ void Settle_Fail_Invalid_Pair(
         "Fatal SPONGE SETTLE error: global atoms %d %d cannot produce a "
         "finite real position-constraint update (target %.9g, "
         "perpendicular %.17g, "
-        "radicand float/precise %.9g/%.17g, dt %.9g). "
+        "radicand Real/precise %.9g/%.17g, dt %.9g). "
         "Reduce the timestep or minimize/equilibrate the input state.\n",
         atom_local[pair.atom_i_serial], atom_local[pair.atom_j_serial],
         static_cast<double>(pair.constant_r), perpendicular,
@@ -363,17 +400,17 @@ static __device__ __forceinline__ void Settle_Fail_Invalid_Pair(
 #endif
 }
 
-static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
-                                   const int* atom_local, const float* d_mass,
-                                   VECTOR* crd, Boundary boundary,
-                                   VECTOR* last_pair_AB, float dt,
-                                   float exp_gamma,
-                                   float half_exp_gamma_plus_half, VECTOR* vel,
-                                   LTMatrix3* virial_tensor, int* invalid_pair)
+template <class Real>
+static __global__ void settle_pair(
+    int num_task_local, CONSTRAIN_PAIR* pairs, const int* atom_local,
+    const Real* d_mass, ConstraintVector<Real>* crd, Boundary boundary,
+    ConstraintVector<Real>* last_pair_AB, Real dt, Real exp_gamma,
+    Real half_exp_gamma_plus_half, ConstraintVector<Real>* vel,
+    ConstraintTensor<Real>* virial_tensor, int* invalid_pair)
 {
-    CONSTRAIN_PAIR pair;
-    VECTOR r1, r2, kr2;
-    float mA, mB, r0r0, r1r1, r1r2, r2r2, radicand, k;
+    ConstraintPair<Real> pair;
+    ConstraintVector<Real> r1, r2, kr2;
+    Real mA, mB, r0r0, r1r1, r1r2, r2r2, radicand, k;
 #ifdef USE_GPU
     int pair_i = blockIdx.x * blockDim.x + threadIdx.x;
     if (pair_i < num_task_local)
@@ -396,19 +433,16 @@ static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
         r1r2 = r1 * r2;
         r2r2 = r2 * r2;
 
-        const float projection_squared = r1r2 * r1r2;
-        const float length_product = r1r1 * r2r2;
-        const float target_product = r2r2 * r0r0;
+        const Real projection_squared = r1r2 * r1r2;
+        const Real length_product = r1r1 * r2r2;
+        const Real target_product = r2r2 * r0r0;
         radicand = projection_squared - length_product + target_product;
-        const float radicand_error_bound =
-            8.0f * FLT_EPSILON *
+        const Real radicand_error_bound =
+            Real(8) * ConstraintEpsilon<Real>() *
             (projection_squared + length_product + target_product);
-        const unsigned int r2r2_bits = SpongeFloat::Bits(r2r2);
-        const unsigned int r2r2_magnitude = r2r2_bits & 0x7fffffffU;
+
         const bool finite_radicand = SpongeFloat::Is_Finite(radicand);
-        const bool valid_r2r2 = (r2r2_bits & 0x80000000U) == 0U &&
-                                r2r2_magnitude != 0U &&
-                                SpongeFloat::Is_Finite(r2r2);
+        const bool valid_r2r2 = r2r2 > Real(0) && SpongeFloat::Is_Finite(r2r2);
         bool solved = false;
         if (finite_radicand && valid_r2r2 && radicand > radicand_error_bound)
         {
@@ -417,13 +451,13 @@ static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
         }
         else if (finite_radicand && valid_r2r2)
         {
-            solved =
-                Settle_Try_Precise_Pair_Solution(r1, r2, pair.constant_r, &k);
+            solved = Settle_Try_Precise_Pair_Solution<Real>(
+                r1, r2, pair.constant_r, &k);
         }
         if (!solved)
         {
-            Settle_Fail_Invalid_Pair(pair_i, pair, atom_local, r1, r2, radicand,
-                                     dt, invalid_pair);
+            Settle_Fail_Invalid_Pair<Real>(pair_i, pair, atom_local, r1, r2,
+                                           radicand, dt, invalid_pair);
 #ifdef USE_GPU
             return;
 #else
@@ -447,13 +481,13 @@ static __global__ void settle_pair(int num_task_local, CONSTRAIN_PAIR* pairs,
     }
 }
 
-static __global__ void Sum_Virial_Tensor_To_Stress(int N,
-                                                   LTMatrix3* virial_tensor,
-                                                   LTMatrix3* stress,
-                                                   const LTMatrix3 rcell)
+template <class Real>
+static __global__ void Sum_Virial_Tensor_To_Stress(
+    int N, ConstraintTensor<Real>* virial_tensor,
+    ConstraintTensor<Real>* stress, const LTMatrix3 rcell)
 {
-    LTMatrix3 virial = {0, 0, 0, 0, 0, 0};
-    float factor = rcell.a11 * rcell.a22 * rcell.a33;
+    ConstraintTensor<Real> virial = {0, 0, 0, 0, 0, 0};
+    Real factor = rcell.a11 * rcell.a22 * rcell.a33;
 #ifdef USE_GPU
     int tid = blockDim.x * blockDim.y * blockIdx.x + blockDim.y * threadIdx.x +
               threadIdx.y;
@@ -462,8 +496,8 @@ static __global__ void Sum_Virial_Tensor_To_Stress(int N,
         virial = virial + virial_tensor[tid];
     }
 #else
-    float v11 = 0.0f, v21 = 0.0f, v22 = 0.0f;
-    float v31 = 0.0f, v32 = 0.0f, v33 = 0.0f;
+    Real v11 = Real(0.0), v21 = Real(0.0), v22 = Real(0.0);
+    Real v31 = Real(0.0), v32 = Real(0.0), v33 = Real(0.0);
 #pragma omp parallel for reduction(+ : v11, v21, v22, v31, v32, v33)
     for (int tid = 0; tid < N; tid++)
     {
@@ -480,8 +514,9 @@ static __global__ void Sum_Virial_Tensor_To_Stress(int N,
     Warp_Sum_To(stress, virial, warpSize);
 }
 
-void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
-                     float* h_mass, const char* module_name)
+template <class Real>
+void SETTLE_SOLVER<Real>::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
+                                  Real* h_mass, const char* module_name)
 {
     if (module_name == NULL)
     {
@@ -503,13 +538,13 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
         // 遍历搜出constrain里的三角形
         int* linker_numbers = NULL;
         int* linker_atoms = NULL;
-        float* link_r = NULL;
+        Real* link_r = NULL;
         Malloc_Safely((void**)&linker_numbers,
                       sizeof(int) * constrain->atom_numbers);
         Malloc_Safely((void**)&linker_atoms,
                       2 * sizeof(int) * constrain->atom_numbers);
         Malloc_Safely((void**)&link_r,
-                      3 * sizeof(float) * constrain->atom_numbers);
+                      3 * sizeof(Real) * constrain->atom_numbers);
         for (int i = 0; i < constrain->atom_numbers; i++)
         {
             linker_numbers[i] = 0;
@@ -591,20 +626,23 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
         controller->printf("    rigid pair numbers is %d\n", pair_numbers);
         if (triangle_numbers > 0 || pair_numbers > 0)
         {
+            owns_buffers = true;
             Malloc_Safely((void**)&h_triangles,
-                          sizeof(CONSTRAIN_TRIANGLE) * triangle_numbers);
+                          sizeof(ConstraintTriangle<Real>) * triangle_numbers);
             Malloc_Safely((void**)&h_pairs,
                           sizeof(CONSTRAIN_PAIR) * pair_numbers);
 
-            Device_Malloc_Safely((void**)&last_triangle_BA,
-                                 sizeof(VECTOR) * triangle_numbers);
-            Device_Malloc_Safely((void**)&last_triangle_CA,
-                                 sizeof(VECTOR) * triangle_numbers);
-            Device_Malloc_Safely((void**)&last_pair_AB,
-                                 sizeof(VECTOR) * pair_numbers);
             Device_Malloc_Safely(
-                (void**)&virial_tensor,
-                sizeof(LTMatrix3) * (triangle_numbers + pair_numbers));
+                (void**)&last_triangle_BA,
+                sizeof(ConstraintVector<Real>) * triangle_numbers);
+            Device_Malloc_Safely(
+                (void**)&last_triangle_CA,
+                sizeof(ConstraintVector<Real>) * triangle_numbers);
+            Device_Malloc_Safely((void**)&last_pair_AB,
+                                 sizeof(ConstraintVector<Real>) * pair_numbers);
+            Device_Malloc_Safely((void**)&virial_tensor,
+                                 sizeof(ConstraintTensor<Real>) *
+                                     (triangle_numbers + pair_numbers));
             int triangle_i = 0;
             int pair_i = 0;
             for (int i = 0; i < constrain->atom_numbers; i++)
@@ -617,7 +655,7 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
                     h_triangles[triangle_i].atom_A = i;
                     h_triangles[triangle_i].atom_B = atom_i;
                     h_triangles[triangle_i].atom_C = atom_j;
-                    Get_Rabcde_From_SSS(
+                    Get_Rabcde_From_SSS<Real>(
                         link_r[3 * i], link_r[3 * i + 1], link_r[3 * i + 2],
                         h_mass[i], h_mass[atom_i], h_mass[atom_j],
                         h_triangles[triangle_i].ra, h_triangles[triangle_i].rb,
@@ -633,26 +671,28 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
                     h_pairs[pair_i].atom_j_serial = atom_j;
                     h_pairs[pair_i].constant_r = link_r[3 * i];
                     h_pairs[pair_i].constrain_k =
-                        1.0f / (h_mass[i] + h_mass[atom_j]);
+                        Real(1.0) / (h_mass[i] + h_mass[atom_j]);
                     pair_i++;
                 }
             }
 
             Device_Malloc_And_Copy_Safely(
                 (void**)&d_triangles, h_triangles,
-                sizeof(CONSTRAIN_TRIANGLE) * triangle_numbers);
+                sizeof(ConstraintTriangle<Real>) * triangle_numbers);
             Device_Malloc_And_Copy_Safely(
                 (void**)&d_pairs, h_pairs,
                 sizeof(CONSTRAIN_PAIR) * pair_numbers);
 
-            Device_Malloc_Safely((void**)&d_triangles_local,
-                                 sizeof(CONSTRAIN_TRIANGLE) * triangle_numbers);
+            Device_Malloc_Safely(
+                (void**)&d_triangles_local,
+                sizeof(ConstraintTriangle<Real>) * triangle_numbers);
             Device_Malloc_Safely((void**)&d_pairs_local,
                                  sizeof(CONSTRAIN_PAIR) * pair_numbers);
             Device_Malloc_Safely((void**)&d_num_triangle_local, sizeof(int));
             Device_Malloc_Safely((void**)&d_num_pair_local, sizeof(int));
-            Device_Malloc_Safely((void**)&d_delta_vel_local,
-                                 sizeof(VECTOR) * constrain->atom_numbers);
+            Device_Malloc_Safely(
+                (void**)&d_delta_vel_local,
+                sizeof(ConstraintVector<Real>) * constrain->atom_numbers);
 
             // 原来的重塑
             int new_constrain_pair_numbers = constrain->constrain_pair_numbers -
@@ -711,33 +751,34 @@ void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain,
     }
 }
 
-void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary)
+template <class Real>
+void SETTLE_SOLVER<Real>::Remember_Last_Coordinates(
+    const ConstraintVector<Real>* crd, Boundary boundary)
 {
     if (!is_initialized) return;
 
-    Launch_Device_Kernel(remember_pair_AB,
+    Launch_Device_Kernel(remember_pair_AB<Real>,
                          (num_pair_local + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
                          d_pairs_local, crd, boundary, last_pair_AB);
 
     Launch_Device_Kernel(
-        remember_triangle_BA_CA,
+        remember_triangle_BA_CA<Real>,
         (num_triangle_local + CONTROLLER::device_max_thread - 1) /
             CONTROLLER::device_max_thread,
         CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
         d_triangles_local, crd, boundary, last_triangle_BA, last_triangle_CA);
 }
 
-static __global__ void get_local_device(int triangle_numbers, int pair_numbers,
-                                        const CONSTRAIN_TRIANGLE* d_triangles,
-                                        CONSTRAIN_TRIANGLE* d_triangles_local,
-                                        const CONSTRAIN_PAIR* d_pairs,
-                                        CONSTRAIN_PAIR* d_pairs_local,
-                                        const int* atom_local_id,
-                                        const char* atom_local_label,
-                                        int* d_num_triangle_local,
-                                        int* d_num_pair_local)
+template <class Real>
+static __global__ void get_local_device(
+    int triangle_numbers, int pair_numbers,
+    const ConstraintTriangle<Real>* d_triangles,
+    ConstraintTriangle<Real>* d_triangles_local, const CONSTRAIN_PAIR* d_pairs,
+    CONSTRAIN_PAIR* d_pairs_local, const int* atom_local_id,
+    const char* atom_local_label, int* d_num_triangle_local,
+    int* d_num_pair_local)
 {
 #ifdef USE_GPU
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -778,27 +819,30 @@ static __global__ void get_local_device(int triangle_numbers, int pair_numbers,
     }
 }
 
-void SETTLE::Get_Local(const int* atom_local_id, const char* atom_local_label,
-                       const int local_atom_numbers)
+template <class Real>
+void SETTLE_SOLVER<Real>::Get_Local(const int* atom_local_id,
+                                    const char* atom_local_label,
+                                    const int local_atom_numbers)
 {
     if (!is_initialized) return;
     this->local_atom_numbers = local_atom_numbers;
     num_triangle_local = 0;
     num_pair_local = 0;
-    Launch_Device_Kernel(get_local_device, 1, 1, 0, NULL, triangle_numbers,
-                         pair_numbers, d_triangles, d_triangles_local, d_pairs,
-                         d_pairs_local, atom_local_id, atom_local_label,
-                         d_num_triangle_local, d_num_pair_local);
+    Launch_Device_Kernel(
+        get_local_device<Real>, 1, 1, 0, NULL, triangle_numbers, pair_numbers,
+        d_triangles, d_triangles_local, d_pairs, d_pairs_local, atom_local_id,
+        atom_local_label, d_num_triangle_local, d_num_pair_local);
     deviceMemcpy(&num_triangle_local, d_num_triangle_local, sizeof(int),
                  deviceMemcpyDeviceToHost);
     deviceMemcpy(&num_pair_local, d_num_pair_local, sizeof(int),
                  deviceMemcpyDeviceToHost);
 }
 
-void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
-                       const float* d_mass, VECTOR* crd, Boundary boundary,
-                       VECTOR* vel, const int need_pressure,
-                       LTMatrix3* d_stress)
+template <class Real>
+void SETTLE_SOLVER<Real>::Do_SETTLE(
+    CONTROLLER* controller, const int* atom_local, const Real* d_mass,
+    ConstraintVector<Real>* crd, Boundary boundary, ConstraintVector<Real>* vel,
+    const int need_pressure, ConstraintTensor<Real>* d_stress)
 {
     if (!is_initialized) return;
 #ifndef GPU_ARCH_NAME
@@ -807,7 +851,7 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
 #else
     int* invalid_pair_buffer = NULL;
 #endif
-    Launch_Device_Kernel(settle_pair,
+    Launch_Device_Kernel(settle_pair<Real>,
                          (num_pair_local + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
@@ -819,28 +863,27 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
 #ifndef GPU_ARCH_NAME
     if (invalid_pair >= 0)
     {
-        const CONSTRAIN_PAIR pair = d_pairs_local[invalid_pair];
-        const VECTOR r2 = last_pair_AB[invalid_pair];
-        const VECTOR r1 = Get_Displacement(crd[pair.atom_j_serial],
-                                           crd[pair.atom_i_serial], boundary);
-        const float r1r1 = r1 * r1;
-        const float r1r2 = r1 * r2;
-        const float r2r2 = r2 * r2;
-        const float target_squared = pair.constant_r * pair.constant_r;
-        const float radicand =
-            r1r2 * r1r2 - r1r1 * r2r2 + r2r2 * target_squared;
+        const ConstraintPair<Real> pair = d_pairs_local[invalid_pair];
+        const ConstraintVector<Real> r2 = last_pair_AB[invalid_pair];
+        const ConstraintVector<Real> r1 = Get_Displacement(
+            crd[pair.atom_j_serial], crd[pair.atom_i_serial], boundary);
+        const Real r1r1 = r1 * r1;
+        const Real r1r2 = r1 * r2;
+        const Real r2r2 = r2 * r2;
+        const Real target_squared = pair.constant_r * pair.constant_r;
+        const Real radicand = r1r2 * r1r2 - r1r1 * r2r2 + r2r2 * target_squared;
         double perpendicular_squared = 0.0;
-        const double precise_radicand = Settle_Pair_Precise_Radicand(
+        const double precise_radicand = Settle_Pair_Precise_Radicand<Real>(
             r1, r2, pair.constant_r, &perpendicular_squared);
         const double perpendicular =
             Settle_Double_Is_Finite_Nonnegative(perpendicular_squared)
                 ? sqrt(perpendicular_squared)
                 : -1.0;
         controller->Throw_Formatted_SPONGE_Error(
-            spongeErrorSimulationBreakDown, "SETTLE::Do_SETTLE",
+            spongeErrorSimulationBreakDown, "SETTLE_SOLVER<Real>::Do_SETTLE",
             "Reason:\n\tSETTLE global atoms %d %d cannot produce a finite "
             "real position-constraint update (target %.9g, perpendicular "
-            "%.17g, radicand float/precise %.9g/%.17g, dt %.9g).\n"
+            "%.17g, radicand Real/precise %.9g/%.17g, dt %.9g).\n"
             "\tReduce the timestep or minimize/equilibrate the input "
             "state.\n",
             atom_local[pair.atom_i_serial], atom_local[pair.atom_j_serial],
@@ -852,7 +895,7 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
 #endif
 
     Launch_Device_Kernel(
-        settle_triangle,
+        settle_triangle<Real>,
         (num_triangle_local + CONTROLLER::device_max_thread - 1) /
             CONTROLLER::device_max_thread,
         CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
@@ -865,13 +908,13 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
         dim3 blockSize = {
             CONTROLLER::device_warp,
             CONTROLLER::device_max_thread / CONTROLLER::device_warp};
-        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
+        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress<Real>,
                              (num_triangle_local + num_pair_local +
                               CONTROLLER::device_max_thread - 1) /
                                  CONTROLLER::device_max_thread,
                              blockSize, 0, NULL, num_triangle_local,
                              virial_tensor, d_stress, boundary.rcell);
-        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress,
+        Launch_Device_Kernel(Sum_Virial_Tensor_To_Stress<Real>,
                              (num_triangle_local + num_pair_local +
                               CONTROLLER::device_max_thread - 1) /
                                  CONTROLLER::device_max_thread,
@@ -881,53 +924,60 @@ void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atom_local,
     }
 }
 
+template <class Real>
 static __device__ __host__ __forceinline__ bool
 compute_velocity_constraint_correction_settle(
-    const int atom_i, const int atom_j, const VECTOR* crd, Boundary boundary,
-    const float* mass_inverse, const VECTOR* vel, VECTOR* correction_i,
-    VECTOR* correction_j, const float relative_tolerance,
+    const int atom_i, const int atom_j, const ConstraintVector<Real>* crd,
+    Boundary boundary, const Real* mass_inverse,
+    const ConstraintVector<Real>* vel, ConstraintVector<Real>* correction_i,
+    ConstraintVector<Real>* correction_j, const Real relative_tolerance,
     bool* constraint_violated)
 {
     if (constraint_violated != NULL) *constraint_violated = false;
-    float mass_i_inverse = mass_inverse[atom_i];
-    float mass_j_inverse = mass_inverse[atom_j];
-    if (mass_i_inverse == 0.0f && mass_j_inverse == 0.0f) return false;
+    Real mass_i_inverse = mass_inverse[atom_i];
+    Real mass_j_inverse = mass_inverse[atom_j];
+    if (mass_i_inverse == Real(0.0) && mass_j_inverse == Real(0.0))
+        return false;
 
-    VECTOR dr = Get_Displacement(crd[atom_i], crd[atom_j], boundary);
-    float dr2 = dr * dr;
-    if (dr2 < 1e-12f)
+    ConstraintVector<Real> dr =
+        Get_Displacement(crd[atom_i], crd[atom_j], boundary);
+    Real dr2 = dr * dr;
+    if (dr2 < Real(1e-12))
     {
         if (constraint_violated != NULL) *constraint_violated = true;
         return false;
     }
 
-    const VECTOR velocity_i = vel[atom_i];
-    const VECTOR velocity_j = vel[atom_j];
-    VECTOR v_diff = velocity_i - velocity_j;
-    float denom = (mass_i_inverse + mass_j_inverse) * dr2;
-    if (denom < 1e-20f)
+    const ConstraintVector<Real> velocity_i = vel[atom_i];
+    const ConstraintVector<Real> velocity_j = vel[atom_j];
+    ConstraintVector<Real> v_diff = velocity_i - velocity_j;
+    Real denom = (mass_i_inverse + mass_j_inverse) * dr2;
+    if (denom < Real(1e-20))
     {
         if (constraint_violated != NULL) *constraint_violated = true;
         return false;
     }
 
-    const float projection = dr * v_diff;
+    const Real projection = dr * v_diff;
     if (constraint_violated != NULL)
     {
-        const float tolerance = Velocity_Constraint_Residual_Tolerance(
+        const Real tolerance = Velocity_Constraint_Residual_Tolerance(
             dr2, velocity_i, velocity_j, v_diff, relative_tolerance);
-        *constraint_violated = fabsf(projection) > tolerance;
+        *constraint_violated = fabs(projection) > tolerance;
     }
-    float lambda = projection / denom;
+    Real lambda = projection / denom;
     correction_i[0] = (-mass_i_inverse * lambda) * dr;
     correction_j[0] = (mass_j_inverse * lambda) * dr;
     return true;
 }
 
+template <class Real>
 static __global__ void project_velocity_to_settle_pairs(
-    const int pair_numbers, const CONSTRAIN_PAIR* pairs, const VECTOR* crd,
-    Boundary boundary, const float* mass_inverse, const VECTOR* vel,
-    VECTOR* delta_vel, const float relative_tolerance, int* violation)
+    const int pair_numbers, const CONSTRAIN_PAIR* pairs,
+    const ConstraintVector<Real>* crd, Boundary boundary,
+    const Real* mass_inverse, const ConstraintVector<Real>* vel,
+    ConstraintVector<Real>* delta_vel, const Real relative_tolerance,
+    int* violation)
 {
 #ifdef USE_GPU
     int pair_i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -937,10 +987,10 @@ static __global__ void project_velocity_to_settle_pairs(
     for (int pair_i = 0; pair_i < pair_numbers; pair_i++)
 #endif
     {
-        CONSTRAIN_PAIR cp = pairs[pair_i];
-        VECTOR correction_i, correction_j;
+        ConstraintPair<Real> cp = pairs[pair_i];
+        ConstraintVector<Real> correction_i, correction_j;
         bool constraint_violated = false;
-        if (compute_velocity_constraint_correction_settle(
+        if (compute_velocity_constraint_correction_settle<Real>(
                 cp.atom_i_serial, cp.atom_j_serial, crd, boundary, mass_inverse,
                 vel, &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
@@ -956,10 +1006,12 @@ static __global__ void project_velocity_to_settle_pairs(
     }
 }
 
+template <class Real>
 static __global__ void project_velocity_to_settle_triangles(
-    const int triangle_numbers, const CONSTRAIN_TRIANGLE* triangles,
-    const VECTOR* crd, Boundary boundary, const float* mass_inverse,
-    const VECTOR* vel, VECTOR* delta_vel, const float relative_tolerance,
+    const int triangle_numbers, const ConstraintTriangle<Real>* triangles,
+    const ConstraintVector<Real>* crd, Boundary boundary,
+    const Real* mass_inverse, const ConstraintVector<Real>* vel,
+    ConstraintVector<Real>* delta_vel, const Real relative_tolerance,
     int* violation)
 {
 #ifdef USE_GPU
@@ -970,10 +1022,10 @@ static __global__ void project_velocity_to_settle_triangles(
     for (int tri_i = 0; tri_i < triangle_numbers; tri_i++)
 #endif
     {
-        CONSTRAIN_TRIANGLE tri = triangles[tri_i];
-        VECTOR correction_i, correction_j;
+        ConstraintTriangle<Real> tri = triangles[tri_i];
+        ConstraintVector<Real> correction_i, correction_j;
         bool constraint_violated = false;
-        if (compute_velocity_constraint_correction_settle(
+        if (compute_velocity_constraint_correction_settle<Real>(
                 tri.atom_A, tri.atom_B, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
@@ -986,7 +1038,7 @@ static __global__ void project_velocity_to_settle_triangles(
             atomicAdd(&delta_vel[tri.atom_B].z, correction_j.z);
         }
         if (constraint_violated && violation != NULL) atomicExch(violation, 1);
-        if (compute_velocity_constraint_correction_settle(
+        if (compute_velocity_constraint_correction_settle<Real>(
                 tri.atom_A, tri.atom_C, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
@@ -999,7 +1051,7 @@ static __global__ void project_velocity_to_settle_triangles(
             atomicAdd(&delta_vel[tri.atom_C].z, correction_j.z);
         }
         if (constraint_violated && violation != NULL) atomicExch(violation, 1);
-        if (compute_velocity_constraint_correction_settle(
+        if (compute_velocity_constraint_correction_settle<Real>(
                 tri.atom_B, tri.atom_C, crd, boundary, mass_inverse, vel,
                 &correction_i, &correction_j, relative_tolerance,
                 violation != NULL ? &constraint_violated : NULL))
@@ -1015,10 +1067,11 @@ static __global__ void project_velocity_to_settle_triangles(
     }
 }
 
+template <class Real>
 static __global__ void apply_settle_velocity_correction(
-    const int local_atom_numbers, VECTOR* vel, VECTOR* crd,
-    const VECTOR* delta_vel, const float velocity_factor,
-    const float coordinate_factor)
+    const int local_atom_numbers, ConstraintVector<Real>* vel,
+    ConstraintVector<Real>* crd, const ConstraintVector<Real>* delta_vel,
+    const Real velocity_factor, const Real coordinate_factor)
 {
 #ifdef USE_GPU
     int atom_i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -1028,19 +1081,19 @@ static __global__ void apply_settle_velocity_correction(
     for (int atom_i = 0; atom_i < local_atom_numbers; atom_i++)
 #endif
     {
-        VECTOR delta = velocity_factor * delta_vel[atom_i];
+        ConstraintVector<Real> delta = velocity_factor * delta_vel[atom_i];
         vel[atom_i] = vel[atom_i] + delta;
-        if (coordinate_factor != 0.0f)
+        if (coordinate_factor != Real(0.0))
         {
             crd[atom_i] = crd[atom_i] + coordinate_factor * delta;
         }
     }
 }
 
-bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
-                                                     const float* mass_inverse,
-                                                     Boundary boundary,
-                                                     bool update_coordinates)
+template <class Real>
+bool SETTLE_SOLVER<Real>::Project_Velocity_To_Constraint_Manifold(
+    ConstraintVector<Real>* vel, ConstraintVector<Real>* crd,
+    const Real* mass_inverse, Boundary boundary, bool update_coordinates)
 {
     if (!is_initialized || local_atom_numbers <= 0) return true;
     bool has_settle_constraints = num_triangle_local > 0 || num_pair_local > 0;
@@ -1048,7 +1101,7 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
 
     constexpr int legacy_projection_iterations = 8;
     constexpr int maximum_velocity_only_iterations = 512;
-    constexpr float relative_tolerance = 1.0e-5f;
+    constexpr Real relative_tolerance = Real(1.0e-5);
     const int projection_iterations = update_coordinates
                                           ? legacy_projection_iterations
                                           : maximum_velocity_only_iterations;
@@ -1057,10 +1110,10 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
     // parallel Jacobi update by one half is sufficient and does not couple
     // convergence to unrelated constraints left for SHAKE.
     const int settle_constraint_degree = num_triangle_local > 0 ? 2 : 1;
-    const float velocity_factor =
+    const Real velocity_factor =
         update_coordinates
-            ? 1.0f
-            : 1.0f / static_cast<float>(settle_constraint_degree);
+            ? Real(1.0)
+            : Real(1.0) / static_cast<Real>(settle_constraint_degree);
     int* d_violation = NULL;
     if (!update_coordinates &&
         !Device_Malloc_Safely((void**)&d_violation, sizeof(int)))
@@ -1069,11 +1122,12 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
     for (int iter = 0; iter < projection_iterations; ++iter)
     {
         if (!update_coordinates) deviceMemset(d_violation, 0, sizeof(int));
-        deviceMemset(d_delta_vel_local, 0, sizeof(VECTOR) * local_atom_numbers);
+        deviceMemset(d_delta_vel_local, 0,
+                     sizeof(ConstraintVector<Real>) * local_atom_numbers);
         if (num_pair_local > 0 && d_pairs_local != NULL)
         {
             Launch_Device_Kernel(
-                project_velocity_to_settle_pairs,
+                project_velocity_to_settle_pairs<Real>,
                 (num_pair_local + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, num_pair_local,
@@ -1083,7 +1137,7 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
         if (num_triangle_local > 0 && d_triangles_local != NULL)
         {
             Launch_Device_Kernel(
-                project_velocity_to_settle_triangles,
+                project_velocity_to_settle_triangles<Real>,
                 (num_triangle_local + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
@@ -1102,29 +1156,30 @@ bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
             }
         }
         Launch_Device_Kernel(
-            apply_settle_velocity_correction,
+            apply_settle_velocity_correction<Real>,
             (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
             CONTROLLER::device_max_thread, 0, NULL, local_atom_numbers, vel,
             crd, d_delta_vel_local, velocity_factor,
-            update_coordinates ? 0.5f * constrain->dt : 0.0f);
+            update_coordinates ? Real(0.5) * constrain->dt : Real(0.0));
     }
     if (d_violation != NULL) deviceFree(d_violation);
     return converged;
 }
 
-void SETTLE::update_ug_connectivity(CONECT* connectivity)
+template <class Real>
+void SETTLE_SOLVER<Real>::update_ug_connectivity(CONECT* connectivity)
 {
     if (!is_initialized) return;
     for (int i = 0; i < pair_numbers; i++)
     {
-        CONSTRAIN_PAIR p = h_pairs[i];
+        const auto p = h_pairs[i];
         (*connectivity)[p.atom_i_serial].insert(p.atom_j_serial);
         (*connectivity)[p.atom_j_serial].insert(p.atom_i_serial);
     }
     for (int i = 0; i < triangle_numbers; i++)
     {
-        CONSTRAIN_TRIANGLE t = h_triangles[i];
+        ConstraintTriangle<Real> t = h_triangles[i];
         (*connectivity)[t.atom_A].insert(t.atom_B);
         (*connectivity)[t.atom_A].insert(t.atom_C);
         (*connectivity)[t.atom_B].insert(t.atom_A);
@@ -1132,4 +1187,76 @@ void SETTLE::update_ug_connectivity(CONECT* connectivity)
         (*connectivity)[t.atom_C].insert(t.atom_A);
         (*connectivity)[t.atom_C].insert(t.atom_B);
     }
+}
+
+template struct SETTLE_SOLVER<float>;
+template struct SETTLE_SOLVER<double>;
+
+void SETTLE::Initial(CONTROLLER* controller, CONSTRAIN* constrain, float* mass,
+                     const char* name)
+{
+    backend.Select(constrain->precision);
+    backend.Visit(
+        [&](auto& s, auto& work)
+        {
+            using Real = typename std::decay_t<decltype(s)>::Scalar;
+            std::vector<Real> host_mass(mass, mass + constrain->atom_numbers);
+            s.Initial(controller, constrain, host_mass.data(), name);
+        });
+}
+
+void SETTLE::Get_Local(const int* id, const char* label, int n)
+{
+    local_atoms = n;
+    backend.Visit([&](auto& s, auto&) { s.Get_Local(id, label, n); });
+}
+
+void SETTLE::Do_SETTLE(CONTROLLER* controller, const int* atoms,
+                       const float* mass, VECTOR* crd, Boundary boundary,
+                       VECTOR* vel, int pressure, LTMatrix3* stress)
+{
+    backend.Visit(
+        [&](auto& s, auto& work)
+        {
+            if (!s.is_initialized || !local_atoms) return;
+            work.Begin(local_atoms, crd, vel, mass);
+            s.Do_SETTLE(controller, atoms, work.mass, work.q, boundary, work.v,
+                        pressure, work.stress);
+            work.End(local_atoms, crd, vel, pressure ? stress : nullptr);
+        });
+}
+
+bool SETTLE::Project_Velocity_To_Constraint_Manifold(VECTOR* vel, VECTOR* crd,
+                                                     const float* inv,
+                                                     Boundary boundary,
+                                                     bool update_coordinates)
+{
+    bool result = true;
+    backend.Visit(
+        [&](auto& s, auto& work)
+        {
+            if (!s.is_initialized || !local_atoms) return;
+            work.Begin(local_atoms, crd, vel, nullptr, inv);
+            result = s.Project_Velocity_To_Constraint_Manifold(
+                work.v, work.q, work.inverse, boundary, update_coordinates);
+            work.End(local_atoms, crd, vel, nullptr, update_coordinates);
+        });
+    return result;
+}
+
+void SETTLE::update_ug_connectivity(CONECT* connectivity)
+{
+    backend.Visit([&](auto& s, auto&)
+                  { s.update_ug_connectivity(connectivity); });
+}
+
+void SETTLE::Remember_Last_Coordinates(const VECTOR* crd, Boundary boundary)
+{
+    backend.Visit(
+        [&](auto& s, auto& work)
+        {
+            if (!s.is_initialized || !local_atoms) return;
+            work.Coordinates(local_atoms, crd);
+            s.Remember_Last_Coordinates(work.q, boundary);
+        });
 }

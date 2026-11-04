@@ -2162,6 +2162,12 @@
       "title": "SITS",
       "description": "SITS enhanced sampling settings."
     },
+    "constrain_precision": {
+      "type": "string",
+      "enum": ["single", "double"],
+      "default": "double",
+      "description": "Internal arithmetic and work buffers for SETTLE/SHAKE/LINCS/CCMA. Global MD coordinates, velocities, forces and output stress remain float. Independent of solver tolerance/order."
+    },
     "constrain_mode": {
       "type": "string",
       "enum": [
