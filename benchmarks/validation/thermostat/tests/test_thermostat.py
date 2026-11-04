@@ -10,6 +10,7 @@ from benchmarks.validation.thermostat.tests.utils import (
 )
 
 COMMON_CFG = {
+    "dt": 0.002,
     "step_limit": 1000,
     "burn_in": 20,
     "block_size": 100,
@@ -26,6 +27,15 @@ THERMOSTAT_CASES = [
             **COMMON_CFG,
             "id": "middle_langevin",
             "thermostat": "middle_langevin",
+            # Separate initial relaxation from the stationary-temperature
+            # check: 40 thermostat times for equilibration, then 80 for
+            # sampling in blocks of five thermostat times. Use a smaller
+            # integration step without changing the acceptance threshold.
+            "dt": 0.001,
+            "step_limit": 12000,
+            "burn_in": 4000,
+            "block_size": 500,
+            "timeout": 2400,
         },
         id="middle_langevin",
     ),
@@ -82,7 +92,7 @@ def test_thermostat_tip3p_water(statics_path, outputs_path, cfg, mpi_np):
     write_thermostat_mdin(
         case_dir,
         step_limit=cfg["step_limit"],
-        dt=0.002,
+        dt=cfg["dt"],
         cutoff=8.0,
         thermostat=cfg["thermostat"],
         thermostat_mode=cfg.get("thermostat_mode"),
@@ -95,7 +105,9 @@ def test_thermostat_tip3p_water(statics_path, outputs_path, cfg, mpi_np):
         initial_velocity_seed=cfg["seed"],
     )
 
-    run_sponge_thermostat(case_dir, timeout=600, mpi_np=mpi_np)
+    run_sponge_thermostat(
+        case_dir, timeout=cfg.get("timeout", 600), mpi_np=mpi_np
+    )
 
     temperatures = parse_temperature_series(case_dir / "mdout.txt")
     stats = evaluate_temperature_block_average(

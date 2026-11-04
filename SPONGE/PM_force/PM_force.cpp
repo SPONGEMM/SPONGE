@@ -1,6 +1,7 @@
 ﻿#include "PM_force.h"
 
 #include "../utils/float_classification.hpp"
+#include "grid_coordinate.h"
 /*
     2025-10-14 SPONGE Particle Mesh算法
     目前支持单进程Particle-Mesh-Ewald 与 PMC-IZ
@@ -716,21 +717,13 @@ __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
             frac_crd = {0.0f, 0.0f, 0.0f};
         }
         int k, tempux, tempuy, tempuz;
-        frac_crd.x *= fftx;
-        tempux = (int)frac_crd.x;
-        tempux = tempux < 0 ? 0 : (tempux < fftx ? tempux : fftx - 1);
-        PME_frxyz[atom].x = frac_crd.x - tempux;
-        PME_frxyz[atom].x = PME_frxyz[atom].x - floorf(PME_frxyz[atom].x);
-        frac_crd.y *= ffty;
-        tempuy = (int)frac_crd.y;
-        tempuy = tempuy < 0 ? 0 : (tempuy < ffty ? tempuy : ffty - 1);
-        PME_frxyz[atom].y = frac_crd.y - tempuy;
-        PME_frxyz[atom].y = PME_frxyz[atom].y - floorf(PME_frxyz[atom].y);
-        frac_crd.z *= fftz;
-        tempuz = (int)frac_crd.z;
-        tempuz = tempuz < 0 ? 0 : (tempuz < fftz ? tempuz : fftz - 1);
-        PME_frxyz[atom].z = frac_crd.z - tempuz;
-        PME_frxyz[atom].z = PME_frxyz[atom].z - floorf(PME_frxyz[atom].z);
+        const auto grid_x = PME_Get_Grid_Coordinate(frac_crd.x, fftx);
+        const auto grid_y = PME_Get_Grid_Coordinate(frac_crd.y, ffty);
+        const auto grid_z = PME_Get_Grid_Coordinate(frac_crd.z, fftz);
+        tempux = grid_x.index;
+        tempuy = grid_y.index;
+        tempuz = grid_z.index;
+        PME_frxyz[atom] = {grid_x.fraction, grid_y.fraction, grid_z.fraction};
         if (tempux != (*temp_uxyz).uint_x || tempuy != (*temp_uxyz).uint_y ||
             tempuz != (*temp_uxyz).uint_z)
         {
