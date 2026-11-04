@@ -23,16 +23,17 @@ python tests/rerun/test_regressions.py --sponge /path/to/SPONGE \
 
 - **cell_history:** replay a 40 A cubic cell followed by three identical 48 A
   cells. Every 48 A frame must agree with an independently initialized 48 A
-  replay with box updates disabled. This detects reuse of a previous nonzero cell increment when successive
-  trajectory boxes are equal. A second replay disables box updates and checks
-  that all frames retain the first cell's energy.
+  replay. Every frame uses its trajectory cell without an input switch. This
+  guards against history-dependent cell updates when successive boxes are equal.
+  The former cell-increment implementation is superseded by direct per-frame
+  cell updates; deprecated disabling values are rejected by `test_rerun_cells`.
 - **pme_boundary:** for each axis of a 64 A cell with a 64-point PME grid,
   alternate an atom between zero, -5e-7 A, zero, +5e-7 A, +64 A, and -5e-7 A.
   Energies must be continuous across the periodic boundary. The tiny negative
   fraction can wrap to exactly 1 in float32; choosing grid anchor 63 with offset
   zero instead of the periodic anchor 0 changes the reciprocal energy. Alternating
-  positions is an end-to-end continuity smoke test. Box updates are disabled to
-  isolate this check from the rerun cell-increment regression. Coordinate
+  positions is an end-to-end continuity smoke test. Every frame has the same
+  box, so the test isolates periodic coordinate handling from cell changes. Coordinate
   preprocessing can hide the original PME defect in this small system, so this
   smoke test alone is not a negative control.
 - **test_pme_grid_coordinate:** directly calls the same grid-coordinate helper

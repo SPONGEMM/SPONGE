@@ -10,6 +10,25 @@ void MD_INFORMATION::RERUN_information::Initial(CONTROLLER* controller,
     if (md_info->mode == RERUN)
     {
         controller->printf("    Start initializing rerun:\n");
+        // A rerun frame is defined by its coordinates and cell together.
+        // Keep the old enabling value only as a migration aid.
+        if (controller->Command_Exist("rerun_need_box_update"))
+        {
+            if (!controller->Command_Choice("rerun_need_box_update", "1") &&
+                !controller->Command_Choice("rerun_need_box_update", "true"))
+            {
+                controller->Throw_SPONGE_Error(
+                    spongeErrorValueErrorCommand,
+                    "MD_INFORMATION::RERUN_information::Initial",
+                    "Reason:\n\trerun always uses each trajectory frame's "
+                    "box. Remove deprecated rerun_need_box_update; only "
+                    "1 (or true) is accepted for compatibility.\n");
+            }
+            controller->printf(
+                "        Warning: rerun_need_box_update is deprecated; "
+                "rerun always uses each trajectory frame's box. "
+                "Remove this parameter.\n");
+        }
         std::string filename;
         const auto input_plan =
             SpongeH5InputPlan::Resolve_Input_Plan(controller);
@@ -132,15 +151,6 @@ void MD_INFORMATION::RERUN_information::Initial(CONTROLLER* controller,
                 "rerun_strip", "MD_INFORMATION::RERUN_information::Initial");
             strip_frame = atoi(controller->Command("rerun_strip"));
         }
-        need_box_update = 0;
-        if (controller->Command_Exist("rerun_need_box_update"))
-        {
-            controller->Check_Float(
-                "rerun_need_box_update",
-                "MD_INFORMATION::RERUN_information::Initial");
-            need_box_update =
-                atoi(controller->Command("rerun_need_box_update"));
-        }
         md_info->sys.step_limit = INT_MAX;
         controller->printf("    End initializing rerun\n\n");
     }
@@ -258,11 +268,6 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
                 loaded_frame = 1;
             }
         }
-        if (loaded_frame && loaded_frame_count > 0 && !need_box_update)
-        {
-            md_info->sys.box_length = old_box_length;
-            md_info->sys.box_angle = old_box_angle;
-        }
         if ((h5_trajectory_enabled && !h5_velocity_present) ||
             (!h5_trajectory_enabled && vel_file == NULL))
         {
@@ -272,6 +277,9 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
     }
 #ifdef USE_MPI
     MPI_Bcast(&loaded_frame, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
+    // Skipping frames advances steps on rank 0; output collectives need the
+    // same frame counter on every rank.
+    MPI_Bcast(&md_info->sys.steps, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
     MPI_Bcast(&md_info->sys.step_limit, sizeof(int), MPI_BYTE, 0,
               MPI_COMM_WORLD);
     MPI_Bcast(this->md_info->coordinate,
@@ -285,26 +293,13 @@ bool MD_INFORMATION::RERUN_information::Iteration(int strip)
     MPI_Bcast(&md_info->sys.box_angle, sizeof(VECTOR), MPI_BYTE, 0,
               MPI_COMM_WORLD);
 #endif
-    if (loaded_frame) loaded_frame_count += 1;
     bool box_changed =
-        fabsf(old_box_length.x - md_info->sys.box_length.x) > 1e-4 ||
-        fabsf(old_box_length.y - md_info->sys.box_length.y) > 1e-4 ||
-        fabsf(old_box_length.z - md_info->sys.box_length.z) > 1e-4 ||
-        fabsf(old_box_angle.x - md_info->sys.box_angle.x) > 1e-4 ||
-        fabsf(old_box_angle.y - md_info->sys.box_angle.y) > 1e-4 ||
-        fabsf(old_box_angle.z - md_info->sys.box_angle.z) > 1e-4;
-    // Never carry a previous frame increment into this call, including EOF.
-    g = LTMatrix3(0, 0, 0, 0, 0, 0);
-    if (loaded_frame && md_info->pbc.pbc)
-    {
-        // Derive the increment from the actual cell for every loaded frame,
-        // including repeated boxes and changes below the notification
-        // threshold.
-        LTMatrix3 new_cell = md_info->pbc.Get_Cell(md_info->sys.box_length,
-                                                   md_info->sys.box_angle);
-        g = (1 / md_info->dt) * (new_cell * inv(md_info->pbc.boundary.cell) -
-                                 LTMatrix3(1, 0, 1, 0, 0, 1));
-    }
+        loaded_frame && (old_box_length.x != md_info->sys.box_length.x ||
+                         old_box_length.y != md_info->sys.box_length.y ||
+                         old_box_length.z != md_info->sys.box_length.z ||
+                         old_box_angle.x != md_info->sys.box_angle.x ||
+                         old_box_angle.y != md_info->sys.box_angle.y ||
+                         old_box_angle.z != md_info->sys.box_angle.z);
     deviceMemcpy(this->md_info->crd, this->md_info->coordinate,
                  sizeof(VECTOR) * this->md_info->atom_numbers,
                  deviceMemcpyHostToDevice);

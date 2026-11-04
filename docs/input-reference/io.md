@@ -119,7 +119,7 @@ particle_stream = "all"
 | `frame_limit` | Keep as a top-level flat key, or use `rerun_frame_limit` |
 | `rerun_start` | Unchanged top-level flat key |
 | `rerun_strip` | Unchanged top-level flat key |
-| `rerun_need_box_update` | Unchanged top-level flat key |
+| `rerun_need_box_update` | Deprecated top-level compatibility key; omit it. Only `1`/`true` is accepted |
 
 H5 and legacy inputs for the same role are mutually exclusive. For example,
 `input_h5_restart_path` cannot be combined with `coordinate_in_file`,

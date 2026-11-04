@@ -100,9 +100,12 @@ static __global__ void Dihedral_Force_With_Atom_Energy_And_Virial_Device(
 
             if (need_virial)
             {
+                // Sum f_a (r_a-r_j): r_l-r_j = drkj-drkl and
+                // f_k+f_l = -dE_drj_part. Keep the same image convention
+                // as the force calculation, including across periodic faces.
                 atomicAdd(virial + atom_i,
-                          Get_Virial_From_Force_Dis(dE_drl, drkl) +
-                              Get_Virial_From_Force_Dis(dE_dri, drij) +
+                          Get_Virial_From_Force_Dis(dE_dri, drij) -
+                              Get_Virial_From_Force_Dis(dE_drl, drkl) -
                               Get_Virial_From_Force_Dis(dE_drj_part, drkj));
             }
         }

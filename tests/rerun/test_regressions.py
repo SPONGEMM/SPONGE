@@ -34,7 +34,6 @@ def run(binary, directory, frames, boxes, **overrides):
         step_limit=len(frames) + 2,
         rerun_start=0,
         rerun_strip=0,
-        rerun_need_box_update=1,
         cutoff=8.0,
         skin=2.0,
         mass_in_file="mass.txt",
@@ -118,7 +117,6 @@ def pme_boundary(binary, output):
             output / f"axis{axis}",
             frames,
             [box] * len(frames),
-            rerun_need_box_update=0,
         )
         check_energy(rows, rows[0]["eff_pot"], f"PME axis {axis}")
 
@@ -133,20 +131,10 @@ def cell_history(binary, output):
             output / name / "reference",
             [coords] * 2,
             [changed] * 2,
-            rerun_need_box_update=0,
         )
         boxes = [initial, changed, changed, changed]
         rows = run(binary, output / name / "sequence", [coords] * 4, boxes)
         check_energy(rows[1:], reference[-1]["eff_pot"], name)
-        # Disabling updates must continue to keep the first frame's cell.
-        frozen = run(
-            binary,
-            output / name / "fixed_box",
-            [coords] * 4,
-            boxes,
-            rerun_need_box_update=0,
-        )
-        check_energy(frozen, rows[0]["eff_pot"], name + " fixed box")
 
 
 if __name__ == "__main__":
