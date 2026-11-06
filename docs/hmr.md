@@ -171,7 +171,41 @@ pixi run --frozen -e dev-cpu cmake --build build-dev-cpu --target SPONGE test_hm
 pixi run --frozen -e dev-cpu ctest --test-dir build-dev-cpu -R '^test_hmr' --output-on-failure
 ```
 
-These checks establish implementation consistency for the covered cases.
-They do not establish long-time ensemble accuracy, universal 4 fs stability,
-GPU/MPI runtime behavior, transport properties or performance. Time-step
-convergence and scientific validation remain system-specific.
+The focused HMR and independent-reference constraint tests also pass on a local
+RTX 4090 with CUDA 13 and on the CPU backend. GPU testing exposed an independent
+double-precision SETTLE launch-resource problem: its triangle kernels used
+1024-thread blocks despite lower kernel-specific resource limits. Double
+triangle launches now use at most 256 threads, including initial velocity
+projection. This changes launch configuration, not the integration equations.
+With the correction, ordinary 1 fs and HMR 1/4/5 fs each passed a separate
+50 ps protein–ligand–water NVT check using default double SETTLE; sampled
+relative constraint errors remained below 1.8e-5.
+
+A local TYK2/jmc_28 protein–ligand–water experiment used 31,247 atoms and 8,829
+waters, with HMR factors 2.0/2.5 and unchanged water masses. The main campaign
+preserved the original binary and used double SHAKE for all original constraints
+(`settle_disable=true`). Ordinary masses at 1 fs and HMR at 1, 4 and 5 fs each
+ran three 200 ps replicas in both NVT and MC NPT: 24 runs, 4.8 ns total.
+The thermostat was Middle Langevin with tau 1 ps. All 24 trajectories passed
+finite-output, completion and sampled constraint/structure checks. In the
+separate 50 ps screen, 5 fs was the largest stable HMR timestep tested;
+6, 8, 10 and 12 fs produced nonfinite output. This is a system-, solver- and
+duration-specific observation, not a universal stability limit.
+
+Stability did not establish sampling accuracy. Relative to HMR at 1 fs, NVT
+whole-cell potential energies changed by -59.6 ± 39.6 kcal/mol at 4 fs and
+-100.8 ± 58.9 kcal/mol at 5 fs. MC NPT densities changed by
++0.00273 ± 0.00134 and +0.00341 ± 0.00323 g/mL, respectively. Intervals are
+nominal 95% Student-t intervals from three paired seed means, without correction
+for multiple comparisons. NPT instantaneous pressure was not evaluated by this
+engine revision. Protein/ligand RMSDs, pooled backbone distributions and water
+RDFs showed no gross structural failure, but short trajectories cannot establish
+equal configurational distributions; even mass-only comparisons can differ in
+their finite-time structural averages.
+
+See the [campaign procedure](../benchmarks/performance/hmr/README.md) for inputs,
+analysis and the separately built default-SETTLE correction checks. These tests
+do not establish long-time ensemble accuracy, MPI runtime behavior, transport
+properties or production performance. Timestep convergence and scientific
+validation remain system-specific; this experiment does not justify an automatic
+4 or 5 fs recommendation.
