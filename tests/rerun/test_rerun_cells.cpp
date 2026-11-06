@@ -194,6 +194,10 @@ void Run_Case(const std::filesystem::path& executable,
          << "frc = \"" << (root / "force.dat").generic_string() << "\"\n"
          << "rerun_start = " << start << "\nrerun_strip = " << strip << "\n"
          << "write_trajectory_interval = 1\nwrite_restart_file_interval = 0\n"
+         << "rerun_output_crd = \"" << (root / "output.crd").generic_string()
+         << "\"\n"
+         << "rerun_output_box = \"" << (root / "output.box").generic_string()
+         << "\"\n"
          << "output_h5_trajectory_path = \""
          << (root / "output.spg.h5md").generic_string() << "\"\n";
     if (h5)

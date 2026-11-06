@@ -41,6 +41,8 @@ def run(binary, directory, frames, boxes, **overrides):
         coordinate_in_file="coordinate.txt",
         crd="frames.dat",
         box="frames.box",
+        rerun_output_crd="output.dat",
+        rerun_output_box="output.box",
         print_zeroth_frame=1,
         write_mdout_interval=1,
         write_information_interval=1,
