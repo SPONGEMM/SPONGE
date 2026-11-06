@@ -1,5 +1,6 @@
 ﻿#include "restrain.h"
 
+#include "../utils/float_classification.hpp"
 #include "../xponge/ir/protocol.h"
 
 void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
@@ -577,28 +578,47 @@ void RESTRAIN_INFORMATION::Initial(CONTROLLER* controller,
             controller->printf(
                 "    reading restrain reference from %s\n",
                 controller->Command(this->module_name, "coordinate_in_file"));
-            VECTOR* h_crd = NULL;
-            Malloc_Safely((void**)&h_crd, sizeof(VECTOR) * atom_numbers);
+            std::vector<VECTOR> reference(atom_numbers);
             FILE* fp = NULL;
             Open_File_Safely(
                 &fp,
                 controller->Command(this->module_name, "coordinate_in_file"),
                 "r");
-            int temp_atom_numbers = 0;
-            int scanf_ret = fscanf(fp, "%d", &temp_atom_numbers);
-            controller->printf("        atom_numbers is %d\n",
-                               temp_atom_numbers);
-            for (int i = 0; i < atom_numbers; i++)
+            auto fail = [&](const char* reason)
             {
-                scanf_ret = fscanf(fp, "%f %f %f", &h_crd[i].x, &h_crd[i].y,
-                                   &h_crd[i].z);
+                fclose(fp);
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "RESTRAIN_INFORMATION::Initial",
+                                               reason);
+            };
+            char line[CHAR_LENGTH_MAX];
+            int count = 0;
+            // Consume the entire restart header, including optional time/step.
+            if (fgets(line, sizeof(line), fp) == NULL ||
+                (strchr(line, '\n') == NULL && !feof(fp)) ||
+                sscanf(line, "%d", &count) != 1 || count != atom_numbers)
+                fail(
+                    "restrain_coordinate_in_file: reference atom count "
+                    "does not match the system, or header is invalid");
+            for (auto& xyz : reference)
+            {
+                if (fgets(line, sizeof(line), fp) == NULL ||
+                    (strchr(line, '\n') == NULL && !feof(fp)) ||
+                    sscanf(line, "%f %f %f", &xyz.x, &xyz.y, &xyz.z) != 3)
+                    fail(
+                        "restrain_coordinate_in_file: expected one XYZ triple "
+                        "per atom");
+                if (!SpongeFloat::Is_Finite(xyz.x) ||
+                    !SpongeFloat::Is_Finite(xyz.y) ||
+                    !SpongeFloat::Is_Finite(xyz.z))
+                    fail("restrain_coordinate_in_file: non-finite coordinate");
             }
+            fclose(fp);
             Device_Malloc_Safely((void**)&d_ref_crd_all,
                                  sizeof(VECTOR) * atom_numbers);
-            deviceMemcpy(d_ref_crd_all, h_crd, sizeof(VECTOR) * atom_numbers,
+            deviceMemcpy(d_ref_crd_all, reference.data(),
+                         sizeof(VECTOR) * atom_numbers,
                          deviceMemcpyHostToDevice);
-            free(h_crd);
-            fclose(fp);
         }
         else if (controller->Command_Exist(this->module_name, "amber_rst7"))
         {
@@ -797,6 +817,15 @@ void RESTRAIN_INFORMATION::Initial(
                 "Reason:\n\tnative positional restraint reference must have "
                 "shape [atom_count,3]\n");
         }
+        for (float value : native_restraint.reference_coordinates)
+        {
+            if (!SpongeFloat::Is_Finite(value))
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat,
+                    "RESTRAIN_INFORMATION::Initial(native H5)",
+                    "native positional restraint reference has a non-finite "
+                    "coordinate");
+        }
         std::vector<VECTOR> reference(atom_numbers);
         for (int atom = 0; atom < atom_numbers; ++atom)
         {
@@ -913,6 +942,15 @@ bool RESTRAIN_INFORMATION::Apply_H5_Reference_Coordinates(
                 "initialized system";
         }
         return false;
+    }
+    for (float value : coordinates)
+    {
+        if (!SpongeFloat::Is_Finite(value))
+        {
+            if (error != NULL)
+                *error = "restraint reference has a non-finite coordinate";
+            return false;
+        }
     }
     deviceMemcpy(d_ref_crd_all, coordinates.data(),
                  sizeof(VECTOR) * atom_numbers, deviceMemcpyHostToDevice);
