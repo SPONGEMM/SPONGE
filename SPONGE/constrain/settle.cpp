@@ -1,7 +1,20 @@
 ﻿#include "settle.h"
 
+#include <algorithm>
+
 #include "../utils/float_classification.hpp"
 #include "velocity_projection.h"
+
+template <class Real>
+static unsigned int Settle_Triangle_Block_Size()
+{
+    // Double triangle kernels can exceed 64 registers per thread. A
+    // 1024-thread block then exceeds the device's register budget and cannot
+    // launch, even when maxThreadsPerBlock permits 1024 threads.
+    if constexpr (std::is_same<Real, double>::value)
+        return std::min(256u, CONTROLLER::device_max_thread);
+    return CONTROLLER::device_max_thread;
+}
 
 template <class Real>
 static __global__ void remember_triangle_BA_CA(
@@ -894,14 +907,14 @@ void SETTLE_SOLVER<Real>::Do_SETTLE(
     }
 #endif
 
+    const auto triangle_threads = Settle_Triangle_Block_Size<Real>();
     Launch_Device_Kernel(
         settle_triangle<Real>,
-        (num_triangle_local + CONTROLLER::device_max_thread - 1) /
-            CONTROLLER::device_max_thread,
-        CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
-        d_triangles_local, d_mass, crd, boundary, last_triangle_BA,
-        last_triangle_CA, constrain->dt, constrain->v_factor,
-        constrain->x_factor, vel, virial_tensor);
+        (num_triangle_local + triangle_threads - 1) / triangle_threads,
+        triangle_threads, 0, NULL, num_triangle_local, d_triangles_local,
+        d_mass, crd, boundary, last_triangle_BA, last_triangle_CA,
+        constrain->dt, constrain->v_factor, constrain->x_factor, vel,
+        virial_tensor);
 
     if (need_pressure)
     {
@@ -1119,6 +1132,7 @@ bool SETTLE_SOLVER<Real>::Project_Velocity_To_Constraint_Manifold(
         !Device_Malloc_Safely((void**)&d_violation, sizeof(int)))
         return false;
     bool converged = update_coordinates;
+    const auto triangle_threads = Settle_Triangle_Block_Size<Real>();
     for (int iter = 0; iter < projection_iterations; ++iter)
     {
         if (!update_coordinates) deviceMemset(d_violation, 0, sizeof(int));
@@ -1138,9 +1152,8 @@ bool SETTLE_SOLVER<Real>::Project_Velocity_To_Constraint_Manifold(
         {
             Launch_Device_Kernel(
                 project_velocity_to_settle_triangles<Real>,
-                (num_triangle_local + CONTROLLER::device_max_thread - 1) /
-                    CONTROLLER::device_max_thread,
-                CONTROLLER::device_max_thread, 0, NULL, num_triangle_local,
+                (num_triangle_local + triangle_threads - 1) / triangle_threads,
+                triangle_threads, 0, NULL, num_triangle_local,
                 d_triangles_local, crd, boundary, mass_inverse, vel,
                 d_delta_vel_local, relative_tolerance, d_violation);
         }
