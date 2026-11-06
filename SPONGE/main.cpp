@@ -777,6 +777,10 @@ void Main_Print()
         meta.Step_Print(&controller);
         output_session.Write_Metadynamics_Scalars();
         soft_walls.Step_Print(&controller);
+        // A failed asynchronous kernel can leave finite but stale host values.
+        // Check both device status and the reduced observables before
+        // publishing.
+        controller.Check_Error(dd.h_sum_ene_total);
         output_session.Write_Observables();
     }
 

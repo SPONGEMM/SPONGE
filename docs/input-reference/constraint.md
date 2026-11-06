@@ -143,6 +143,11 @@ the solver uses its fixed-iteration general path. Reaching the iteration cap
 or writing single-precision coordinates can leave errors above the target;
 normal MD does not perform a separate final error check.
 
+Nonfinite reduced observables and reported GPU runtime errors stop the run with
+a nonzero exit status at observable-output steps. This also catches failed GPU
+constraint kernels that can otherwise leave finite but stale host output. These
+checks do not establish constraint convergence or accuracy at every timestep.
+
 SETTLE handles eligible independent pairs and triangles first. LINCS/CCMA
 support CPU and GPU execution, but coupled constraints must remain on one MPI
 rank. General coupled angle constraints and redundant rigid networks are not

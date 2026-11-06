@@ -49,8 +49,12 @@ class ConstraintPrecision(unittest.TestCase):
         self, mode, precision, size=4, generated=False, disable_settle=True
     ):
         if mode == "SETTLE":
-            q = np.array([[0, 0, 0], [0.375, 0.5, 0], [-0.375, 0.5, 0]])
-            pairs = [(0, 1), (0, 2), (1, 2)]
+            if size == 2:
+                q = np.array([[0, 0, 0], [1, 0, 0]])
+                pairs = [(0, 1)]
+            else:
+                q = np.array([[0, 0, 0], [0.375, 0.5, 0], [-0.375, 0.5, 0]])
+                pairs = [(0, 1), (0, 2), (1, 2)]
         else:
             q = np.array(
                 [
@@ -293,7 +297,7 @@ class ConstraintPrecision(unittest.TestCase):
     def test_algorithms_small_and_general(self):
         for precision in ("single", "double"):
             for mode in ("SETTLE", "SHAKE", "LINCS", "CCMA"):
-                for size in (3,) if mode == "SETTLE" else (4, 5):
+                for size in (2, 3) if mode == "SETTLE" else (4, 5):
                     with self.subTest(
                         precision=precision, mode=mode, size=size
                     ):
@@ -311,6 +315,81 @@ class ConstraintPrecision(unittest.TestCase):
         for actual, expected in zip(default, explicit):
             np.testing.assert_array_equal(actual, expected)
         self.run_case("SHAKE", "invalid")
+
+    def test_runtime_breakdown_is_fatal(self):
+        for reason in ("nonfinite_energy", "impossible_settle"):
+            with (
+                self.subTest(reason=reason),
+                tempfile.TemporaryDirectory(
+                    prefix="sponge-runtime-breakdown-"
+                ) as temporary,
+            ):
+                path = Path(temporary)
+                overlap = reason == "nonfinite_energy"
+                (path / "mass.txt").write_text("2\n12\n1\n")
+                (path / "charge.txt").write_text(
+                    "2\n1\n1\n" if overlap else "2\n0\n0\n"
+                )
+                (path / "coordinate.txt").write_text(
+                    "2\n2 2 2\n"
+                    + ("2 2 2\n" if overlap else "3 2 2\n")
+                    + "1000 1000 1000\n90 90 90\n"
+                )
+                (path / "velocity.txt").write_text("2\n0 0 0\n0 100 0\n")
+                config = dict(
+                    md_name=reason,
+                    mode="nve",
+                    pbc=False,
+                    dt=0.001,
+                    step_limit=2,
+                    cutoff=8,
+                    print_zeroth_frame=True,
+                    write_mdout_interval=1,
+                    write_information_interval=1,
+                    write_trajectory_interval=0,
+                    write_restart_file_interval=0,
+                )
+                config.update(
+                    {
+                        f"{name}_in_file": f"{name}.txt"
+                        for name in ("mass", "charge", "coordinate", "velocity")
+                    }
+                )
+                config["PM.MPI_size"] = 1
+                if not overlap:
+                    # Perpendicular trial displacement exceeds the target bond:
+                    # no correction parallel to the old bond can solve it.
+                    (path / "constraints.txt").write_text("1\n0 1 1\n")
+                    config.update(
+                        constrain_mode="SETTLE", constrain_precision="double"
+                    )
+                    config["constrain.in_file"] = "constraints.txt"
+                (path / "mdin.spg.toml").write_text(
+                    "\n".join(
+                        f"{key}={json.dumps(value)}"
+                        for key, value in config.items()
+                    )
+                    + "\n"
+                )
+                run = subprocess.run(
+                    [SPONGE, "-mdin", "mdin.spg.toml"],
+                    cwd=path,
+                    env={
+                        **os.environ,
+                        "OMP_NUM_THREADS": "1",
+                        "MKL_NUM_THREADS": "1",
+                    },
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                output = run.stdout + run.stderr
+                self.assertNotEqual(run.returncode, 0, output)
+                self.assertIn(
+                    "CONTROLLER::Check_Error" if overlap else "SETTLE",
+                    output,
+                )
+                self.assertNotIn("Core Run Speed:", output)
 
 
 if __name__ == "__main__":

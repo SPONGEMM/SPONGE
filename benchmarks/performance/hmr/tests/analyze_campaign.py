@@ -121,6 +121,12 @@ def analyze(root, case, selection, reference, reference_box, rdf=False):
         if status["mode"] == "npt":
             result["pressure"] = None
         log = (case / "run.log").read_text(errors="replace")
+        result["runtime_error_reported"] = bool(
+            re.search(
+                r"Fatal SPONGE|(?:cuda|hip)Error[A-Z]\w*|spongeErrorSimulationBrokenDown",
+                log,
+            )
+        )
         matches = re.findall(r"freedom (\d+)", log)
         if matches and status["mode"] == "nve":
             dof = int(matches[-1])
@@ -287,6 +293,7 @@ def analyze(root, case, selection, reference, reference_box, rdf=False):
             )
         result["catastrophic_screen_pass"] = bool(
             status["completed"]
+            and not result["runtime_error_reported"]
             and result["mdout_complete"]
             and result["trajectory_complete"]
             and result["finite_thermo"]
