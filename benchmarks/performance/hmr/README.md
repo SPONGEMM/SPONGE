@@ -1,8 +1,10 @@
-# HMR protein–ligand–water campaign
+# HMR stability and sampling experiments
 
-This optional, local GPU experiment measures a finite-duration stability window
-and selected sampling diagnostics. Successful exit is not scientific acceptance.
-The engine and original FEP input files remain frozen throughout a campaign.
+These optional local GPU experiments measure finite-duration stability and
+observable-specific sampling efficiency. Successful exit is not scientific
+acceptance. Each campaign freezes its binary and original inputs.
+
+## Protein–ligand–water campaign
 
 The current fixture is the physical jmc_28 endpoint of the TYK2
 `jmc_28__jmc_27` edge: 31,247 atoms, 288 protein C-alpha atoms, 39 ligand atoms,
@@ -104,3 +106,70 @@ Each `analysis_summary.*` describes the last analysis command's pattern;
 The ignored output directory retains per-case options, binary/input hashes,
 failed diagnostics, trajectories, analyses and figures; private fixture files
 are not committed.
+
+## Alanine dipeptide sampling efficiency
+
+`tests/run_sampling.py` is a separate, optional sampling experiment using the
+public `performance/sits/statics/ala2_sits` native fixture (ACE–ALA–NME,
+606 waters, 1840 atoms). It does not enable SITS. The fixture's topology and
+parameters are used as supplied; no force-field family is inferred from its name.
+This experiment does not scan timestep stability limits.
+
+The comparison has three conditions: ordinary masses at 2 fs, HMR at 2 fs,
+and HMR at 4 fs. The first comparison measures the mass effect; the second
+measures the timestep effect at fixed masses. HMR factors are 2.0/2.5, with
+water excluded. The original constraint selection is retained: double SETTLE
+handles the rigid triangles/pairs, and SHAKE handles the remaining pairs.
+NVT uses 300 K, Middle Langevin tau 1 ps and a common prepared volume.
+Three Maxwell velocity seeds start at the same prepared coordinates. Runs
+execute serially in a balanced order to reduce timing drift between conditions.
+
+```bash
+python benchmarks/performance/hmr/tests/run_sampling.py \
+  --root PATH_TO_SAMPLING --binary build-hmr-cuda-fix/SPONGE --stage prepare
+python benchmarks/performance/hmr/tests/run_sampling.py \
+  --root PATH_TO_SAMPLING --binary build-hmr-cuda-fix/SPONGE --stage pilot
+# Inspect equilibration and pilot diagnostics before production.
+python benchmarks/performance/hmr/tests/run_sampling.py \
+  --root PATH_TO_SAMPLING --binary build-hmr-cuda-fix/SPONGE \
+  --stage production --duration-ps 2000
+python benchmarks/performance/hmr/tests/analyze_sampling.py \
+  --root PATH_TO_SAMPLING
+python -m pytest benchmarks/performance/hmr/tests/test_sampling_statistics.py -q
+```
+
+Preparation comprises minimization, 50 ps NVT warmup, 400 ps MC-NPT density
+equilibration at 1 fs and 100 ps NVT at 2 fs. Production regenerates velocities
+using each condition's effective masses. The binary and input hashes are frozen
+under ignored `outputs/`; existing incompatible or unfinished cases are never
+silently overwritten. Production duration/seeds are recorded before the first
+run and cannot change on resumption. Analysis requires all nine planned runs.
+
+The primary observable is `I[cos(psi)>0]`; secondary observables are sine/cosine
+of phi/psi and `I[phi>0]`. CV samples have the same 0.1 ps physical interval
+in all conditions. First 20% of each production run is discarded. Per-trajectory
+FFT autocorrelations and Geyer initial-positive/monotone paired sums estimate
+statistical inefficiency `g` and `ESS=N/g`. Constant/unvisited indicators have
+undefined ESS. Known AR(1) correlation, independent samples, periodic observables
+and separated chains provide independent estimator tests.
+
+Report both ESS per physical ns and ESS per actual wall hour. The latter includes
+SPONGE initialization, production burn-in, output and completion checks, but
+excludes preparation, case creation and subsequent analysis. It estimates a
+rate from equal-physical-duration runs; these are not fixed-wall-time runs.
+Nominal three-seed log-ratio intervals describe repeatability, not a formal
+confidence interval for ESS. A throughput increase or an interval containing 2
+does not establish twofold sampling efficiency.
+
+Analysis also checks complete finite output, intended runtime HMR/constraint
+configuration, constant common NVT box, sampled X-H constraint errors, and
+phi/psi against an independent coordinate-based atan2 reference. Populations,
+ordinary split Rhat, core-state alternations, rare-state warnings and finite-sample
+phi/psi occupancy maps accompany the efficiency plots. These diagnostics do not
+prove a converged ensemble, exact timestep equivalence, preserved kinetics or
+sampling of a slow state absent from all trajectories.
+
+The [2026-11-07 public-fixture result](../../../docs/hmr-sampling/README.md)
+records nine 2 ns trajectories, figures, per-run statistics and hashes. It shows
+observable-dependent rate gains and a potential-energy shift, rather than
+establishing sampling-distribution equivalence.

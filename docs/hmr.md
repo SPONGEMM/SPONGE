@@ -209,3 +209,14 @@ do not establish long-time ensemble accuracy, MPI runtime behavior, transport
 properties or production performance. Timestep convergence and scientific
 validation remain system-specific; this experiment does not justify an automatic
 4 or 5 fs recommendation.
+
+A separate [alanine-dipeptide sampling experiment](hmr-sampling/README.md)
+compared ordinary 2 fs, HMR 2 fs and HMR 4 fs using three 2 ns NVT trajectories
+per condition on the local RTX 4090. Relative to ordinary 2 fs, HMR 4 fs gave
+1.819x throughput and a sin(phi) effective-sample rate ratio of 2.102
+[1.623, 2.724], but the primary psi-basin rate ratio was poorly determined:
+2.618 [0.195, 35.100]. These are nominal three-seed log-ratio repeatability
+intervals. Slow-state mixing and rare-state coverage were incomplete, and the
+paired potential-energy difference was -4.706 +/- 0.571 kcal/mol (nominal 95%
+t interval). This measures a computational gain and selected observable rates;
+it does not establish equivalent configurational sampling at twice the speed.
