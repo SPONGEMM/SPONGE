@@ -79,6 +79,12 @@ separate validation.
 | `mass` | `constrain` | float | `3.3`, or `0.0` when `in_file` is set | Auto-constrain bonds involving atoms lighter than this threshold |
 | `angle` | `constrain` | bool | `false` | Reserved, currently not implemented |
 
+With [HMR](../hmr.md) enabled, `constrain.mass` selects atoms using their
+original topology masses. Solver mass coefficients and velocity projection use
+the effective HMR masses. HMR itself neither enables constraints nor changes
+the time step. Explicit X-H bond connectivity is still required for HMR donor
+identification even when those bonds are constrained.
+
 ## LINCS Parameters (experimental)
 
 LINCS controls accuracy through expansion order and rotation corrections,

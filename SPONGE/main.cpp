@@ -184,6 +184,9 @@ void Main_Initial(int argc, char* argv[])
     Reject_Open_Boundary_Module(eam.is_initialized, "EAM");
     Reject_Open_Boundary_Module(tersoff.is_initialized, "TERSOFF");
     Reject_Open_Boundary_Module(reaxff.is_initialized, "REAXFF");
+    if (md_info.hmr_enabled && reaxff.is_initialized)
+        controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "HMR",
+                                      "HMR requires fixed bond topology");
 
     if (Xponge::system.positional_restraint.present)
     {

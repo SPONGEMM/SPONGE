@@ -26,6 +26,11 @@ controller error path.
 
 - Base construction delegates format-dependent input to `InputSession` and MD
   core. Existing missing-velocity defaults and restart load policies remain.
+- Optional [HMR](hmr.md) runs once in `MD_INFORMATION::Read_Mass()` during
+  `Load_Base_State`, before inverse/device masses and dynamic modules are built.
+  Dynamics uses effective masses; constraint selection and virtual/restraint COM
+  geometry retain original topology masses. Dynamic/full H5 restoration checks
+  the effective-mass signature before applying module state.
 - Temperature/pressure schedules are sampled at step zero before thermostat,
   barostat and Maxwell initialization. Dynamic restart restoration retains the
   existing step/time policy. Per-step target updates stay in the simulation loop.
@@ -58,6 +63,8 @@ The existing runtime suites exercise the physical results of these phases:
   coordinates, force redistribution and state synchronization.
 - H5 runtime CTests: input/output matrix, dynamic/protocol restart closure,
   rerun, ReaxFF/EDIP parity and VDS terminal/resume behavior.
+- `tests/hmr/`: pure mass-transfer checks and automatic/manual HMR equivalence
+  for NVE/NVT/NPT, SHAKE, Maxwell velocities, virtual COM and H5 restart.
 
 Point all runtime tests at the newly built executable. The Maxwell suite uses
 `SPONGE_BIN`; the virtual-atom suite uses `SPONGE_EXECUTABLE`. The schedule suite
