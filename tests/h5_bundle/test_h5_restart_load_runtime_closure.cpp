@@ -6,6 +6,7 @@
 #include <fstream>
 #include <highfive/highfive.hpp>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -1270,6 +1271,60 @@ void Run_Restart_Retention_Runtime_Case(const std::filesystem::path& executable,
         SpongeH5MD::List_Restart_History(prepared.h5_restart.string()).empty());
 }
 
+// Exercise the actual module upload/gather and checkpoint export, beyond the
+// host parser: the main coordinates deliberately differ from these references.
+void Run_Text_Reference_Runtime_Cases(const std::filesystem::path& executable,
+                                      const std::filesystem::path& temp_root,
+                                      const std::filesystem::path& source)
+{
+    const std::vector<float> expected = {1.25f, -2.5f,  3.75f,
+                                         10.5f, 20.25f, -30.75f};
+    const std::vector<std::string> files = {
+        "2\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2 0.0000000000\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2 0.0000000000 4999\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "title\n2\n1.25 -2.5 3.75 10.5 20.25 -30.75\n100 100 100 90 90 90\n",
+        "title\n2 7.5\n1.25 -2.5 3.75 10.5 20.25 -30.75\n"
+        "0 0 0 0 0 0\n100 100 100 90 90 90\n",
+        "3\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2\n1.25 -2.5\n10.5 20.25 -30.75\n",
+        "2\n1.25 -2.5 nan\n10.5 20.25 -30.75\n"};
+    for (std::size_t index = 0; index < files.size(); ++index)
+    {
+        const auto prepared = Prepare_Restart_Load_Case(
+            temp_root, "text_reference_" + std::to_string(index), source,
+            "structural", true, true, true, false, false);
+        Isolate_Positional_Restraint_Runtime_Inputs(prepared.root);
+        Delete_H5_Object_If_Exists(prepared.root / "restart.spgr.h5",
+                                   SpongeH5MD::path::restart_protocol_sidecars);
+        Write_Text(prepared.root / "reference.txt", files[index]);
+        Write_Text(prepared.root / "atom_id.txt", "0\n1\n");
+        std::string mdin =
+            Remove_Key_Lines(Read_Text(prepared.mdin),
+                             {"custom_pair_in_file", "custom_bond_in_file"});
+        mdin +=
+            "\n[restrain]\natom_id = \"atom_id.txt\"\n"
+            "single_weight = 20\nrefcoord_scaling = \"no\"\n";
+        mdin += (index == 3 || index == 4)
+                    ? "amber_rst7 = \"reference.txt\"\n"
+                    : "coordinate_in_file = \"reference.txt\"\n";
+        Write_Text(prepared.mdin, mdin);
+        if (index >= 5)
+        {
+            const std::vector<std::string> errors = {"reference atom count",
+                                                     "expected one XYZ triple",
+                                                     "non-finite coordinate"};
+            Run_SPONGE_Expect_Failure(executable, prepared, errors[index - 5]);
+            continue;
+        }
+        Run_SPONGE(executable, prepared);
+        const auto actual = Read_H5_Float_Dataset(
+            prepared.h5_restart,
+            SpongeH5MD::Restart_Restraint_Reference_Coordinate_Path("default"));
+        REQUIRE_EQ(actual, expected);
+    }
+}
+
 void Run_Restart_Load_Runtime_Closure(
     const std::filesystem::path& sponge_executable)
 {
@@ -1281,6 +1336,8 @@ void Run_Restart_Load_Runtime_Closure(
     const auto pure_source = full / "bundled_input" / "bundle";
     const auto sidecar_source =
         full / "bundled_input_with_legacy_sidecar" / "bundle";
+
+    Run_Text_Reference_Runtime_Cases(sponge_executable, temp_root, pure_source);
 
     Run_Restart_Retention_Runtime_Case(sponge_executable, temp_root,
                                        pure_source, false);
@@ -1540,6 +1597,41 @@ void Run_Restart_Load_Runtime_Closure(
     const auto output_restraint_reference = Read_H5_Float_Dataset(
         protocol_restraint.h5_restart, restraint_reference_path);
     REQUIRE_EQ(input_restraint_reference, output_restraint_reference);
+
+    // The canonical protocol restart reference is applied after native module
+    // initialization. Reject bad state here as well as in the native reader.
+    Write_Text(protocol_restraint.root / "atom_id.txt", "0\n1\n");
+    Write_Text(protocol_restraint.root / "valid_reference.txt",
+               "2\n1 2 3\n4 5 6\n");
+    Write_Text(
+        protocol_restraint.mdin,
+        Read_Text(protocol_restraint.mdin) +
+            "\n[restrain]\nsingle_weight = 20\natom_id = \"atom_id.txt\"\n"
+            "coordinate_in_file = \"valid_reference.txt\"\n");
+    for (int variant = 0; variant < 2; ++variant)
+    {
+        {
+            HighFive::File restart(
+                (protocol_restraint.root / "restart.spgr.h5").string(),
+                HighFive::File::ReadWrite);
+            REQUIRE_TRUE(H5Ldelete(restart.getId(),
+                                   restraint_reference_path.c_str(),
+                                   H5P_DEFAULT) >= 0);
+            auto values = input_restraint_reference;
+            if (variant == 0)
+                values[0] = std::numeric_limits<float>::quiet_NaN();
+            else
+                values.resize(3);
+            auto dataset = restart.createDataSet<float>(
+                restraint_reference_path,
+                HighFive::DataSpace({values.size() / 3, 3}));
+            REQUIRE_TRUE(H5Dwrite(dataset.getId(), H5T_NATIVE_FLOAT, H5S_ALL,
+                                  H5S_ALL, H5P_DEFAULT, values.data()) >= 0);
+        }
+        Run_SPONGE_Expect_Failure(
+            sponge_executable, protocol_restraint,
+            variant == 0 ? "non-finite coordinate" : "reference atom count");
+    }
 
     const auto native_cv = Prepare_Restart_Load_Case(
         temp_root, "restart_load_protocol_native_cv", pure_source, "protocol",

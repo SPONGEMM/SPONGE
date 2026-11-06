@@ -57,6 +57,8 @@ def run_case(
         "cv_in_file": "cv.txt",
         "crd": "frames.dat",
         "box": "frames.box",
+        "rerun_output_crd": "output.dat",
+        "rerun_output_box": "output.box",
         "frc": "forces.dat",
         "print_zeroth_frame": 1,
         "write_mdout_interval": 1,
