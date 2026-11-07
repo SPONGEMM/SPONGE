@@ -79,6 +79,12 @@ separate validation.
 | `mass` | `constrain` | float | `3.3`, or `0.0` when `in_file` is set | Auto-constrain bonds involving atoms lighter than this threshold |
 | `angle` | `constrain` | bool | `false` | Reserved, currently not implemented |
 
+With [HMR](../hmr.md) enabled, `constrain.mass` selects atoms using their
+original topology masses. Solver mass coefficients and velocity projection use
+the effective HMR masses. HMR itself neither enables constraints nor changes
+the time step. Explicit X-H bond connectivity is still required for HMR donor
+identification even when those bonds are constrained.
+
 ## LINCS Parameters (experimental)
 
 LINCS controls accuracy through expansion order and rotation corrections,
@@ -136,6 +142,11 @@ three constraints and four atoms. If any local component exceeds these limits,
 the solver uses its fixed-iteration general path. Reaching the iteration cap
 or writing single-precision coordinates can leave errors above the target;
 normal MD does not perform a separate final error check.
+
+Nonfinite reduced observables and reported GPU runtime errors stop the run with
+a nonzero exit status at observable-output steps. This also catches failed GPU
+constraint kernels that can otherwise leave finite but stale host output. These
+checks do not establish constraint convergence or accuracy at every timestep.
 
 SETTLE handles eligible independent pairs and triangles first. LINCS/CCMA
 support CPU and GPU execution, but coupled constraints must remain on one MPI

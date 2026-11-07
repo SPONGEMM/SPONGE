@@ -1,5 +1,6 @@
 ﻿#include "input_session.h"
 
+#include "../MD_core/hmr.h"
 #include "../utils/float_classification.hpp"
 
 namespace SpongeIO
@@ -109,6 +110,20 @@ void InputSession::Restore_Dynamic_State()
                                                input_.Last_Error().c_str());
     }
     const auto& dynamic_state = *payload;
+    const auto mass =
+        dynamic_state.integrator_state_text.find("mass_signature");
+    if ((mass == dynamic_state.integrator_state_text.end() &&
+         runtime_.md_info.hmr_enabled) ||
+        (mass != dynamic_state.integrator_state_text.end() &&
+         mass->second !=
+             SpongeHMR::Mass_Signature(runtime_.md_info.h_mass,
+                                       runtime_.md_info.atom_numbers)))
+        runtime_.controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",
+            "Restart effective masses differ or HMR mass provenance is "
+            "missing; "
+            "use matching HMR settings for dynamic/full restart, or load "
+            "structural state and regenerate velocities for a new segment");
     if (SpongeH5InputValidation::Has_Unsupported_Dynamic_State(dynamic_state))
     {
         const std::string unsupported =

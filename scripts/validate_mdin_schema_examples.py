@@ -27,6 +27,18 @@ except ModuleNotFoundError:  # Python < 3.11
 
 
 EXAMPLES = {
+    "hmr_nvt": """
+mode = "nvt"
+dt = 0.002
+[hmr]
+enabled = true
+ratio_xh1 = 2.0
+ratio_other = 2.5
+[constrain]
+mode = "SHAKE"
+[thermostat]
+mode = "middle_langevin"
+""",
     "h5_npt_bundle": """
 mode = "npt"
 step_limit = 2500000

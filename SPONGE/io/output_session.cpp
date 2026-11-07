@@ -1,5 +1,7 @@
 ﻿#include "output_session.h"
 
+#include "../MD_core/hmr.h"
+
 namespace SpongeIO
 {
 SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
@@ -11,6 +13,9 @@ SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
         std::to_string(runtime_.md_info.sys.steps);
     state.integrator_state_text["time"] =
         std::to_string(runtime_.md_info.sys.Get_Current_Time());
+
+    state.integrator_state_text["mass_signature"] = SpongeHMR::Mass_Signature(
+        runtime_.md_info.h_mass, runtime_.md_info.atom_numbers);
 
     std::string error_message;
     if (!runtime_.bussi_thermo.Export_H5_Restart_State(&state, &error_message))
