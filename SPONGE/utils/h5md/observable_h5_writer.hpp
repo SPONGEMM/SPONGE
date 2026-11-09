@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "utils/h5md/h5md_writer.hpp"
+#include "utils/h5md/metadynamics_potential_snapshots.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/output_plan.hpp"
 
@@ -226,8 +227,12 @@ class ObservableH5Writer
 
     bool Write_Metadynamics_Diagnostic(const std::string& name,
                                        const std::string& component,
-                                       const std::string& text)
+                                       const std::string& text,
+                                       int64_t step = -1, double time = 0.0)
     {
+        if (component == "potential_export")
+            return Mark_Dirty_If(
+                potential_snapshots_.Write(&writer_, name, text, step, time));
         ModuleH5MappingWriter module_writer(&writer_);
         return Mark_Dirty_If(
             module_writer.Write_Metadynamics_Diagnostic(name, component, text));
@@ -348,6 +353,7 @@ class ObservableH5Writer
     }
 
    private:
+    MetadynamicsPotentialSnapshots potential_snapshots_;
     bool Mark_Dirty_If(bool ok)
     {
         if (ok) dirty_ = true;

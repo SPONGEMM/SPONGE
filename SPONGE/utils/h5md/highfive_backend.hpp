@@ -324,6 +324,9 @@ class HighFiveBackend : public WriterBackend
             props.add(HighFive::Chunking(chunk_dims));
             switch (normalized.type)
             {
+                case DataType::uint8:
+                    file_->createDataSet<uint8_t>(spec.path, space, props);
+                    break;
                 case DataType::int64:
                     file_->createDataSet<int64_t>(spec.path, space, props);
                     break;
@@ -506,6 +509,12 @@ class HighFiveBackend : public WriterBackend
             return Fail(std::string("failed to create hard link ") + link_path +
                         ": " + err.what());
         }
+    }
+
+    bool Append_UInt8(const std::string& dataset_path, const uint8_t* data,
+                      std::size_t count) override
+    {
+        return Append_Data(dataset_path, data, count);
     }
 
     bool Append_Int64(const std::string& dataset_path, const int64_t* data,
@@ -717,6 +726,8 @@ class HighFiveBackend : public WriterBackend
     {
         switch (type)
         {
+            case DataType::uint8:
+                return H5T_NATIVE_UCHAR;
             case DataType::int64:
                 return H5T_NATIVE_LLONG;
             case DataType::float32:
@@ -769,8 +780,10 @@ class HighFiveBackend : public WriterBackend
                 spec_iter->second.appendable &&
                 !spec_iter->second.shape.max_dims.empty() &&
                 spec_iter->second.shape.max_dims[0] != 0;
-            if (fixed_first_dim_bulk_append && record_size > 0 &&
-                count % record_size == 0)
+            const bool byte_stream_append =
+                spec_iter->second.type == DataType::uint8 && dims.size() == 1;
+            if ((fixed_first_dim_bulk_append || byte_stream_append) &&
+                record_size > 0 && count % record_size == 0)
             {
                 append_records = count / record_size;
                 expected_count = count;

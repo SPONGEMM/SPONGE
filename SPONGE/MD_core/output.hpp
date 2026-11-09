@@ -1070,14 +1070,27 @@ void MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout(
     {
         for (const char* component : components)
         {
-            if (h5_trajectory_enabled && !h5_trajectory_vds_enabled &&
-                !h5_trajectory_writer->Write_Metadynamics_Diagnostic(
-                    metadynamics_module_name, component, ""))
+            if (h5_trajectory_enabled)
             {
-                controller->Throw_SPONGE_Error(
-                    spongeErrorValueErrorCommand,
-                    "MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout",
-                    h5_trajectory_writer->Last_Error().c_str());
+                const bool ok =
+                    h5_trajectory_vds_enabled
+                        ? h5_vds_trajectory_writer
+                              ->Write_Metadynamics_Diagnostic(
+                                  metadynamics_module_name, component, "")
+                        : h5_trajectory_writer->Write_Metadynamics_Diagnostic(
+                              metadynamics_module_name, component, "");
+                if (!ok)
+                {
+                    const std::string error =
+                        h5_trajectory_vds_enabled
+                            ? h5_vds_trajectory_writer->Last_Error()
+                            : h5_trajectory_writer->Last_Error();
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorValueErrorCommand,
+                        "MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_"
+                        "Layout",
+                        error.c_str());
+                }
             }
             if (h5_observable_enabled &&
                 !h5_observable_writer->Write_Metadynamics_Diagnostic(
@@ -1258,12 +1271,9 @@ void MD_INFORMATION::trajectory_output::Append_H5_Sits_Nk_Frame(
     {
         bool ok =
             h5_trajectory_vds_enabled
-                ? (h5_vds_trajectory_writer->Total_Trajectory_Frame_Count() == 0
-                       ? true
-                       : h5_vds_trajectory_writer->Append_Sits_Nk_Frame(
-                             md_info->sys.steps,
-                             md_info->sys.Get_Current_Time(false),
-                             h5_sits_module_name, values, k_count))
+                ? h5_vds_trajectory_writer->Append_Sits_Nk_Frame(
+                      md_info->sys.steps, md_info->sys.Get_Current_Time(false),
+                      h5_sits_module_name, values, k_count)
                 : h5_trajectory_writer->Append_Sits_Nk_Frame(
                       md_info->sys.steps, md_info->sys.Get_Current_Time(false),
                       h5_sits_module_name, values, k_count);
@@ -1315,16 +1325,13 @@ void MD_INFORMATION::trajectory_output::Append_H5_Reaxff_Frame(
     }
     if (h5_trajectory_enabled)
     {
-        bool ok =
-            h5_trajectory_vds_enabled
-                ? (h5_vds_trajectory_writer->Total_Trajectory_Frame_Count() == 0
-                       ? true
-                       : h5_vds_trajectory_writer->Append_Reaxff_Frame(
-                             md_info->sys.steps,
-                             md_info->sys.Get_Current_Time(false), values))
-                : h5_trajectory_writer->Append_Reaxff_Frame(
-                      md_info->sys.steps, md_info->sys.Get_Current_Time(false),
-                      values);
+        bool ok = h5_trajectory_vds_enabled
+                      ? h5_vds_trajectory_writer->Append_Reaxff_Frame(
+                            md_info->sys.steps,
+                            md_info->sys.Get_Current_Time(false), values)
+                      : h5_trajectory_writer->Append_Reaxff_Frame(
+                            md_info->sys.steps,
+                            md_info->sys.Get_Current_Time(false), values);
         if (!ok)
         {
             const std::string error =
@@ -1404,13 +1411,9 @@ void MD_INFORMATION::trajectory_output::Append_H5_Metadynamics_Scalar_Frame(
     {
         bool ok =
             h5_trajectory_vds_enabled
-                ? (h5_vds_trajectory_writer->Total_Trajectory_Frame_Count() == 0
-                       ? true
-                       : h5_vds_trajectory_writer
-                             ->Append_Metadynamics_Scalar_Frame(
-                                 md_info->sys.steps,
-                                 md_info->sys.Get_Current_Time(false), meta,
-                                 rbias, rct))
+                ? h5_vds_trajectory_writer->Append_Metadynamics_Scalar_Frame(
+                      md_info->sys.steps, md_info->sys.Get_Current_Time(false),
+                      meta, rbias, rct)
                 : h5_trajectory_writer->Append_Metadynamics_Scalar_Frame(
                       md_info->sys.steps, md_info->sys.Get_Current_Time(false),
                       meta, rbias, rct);
@@ -1464,9 +1467,11 @@ void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
     {
         bool ok = h5_trajectory_vds_enabled
                       ? h5_vds_trajectory_writer->Write_Metadynamics_Diagnostic(
-                            module_name, component, text)
+                            module_name, component, text, md_info->sys.steps,
+                            md_info->sys.Get_Current_Time(false))
                       : h5_trajectory_writer->Write_Metadynamics_Diagnostic(
-                            module_name, component, text);
+                            module_name, component, text, md_info->sys.steps,
+                            md_info->sys.Get_Current_Time(false));
         if (!ok)
         {
             const std::string error =
@@ -1483,7 +1488,8 @@ void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
     if (h5_observable_enabled)
     {
         if (!h5_observable_writer->Write_Metadynamics_Diagnostic(
-                module_name, component, text))
+                module_name, component, text, md_info->sys.steps,
+                md_info->sys.Get_Current_Time(false)))
         {
             controller->Throw_SPONGE_Error(
                 spongeErrorValueErrorCommand,

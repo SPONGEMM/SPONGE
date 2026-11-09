@@ -65,6 +65,44 @@ trajectory and observable streams keep their existing publication protocol.
 All operations remain synchronous. There is no output queue or background
 writer, and `RestartOutputState` is not a complete asynchronous checkpoint.
 
+## Live MetaD potential snapshots
+
+Trajectory and observable outputs store the same exported grid under
+`/parameters/sponge/metadynamics/<name>/potential_snapshots`. This replaces the
+runtime `potential_export` VLEN string; restart text exports are unchanged.
+Readers of older output may still read the scalar string after finalization.
+
+The group contains one-dimensional, chunked, append-only datasets:
+
+| Dataset | Type | Meaning |
+| --- | --- | --- |
+| `data` | uint8 | Concatenated UTF-8 grid exports, retaining CV labels and value columns |
+| `offset`, `length` | int64 | Byte range for each export |
+| `step`, `time` | int64, float64 | Source simulation step and time in ps |
+| `committed_count` | int64 | Append-only publication watermark |
+
+Single-file writers create these datasets before starting SWMR. They append the
+payload and index, flush, then append and flush the committed record count.
+Readers refresh the watermark first and only read indexed records below that
+count; uncommitted tails must be ignored. Grid exports follow trajectory output
+cadence and preserve the MetaD source step convention, independently of particle
+frame counters. No mutable variable-length string is needed to read a live grid.
+
+VDS writers put each export in the active segment before adding it to the wrapper.
+A sealed segment therefore contains the grids produced during that segment; its
+last committed record is its latest grid. The wrapper publishes its accumulated
+snapshot stream atomically with the completed segment prefix. Cloud consumers can
+read a validated continuous prefix of finalized segments without opening an active
+wrapper. Finalizing one segment does not mean the simulation has finished.
+
+The observable file is a subset of the main H5MD scientific output: matching
+snapshot records have identical byte payloads, indices, source steps and times.
+Per-file output lifecycle and particle frame counters retain their own meanings.
+
+`test_highfive_backend_io` checks live single-file reads, segment rotation and
+wrapper snapshot contents. `h5_bundle_writer_probe single_live` provides a
+separate-process SWMR fixture; `vds` emits two sealed segments with distinct grids.
+
 ## Validation
 
 With the existing CUDA development environment:

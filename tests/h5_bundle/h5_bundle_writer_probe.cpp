@@ -51,7 +51,10 @@ bool Define_Streams(Writer& writer)
            Require(writer.Define_Observable_Stream({"temperature"}, {"TEMP"}),
                    writer, "define observables") &&
            Require(writer.Ensure_Metadynamics_Scalars(), writer,
-                   "define metadynamics");
+                   "define metadynamics") &&
+           Require(writer.Write_Metadynamics_Diagnostic("meta",
+                                                        "potential_export", ""),
+                   writer, "define potential snapshots");
 }
 
 template <typename Writer>
@@ -68,7 +71,13 @@ bool Append_Frame(Writer& writer, int64_t step, double time, float position_x,
            Require(
                writer.Append_Metadynamics_Scalar_Frame(
                    step, time, position_x, position_x + 1.0, position_x + 2.0),
-               writer, "append metadynamics");
+               writer, "append metadynamics") &&
+           Require(writer.Write_Metadynamics_Diagnostic(
+                       "meta", "potential_export",
+                       "#! FIELDS phi potential_raw\n0 " +
+                           std::to_string(position_x) + "\n",
+                       step, time),
+                   writer, "append potential snapshot");
 }
 
 bool Write_Single(const std::filesystem::path& prefix, bool live)

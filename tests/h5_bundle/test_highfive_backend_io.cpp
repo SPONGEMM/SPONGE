@@ -2532,11 +2532,83 @@ static void Test_Vds_Trajectory_Writer_With_Real_Backend()
     std::filesystem::remove_all(dir);
 }
 
+void Test_Metadynamics_Potential_Snapshots()
+{
+    const auto dir = Unique_Temp_Path("meta_snapshots");
+    std::filesystem::create_directories(dir);
+    const std::string root =
+        Metadynamics_Diagnostic_Root("meta") + "/potential_snapshots";
+    const std::string first = "#! FIELDS phi potential_raw\n0 1\n";
+    const std::string second = "#! FIELDS phi potential_raw\n0 22\n";
+    const auto check = [&](const std::filesystem::path& path,
+                           const std::string& text, int64_t count, int64_t step)
+    {
+        HighFive::File file(path.string(), HighFive::File::ReadOnly);
+        REQUIRE_EQ(Read_Int64_Vector(file, root + "/committed_count").back(),
+                   count);
+        REQUIRE_EQ(Read_Int64_Vector(file, root + "/step").back(), step);
+        const auto offset = Read_Int64_Vector(file, root + "/offset").back();
+        const auto length = Read_Int64_Vector(file, root + "/length").back();
+        std::vector<uint8_t> bytes;
+        file.getDataSet(root + "/data")
+            .select({static_cast<size_t>(offset)},
+                    {static_cast<size_t>(length)})
+            .read(bytes);
+        REQUIRE_EQ(std::string(bytes.begin(), bytes.end()), text);
+        REQUIRE_TRUE(!file.exist(
+            Metadynamics_Diagnostic_Path("meta", "potential_export")));
+    };
+    SpongeH5OutputPlan::ResolvedOutputPlan plan;
+    plan.trajectory.enabled = true;
+    plan.trajectory.path = (dir / "single.h5md").string();
+    {
+        HighFiveBackend backend;
+        TrajectoryH5Writer writer(&backend);
+        REQUIRE_TRUE(writer.Open_Single_File(plan));
+        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
+            "meta", "potential_export", ""));
+        REQUIRE_TRUE(writer.Start_Swmr_Write());
+        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
+            "meta", "potential_export", first, 10, 0.1));
+        check(plan.trajectory.path, first, 1, 10);
+        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
+            "meta", "potential_export", second, 20, 0.2));
+        check(plan.trajectory.path, second, 2, 20);
+        REQUIRE_TRUE(writer.Finalize());
+        REQUIRE_TRUE(writer.Close());
+    }
+    plan.trajectory.vds = true;
+    plan.trajectory.path = (dir / "vds.h5md").string();
+    plan.trajectory.derived_shard_root = (dir / "shards").string();
+    plan.trajectory.chunk_size = 1;
+    {
+        HighFiveBackendFactory factory;
+        VdsTrajectoryH5Writer writer(&factory);
+        REQUIRE_TRUE(writer.Open(plan));
+        REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+        float position[3] = {0, 0, 0};
+        float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        REQUIRE_TRUE(writer.Append_Particle_Frame(10, 0.1, position, box));
+        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
+            "meta", "potential_export", first, 10, 0.1));
+        REQUIRE_TRUE(writer.Append_Particle_Frame(20, 0.2, position, box));
+        check(dir / "shards/segment_000000.spg.h5md", first, 1, 10);
+        check(plan.trajectory.path, first, 1, 10);
+        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
+            "meta", "potential_export", second, 20, 0.2));
+        REQUIRE_TRUE(writer.Finalize());
+        check(dir / "shards/segment_000001.spg.h5md", second, 1, 20);
+        check(plan.trajectory.path, second, 2, 20);
+    }
+    std::filesystem::remove_all(dir);
+}
+
 int main()
 {
     return Run_Test(
         []
         {
+            Test_Metadynamics_Potential_Snapshots();
             Test_H5MD_Writer_Detached_Backend_Semantics();
             Test_H5MD_Writer_Repeated_Output_Completion();
             Test_HighFive_Backend_Basic_File_Layout();

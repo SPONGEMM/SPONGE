@@ -1117,11 +1117,30 @@ static void Test_Vds_Chunk_Boundary_Frame_Counts()
     }
 }
 
+static void Test_Potential_Shard_Failure_Does_Not_Commit_Wrapper()
+{
+    MockBackendFactory factory;
+    VdsTrajectoryH5Writer writer(&factory);
+    REQUIRE_TRUE(writer.Open(Make_Vds_Plan()));
+    REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+    float position[3] = {0, 0, 0};
+    float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    REQUIRE_TRUE(writer.Append_Particle_Frame(10, 0.1, position, box));
+    factory.logs[1]->fail_next_append = true;
+    REQUIRE_TRUE(!writer.Write_Metadynamics_Diagnostic(
+        "meta", "potential_export", "# phi potential_raw\n0 1\n", 10, 0.1));
+    const std::string commit = Metadynamics_Diagnostic_Root("meta") +
+                               "/potential_snapshots/committed_count";
+    REQUIRE_EQ(factory.logs[0]->append_counts[commit], 0);
+    REQUIRE_EQ(factory.logs[1]->append_counts[commit], 0);
+}
+
 int main()
 {
     return Run_Test(
         []
         {
+            Test_Potential_Shard_Failure_Does_Not_Commit_Wrapper();
             Test_Vds_Wrapper_And_Module_Virtual_Datasets();
             Test_Vds_Optional_Particle_Fields_Disabled();
             Test_Vds_Shard_Filename_Sequence_Uses_Six_Digit_Padding();

@@ -211,6 +211,12 @@ class MockBackend : public WriterBackend
         return true;
     }
 
+    bool Append_UInt8(const std::string& path, const uint8_t*,
+                      std::size_t count) override
+    {
+        return Append(path, count);
+    }
+
     bool Append_Int64(const std::string& path, const int64_t*,
                       std::size_t count) override
     {

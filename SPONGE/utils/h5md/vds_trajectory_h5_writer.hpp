@@ -12,6 +12,7 @@
 
 #include "utils/h5md/atomic_file_publish.hpp"
 #include "utils/h5md/h5md_writer.hpp"
+#include "utils/h5md/metadynamics_potential_snapshots.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/output_plan.hpp"
 #include "utils/h5md/trajectory_h5_writer.hpp"
@@ -431,12 +432,25 @@ class VdsTrajectoryH5Writer
 
     bool Write_Metadynamics_Diagnostic(const std::string& name,
                                        const std::string& component,
-                                       const std::string& text)
+                                       const std::string& text,
+                                       int64_t step = -1, double time = 0.0)
     {
         if (wrapper_writer_ == nullptr)
         {
             last_error_ = "VDS wrapper is not open";
             return false;
+        }
+        if (component == "potential_export")
+        {
+            if (current_shard_writer_ != nullptr &&
+                !current_shard_writer_->Write_Metadynamics_Diagnostic(
+                    name, component, text, step, time))
+            {
+                last_error_ = current_shard_writer_->Last_Error();
+                return false;
+            }
+            return potential_snapshots_.Write(wrapper_writer_.get(), name, text,
+                                              step, time);
         }
         ModuleH5MappingWriter module_writer(wrapper_writer_.get());
         if (!module_writer.Write_Metadynamics_Diagnostic(name, component, text))
@@ -525,6 +539,7 @@ class VdsTrajectoryH5Writer
     std::string Last_Error() const { return last_error_; }
 
    private:
+    MetadynamicsPotentialSnapshots potential_snapshots_;
     bool Ensure_Current_Shard(const int64_t step, const double time)
     {
         return current_shard_writer_ != nullptr ||
