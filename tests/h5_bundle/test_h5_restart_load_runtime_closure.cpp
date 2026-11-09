@@ -697,6 +697,53 @@ PreparedCase Prepare_Restart_Load_Case(
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
+    // The full-contract matrix exercises parsing with repeated atom indices.
+    // Its two atoms cannot form runtime angles, dihedrals, CMAPs or the
+    // synthetic virtual site; retain those records only in the parser tests.
+    {
+        HighFive::File topology((prepared.root / "topology.spgt.h5").string(),
+                                HighFive::File::ReadWrite);
+        for (const char* object_path :
+             {"/forcefield/angle", "/forcefield/urey_bradley",
+              "/forcefield/dihedral", "/forcefield/cmap",
+              "/forcefield/virtual_atom"})
+        {
+            if (topology.exist(object_path))
+                H5Ldelete(topology.getId(), object_path, H5P_DEFAULT);
+        }
+        // Remove the matching fallback bindings too, or the legacy loader
+        // would reintroduce the same parsing-only records.
+        const auto keys_path = SpongeH5MD::path::legacy_sidecar_keys;
+        const auto paths_path = SpongeH5MD::path::legacy_sidecar_paths;
+        if (topology.exist(keys_path))
+        {
+            std::vector<std::string> keys, paths, runtime_keys, runtime_paths;
+            topology.getDataSet(keys_path).read(keys);
+            topology.getDataSet(paths_path).read(paths);
+            REQUIRE_EQ(keys.size(), paths.size());
+            for (std::size_t i = 0; i < keys.size(); ++i)
+            {
+                if (keys[i] == "angle_in_file" ||
+                    keys[i] == "urey_bradley_in_file" ||
+                    keys[i] == "dihedral_in_file" ||
+                    keys[i] == "cmap_in_file" ||
+                    keys[i] == "virtual_atom_in_file")
+                    continue;
+                runtime_keys.push_back(keys[i]);
+                runtime_paths.push_back(paths[i]);
+            }
+            H5Ldelete(topology.getId(), keys_path, H5P_DEFAULT);
+            H5Ldelete(topology.getId(), paths_path, H5P_DEFAULT);
+            topology
+                .createDataSet<std::string>(
+                    keys_path, HighFive::DataSpace::From(runtime_keys))
+                .write(runtime_keys);
+            topology
+                .createDataSet<std::string>(
+                    paths_path, HighFive::DataSpace::From(runtime_paths))
+                .write(runtime_paths);
+        }
+    }
     // The synthetic funcfl fixture has one element; type 1 is out of range.
     // Match the native runtime fixture's {0, 0} types in legacy/sidecar input.
     for (const auto& relative :
