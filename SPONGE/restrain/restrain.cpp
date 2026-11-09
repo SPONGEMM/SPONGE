@@ -1,5 +1,6 @@
 ﻿#include "restrain.h"
 
+#include "../utils/float_classification.hpp"
 #include "../xponge/ir/protocol.h"
 
 void RESTRAIN_INFORMATION::Init_Com_Cache_If_Needed(
@@ -577,28 +578,47 @@ void RESTRAIN_INFORMATION::Initial(CONTROLLER* controller,
             controller->printf(
                 "    reading restrain reference from %s\n",
                 controller->Command(this->module_name, "coordinate_in_file"));
-            VECTOR* h_crd = NULL;
-            Malloc_Safely((void**)&h_crd, sizeof(VECTOR) * atom_numbers);
+            std::vector<VECTOR> reference(atom_numbers);
             FILE* fp = NULL;
             Open_File_Safely(
                 &fp,
                 controller->Command(this->module_name, "coordinate_in_file"),
                 "r");
-            int temp_atom_numbers = 0;
-            int scanf_ret = fscanf(fp, "%d", &temp_atom_numbers);
-            controller->printf("        atom_numbers is %d\n",
-                               temp_atom_numbers);
-            for (int i = 0; i < atom_numbers; i++)
+            auto fail = [&](const char* reason)
             {
-                scanf_ret = fscanf(fp, "%f %f %f", &h_crd[i].x, &h_crd[i].y,
-                                   &h_crd[i].z);
+                fclose(fp);
+                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                               "RESTRAIN_INFORMATION::Initial",
+                                               reason);
+            };
+            char line[CHAR_LENGTH_MAX];
+            int count = 0;
+            // Consume the entire restart header, including optional time/step.
+            if (fgets(line, sizeof(line), fp) == NULL ||
+                (strchr(line, '\n') == NULL && !feof(fp)) ||
+                sscanf(line, "%d", &count) != 1 || count != atom_numbers)
+                fail(
+                    "restrain_coordinate_in_file: reference atom count "
+                    "does not match the system, or header is invalid");
+            for (auto& xyz : reference)
+            {
+                if (fgets(line, sizeof(line), fp) == NULL ||
+                    (strchr(line, '\n') == NULL && !feof(fp)) ||
+                    sscanf(line, "%f %f %f", &xyz.x, &xyz.y, &xyz.z) != 3)
+                    fail(
+                        "restrain_coordinate_in_file: expected one XYZ triple "
+                        "per atom");
+                if (!SpongeFloat::Is_Finite(xyz.x) ||
+                    !SpongeFloat::Is_Finite(xyz.y) ||
+                    !SpongeFloat::Is_Finite(xyz.z))
+                    fail("restrain_coordinate_in_file: non-finite coordinate");
             }
+            fclose(fp);
             Device_Malloc_Safely((void**)&d_ref_crd_all,
                                  sizeof(VECTOR) * atom_numbers);
-            deviceMemcpy(d_ref_crd_all, h_crd, sizeof(VECTOR) * atom_numbers,
+            deviceMemcpy(d_ref_crd_all, reference.data(),
+                         sizeof(VECTOR) * atom_numbers,
                          deviceMemcpyHostToDevice);
-            free(h_crd);
-            fclose(fp);
         }
         else if (controller->Command_Exist(this->module_name, "amber_rst7"))
         {
@@ -797,6 +817,15 @@ void RESTRAIN_INFORMATION::Initial(
                 "Reason:\n\tnative positional restraint reference must have "
                 "shape [atom_count,3]\n");
         }
+        for (float value : native_restraint.reference_coordinates)
+        {
+            if (!SpongeFloat::Is_Finite(value))
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat,
+                    "RESTRAIN_INFORMATION::Initial(native H5)",
+                    "native positional restraint reference has a non-finite "
+                    "coordinate");
+        }
         std::vector<VECTOR> reference(atom_numbers);
         for (int atom = 0; atom < atom_numbers; ++atom)
         {
@@ -914,6 +943,15 @@ bool RESTRAIN_INFORMATION::Apply_H5_Reference_Coordinates(
         }
         return false;
     }
+    for (float value : coordinates)
+    {
+        if (!SpongeFloat::Is_Finite(value))
+        {
+            if (error != NULL)
+                *error = "restraint reference has a non-finite coordinate";
+            return false;
+        }
+    }
     deviceMemcpy(d_ref_crd_all, coordinates.data(),
                  sizeof(VECTOR) * atom_numbers, deviceMemcpyHostToDevice);
     Launch_Device_Kernel(
@@ -950,7 +988,7 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
             if (!md_info->res.is_initialized ||
                 md_info->res.residue_numbers <= 0 ||
                 md_info->res.d_res_start == NULL ||
-                md_info->res.d_res_end == NULL || md_info->d_mass == NULL)
+                md_info->res.d_res_end == NULL || md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_res is not ready.\n");
                 return;
@@ -963,13 +1001,14 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                                  md_info->res.residue_numbers,
                                  md_info->res.d_res_start,
                                  md_info->res.d_res_end, d_ref_crd_all,
-                                 md_info->d_mass, g, dt, d_ref_crd_all);
+                                 md_info->Model_Mass(), g, dt, d_ref_crd_all);
             break;
         case REFCOORD_SCALING_COM_MOL:
             if (!md_info->mol.is_initialized ||
                 md_info->mol.molecule_numbers <= 0 ||
                 md_info->mol.d_atom_start == NULL ||
-                md_info->mol.d_atom_end == NULL || md_info->d_mass == NULL)
+                md_info->mol.d_atom_end == NULL ||
+                md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_mol is not ready.\n");
                 return;
@@ -982,11 +1021,11 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                                  md_info->mol.molecule_numbers,
                                  md_info->mol.d_atom_start,
                                  md_info->mol.d_atom_end, d_ref_crd_all,
-                                 md_info->d_mass, g, dt, d_ref_crd_all);
+                                 md_info->Model_Mass(), g, dt, d_ref_crd_all);
             break;
         case REFCOORD_SCALING_COM_UG:
             if (md_info->ug.ug_numbers <= 0 || md_info->ug.d_ug == NULL ||
-                md_info->d_mass == NULL)
+                md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_ug is not ready.\n");
                 return;
@@ -996,7 +1035,7 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                 (md_info->ug.ug_numbers + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, md_info->ug.ug_numbers,
-                md_info->ug.d_ug, d_ref_crd_all, md_info->d_mass, g, dt,
+                md_info->ug.d_ug, d_ref_crd_all, md_info->Model_Mass(), g, dt,
                 d_ref_crd_all);
             break;
         default:
@@ -1100,7 +1139,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_ug,
-                        md_info->d_mass, this->cached_ug_numbers,
+                        md_info->Model_Mass(), this->cached_ug_numbers,
                         this->d_sum_mass_ug, this->d_sum_pos_ug, this->d_com_ug,
                         this->h_sum_mass_ug, this->h_sum_pos_ug,
                         this->h_com_ug);
@@ -1119,7 +1158,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_res,
-                        md_info->d_mass, this->cached_res_numbers,
+                        md_info->Model_Mass(), this->cached_res_numbers,
                         this->d_sum_mass_res, this->d_sum_pos_res,
                         this->d_com_res, this->h_sum_mass_res,
                         this->h_sum_pos_res, this->h_com_res);
@@ -1138,7 +1177,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_mol,
-                        md_info->d_mass, this->cached_mol_numbers,
+                        md_info->Model_Mass(), this->cached_mol_numbers,
                         this->d_sum_mass_mol, this->d_sum_pos_mol,
                         this->d_com_mol, this->h_sum_mass_mol,
                         this->h_sum_pos_mol, this->h_com_mol);

@@ -1,6 +1,7 @@
 ﻿#include "PM_force.h"
 
 #include "../utils/float_classification.hpp"
+#include "grid_coordinate.h"
 /*
     2025-10-14 SPONGE Particle Mesh算法
     目前支持单进程Particle-Mesh-Ewald 与 PMC-IZ
@@ -589,16 +590,16 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
                                 2 / msq * (1 + mprefactor * msq) * m.x * m.x;
                             h_PME_virial_BC[index].a21 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.y * m.x;
+                                4 / msq * (1 + mprefactor * msq) * m.y * m.x;
                             h_PME_virial_BC[index].a22 =
                                 1 -
                                 2 / msq * (1 + mprefactor * msq) * m.y * m.y;
                             h_PME_virial_BC[index].a31 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.z * m.x;
+                                4 / msq * (1 + mprefactor * msq) * m.z * m.x;
                             h_PME_virial_BC[index].a32 =
                                 0 -
-                                2 / msq * (1 + mprefactor * msq) * m.z * m.y;
+                                4 / msq * (1 + mprefactor * msq) * m.z * m.y;
                             h_PME_virial_BC[index].a33 =
                                 1 -
                                 2 / msq * (1 + mprefactor * msq) * m.z * m.z;
@@ -606,7 +607,7 @@ void Particle_Mesh::Initial(CONTROLLER* controller, int atom_numbers,
                         h_PME_BC0[index] = B1[kx] * B2[ky] * B3[kz];
                         h_PME_BC[index] *= h_PME_BC0[index];
                         h_PME_virial_BC[index] =
-                            0.5f * h_PME_BC[index] * h_PME_virial_BC[index];
+                            h_PME_BC[index] * h_PME_virial_BC[index];
                     }
                 }
             }
@@ -716,21 +717,13 @@ __global__ void PME_Atom_Near(const VECTOR* crd, int* PME_atom_near,
             frac_crd = {0.0f, 0.0f, 0.0f};
         }
         int k, tempux, tempuy, tempuz;
-        frac_crd.x *= fftx;
-        tempux = (int)frac_crd.x;
-        tempux = tempux < 0 ? 0 : (tempux < fftx ? tempux : fftx - 1);
-        PME_frxyz[atom].x = frac_crd.x - tempux;
-        PME_frxyz[atom].x = PME_frxyz[atom].x - floorf(PME_frxyz[atom].x);
-        frac_crd.y *= ffty;
-        tempuy = (int)frac_crd.y;
-        tempuy = tempuy < 0 ? 0 : (tempuy < ffty ? tempuy : ffty - 1);
-        PME_frxyz[atom].y = frac_crd.y - tempuy;
-        PME_frxyz[atom].y = PME_frxyz[atom].y - floorf(PME_frxyz[atom].y);
-        frac_crd.z *= fftz;
-        tempuz = (int)frac_crd.z;
-        tempuz = tempuz < 0 ? 0 : (tempuz < fftz ? tempuz : fftz - 1);
-        PME_frxyz[atom].z = frac_crd.z - tempuz;
-        PME_frxyz[atom].z = PME_frxyz[atom].z - floorf(PME_frxyz[atom].z);
+        const auto grid_x = PME_Get_Grid_Coordinate(frac_crd.x, fftx);
+        const auto grid_y = PME_Get_Grid_Coordinate(frac_crd.y, ffty);
+        const auto grid_z = PME_Get_Grid_Coordinate(frac_crd.z, fftz);
+        tempux = grid_x.index;
+        tempuy = grid_y.index;
+        tempuz = grid_z.index;
+        PME_frxyz[atom] = {grid_x.fraction, grid_y.fraction, grid_z.fraction};
         if (tempux != (*temp_uxyz).uint_x || tempuy != (*temp_uxyz).uint_y ||
             tempuz != (*temp_uxyz).uint_z)
         {
@@ -1021,6 +1014,10 @@ static __global__ void device_add_force(const int atom_numbers,
     }
 }
 
+// BC is the reciprocal potential kernel. The R2C weights below already
+// include the energy 1/2 (boundary planes 1/2, interior conjugate pairs 1).
+// Virial is -dU/dstrain: add BC * [I - 2(1 + pi^2*m^2/beta^2) mm/m^2].
+// Its off-diagonals are stored doubled to match LTMatrix3's symmetric sum.
 static __global__ void PME_Sum_Virial(const int nfft,
                                       const LTMatrix3* virial_BC,
                                       const FFT_COMPLEX* FQ, LTMatrix3* virial,
@@ -1035,12 +1032,13 @@ static __global__ void PME_Sum_Virial(const int nfft,
     {
         int fftc = fftz / 2 + 1;
         int nz = index % fftc;
-        float factor = (nz == 0 || nz == fftc - 1) ? 0.5f : 1.0f;
+        float factor =
+            (nz == 0 || (fftz % 2 == 0 && nz == fftc - 1)) ? 0.5f : 1.0f;
         FFT_COMPLEX FQ0 = FQ[index];
         LTMatrix3 vir0 =
             factor * (REAL(FQ0) * REAL(FQ0) + IMAGINARY(FQ0) * IMAGINARY(FQ0)) *
             virial_BC[index];
-        vir = vir - vir0;
+        vir = vir + vir0;
     }
 #else
     float v11 = 0.0f, v21 = 0.0f, v22 = 0.0f;
@@ -1050,17 +1048,18 @@ static __global__ void PME_Sum_Virial(const int nfft,
     {
         int fftc = fftz / 2 + 1;
         int nz = index % fftc;
-        float factor = (nz == 0 || nz == fftc - 1) ? 0.5f : 1.0f;
+        float factor =
+            (nz == 0 || (fftz % 2 == 0 && nz == fftc - 1)) ? 0.5f : 1.0f;
         FFT_COMPLEX FQ0 = FQ[index];
         LTMatrix3 vir0 =
             factor * (REAL(FQ0) * REAL(FQ0) + IMAGINARY(FQ0) * IMAGINARY(FQ0)) *
             virial_BC[index];
-        v11 -= vir0.a11;
-        v21 -= vir0.a21;
-        v22 -= vir0.a22;
-        v31 -= vir0.a31;
-        v32 -= vir0.a32;
-        v33 -= vir0.a33;
+        v11 += vir0.a11;
+        v21 += vir0.a21;
+        v22 += vir0.a22;
+        v31 += vir0.a31;
+        v32 += vir0.a32;
+        v33 += vir0.a33;
     }
     vir = {v11, v21, v22, v31, v32, v33};
 #endif
@@ -1219,21 +1218,21 @@ static __global__ void up_box_bc(int fftx, int ffty, int fftz, float* PME_BC,
                 }
                 else
                 {
-                    bc_local = (float)1.0 / PI / msq * exp(mprefactor * msq) /
+                    bc_local = (float)1.0 / PI / msq * exp(-mprefactor * msq) /
                                volume * PME_BC0[index];
                     virial_bc_local.a11 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.x * m.x;
                     virial_bc_local.a21 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.y * m.x;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.y * m.x;
                     virial_bc_local.a22 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.y * m.y;
                     virial_bc_local.a31 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.z * m.x;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.z * m.x;
                     virial_bc_local.a32 =
-                        0 - 2 / msq * (1 + mprefactor * msq) * m.z * m.y;
+                        0 - 4 / msq * (1 + mprefactor * msq) * m.z * m.y;
                     virial_bc_local.a33 =
                         1 - 2 / msq * (1 + mprefactor * msq) * m.z * m.z;
-                    PME_virial_BC[index] = 0.5f * bc_local * virial_bc_local;
+                    PME_virial_BC[index] = bc_local * virial_bc_local;
                     PME_BC[index] = bc_local;
                 }
             }
@@ -1251,16 +1250,36 @@ static void Scale_Positions_Device(const LTMatrix3 g, VECTOR* crd, float dt)
     crd[0] = r_dash;
 }
 
-void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
+void Particle_Mesh::Set_Box(const Boundary boundary, VECTOR box_length)
+{
+    Update_Box_Coefficients(boundary);
+    int nx = pm_dom_dec_split_num.int_x;
+    int ny = pm_dom_dec_split_num.int_y;
+    int nz = pm_dom_dec_split_num.int_z;
+    int i = pm_rank % nx;
+    int j = pm_rank / nx % ny;
+    int k = pm_rank / (nx * ny);
+    min_corner = {box_length.x / nx * i, box_length.y / ny * j,
+                  box_length.z / nz * k};
+    max_corner = {box_length.x / nx * (i + 1), box_length.y / ny * (j + 1),
+                  box_length.z / nz * (k + 1)};
+}
+
+void Particle_Mesh::Update_Box_Coefficients(const Boundary boundary)
 {
     float volume = boundary.cell.a11 * boundary.cell.a22 * boundary.cell.a33;
     neutralizing_factor = -0.5 * CONSTANT_Pi / (beta * beta * volume);
-    float mprefactor = PI * PI / -beta / beta;
+    float mprefactor = PI * PI / beta / beta;
     dim3 blockSize = {8, 8, CONTROLLER::device_max_thread / 64};
     dim3 gridSize = {64, 64};
     Launch_Device_Kernel(up_box_bc, gridSize, blockSize, 0, NULL, fftx, ffty,
                          fftz, PME_BC, PME_BC0, PME_Virial_BC, mprefactor,
                          boundary.rcell, volume);
+}
+
+void Particle_Mesh::Update_Box(const Boundary boundary, LTMatrix3 g, float dt)
+{
+    Update_Box_Coefficients(boundary);
     Scale_Positions_Device(g, &min_corner, dt);
     Scale_Positions_Device(g, &max_corner, dt);
 }

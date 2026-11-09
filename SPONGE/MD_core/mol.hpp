@@ -1010,6 +1010,7 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
                  sizeof(int) * molecule_numbers, deviceMemcpyHostToDevice);
     deviceMemcpy(d_residue_end, h_residue_end, sizeof(int) * molecule_numbers,
                  deviceMemcpyHostToDevice);
+    is_initialized = 1;
     if (md_info->pbc.pbc)
     {
         controller->printf("    Molecule numbers: %d\n",

@@ -384,3 +384,16 @@ standard `/parameters/sponge/output/status` and
 writer state.
 
 This file documents intended coverage only; run the staged commands above to prove configure/build/CTest status.
+
+## Restart retention coverage
+
+`test_highfive_backend_io` checks latest-path preservation, bounded complete H5
+restart history, failed archive preparation and publication, recovery after an
+interrupted archive operation (hard link and copy), and count reduction.
+`test_h5_restart_load_runtime_closure` additionally exercises multiple checkpoint
+exports, generation continuity across processes, dynamic recovery from an older
+checkpoint, and invalid `max_restart_export_count` values. Both single-file and
+VDS trajectory output are exercised with active trajectory writes. The VDS case
+checks multiple completed shards and compares their steps, times, coordinates,
+and boxes with the virtual datasets after initial output, another process, and
+recovery from a historical checkpoint. Enable the runtime case with `SPONGE_H5_ENABLE_RUNTIME_SMOKE=1`.

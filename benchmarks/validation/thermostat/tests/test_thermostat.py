@@ -1,24 +1,22 @@
 import pytest
 
-from benchmarks.utils import Extractor, Outputer
+from benchmarks.utils import Outputer
 
 from benchmarks.validation.thermostat.tests.utils import (
     evaluate_temperature_block_average,
     parse_temperature_series,
-    read_mass_values,
     run_sponge_thermostat,
-    write_velocity_file_for_temperature,
     write_thermostat_mdin,
 )
 
 COMMON_CFG = {
+    "dt": 0.002,
     "step_limit": 1000,
     "burn_in": 20,
     "block_size": 100,
     "z_score_max": 3.0,
     "thermostat_tau": 0.1,
     "target_temperature": 300.0,
-    "velocity_temperature": 300.0,
     "seed": 2026,
 }
 
@@ -29,6 +27,15 @@ THERMOSTAT_CASES = [
             **COMMON_CFG,
             "id": "middle_langevin",
             "thermostat": "middle_langevin",
+            # Separate initial relaxation from the stationary-temperature
+            # check: 40 thermostat times for equilibration, then 80 for
+            # sampling in blocks of five thermostat times. Use a smaller
+            # integration step without changing the acceptance threshold.
+            "dt": 0.001,
+            "step_limit": 12000,
+            "burn_in": 4000,
+            "block_size": 500,
+            "timeout": 2400,
         },
         id="middle_langevin",
     ),
@@ -79,22 +86,13 @@ def test_thermostat_tip3p_water(statics_path, outputs_path, cfg, mpi_np):
         mpi_np=mpi_np,
         run_name=cfg["id"],
     )
-    masses = read_mass_values(case_dir / f"{file_prefix}_mass.txt")
-    constrain_pair_count = Extractor.read_first_field_int(
-        case_dir / f"{file_prefix}_bond.txt"
-    )
-    write_velocity_file_for_temperature(
-        case_dir / "initial_velocity.txt",
-        masses,
-        temperature=cfg["velocity_temperature"],
-        seed=cfg["seed"],
-        degrees_of_freedom=3 * len(masses) - constrain_pair_count,
-    )
-
+    # Project onto the rigid-water velocity manifold before normalizing the
+    # temperature. Unconstrained velocities lose kinetic energy on the first
+    # SETTLE step and contaminate this short stationary-temperature check.
     write_thermostat_mdin(
         case_dir,
         step_limit=cfg["step_limit"],
-        dt=0.002,
+        dt=cfg["dt"],
         cutoff=8.0,
         thermostat=cfg["thermostat"],
         thermostat_mode=cfg.get("thermostat_mode"),
@@ -104,10 +102,12 @@ def test_thermostat_tip3p_water(statics_path, outputs_path, cfg, mpi_np):
         thermostat_seed=cfg["seed"],
         default_in_file_prefix=file_prefix,
         md_name="benchmark tip3p_water thermostat",
-        velocity_in_file="initial_velocity.txt",
+        initial_velocity_seed=cfg["seed"],
     )
 
-    run_sponge_thermostat(case_dir, timeout=600, mpi_np=mpi_np)
+    run_sponge_thermostat(
+        case_dir, timeout=cfg.get("timeout", 600), mpi_np=mpi_np
+    )
 
     temperatures = parse_temperature_series(case_dir / "mdout.txt")
     stats = evaluate_temperature_block_average(

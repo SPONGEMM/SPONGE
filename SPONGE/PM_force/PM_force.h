@@ -177,6 +177,8 @@ struct Particle_Mesh
         VECTOR* force, int need_virial, int need_energy, LTMatrix3* d_virial,
         float* d_potential, int step);
 
+    void Set_Box(const Boundary boundary, VECTOR box_length);
+    void Update_Box_Coefficients(const Boundary boundary);
     void Update_Box(const Boundary boundary, LTMatrix3 g, float dt);
     void Step_Print(CONTROLLER* controller);
 

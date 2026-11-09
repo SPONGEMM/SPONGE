@@ -62,7 +62,7 @@ corresponding pages.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `amber_parm7` | string | AMBER parm7 topology/parameter file |
-| `amber_rst7` | string | AMBER rst7 coordinate/velocity file |
+| `amber_rst7` | string | AMBER rst7 coordinates, optional velocities, and six box values (lengths and angles); the optional header time does not indicate velocity presence |
 | `gromacs_gro` | string | GROMACS .gro coordinate file |
 | `gromacs_top` | string | GROMACS .top topology file |
 | `gromacs_include_dir` | string list | Extra include directories used when reading `.top` |
@@ -119,7 +119,7 @@ particle_stream = "all"
 | `frame_limit` | Keep as a top-level flat key, or use `rerun_frame_limit` |
 | `rerun_start` | Unchanged top-level flat key |
 | `rerun_strip` | Unchanged top-level flat key |
-| `rerun_need_box_update` | Unchanged top-level flat key |
+| `rerun_need_box_update` | Deprecated top-level compatibility key; omit it. Only `1`/`true` is accepted |
 
 H5 and legacy inputs for the same role are mutually exclusive. For example,
 `input_h5_restart_path` cannot be combined with `coordinate_in_file`,
@@ -223,8 +223,35 @@ explicitly set.
 | `write_mdout_interval` | int | `1000` | mdout write interval |
 | `write_trajectory_interval` | int | same as `write_information_interval` | Trajectory write interval |
 | `write_restart_file_interval` | int | `step_limit` | Restart file write interval |
-| `max_restart_export_count` | int | `1` | Maximum number of restart files to keep in rotation |
+| `max_restart_export_count` | positive int | `1` | Maximum retained checkpoints, including the latest H5 restart; also controls legacy restart rotation |
 | `buffer_frame` | int | `10` | File buffer frame count (affects I/O performance) |
+
+For H5 restart output, `output_h5_restart_path` always names the latest
+successfully published checkpoint. With `max_restart_export_count = N`, SPONGE
+retains that file and up to `N - 1` older, complete H5 restart files alongside it.
+For example, `runs/restart.spgr.h5` has archives named
+`runs/history-1_restart.spgr.h5`, `runs/history-2_restart.spgr.h5`, and so on.
+The number orders archival operations, not simulation steps or age slots;
+existing history is discovered across launches. The embedded restart generation
+also continues from the existing latest checkpoint. Each history file can be
+selected directly with `input_h5_restart_path` for recovery.
+
+Each new checkpoint is written and closed at `<output_h5_restart_path>.tmp`.
+Before atomically replacing the latest path, SPONGE preserves the previous file
+using a hard link, or a copy when hard links are unavailable. If the output path
+is a symbolic link, its target contents are copied into an independent regular
+archive; successful publication replaces the symbolic link at the configured
+path without modifying its external target. Copies left by interrupted
+publication are recognized even for old checkpoints without generation or UUID
+metadata, using a full byte comparison when publication identity is unavailable.
+Older history is
+pruned only after successful publication. A failed write or publication leaves
+the previous latest checkpoint and retained history available. An interrupted
+publication or a cleanup failure can leave extra history, which is pruned after
+a later successful publication. Lowering the limit likewise takes effect after
+a successful publication; the default `1` retains only the latest checkpoint.
+Archive names of the form `history-<positive integer>_<restart filename>` are
+reserved for SPONGE retention. Temporary files are not counted toward the limit.
 
 For TOML mdin files, `[write.interval] information`, `trajectory`, `mdout`,
 and `restart`/`restart_file` are accepted aliases for the corresponding

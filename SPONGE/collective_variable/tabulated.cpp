@@ -4,9 +4,9 @@ REGISTER_CV_STRUCTURE(CV_TABULATED, "tabulated", 0);
 
 static __global__ void BSpline_interpolate1d(
     int atom_numbers, const float* points, const float min, const float max,
-    const float delta, const float* x, const VECTOR* x_crd_grads,
-    const LTMatrix3* x_box_grads, float* y, VECTOR* y_crd_grads,
-    LTMatrix3* y_box_grads)
+    const float delta, const int interval_numbers, const float* x,
+    const VECTOR* x_crd_grads, const LTMatrix3* x_box_grads, float* y,
+    VECTOR* y_crd_grads, LTMatrix3* y_box_grads)
 {
 #ifdef USE_GPU
     int ti = blockDim.x * blockIdx.x + threadIdx.x;
@@ -19,8 +19,9 @@ static __global__ void BSpline_interpolate1d(
         if (x0 >= 0 && x0 <= max - min)
         {
             x0 /= delta;
-            int i = x0 + 1;
-            x0 = (float)i - x0;
+            // Evaluate max in the last interval, using its left-hand limit.
+            int i = fminf(x0 + 1, (float)interval_numbers);
+            x0 = fmaxf(0.0f, (float)i - x0);
             y0 = BSpline_4_1(x0) * points[i - 1] + BSpline_4_2(x0) * points[i] +
                  BSpline_4_3(x0) * points[i + 1] +
                  BSpline_4_4(x0) * points[i + 2];
@@ -50,8 +51,9 @@ static __global__ void BSpline_interpolate1d(
         if (x0 >= 0 && x0 <= max - min)
         {
             x0 /= delta;
-            int i = x0 + 1;
-            x0 = (float)i - x0;
+            // Evaluate max in the last interval, using its left-hand limit.
+            int i = fminf(x0 + 1, (float)interval_numbers);
+            x0 = fmaxf(0.0f, (float)i - x0);
             y0 = BSpline_4_1(x0) * points[i - 1] + BSpline_4_2(x0) * points[i] +
                  BSpline_4_3(x0) * points[i + 1] +
                  BSpline_4_4(x0) * points[i + 2];
@@ -87,7 +89,15 @@ void CV_TABULATED::Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager,
     temp = manager->Ask_For_Float_Parameter(module_name, "max", 1, 2);
     cv_max = temp[0];
     free(temp);
-    delta = (cv_max - cv_min) / (cpu_parameters.size() - 1);
+    if (cpu_parameters.size() < 2 || !(cv_max > cv_min))
+    {
+        manager->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
+                                    "CV_TABULATED::Initial",
+                                    "Reason:\n\ttabulated CV requires at least "
+                                    "two parameters and max > min\n");
+    }
+    interval_numbers = cpu_parameters.size() - 1;
+    delta = (cv_max - cv_min) / interval_numbers;
     float padding = cpu_parameters.front();
     if (manager->Command_Exist(module_name, "min_padding"))
     {
@@ -123,8 +133,8 @@ void CV_TABULATED::Compute(int atom_numbers, VECTOR* crd,
         Launch_Device_Kernel(
             BSpline_interpolate1d, (atom_numbers + 1023) / 1024, 1024, 0,
             this->device_stream, atom_numbers, parameters, cv_min, cv_max,
-            delta, cv->d_value, cv->crd_grads, cv->virial, this->d_value,
-            this->crd_grads, this->virial);
+            delta, interval_numbers, cv->d_value, cv->crd_grads, cv->virial,
+            this->d_value, this->crd_grads, this->virial);
         deviceMemcpyAsync(&this->value, this->d_value, sizeof(float),
                           deviceMemcpyDeviceToHost, this->device_stream);
     }

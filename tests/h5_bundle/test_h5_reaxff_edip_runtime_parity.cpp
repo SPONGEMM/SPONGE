@@ -394,8 +394,6 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
     Append_If_Missing(&mdin, "rerun_start", "rerun_start = 0");
     Append_If_Missing(&mdin, "rerun_strip", "rerun_strip = 0");
     Append_If_Missing(&mdin, "rerun_frame_limit", "rerun_frame_limit = 2");
-    Append_If_Missing(&mdin, "rerun_need_box_update",
-                      "rerun_need_box_update = 0");
     Append_If_Missing(&mdin, "write_mdout_interval",
                       "write_mdout_interval = 1");
     if (Has_Key_Line(mdin, "input_h5_restart_path"))
@@ -855,6 +853,8 @@ void Run_Manybody_Runtime_Parity(const std::filesystem::path& sponge_executable)
                                      Manybody_Columns());
     Require_Manybody_Results_Nontrivial(pure_legacy_out.mdout);
 
+    // The input H5 frames carry times 0 and 1 ps. Rerun must preserve
+    // those times rather than add an MD integration step to either frame.
     for (const bool vds : {false, true})
     {
         const auto bundled_out = Prepare_Rerun_Case(
@@ -871,7 +871,7 @@ void Run_Manybody_Runtime_Parity(const std::filesystem::path& sponge_executable)
         Require_Manybody_Results_Nontrivial(bundled_out.mdout);
         SpongeH5InputMatrix::Require_Path_Exists(bundled_out.h5_observable);
         Require_H5_Observable_Columns_Match_Mdout(
-            bundled_out.h5_observable, bundled_out.mdout, {0, 1}, {1.0, 1.001},
+            bundled_out.h5_observable, bundled_out.mdout, {0, 1}, {0.0, 1.0},
             Manybody_Columns());
         Require_Reaxff_Eeq_Charge_Snapshot(bundled_out.h5_observable);
         SpongeH5InputMatrix::Require_Path_Exists(bundled_out.h5_trajectory);
@@ -884,7 +884,7 @@ void Run_Manybody_Runtime_Parity(const std::filesystem::path& sponge_executable)
         {
             Require_H5_Observable_Columns_Match_Mdout(
                 bundled_out.h5_trajectory, bundled_out.mdout, {0, 1},
-                {1.0, 1.001}, Manybody_Columns());
+                {0.0, 1.0}, Manybody_Columns());
             Require_Reaxff_Eeq_Charge_Snapshot(bundled_out.h5_trajectory);
         }
 
@@ -911,7 +911,7 @@ void Run_Manybody_Runtime_Parity(const std::filesystem::path& sponge_executable)
             pure_bundled_out.h5_observable);
         Require_H5_Observable_Columns_Match_Mdout(
             pure_bundled_out.h5_observable, pure_bundled_out.mdout, {0, 1},
-            {1.0, 1.001}, Manybody_Columns());
+            {0.0, 1.0}, Manybody_Columns());
         Require_Reaxff_Eeq_Charge_Snapshot(pure_bundled_out.h5_observable);
         SpongeH5InputMatrix::Require_Path_Exists(
             pure_bundled_out.h5_trajectory);
@@ -924,7 +924,7 @@ void Run_Manybody_Runtime_Parity(const std::filesystem::path& sponge_executable)
         {
             Require_H5_Observable_Columns_Match_Mdout(
                 pure_bundled_out.h5_trajectory, pure_bundled_out.mdout, {0, 1},
-                {1.0, 1.001}, Manybody_Columns());
+                {0.0, 1.0}, Manybody_Columns());
             Require_Reaxff_Eeq_Charge_Snapshot(pure_bundled_out.h5_trajectory);
         }
     }

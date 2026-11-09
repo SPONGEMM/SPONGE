@@ -4,6 +4,8 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
 _PERMUTED_TWO_TYPE_NPI = [3, 1, 1, 2]
 
 
@@ -29,6 +31,9 @@ def _write_prmtop(
     dihedral_rows=(),
     lj14_a=None,
     lj14_b=None,
+    charges=None,
+    scee=1.0,
+    scnb=2.0,
 ):
     atom_types = list(atom_types)
     atom_count = len(atom_types)
@@ -56,7 +61,7 @@ def _write_prmtop(
     sections = [
         "%VERSION VERSION_STAMP = V0001.000 DATE = 01/01/70 00:00:00\n",
         _flag("POINTERS", "10I8", pointers),
-        _flag("CHARGE", "5E16.8", [0.0] * atom_count, 5),
+        _flag("CHARGE", "5E16.8", charges or [0.0] * atom_count, 5),
         _flag("MASS", "5E16.8", [12.0] * atom_count, 5),
         _flag("ATOM_TYPE_INDEX", "10I8", atom_types),
         _flag(
@@ -77,10 +82,12 @@ def _write_prmtop(
                 _flag("DIHEDRAL_FORCE_CONSTANT", "5E16.8", [0.0], 5),
                 _flag("DIHEDRAL_PERIODICITY", "5E16.8", [1.0], 5),
                 _flag("DIHEDRAL_PHASE", "5E16.8", [0.0], 5),
-                _flag("SCEE_SCALE_FACTOR", "5E16.8", [1.0], 5),
-                _flag("SCNB_SCALE_FACTOR", "5E16.8", [2.0], 5),
             ]
         )
+    if dihedral_rows and scee is not None:
+        sections.append(_flag("SCEE_SCALE_FACTOR", "5E16.8", [scee], 5))
+    if dihedral_rows and scnb is not None:
+        sections.append(_flag("SCNB_SCALE_FACTOR", "5E16.8", [scnb], 5))
     sections.extend(
         [
             _flag("LENNARD_JONES_ACOEF", "3E24.16", normal_a, 3),
@@ -298,3 +305,30 @@ def test_chamber_lj14_coefficients_must_be_complete(tmp_path):
         "LENNARD_JONES_14_ACOEF and LENNARD_JONES_14_BCOEF must either both "
         "be present or both be absent"
     ) in output
+
+
+@pytest.mark.parametrize(
+    "scee,scnb",
+    [(None, None), (None, 4.0), (2.4, None), (2.4, 4.0), (0.0, 0.0)],
+)
+def test_nb14_missing_scale_factors_use_amber_defaults(tmp_path, scee, scnb):
+    result, mdout_path = _run_sponge(
+        tmp_path,
+        _FOUR_ATOM_COORDINATES,
+        **_four_atom_nb14_options(
+            charges=[1.0, 0.0, 0.0, 1.0],
+            scee=scee,
+            scnb=scnb,
+        ),
+    )
+    assert result.returncode == 0, result.stdout + "\n" + result.stderr
+    lj_divisor = 2.0 if scnb is None else scnb
+    cf_divisor = 1.2 if scee is None else scee
+    expected_lj = -1.0 / lj_divisor if lj_divisor else 0.0
+    expected_cf = 1.0 / (math.sqrt(3.0) * cf_divisor) if cf_divisor else 0.0
+    assert math.isclose(
+        _extract_mdout_term(mdout_path, "nb14_LJ"), expected_lj, abs_tol=0.01
+    )
+    assert math.isclose(
+        _extract_mdout_term(mdout_path, "nb14_EE"), expected_cf, abs_tol=0.01
+    )

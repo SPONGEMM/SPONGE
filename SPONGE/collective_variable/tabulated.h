@@ -10,6 +10,7 @@ struct CV_TABULATED : public COLLECTIVE_VARIABLE_PROTOTYPE
     float cv_min;
     float cv_max;
     float delta;
+    int interval_numbers;
     void Initial(COLLECTIVE_VARIABLE_CONTROLLER* manager, int atom_numbers,
                  const char* module_name);
     void Compute(int atom_numbers, VECTOR* crd, const Boundary boundary,

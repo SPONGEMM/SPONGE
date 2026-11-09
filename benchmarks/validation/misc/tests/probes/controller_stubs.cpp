@@ -5,6 +5,9 @@
 #include "xponge/xponge.h"
 
 int CONTROLLER::MPI_rank = 0;
+int CONTROLLER::MPI_size = 1;
+int CONTROLLER::PP_MPI_size = 1;
+int CONTROLLER::PM_MPI_size = 1;
 
 // MSVC resolves the topology reference in CONSTRAIN::Initial_List even though
 // these probes bypass input loading and initialize their constraints directly.
@@ -42,6 +45,16 @@ const char* CONTROLLER::Command(const char*)
 }
 
 const char* CONTROLLER::Command(const char*, const char*)
+{
+    Unexpected_Configuration_Access();
+}
+
+bool CONTROLLER::Command_Choice(const char*, const char*, bool)
+{
+    Unexpected_Configuration_Access();
+}
+
+bool CONTROLLER::Command_Choice(const char*, const char*, const char*, bool)
 {
     Unexpected_Configuration_Access();
 }

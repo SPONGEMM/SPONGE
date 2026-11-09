@@ -11,6 +11,7 @@ SPONGE -mdin mdin.spg.toml
 ## Table of Contents
 
 - [Core Parameters](core.md) — mode, steps, time step, cutoff
+- [Hydrogen Mass Repartitioning](../hmr.md) — startup mass transfer, water exclusion, constraints and restart semantics
 - [Input/Output](io.md) — file specification and output control
 - [Thermostat](thermostat.md) — thermostat algorithms and parameters
 - [Barostat](barostat.md) — barostat algorithms and parameters

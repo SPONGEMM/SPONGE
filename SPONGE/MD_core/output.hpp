@@ -9,12 +9,14 @@
 #include <string>
 #include <vector>
 
+#include "utils/control/rerun_output_guard.hpp"
 #include "utils/h5md/atomic_file_publish.hpp"
 #include "utils/h5md/h5_legacy_sidecar_contract.hpp"
 #include "utils/h5md/h5_structural_state.hpp"
 #include "utils/h5md/highfive_backend.hpp"
 #include "utils/h5md/output_route_helpers.hpp"
 #include "utils/h5md/protocol_h5_reader.hpp"
+#include "utils/h5md/restart_file_rotation.hpp"
 #include "utils/h5md/topology_h5_reader.hpp"
 
 namespace
@@ -410,6 +412,31 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
                                                 MD_INFORMATION* md_info)
 {
     this->md_info = md_info;
+    // Check before opening any trajectory output: fopen("w") truncates
+    // immediately.
+    const auto check_rerun_output = [&](const char* output)
+    {
+        if (md_info->mode != md_info->RERUN || output == NULL) return;
+        for (const char* input_key : {TRAJ_COMMAND, BOX_TRAJ_COMMAND})
+        {
+            if (controller->Command_Exist(input_key) &&
+                SpongeRerunOutput::Same_File(output,
+                                             controller->Command(input_key)))
+            {
+                const std::string reason =
+                    std::string(
+                        "Reason:\n\trerun output would overwrite input '") +
+                    controller->Command(input_key) +
+                    "'. Use a separate rerun_output_crd/box path or set "
+                    "write_trajectory_interval = 0.\n";
+                controller->Throw_SPONGE_Error(
+                    spongeErrorValueErrorCommand,
+                    "MD_INFORMATION::trajectory_output::Initial",
+                    reason.c_str());
+            }
+        }
+    };
+
     current_crd_synchronized_step = -1;
     h5_output_plan = SpongeH5OutputPlan::Resolve_Output_Plan(controller);
 
@@ -431,6 +458,29 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
         controller->Step_Print_Initial("Pxy", "%.2f");
         controller->Step_Print_Initial("Pxz", "%.2f");
         controller->Step_Print_Initial("Pyz", "%.2f");
+    }
+    if (controller->Command_Exist("max_restart_export_count"))
+    {
+        controller->Check_Int("max_restart_export_count",
+                              "MD_INFORMATION::trajectory_output::Initial");
+        try
+        {
+            const std::string text =
+                controller->Command("max_restart_export_count");
+            std::size_t consumed = 0;
+            const auto count = std::stoll(text, &consumed);
+            if (consumed != text.size() || count <= 0 || count > INT_MAX)
+                throw std::out_of_range("invalid restart retention count");
+            max_restart_export_count = static_cast<int>(count);
+        }
+        catch (const std::exception&)
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand,
+                "MD_INFORMATION::trajectory_output::Initial",
+                "Reason:\n\tmax_restart_export_count must be an integer "
+                "between 1 and INT_MAX\n");
+        }
     }
     if (md_info->mode != md_info->RERUN)
     {
@@ -482,6 +532,7 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
         if (controller->Command_Exist(FRC_TRAJ_COMMAND))
         {
             is_frc_traj = 1;
+            check_rerun_output(controller->Command(FRC_TRAJ_COMMAND));
             Open_File_Safely(&frc_traj, controller->Command(FRC_TRAJ_COMMAND),
                              "wb");
             controller->Set_File_Buffer(frc_traj,
@@ -502,13 +553,6 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
                 "print_zeroth_frame",
                 "MD_INFORMATION::trajectory_output::Initial");
         }
-        if (controller->Command_Exist("max_restart_export_count"))
-        {
-            controller->Check_Int("max_restart_export_count",
-                                  "MD_INFORMATION::trajectory_output::Initial");
-            max_restart_export_count =
-                atoi(controller->Command("max_restart_export_count"));
-        }
     }
     else
     {
@@ -526,6 +570,7 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
         if (controller->Command_Exist(FRC_TRAJ_COMMAND))
         {
             is_frc_traj = 1;
+            check_rerun_output(controller->Command(FRC_TRAJ_COMMAND));
             Open_File_Safely(&frc_traj, controller->Command(FRC_TRAJ_COMMAND),
                              "wb");
             controller->Set_File_Buffer(frc_traj,
@@ -534,6 +579,7 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
         if (controller->Command_Exist("rerun_output_vel"))
         {
             is_vel_traj = 1;
+            check_rerun_output(controller->Command("rerun_output_vel"));
             Open_File_Safely(&vel_traj, controller->Command("rerun_output_vel"),
                              "wb");
             controller->Set_File_Buffer(vel_traj,
@@ -543,6 +589,7 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
     if (write_trajectory_interval != 0 && md_info->mode == md_info->RERUN &&
         controller->Command_Exist("rerun_output_crd"))
     {
+        check_rerun_output(controller->Command("rerun_output_crd"));
         Open_File_Safely(&crd_traj, controller->Command("rerun_output_crd"),
                          "wb");
         controller->Set_File_Buffer(crd_traj,
@@ -551,6 +598,8 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
     else if (write_trajectory_interval != 0 &&
              h5_output_plan.legacy.Enabled(TRAJ_COMMAND))
     {
+        if (controller->Command_Exist(TRAJ_COMMAND))
+            check_rerun_output(controller->Command(TRAJ_COMMAND));
         crd_traj = controller->Get_Output_File(true, TRAJ_COMMAND, ".dat",
                                                TRAJ_DEFAULT_FILENAME);
         if (crd_traj != NULL)
@@ -562,12 +611,15 @@ void MD_INFORMATION::trajectory_output::Initial(CONTROLLER* controller,
     if (write_trajectory_interval != 0 && md_info->mode == md_info->RERUN &&
         controller->Command_Exist("rerun_output_box"))
     {
+        check_rerun_output(controller->Command("rerun_output_box"));
         Open_File_Safely(&box_traj, controller->Command("rerun_output_box"),
                          "w");
     }
     else if (write_trajectory_interval != 0 &&
              h5_output_plan.legacy.Enabled(BOX_TRAJ_COMMAND))
     {
+        if (controller->Command_Exist(BOX_TRAJ_COMMAND))
+            check_rerun_output(controller->Command(BOX_TRAJ_COMMAND));
         box_traj = controller->Get_Output_File(false, BOX_TRAJ_COMMAND, ".box",
                                                BOX_TRAJ_DEFAULT_FILENAME);
         char line[256];
@@ -753,6 +805,19 @@ void MD_INFORMATION::trajectory_output::Initial_H5_Restart(
     }
     h5_restart_enabled = h5_output_plan.restart.enabled;
     h5_restart_generation = 0;
+    if (h5_restart_enabled && CONTROLLER::MPI_rank == 0)
+    {
+        std::string generation_error;
+        if (!SpongeH5MD::Read_Last_Restart_Generation(
+                h5_output_plan.restart.path, &h5_restart_generation,
+                &generation_error))
+        {
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat,
+                "MD_INFORMATION::trajectory_output::Initial_H5_Restart",
+                generation_error.c_str());
+        }
+    }
     if (h5_restart_enabled)
     {
         std::string lineage_error;
@@ -1685,9 +1750,8 @@ void MD_INFORMATION::trajectory_output::Append_Frc_Traj_File(FILE* fp)
 {
     if (md_info->is_initialized && CONTROLLER::MPI_rank == 0)
     {
-        deviceMemcpy(md_info->force, md_info->frc,
-                     sizeof(VECTOR) * md_info->atom_numbers,
-                     deviceMemcpyDeviceToHost);
+        // Use the host snapshot prepared while DD indices still matched the
+        // force slots. Later box/domain updates may reuse device buffers.
         if (fp == NULL)  // 默认的frc输出位置
             fp = frc_traj;
         if (fp != NULL)
@@ -1806,6 +1870,13 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
     SpongeH5MD::TemporaryFileGuard temporary_file_guard(temporary_path);
     SpongeH5OutputPlan::ResolvedOutputPlan temporary_plan = h5_output_plan;
     temporary_plan.restart.path = temporary_path;
+    if (h5_restart_generation == std::numeric_limits<int64_t>::max())
+    {
+        h5_restart_enabled = false;
+        Record_H5_Output_Failure("restart", "prepare",
+                                 "restart generation is exhausted");
+        return;
+    }
     const int64_t candidate_generation = h5_restart_generation + 1;
     SpongeH5MD::HighFiveBackend backend;
     SpongeH5MD::RestartH5Writer writer(&backend);
@@ -1993,8 +2064,10 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
         Record_H5_Output_Failure("restart", "close", writer.Last_Error());
         return;
     }
-    if (!SpongeH5MD::Atomic_Replace_File(temporary_path, restart_path,
-                                         &publish_error))
+    std::string cleanup_error;
+    if (!SpongeH5MD::Publish_Restart_With_History(
+            temporary_path, restart_path, max_restart_export_count,
+            &publish_error, &cleanup_error))
     {
         h5_restart_enabled = false;
         Record_H5_Output_Failure("restart", "publish", publish_error);
@@ -2002,6 +2075,8 @@ void MD_INFORMATION::trajectory_output::Export_H5_Restart_File(
     }
     temporary_file_guard.Release();
     h5_restart_generation = candidate_generation;
+    if (!cleanup_error.empty())
+        Record_H5_Output_Failure("restart", "prune", cleanup_error);
 }
 
 void MD_INFORMATION::trajectory_output::Export_Restart_File(
@@ -2119,7 +2194,8 @@ bool MD_INFORMATION::trajectory_output::Check_Trajectory_Step()
            (md_info->sys.steps + 1) %
                    md_info->output.write_trajectory_interval ==
                0 &&
-           md_info->sys.steps != md_info->sys.step_limit;
+           (md_info->mode == md_info->RERUN ||
+            md_info->sys.steps != md_info->sys.step_limit);
 }
 
 bool MD_INFORMATION::trajectory_output::Check_Restart_Step()
@@ -2128,5 +2204,6 @@ bool MD_INFORMATION::trajectory_output::Check_Restart_Step()
            (md_info->sys.steps + 1) %
                    md_info->output.write_restart_file_interval ==
                0 &&
-           md_info->sys.steps != md_info->sys.step_limit;
+           (md_info->mode == md_info->RERUN ||
+            md_info->sys.steps != md_info->sys.step_limit);
 }

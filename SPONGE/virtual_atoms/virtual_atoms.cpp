@@ -107,9 +107,8 @@ static __global__ void v4_Coordinate_Refresh(const int atom_numbers,
 {
     VECTOR new_position = {0, 0, 0};
 #ifdef USE_GPU
-    int i = blockDim.x * blockDim.y * blockIdx.x + blockDim.y * threadIdx.x +
-            threadIdx.y;
-    if (i < atom_numbers)
+    // This kernel is launched with one warp; each lane may own many atoms.
+    for (int i = threadIdx.x; i < atom_numbers; i += blockDim.x)
     {
         new_position = new_position + weight[i] * coordinate[from_atoms[i]];
     }

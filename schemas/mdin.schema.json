@@ -67,18 +67,16 @@
       "anyOf": [
         {
           "type": "integer",
-          "enum": [
-            0,
-            1
-          ]
+          "enum": [1]
         },
         {
-          "type": "boolean"
+          "type": "boolean",
+          "enum": [true]
         }
       ],
       "title": "Rerun Need Box Update",
-      "description": "Whether to update the box deformation tensor during rerun.",
-      "default": 0
+      "description": "Deprecated compatibility input: rerun always uses each frame's box. Omit this key; only 1 or true is accepted.",
+      "deprecated": true
     },
     "cutoff": {
       "anyOf": [
@@ -1090,18 +1088,16 @@
           "anyOf": [
             {
               "type": "integer",
-              "enum": [
-                0,
-                1
-              ]
+              "enum": [1]
             },
             {
-              "type": "boolean"
+              "type": "boolean",
+              "enum": [true]
             }
           ],
           "title": "Need Box Update",
-          "description": "Update box during rerun.",
-          "default": 0
+          "description": "Deprecated compatibility input: rerun always uses each frame's box. Omit this key; only 1 or true is accepted.",
+          "deprecated": true
         },
         "start": {
           "type": "integer",
@@ -1497,6 +1493,61 @@
       },
       "title": "Monte Carlo Barostat",
       "description": "Monte Carlo barostat settings."
+    },
+    "hmr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable one-time hydrogen mass repartitioning during mass initialization. Recognized water is excluded."
+        },
+        "ratio_xh1": {
+          "type": "number",
+          "minimum": 1,
+          "default": 2.0,
+          "description": "Original H mass multiplier for donors bonded to exactly one H."
+        },
+        "ratio_other": {
+          "type": "number",
+          "minimum": 1,
+          "description": "Required when enabled: original H mass multiplier for donors bonded to two or more H (AMBER example 2.5; CHARMM example 3.0)."
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "if": {
+        "properties": {
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ratio_other"
+        ]
+      },
+      "else": {
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "ratio_xh1"
+              ]
+            },
+            {
+              "required": [
+                "ratio_other"
+              ]
+            }
+          ]
+        }
+      },
+      "title": "Hydrogen Mass Repartitioning",
+      "description": "Ordinary unrepartitioned fixed-bond protium topologies in NVE/NVT/NPT. Ratios require enabled=true; constraints and dt are configured independently."
     },
     "constrain": {
       "type": "object",
@@ -2165,6 +2216,12 @@
       },
       "title": "SITS",
       "description": "SITS enhanced sampling settings."
+    },
+    "constrain_precision": {
+      "type": "string",
+      "enum": ["single", "double"],
+      "default": "double",
+      "description": "Internal arithmetic and work buffers for SETTLE/SHAKE/LINCS/CCMA. Global MD coordinates, velocities, forces and output stress remain float. Independent of solver tolerance/order."
     },
     "constrain_mode": {
       "type": "string",

@@ -129,8 +129,13 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
         nb14_to_use = &nb14;
         init_source = "Xponge::system";
     }
-    else if (controller->Command_Exist(this->module_name, file_name_suffix))
+    else if (controller->Command_Exist(this->module_name, file_name_suffix) ||
+             controller->Command_Exist(this->module_name, "extra_in_file"))
     {
+        if (!controller->Command_Exist(this->module_name, file_name_suffix))
+        {
+            sprintf(file_name_suffix, "extra_in_file");
+        }
         Xponge::Native_Load_NB14(&local_nb14, lj_atom_type, LJ_type_A,
                                  LJ_type_B, controller, this->module_name);
         nb14_to_use = &local_nb14;

@@ -38,7 +38,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -154,7 +154,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
 
     steps:
       - name: Checkout repository
@@ -248,7 +248,7 @@ jobs:
           - feature: cpu
             env_name: dev-cpu
             target: osx-arm64
-            runner: macos-14
+            runner: macos-15
             shard: all
             label: osx-arm64
 
@@ -268,6 +268,7 @@ jobs:
         run: pixi run -e ${{ matrix.env_name }} configure
 
       - name: Compile SPONGE-CPU
+        id: compile
         run: pixi run -e ${{ matrix.env_name }} compile
 
       - name: Benchmark validation/barostat (full)
@@ -287,6 +288,50 @@ jobs:
           pixi run -e ${{ matrix.env_name }} python -X utf8 -m pytest
           benchmarks/validation/barostat/tests/test_schedule_inputs.py -s
           --tb=short
+
+      # Compare on the same ARM runner and installed environment. The regular
+      # head validation above remains the acceptance gate; base is diagnostic.
+      - name: Diagnostic ARM Bussi comparison with PR base
+        if: >-
+          always() && steps.compile.outcome == 'success' &&
+          matrix.target == 'linux-aarch64' && github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          BAROSTAT_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BAROSTAT_BASE_DIR: ${{ runner.temp }}/barostat-base
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/barostat-head-sha.txt"
+          git fetch --no-tags origin "$BAROSTAT_BASE_SHA"
+          git worktree add --detach "$BAROSTAT_BASE_DIR" "$BAROSTAT_BASE_SHA"
+          git -C "$BAROSTAT_BASE_DIR" rev-parse HEAD > "$RUNNER_TEMP/barostat-base-sha.txt"
+          pixi run -e ${{ matrix.env_name }} bash -c '
+            set -euo pipefail
+            cmake -S "$BAROSTAT_BASE_DIR" -B "$BAROSTAT_BASE_DIR/build-ci" -G Ninja \
+              -DPARALLEL=none -DCMAKE_PREFIX_PATH="$CONDA_PREFIX" \
+              -DCMAKE_INSTALL_PREFIX="$CONDA_PREFIX"
+            cmake --build "$BAROSTAT_BASE_DIR/build-ci" --target SPONGE --parallel 4
+          '
+          pixi run -e ${{ matrix.env_name }} bash -c '
+            set -euo pipefail
+            export PATH="$BAROSTAT_BASE_DIR/build-ci:$PATH"
+            cd "$BAROSTAT_BASE_DIR"
+            python -X utf8 -m pytest \
+              benchmarks/validation/barostat/tests/test_regulate.py \
+              -k bussi_barostat -s --tb=short
+          ' 2>&1 | tee "$RUNNER_TEMP/barostat-base.log"
+
+      - name: Upload ARM Bussi base and head evidence
+        if: >-
+          always() && matrix.target == 'linux-aarch64' &&
+          github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-bussi-base-head-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/barostat-*-sha.txt
+            ${{ runner.temp }}/barostat-base.log
+            benchmarks/validation/barostat/outputs/tip3p_water/bussi_barostat_regulate_26A
+            ${{ runner.temp }}/barostat-base/benchmarks/validation/barostat/outputs/tip3p_water/bussi_barostat_regulate_26A
 
   benchmark-cpu-mpi-np2:
     name: benchmark-cpu-mpi-np2 (${{ matrix.target }})
