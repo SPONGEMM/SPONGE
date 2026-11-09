@@ -756,7 +756,8 @@ SpongeH5MD::MetadynamicsGrid META::Export_H5_Grid(bool include_values)
 {
     SpongeH5MD::MetadynamicsGrid grid;
     const bool estimated = subhill || (!usegrid && !use_scatter);
-    grid.scattered = !estimated && use_scatter && mscatter != NULL;
+    // Masked scatter dynamics reads the regular grid in Estimate().
+    grid.scattered = !estimated && use_scatter && mask == 0 && mscatter != NULL;
     for (int d = 0; d < ndim; ++d)
     {
         grid.cv_labels.push_back(d < static_cast<int>(cvs.size()) &&

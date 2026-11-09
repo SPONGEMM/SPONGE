@@ -1,4 +1,4 @@
-"""Native snapshots must preserve host-only subhill deposits between steps."""
+"""Native snapshots preserve deposits and export the active bias surface."""
 
 import argparse
 import json
@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 
 
-def check(binary, output, vds):
+def check(binary, output, vds, mode="subhill"):
     output.mkdir(parents=True, exist_ok=True)
     (output / "mass.txt").write_text("4\n12\n12\n12\n12\n")
     (output / "charge.txt").write_text("4\n0\n0\n0\n0\n")
@@ -25,6 +25,15 @@ def check(binary, output, vds):
         "height = 1.0\nwelltemp_factor = 1000000000.0\n"
         "potential_update_interval = 1\n"
     )
+    if mode != "subhill":
+        cv = (output / "cv.toml").read_text()
+        cv = cv.replace(
+            "atom = 0\n", "atom = 0\nCV_point = [0.25, 1.25, 2.25]\n"
+        )
+        cv = cv.replace(
+            "subhill = true\n", f"scatter = 3\nmask = {int(mode == 'masked')}\n"
+        )
+        (output / "cv.toml").write_text(cv)
     coordinates = np.array(
         [[0.5, 0, 0], [4, 1, 0], [8, 0, 1], [12, 1, 1]], dtype=np.float32
     )
@@ -80,20 +89,44 @@ def check(binary, output, vds):
             ]
             values = snapshots["values"][:]
             raw = values[..., labels.index("potential_raw")]
-            # Each step deposits one unit at x=0.5. Export must neither erase
-            # that deposit nor prevent accumulation on the next step.
-            assert len(raw) >= 3, raw.shape
-            np.testing.assert_allclose(
-                raw.sum(axis=1),
-                np.arange(1, len(raw) + 1),
-                rtol=1e-5,
-                atol=1e-5,
-            )
+            assert len(raw) == 4, raw.shape
             assert np.isfinite(values).all()
-            backup = values[..., labels.index("potential_backup")]
-            assert np.all(backup[-1] >= 0)
-            assert backup[-1, 0] > backup[0, 0]
-    print(f"PASS: subhill snapshots ({'vds' if vds else 'single'})")
+            if mode == "subhill":
+                # Export must preserve deposits for subsequent Estimate calls.
+                np.testing.assert_allclose(
+                    raw.sum(axis=1),
+                    np.arange(1, len(raw) + 1),
+                    rtol=1e-5,
+                    atol=1e-5,
+                )
+                backup = values[..., labels.index("potential_backup")]
+                assert np.all(backup[-1] >= 0)
+                assert backup[-1, 0] > backup[0, 0]
+            else:
+                # Masked scatter dynamics uses regular cell centers; unmasked
+                # dynamics uses scatter coordinates. Distinct axes expose a
+                # wrong source even if both payloads contain finite hill values.
+                axis = np.array(
+                    [0.5, 1.5, 2.5, 3.5]
+                    if mode == "masked"
+                    else [0.25, 1.25, 2.25]
+                )
+                np.testing.assert_allclose(snapshots["axes/0"][:], axis)
+                assert raw.shape == (4, len(axis)), raw.shape
+                relative = np.exp(
+                    -((axis - 0.5) ** 2 - (axis[0] - 0.5) ** 2) / (2 * 0.2**2)
+                )
+                np.testing.assert_allclose(
+                    raw / raw[:, :1],
+                    np.broadcast_to(relative, raw.shape),
+                    rtol=1e-4,
+                    atol=1e-8,
+                )
+                np.testing.assert_allclose(
+                    raw[:, 0], np.arange(1, 5) * raw[0, 0], rtol=1e-5
+                )
+
+    print(f"PASS: {mode} snapshots ({'vds' if vds else 'single'})")
 
 
 if __name__ == "__main__":
@@ -101,9 +134,11 @@ if __name__ == "__main__":
     parser.add_argument("--sponge", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    for vds in [False, True]:
-        check(
-            args.sponge.resolve(),
-            args.output.resolve() / ("vds" if vds else "single"),
-            vds,
-        )
+    for mode in ["subhill", "masked", "scatter"]:
+        for vds in [False, True]:
+            check(
+                args.sponge.resolve(),
+                args.output.resolve() / mode / ("vds" if vds else "single"),
+                vds,
+                mode,
+            )
