@@ -988,7 +988,7 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
             if (!md_info->res.is_initialized ||
                 md_info->res.residue_numbers <= 0 ||
                 md_info->res.d_res_start == NULL ||
-                md_info->res.d_res_end == NULL || md_info->d_mass == NULL)
+                md_info->res.d_res_end == NULL || md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_res is not ready.\n");
                 return;
@@ -1001,13 +1001,14 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                                  md_info->res.residue_numbers,
                                  md_info->res.d_res_start,
                                  md_info->res.d_res_end, d_ref_crd_all,
-                                 md_info->d_mass, g, dt, d_ref_crd_all);
+                                 md_info->Model_Mass(), g, dt, d_ref_crd_all);
             break;
         case REFCOORD_SCALING_COM_MOL:
             if (!md_info->mol.is_initialized ||
                 md_info->mol.molecule_numbers <= 0 ||
                 md_info->mol.d_atom_start == NULL ||
-                md_info->mol.d_atom_end == NULL || md_info->d_mass == NULL)
+                md_info->mol.d_atom_end == NULL ||
+                md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_mol is not ready.\n");
                 return;
@@ -1020,11 +1021,11 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                                  md_info->mol.molecule_numbers,
                                  md_info->mol.d_atom_start,
                                  md_info->mol.d_atom_end, d_ref_crd_all,
-                                 md_info->d_mass, g, dt, d_ref_crd_all);
+                                 md_info->Model_Mass(), g, dt, d_ref_crd_all);
             break;
         case REFCOORD_SCALING_COM_UG:
             if (md_info->ug.ug_numbers <= 0 || md_info->ug.d_ug == NULL ||
-                md_info->d_mass == NULL)
+                md_info->Model_Mass() == NULL)
             {
                 printf("restrain refcoord_scaling com_ug is not ready.\n");
                 return;
@@ -1034,7 +1035,7 @@ void RESTRAIN_INFORMATION::Update_Refcoord_Scaling(
                 (md_info->ug.ug_numbers + CONTROLLER::device_max_thread - 1) /
                     CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, md_info->ug.ug_numbers,
-                md_info->ug.d_ug, d_ref_crd_all, md_info->d_mass, g, dt,
+                md_info->ug.d_ug, d_ref_crd_all, md_info->Model_Mass(), g, dt,
                 d_ref_crd_all);
             break;
         default:
@@ -1138,7 +1139,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_ug,
-                        md_info->d_mass, this->cached_ug_numbers,
+                        md_info->Model_Mass(), this->cached_ug_numbers,
                         this->d_sum_mass_ug, this->d_sum_pos_ug, this->d_com_ug,
                         this->h_sum_mass_ug, this->h_sum_pos_ug,
                         this->h_com_ug);
@@ -1157,7 +1158,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_res,
-                        md_info->d_mass, this->cached_res_numbers,
+                        md_info->Model_Mass(), this->cached_res_numbers,
                         this->d_sum_mass_res, this->d_sum_pos_res,
                         this->d_com_res, this->h_sum_mass_res,
                         this->h_sum_pos_res, this->h_com_res);
@@ -1176,7 +1177,7 @@ void RESTRAIN_INFORMATION::Restraint(const VECTOR* crd, Boundary boundary,
                 {
                     this->Update_Group_COM(
                         dd->atom_numbers, crd, atom_local, this->d_atom_to_mol,
-                        md_info->d_mass, this->cached_mol_numbers,
+                        md_info->Model_Mass(), this->cached_mol_numbers,
                         this->d_sum_mass_mol, this->d_sum_pos_mol,
                         this->d_com_mol, this->h_sum_mass_mol,
                         this->h_sum_pos_mol, this->h_com_mol);

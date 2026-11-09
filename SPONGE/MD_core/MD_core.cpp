@@ -288,10 +288,12 @@ void MD_INFORMATION::Read_Mass(CONTROLLER* controller)
     atom_numbers = Xponge_Atom_Numbers();
     Malloc_Safely((void**)&h_mass, sizeof(float) * atom_numbers);
     Malloc_Safely((void**)&h_mass_inverse, sizeof(float) * atom_numbers);
+    std::copy(Xponge::system.atoms.mass.begin(),
+              Xponge::system.atoms.mass.end(), h_mass);
+    Apply_HMR(controller);
     sys.total_mass = 0;
     for (int i = 0; i < atom_numbers; i++)
     {
-        h_mass[i] = Xponge::system.atoms.mass[i];
         if (h_mass[i] == 0)
             h_mass_inverse[i] = 0;
         else
@@ -300,6 +302,10 @@ void MD_INFORMATION::Read_Mass(CONTROLLER* controller)
     }
     if (atom_numbers > 0)
     {
+        if (hmr_enabled)
+            Device_Malloc_And_Copy_Safely((void**)&d_original_mass,
+                                          Xponge::system.atoms.mass.data(),
+                                          sizeof(float) * atom_numbers);
         Device_Malloc_And_Copy_Safely((void**)&d_mass, h_mass,
                                       sizeof(float) * atom_numbers);
         Device_Malloc_And_Copy_Safely((void**)&d_mass_inverse, h_mass_inverse,

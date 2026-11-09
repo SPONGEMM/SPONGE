@@ -63,6 +63,8 @@ struct MD_INFORMATION
     VECTOR* force = NULL;
     float* h_mass = NULL;
     float* h_mass_inverse = NULL;
+    bool hmr_enabled = false;
+    void Apply_HMR(CONTROLLER* controller);
     float* h_charge = NULL;
 
     // 每个原子的基本物理测量量，on device
@@ -73,6 +75,12 @@ struct MD_INFORMATION
     VECTOR* frc = NULL;
     float* d_mass = NULL;
     float* d_mass_inverse = NULL;
+    // Fixed weights defining model geometry, allocated only for HMR.
+    float* d_original_mass = NULL;
+    const float* Model_Mass() const
+    {
+        return d_original_mass != NULL ? d_original_mass : d_mass;
+    }
     float* d_charge = NULL;
 
     // 坐标读取处理

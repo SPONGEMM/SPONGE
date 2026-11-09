@@ -69,7 +69,8 @@ struct CONSTRAIN
     // Initial_List
     // Initial_Constrain
     void Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
-                      float* atom_mass, const char* module_name = NULL);
+                      float* atom_mass, const char* module_name = NULL,
+                      const float* selection_mass = NULL);
     void Initial_Constrain(CONTROLLER* controller, const int atom_numbers,
                            const float dt, const VECTOR box_length,
                            float* atom_mass, int* system_freedom);

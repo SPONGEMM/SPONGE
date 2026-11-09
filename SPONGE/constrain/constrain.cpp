@@ -94,8 +94,10 @@ void CONSTRAIN::Initial_Constrain(CONTROLLER* controller,
 }
 
 void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
-                             float* atom_mass, const char* module_name)
+                             float* atom_mass, const char* module_name,
+                             const float* selection_mass)
 {
+    if (selection_mass == NULL) selection_mass = atom_mass;
     controller->printf("START INITIALIZING CONSTRAIN:\n");
     if (module_name == NULL)
     {
@@ -146,8 +148,10 @@ void CONSTRAIN::Initial_List(CONTROLLER* controller, PAIR_DISTANCE con_dis,
         r0 = i.second;
         mass_a = atom_mass[atom_a];
         mass_b = atom_mass[atom_b];
-        if ((mass_a < constrain_mass && mass_a > 0) ||
-            (mass_b < constrain_mass && mass_b > 0))
+        if ((selection_mass[atom_a] < constrain_mass &&
+             selection_mass[atom_a] > 0) ||
+            (selection_mass[atom_b] < constrain_mass &&
+             selection_mass[atom_b] > 0))
         {
             h_bond_pair[s].atom_i_serial = atom_a;
             h_bond_pair[s].atom_j_serial = atom_b;

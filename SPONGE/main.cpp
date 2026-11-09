@@ -184,6 +184,9 @@ void Main_Initial(int argc, char* argv[])
     Reject_Open_Boundary_Module(eam.is_initialized, "EAM");
     Reject_Open_Boundary_Module(tersoff.is_initialized, "TERSOFF");
     Reject_Open_Boundary_Module(reaxff.is_initialized, "REAXFF");
+    if (md_info.hmr_enabled && reaxff.is_initialized)
+        controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "HMR",
+                                      "HMR requires fixed bond topology");
 
     if (Xponge::system.positional_restraint.present)
     {
@@ -232,6 +235,13 @@ void Main_Calculate_Force()
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
+    // The final force evaluation must be checked even when no mdout frame
+    // is due. Request fresh reductions rather than checking stale host data.
+    if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        md_info.need_potential = 1;
+        md_info.need_kinetic = 1;
+    }
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;
@@ -774,7 +784,17 @@ void Main_Print()
         meta.Step_Print(&controller);
         output_session.Write_Metadynamics_Scalars();
         soft_walls.Step_Print(&controller);
+        // A failed asynchronous kernel can leave finite but stale host values.
+        // Check both device status and the reduced observables before
+        // publishing.
+        controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
         output_session.Write_Observables();
+    }
+    else if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
     }
 
     if (output_session.Trajectory_Due())
