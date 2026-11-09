@@ -2,6 +2,7 @@
 
 #include "../utils/float_classification.hpp"
 #include "../utils/h5md/h5_structural_state.hpp"
+#include "../utils/h5md/metadynamics_potential_snapshots.hpp"
 
 static float Evaluate_Gaussian_Switch(const float rij, const float center,
                                       const float inv_w, const float period,
@@ -751,6 +752,115 @@ static void Write_CV_Header(FILE* temp_file, int ndim, const CV_LIST& cvs)
         }
     }
 }
+SpongeH5MD::MetadynamicsGrid META::Export_H5_Grid(bool include_values)
+{
+    SpongeH5MD::MetadynamicsGrid grid;
+    const bool estimated = subhill || (!usegrid && !use_scatter);
+    grid.scattered = !estimated && use_scatter && mscatter != NULL;
+    for (int d = 0; d < ndim; ++d)
+    {
+        grid.cv_labels.push_back(d < static_cast<int>(cvs.size()) &&
+                                         cvs[d] != NULL
+                                     ? cvs[d]->module_name
+                                     : "cv" + std::to_string(d + 1));
+        std::vector<float> axis;
+        if (grid.scattered)
+        {
+            for (int i = 0; i < scatter_size; ++i)
+                axis.push_back(mscatter->Get_Coordinate(i)[d]);
+        }
+        else
+        {
+            grid.shape.push_back(static_cast<std::size_t>(n_grids[d]));
+            for (int i = 0; i < n_grids[d]; ++i)
+                axis.push_back(cv_mins[d] + (i + 0.5f) * cv_deltas[d]);
+        }
+        grid.axes.push_back(std::move(axis));
+    }
+    if (grid.scattered)
+        grid.shape.push_back(static_cast<std::size_t>(scatter_size));
+    if (estimated)
+    {
+        grid.value_labels = {"potential_local", "potential_backup"};
+        if (!kde) grid.value_labels.push_back("potential_raw");
+    }
+    else
+        grid.value_labels = {"potential_raw", "potential_shifted", "vshift"};
+    if (!include_values) return grid;
+    grid.values.resize(grid.Value_Count());
+    if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
+    {
+        if (mgrid) mgrid->Sync_To_Host();
+        if (mscatter) mscatter->Sync_To_Host();
+        const auto width = grid.value_labels.size();
+        const auto points = grid.values.size() / width;
+        const float saved_local = potential_local,
+                    saved_backup = potential_backup;
+        for (std::size_t point = 0; point < points; ++point)
+        {
+            Axis coordinates(ndim);
+            std::size_t rest = point;
+            std::vector<std::size_t> indices(ndim);
+            for (int d = ndim - 1; d >= 0; --d)
+            {
+                if (grid.scattered)
+                    coordinates[d] = grid.axes[d][point];
+                else
+                {
+                    indices[d] = rest % grid.shape[d];
+                    coordinates[d] = grid.axes[d][indices[d]];
+                    rest /= grid.shape[d];
+                }
+            }
+            float* values = grid.values.data() + point * width;
+            if (estimated)
+            {
+                Estimate(coordinates, true, false);
+                values[0] = potential_local;
+                values[1] = potential_backup;
+                if (!kde)
+                    values[2] =
+                        mgrid
+                            ? mgrid->potential[mgrid->Get_Flat_Index(
+                                  coordinates)]
+                            : mscatter
+                                  ->potential[mscatter->Get_Index(coordinates)];
+            }
+            else
+            {
+                // Engine grids use dimension zero fastest; HDF5 uses C order.
+                std::size_t engine_index = 0, stride = 1;
+                for (int d = 0; d < ndim && !grid.scattered; ++d)
+                {
+                    engine_index += indices[d] * stride;
+                    stride *= grid.shape[d];
+                }
+                const float raw = grid.scattered
+                                      ? mscatter->potential[point]
+                                      : mgrid->potential[engine_index];
+                const float shift = Calc_V_Shift(coordinates);
+                values[0] = raw;
+                values[1] = raw - shift;
+                values[2] = shift;
+            }
+        }
+        potential_local = saved_local;
+        potential_backup = saved_backup;
+    }
+#ifdef USE_MPI
+    // All ranks participate; only CV rank owns the updated bias grid.
+    for (std::size_t start = 0; start < grid.values.size();)
+    {
+        const int count = static_cast<int>(std::min<std::size_t>(
+            grid.values.size() - start, std::numeric_limits<int>::max()));
+        MPI_Bcast(grid.values.data() + start, count, MPI_FLOAT,
+                  CONTROLLER::CV_MPI_rank, MPI_COMM_WORLD);
+        start += count;
+    }
+#endif
+    return grid;
+}
+
 void META::Write_Potential(void)
 {
     if (!is_initialized)

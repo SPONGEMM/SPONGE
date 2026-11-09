@@ -15,10 +15,22 @@ namespace
 {
 using SpongeH5MD::HighFiveBackend;
 using SpongeH5MD::HighFiveBackendFactory;
+using SpongeH5MD::MetadynamicsGrid;
 using SpongeH5MD::TrajectoryH5Writer;
 using SpongeH5MD::VdsTrajectoryH5Writer;
 
 constexpr const char* kBundleId = "123e4567-e89b-42d3-a456-426614174000";
+
+MetadynamicsGrid Probe_Grid(float value = 0)
+{
+    MetadynamicsGrid grid;
+    grid.shape = {1};
+    grid.axes = {{0}};
+    grid.cv_labels = {"phi"};
+    grid.value_labels = {"potential_raw"};
+    grid.values = {value};
+    return grid;
+}
 
 template <typename Writer>
 bool Require(bool ok, const Writer& writer, const char* operation)
@@ -52,8 +64,7 @@ bool Define_Streams(Writer& writer)
                    writer, "define observables") &&
            Require(writer.Ensure_Metadynamics_Scalars(), writer,
                    "define metadynamics") &&
-           Require(writer.Write_Metadynamics_Diagnostic("meta",
-                                                        "potential_export", ""),
+           Require(writer.Define_Metadynamics_Grid("meta", Probe_Grid()),
                    writer, "define potential snapshots");
 }
 
@@ -72,11 +83,8 @@ bool Append_Frame(Writer& writer, int64_t step, double time, float position_x,
                writer.Append_Metadynamics_Scalar_Frame(
                    step, time, position_x, position_x + 1.0, position_x + 2.0),
                writer, "append metadynamics") &&
-           Require(writer.Write_Metadynamics_Diagnostic(
-                       "meta", "potential_export",
-                       "#! FIELDS phi potential_raw\n0 " +
-                           std::to_string(position_x) + "\n",
-                       step, time),
+           Require(writer.Append_Metadynamics_Grid(
+                       "meta", Probe_Grid(position_x), step, time),
                    writer, "append potential snapshot");
 }
 

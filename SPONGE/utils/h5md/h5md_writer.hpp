@@ -32,7 +32,6 @@ enum class FileStatus
 
 enum class DataType
 {
-    uint8,
     int64,
     float32,
     float64,
@@ -100,11 +99,6 @@ class WriterBackend
         const std::vector<VirtualDatasetSource>& sources) = 0;
     virtual bool Create_Hard_Link(const std::string& target,
                                   const std::string& link_path) = 0;
-
-    virtual bool Append_UInt8(const std::string&, const uint8_t*, std::size_t)
-    {
-        return false;
-    }
 
     virtual bool Append_Int64(const std::string& path, const int64_t* data,
                               std::size_t count) = 0;
@@ -197,12 +191,6 @@ class H5MDWriter
     {
         return backend_ != nullptr &&
                backend_->Create_Hard_Link(target, link_path);
-    }
-
-    bool Append_UInt8(const std::string& path, const uint8_t* data,
-                      std::size_t count)
-    {
-        return backend_ != nullptr && backend_->Append_UInt8(path, data, count);
     }
 
     bool Append_Int64(const std::string& path, const int64_t* data,

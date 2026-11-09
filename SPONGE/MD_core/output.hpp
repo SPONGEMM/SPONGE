@@ -1064,8 +1064,7 @@ void MD_INFORMATION::trajectory_output::Prepare_H5_Swmr_Layout(
     CONTROLLER* controller, const char* metadynamics_module_name)
 {
     if (CONTROLLER::MPI_rank != 0) return;
-    const char* components[] = {"hills", "history", "edge", "direct_export",
-                                "potential_export"};
+    const char* components[] = {"hills", "history", "edge", "direct_export"};
     if (metadynamics_module_name != NULL)
     {
         for (const char* component : components)
@@ -1445,6 +1444,32 @@ void MD_INFORMATION::trajectory_output::Append_H5_Metadynamics_Scalar_Frame(
     }
 }
 
+void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Grid(
+    CONTROLLER* controller, const std::string& name,
+    const SpongeH5MD::MetadynamicsGrid& grid, bool define)
+{
+    if (CONTROLLER::MPI_rank != 0) return;
+    const auto write = [&](auto* writer)
+    {
+        const bool ok = define ? writer->Define_Metadynamics_Grid(name, grid)
+                               : writer->Append_Metadynamics_Grid(
+                                     name, grid, md_info->sys.steps,
+                                     md_info->sys.Get_Current_Time(false));
+        if (!ok)
+            controller->Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand, "Write_H5_Metadynamics_Grid",
+                "failed to write native metadynamics grid");
+    };
+    if (h5_trajectory_enabled)
+    {
+        if (h5_trajectory_vds_enabled)
+            write(h5_vds_trajectory_writer.get());
+        else
+            write(h5_trajectory_writer.get());
+    }
+    if (h5_observable_enabled) write(h5_observable_writer.get());
+}
+
 void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
     CONTROLLER* controller, const char* module_name, const char* component,
     const char* file_name)
@@ -1467,11 +1492,9 @@ void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
     {
         bool ok = h5_trajectory_vds_enabled
                       ? h5_vds_trajectory_writer->Write_Metadynamics_Diagnostic(
-                            module_name, component, text, md_info->sys.steps,
-                            md_info->sys.Get_Current_Time(false))
+                            module_name, component, text)
                       : h5_trajectory_writer->Write_Metadynamics_Diagnostic(
-                            module_name, component, text, md_info->sys.steps,
-                            md_info->sys.Get_Current_Time(false));
+                            module_name, component, text);
         if (!ok)
         {
             const std::string error =
@@ -1488,8 +1511,7 @@ void MD_INFORMATION::trajectory_output::Write_H5_Metadynamics_Diagnostic_File(
     if (h5_observable_enabled)
     {
         if (!h5_observable_writer->Write_Metadynamics_Diagnostic(
-                module_name, component, text, md_info->sys.steps,
-                md_info->sys.Get_Current_Time(false)))
+                module_name, component, text))
         {
             controller->Throw_SPONGE_Error(
                 spongeErrorValueErrorCommand,

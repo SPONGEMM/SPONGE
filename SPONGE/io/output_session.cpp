@@ -89,6 +89,17 @@ void OutputSession::Initial()
             &runtime_.controller, runtime_.meta.h5_object_name.c_str(),
             "direct_export", runtime_.meta.write_directly_file_name);
     }
+    int grid_enabled = runtime_.meta.is_initialized &&
+                       (runtime_.md_info.output.h5_trajectory_enabled ||
+                        runtime_.md_info.output.h5_observable_enabled);
+#ifdef USE_MPI
+    MPI_Bcast(&grid_enabled, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+    native_meta_grid_enabled_ = grid_enabled != 0;
+    if (native_meta_grid_enabled_)
+        runtime_.md_info.output.Write_H5_Metadynamics_Grid(
+            &runtime_.controller, runtime_.meta.h5_object_name,
+            runtime_.meta.Export_H5_Grid(false), true);
     runtime_.md_info.output.Start_H5_Swmr(&runtime_.controller);
 }
 
@@ -168,11 +179,11 @@ void OutputSession::Write_Trajectory()
 #ifdef USE_MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    if (runtime_.meta.is_initialized)
+    if (native_meta_grid_enabled_)
     {
-        runtime_.md_info.output.Write_H5_Metadynamics_Diagnostic_File(
-            &runtime_.controller, runtime_.meta.h5_object_name.c_str(),
-            "potential_export", runtime_.meta.write_potential_file_name);
+        runtime_.md_info.output.Write_H5_Metadynamics_Grid(
+            &runtime_.controller, runtime_.meta.h5_object_name,
+            runtime_.meta.Export_H5_Grid(true), false);
     }
     runtime_.nhc.Save_Trajectory_File();
     if (runtime_.nhc.is_initialized)

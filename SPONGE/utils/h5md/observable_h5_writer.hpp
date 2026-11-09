@@ -225,14 +225,23 @@ class ObservableH5Writer
             "metadynamics");
     }
 
+    bool Define_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid)
+    {
+        return Mark_Dirty_If(potential_snapshots_.Define(&writer_, name, grid));
+    }
+    bool Append_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid, int64_t step,
+                                  double time)
+    {
+        return Mark_Dirty_If(
+            potential_snapshots_.Write(&writer_, name, grid, step, time));
+    }
+
     bool Write_Metadynamics_Diagnostic(const std::string& name,
                                        const std::string& component,
-                                       const std::string& text,
-                                       int64_t step = -1, double time = 0.0)
+                                       const std::string& text)
     {
-        if (component == "potential_export")
-            return Mark_Dirty_If(
-                potential_snapshots_.Write(&writer_, name, text, step, time));
         ModuleH5MappingWriter module_writer(&writer_);
         return Mark_Dirty_If(
             module_writer.Write_Metadynamics_Diagnostic(name, component, text));

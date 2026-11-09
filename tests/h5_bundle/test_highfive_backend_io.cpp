@@ -2538,25 +2538,44 @@ void Test_Metadynamics_Potential_Snapshots()
     std::filesystem::create_directories(dir);
     const std::string root =
         Metadynamics_Diagnostic_Root("meta") + "/potential_snapshots";
-    const std::string first = "#! FIELDS phi potential_raw\n0 1\n";
-    const std::string second = "#! FIELDS phi potential_raw\n0 22\n";
+    MetadynamicsGrid grid;
+    grid.shape = {2, 3};
+    grid.axes = {{-1, 1}, {-2, 0, 2}};
+    grid.cv_labels = {"phi", "psi"};
+    grid.value_labels = {"potential_raw", "potential_shifted", "vshift"};
+    grid.values = {1, 0, 1, 2, 1, 1, 3, 2, 1, 4, 3, 1, 5, 4, 1, 6, 5, 1};
+    const auto first = grid;
+    grid.values[15] = 22;
+    const auto second = grid;
     const auto check = [&](const std::filesystem::path& path,
-                           const std::string& text, int64_t count, int64_t step)
+                           const MetadynamicsGrid& expected, int64_t count,
+                           int64_t step, bool virtual_values = false)
     {
         HighFive::File file(path.string(), HighFive::File::ReadOnly);
         REQUIRE_EQ(Read_Int64_Vector(file, root + "/committed_count").back(),
                    count);
         REQUIRE_EQ(Read_Int64_Vector(file, root + "/step").back(), step);
-        const auto offset = Read_Int64_Vector(file, root + "/offset").back();
-        const auto length = Read_Int64_Vector(file, root + "/length").back();
-        std::vector<uint8_t> bytes;
-        file.getDataSet(root + "/data")
-            .select({static_cast<size_t>(offset)},
-                    {static_cast<size_t>(length)})
-            .read(bytes);
-        REQUIRE_EQ(std::string(bytes.begin(), bytes.end()), text);
-        REQUIRE_TRUE(!file.exist(
-            Metadynamics_Diagnostic_Path("meta", "potential_export")));
+        auto data = file.getDataSet(root + "/values");
+        REQUIRE_EQ(data.getDimensions(),
+                   (std::vector<size_t>{static_cast<size_t>(count), 2, 3, 3}));
+        std::vector<float> values(expected.values.size());
+        data.select({static_cast<size_t>(count - 1), 0, 0, 0}, {1, 2, 3, 3})
+            .read_raw(values.data());
+        REQUIRE_EQ(values, expected.values);
+        std::vector<float> axis;
+        file.getDataSet(root + "/axes/1").read(axis);
+        REQUIRE_EQ(axis, expected.axes[1]);
+        REQUIRE_EQ(data.getDataType().getSize(), sizeof(float));
+        if (virtual_values)
+        {
+            hid_t properties = H5Dget_create_plist(data.getId());
+            REQUIRE_EQ(H5Pget_layout(properties), H5D_VIRTUAL);
+            H5Pclose(properties);
+            // Payload remains in sealed segments, never copied into the
+            // wrapper.
+            REQUIRE_EQ(H5Dget_storage_size(data.getId()), 0u);
+        }
+        REQUIRE_TRUE(!file.exist(root + "/data"));
     };
     SpongeH5OutputPlan::ResolvedOutputPlan plan;
     plan.trajectory.enabled = true;
@@ -2565,14 +2584,11 @@ void Test_Metadynamics_Potential_Snapshots()
         HighFiveBackend backend;
         TrajectoryH5Writer writer(&backend);
         REQUIRE_TRUE(writer.Open_Single_File(plan));
-        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
-            "meta", "potential_export", ""));
+        REQUIRE_TRUE(writer.Define_Metadynamics_Grid("meta", first));
         REQUIRE_TRUE(writer.Start_Swmr_Write());
-        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
-            "meta", "potential_export", first, 10, 0.1));
+        REQUIRE_TRUE(writer.Append_Metadynamics_Grid("meta", first, 10, 0.1));
         check(plan.trajectory.path, first, 1, 10);
-        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
-            "meta", "potential_export", second, 20, 0.2));
+        REQUIRE_TRUE(writer.Append_Metadynamics_Grid("meta", second, 20, 0.2));
         check(plan.trajectory.path, second, 2, 20);
         REQUIRE_TRUE(writer.Finalize());
         REQUIRE_TRUE(writer.Close());
@@ -2586,19 +2602,18 @@ void Test_Metadynamics_Potential_Snapshots()
         VdsTrajectoryH5Writer writer(&factory);
         REQUIRE_TRUE(writer.Open(plan));
         REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+        REQUIRE_TRUE(writer.Define_Metadynamics_Grid("meta", first));
         float position[3] = {0, 0, 0};
         float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
         REQUIRE_TRUE(writer.Append_Particle_Frame(10, 0.1, position, box));
-        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
-            "meta", "potential_export", first, 10, 0.1));
+        REQUIRE_TRUE(writer.Append_Metadynamics_Grid("meta", first, 10, 0.1));
         REQUIRE_TRUE(writer.Append_Particle_Frame(20, 0.2, position, box));
         check(dir / "shards/segment_000000.spg.h5md", first, 1, 10);
-        check(plan.trajectory.path, first, 1, 10);
-        REQUIRE_TRUE(writer.Write_Metadynamics_Diagnostic(
-            "meta", "potential_export", second, 20, 0.2));
+        check(plan.trajectory.path, first, 1, 10, true);
+        REQUIRE_TRUE(writer.Append_Metadynamics_Grid("meta", second, 20, 0.2));
         REQUIRE_TRUE(writer.Finalize());
         check(dir / "shards/segment_000001.spg.h5md", second, 1, 20);
-        check(plan.trajectory.path, second, 2, 20);
+        check(plan.trajectory.path, second, 2, 20, true);
     }
     std::filesystem::remove_all(dir);
 }

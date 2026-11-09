@@ -8,7 +8,8 @@
 namespace SpongeH5MD
 {
 struct RestartMetadynamicsState;
-}
+struct MetadynamicsGrid;
+}  // namespace SpongeH5MD
 
 struct MetaGrid
 {
@@ -96,6 +97,7 @@ struct META
                          float sys_temp);
     void Step_Print(CONTROLLER* controller);
     void Write_Potential(void);
+    SpongeH5MD::MetadynamicsGrid Export_H5_Grid(bool include_values);
     void Write_Directly(void);
     bool Export_H5_Restart_State(SpongeH5MD::RestartMetadynamicsState* state,
                                  std::string* error_message);

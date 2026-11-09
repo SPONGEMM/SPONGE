@@ -30,6 +30,7 @@ struct VdsShardManifestEntry
     int64_t nhc_frame_count = 0;
     int64_t sits_nk_frame_count = 0;
     int64_t metadynamics_scalar_frame_count = 0;
+    int64_t metadynamics_grid_frame_count = 0;
     int64_t reaxff_frame_count = 0;
     int64_t step_start = 0;
     int64_t step_end = 0;
@@ -43,6 +44,7 @@ inline bool Manifest_Entry_Has_Stream_Frames(const VdsShardManifestEntry& entry)
     return entry.frame_count > 0 || entry.observable_frame_count > 0 ||
            entry.nhc_frame_count > 0 || entry.sits_nk_frame_count > 0 ||
            entry.metadynamics_scalar_frame_count > 0 ||
+           entry.metadynamics_grid_frame_count > 0 ||
            entry.reaxff_frame_count > 0;
 }
 
@@ -52,6 +54,7 @@ inline bool Manifest_Entry_Has_Negative_Stream_Count(
     return entry.frame_count < 0 || entry.observable_frame_count < 0 ||
            entry.nhc_frame_count < 0 || entry.sits_nk_frame_count < 0 ||
            entry.metadynamics_scalar_frame_count < 0 ||
+           entry.metadynamics_grid_frame_count < 0 ||
            entry.reaxff_frame_count < 0;
 }
 
@@ -430,27 +433,48 @@ class VdsTrajectoryH5Writer
         return true;
     }
 
+    bool Define_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid)
+    {
+        if (!wrapper_writer_ || (!grid_name_.empty() && grid_name_ != name) ||
+            !potential_snapshots_.Define(wrapper_writer_.get(), name, grid,
+                                         true))
+        {
+            last_error_ = "invalid or changing metadynamics grid layout";
+            return false;
+        }
+        grid_name_ = name;
+        grid_layout_ = grid;
+        grid_layout_.values.clear();
+        return !current_shard_writer_ ||
+               current_shard_writer_->Define_Metadynamics_Grid(name, grid);
+    }
+    bool Append_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid, int64_t step,
+                                  double time)
+    {
+        if (name != grid_name_ || !grid_layout_.Same_Layout(grid) ||
+            !Ensure_Current_Shard(step, time))
+            return false;
+        if (!current_shard_writer_->Append_Metadynamics_Grid(name, grid, step,
+                                                             time))
+        {
+            last_error_ = current_shard_writer_->Last_Error();
+            return false;
+        }
+        ++current_manifest_entry_.metadynamics_grid_frame_count;
+        Extend_Nonparticle_Shard_Range(step, time);
+        return true;
+    }
+
     bool Write_Metadynamics_Diagnostic(const std::string& name,
                                        const std::string& component,
-                                       const std::string& text,
-                                       int64_t step = -1, double time = 0.0)
+                                       const std::string& text)
     {
         if (wrapper_writer_ == nullptr)
         {
             last_error_ = "VDS wrapper is not open";
             return false;
-        }
-        if (component == "potential_export")
-        {
-            if (current_shard_writer_ != nullptr &&
-                !current_shard_writer_->Write_Metadynamics_Diagnostic(
-                    name, component, text, step, time))
-            {
-                last_error_ = current_shard_writer_->Last_Error();
-                return false;
-            }
-            return potential_snapshots_.Write(wrapper_writer_.get(), name, text,
-                                              step, time);
         }
         ModuleH5MappingWriter module_writer(wrapper_writer_.get());
         if (!module_writer.Write_Metadynamics_Diagnostic(name, component, text))
@@ -540,6 +564,9 @@ class VdsTrajectoryH5Writer
 
    private:
     MetadynamicsPotentialSnapshots potential_snapshots_;
+    std::string grid_name_;
+    MetadynamicsGrid grid_layout_;
+    int64_t published_grid_count_ = 0;
     bool Ensure_Current_Shard(const int64_t step, const double time)
     {
         return current_shard_writer_ != nullptr ||
@@ -632,6 +659,14 @@ class VdsTrajectoryH5Writer
         }
         if (reaxff_layout_defined_ &&
             !current_shard_writer_->Ensure_Reaxff_Energy_Terms(reaxff_terms_))
+        {
+            last_error_ = current_shard_writer_->Last_Error();
+            return false;
+        }
+
+        if (!grid_name_.empty() &&
+            !current_shard_writer_->Define_Metadynamics_Grid(grid_name_,
+                                                             grid_layout_))
         {
             last_error_ = current_shard_writer_->Last_Error();
             return false;
@@ -893,6 +928,7 @@ class VdsTrajectoryH5Writer
         std::vector<int64_t> nhc_frame_counts;
         std::vector<int64_t> sits_frame_counts;
         std::vector<int64_t> metadynamics_frame_counts;
+        std::vector<int64_t> grid_frame_counts;
         std::vector<int64_t> reaxff_frame_counts;
         std::vector<int64_t> step_starts;
         std::vector<int64_t> step_ends;
@@ -911,6 +947,7 @@ class VdsTrajectoryH5Writer
             sits_frame_counts.push_back(entry.sits_nk_frame_count);
             metadynamics_frame_counts.push_back(
                 entry.metadynamics_scalar_frame_count);
+            grid_frame_counts.push_back(entry.metadynamics_grid_frame_count);
             reaxff_frame_counts.push_back(entry.reaxff_frame_count);
             step_starts.push_back(entry.step_start);
             step_ends.push_back(entry.step_end);
@@ -988,6 +1025,9 @@ class VdsTrajectoryH5Writer
             !write_i64(path::shard_manifest_sits_count, sits_frame_counts) ||
             !write_i64(path::shard_manifest_metadynamics_count,
                        metadynamics_frame_counts) ||
+            !write_i64("/parameters/sponge/output/shard_manifest/stream_counts/"
+                       "metadynamics_grid",
+                       grid_frame_counts) ||
             !write_i64(path::shard_manifest_reaxff_count,
                        reaxff_frame_counts) ||
             !write_i64(path::shard_manifest_step_start, step_starts) ||
@@ -1582,6 +1622,33 @@ class VdsTrajectoryH5Writer
         return true;
     }
 
+    bool Materialize_Grid_Virtual_Datasets()
+    {
+        if (grid_name_.empty()) return true;
+        const int64_t count = static_cast<int64_t>(Total_Module_Frame_Count(
+            &VdsShardManifestEntry::metadynamics_grid_frame_count));
+        if (count == published_grid_count_) return true;
+        const auto root = MetadynamicsPotentialSnapshots::Root(grid_name_);
+        if (!Create_Module_Vds(
+                root + "/values", DataType::float32,
+                &VdsShardManifestEntry::metadynamics_grid_frame_count,
+                grid_layout_.Value_Shape()) ||
+            !Create_Module_Vds(
+                root + "/step", DataType::int64,
+                &VdsShardManifestEntry::metadynamics_grid_frame_count, {}) ||
+            !Create_Module_Vds(
+                root + "/time", DataType::float64,
+                &VdsShardManifestEntry::metadynamics_grid_frame_count, {}) ||
+            !wrapper_writer_->Append_Int64(root + "/committed_count", &count,
+                                           1))
+        {
+            last_error_ = wrapper_writer_->Last_Error();
+            return false;
+        }
+        published_grid_count_ = count;
+        return true;
+    }
+
     bool Materialize_Module_Virtual_Datasets()
     {
         if (wrapper_writer_ == nullptr)
@@ -1592,7 +1659,8 @@ class VdsTrajectoryH5Writer
         return Materialize_Nhc_Virtual_Datasets() &&
                Materialize_Sits_Nk_Virtual_Datasets() &&
                Materialize_Metadynamics_Virtual_Datasets() &&
-               Materialize_Reaxff_Virtual_Datasets();
+               Materialize_Reaxff_Virtual_Datasets() &&
+               Materialize_Grid_Virtual_Datasets();
     }
 
     bool Publish_Completed_Prefix(bool allow_repair, bool finalize)

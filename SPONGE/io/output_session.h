@@ -31,5 +31,6 @@ class OutputSession
     SpongeH5MD::RestartDynamicState Build_H5_Dynamic_Restart_State();
     RestartOutputState Capture_Restart_State();
     RuntimeState runtime_;
+    bool native_meta_grid_enabled_ = false;
 };
 }  // namespace SpongeIO
