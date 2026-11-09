@@ -235,6 +235,13 @@ void Main_Calculate_Force()
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
+    // The final force evaluation must be checked even when no mdout frame
+    // is due. Request fresh reductions rather than checking stale host data.
+    if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        md_info.need_potential = 1;
+        md_info.need_kinetic = 1;
+    }
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;
@@ -781,7 +788,13 @@ void Main_Print()
         // Check both device status and the reduced observables before
         // publishing.
         controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
         output_session.Write_Observables();
+    }
+    else if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
     }
 
     if (output_session.Trajectory_Due())

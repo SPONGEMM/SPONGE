@@ -177,6 +177,11 @@ double-precision SETTLE launch-resource problem: its triangle kernels used
 1024-thread blocks despite lower kernel-specific resource limits. Double
 triangle launches now use at most 256 threads, including initial velocity
 projection. This changes launch configuration, not the integration equations.
+Runtime error checks wait for pending default-stream GPU work before accepting
+observables. The final force evaluation also requests fresh potential and
+kinetic energies and checks them when no observable frame is due, so a short
+run with sparse output cannot bypass the final numerical check. These checks
+do not inspect every coordinate or force on every step.
 With the correction, ordinary 1 fs and HMR 1/4/5 fs each passed a separate
 50 ps protein–ligand–water NVT check using default double SETTLE; sampled
 relative constraint errors remained below 1.8e-5.
