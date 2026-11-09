@@ -790,7 +790,9 @@ SpongeH5MD::MetadynamicsGrid META::Export_H5_Grid(bool include_values)
     grid.values.resize(grid.Value_Count());
     if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
-        if (mgrid) mgrid->Sync_To_Host();
+        // Non-KDE subhill deposits live only in the host grid. Copying the
+        // stale device buffer here would erase hills used by Estimate().
+        if (mgrid && !(subhill && !kde)) mgrid->Sync_To_Host();
         if (mscatter) mscatter->Sync_To_Host();
         const auto width = grid.value_labels.size();
         const auto points = grid.values.size() / width;
