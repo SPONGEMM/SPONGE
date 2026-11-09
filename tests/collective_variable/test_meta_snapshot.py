@@ -20,35 +20,53 @@ def check(binary, output, vds):
     (output / "cv.toml").write_text(
         '[x]\nCV_type = "position_x"\natom = 0\n'
         '[meta]\nCV = ["x"]\nsubhill = true\nkde = 0\n'
-        'CV_period = [0]\nCV_sigma = [0.2]\n'
-        'CV_minimal = [0]\nCV_maximum = [4]\nCV_grid = [4]\n'
-        'height = 1.0\nwelltemp_factor = 1000000000.0\n'
-        'potential_update_interval = 1\n'
+        "CV_period = [0]\nCV_sigma = [0.2]\n"
+        "CV_minimal = [0]\nCV_maximum = [4]\nCV_grid = [4]\n"
+        "height = 1.0\nwelltemp_factor = 1000000000.0\n"
+        "potential_update_interval = 1\n"
     )
-    coordinates = np.array([[0.5, 0, 0], [4, 1, 0], [8, 0, 1], [12, 1, 1]], dtype=np.float32)
+    coordinates = np.array(
+        [[0.5, 0, 0], [4, 1, 0], [8, 0, 1], [12, 1, 1]], dtype=np.float32
+    )
     np.stack([coordinates] * 4).tofile(output / "frames.dat")
     np.savetxt(output / "frames.box", [[999, 999, 999, 90, 90, 90]] * 4)
     settings = {
-        "mode": "rerun", "step_limit": 5, "dt": 0.00001,
-        "rerun_frame_limit": 4, "rerun_start": 0, "rerun_strip": 0,
-        "crd": "frames.dat", "box": "frames.box",
-        "rerun_output_crd": "output.dat", "rerun_output_box": "output.box",
-        "pbc": False, "cutoff": 999.0, "skin": 2.0,
-        "mass_in_file": "mass.txt", "charge_in_file": "charge.txt",
-        "coordinate_in_file": "coordinate.txt", "cv_in_file": "cv.toml",
-        "write_information_interval": 1, "write_trajectory_interval": 1,
+        "mode": "rerun",
+        "step_limit": 5,
+        "dt": 0.00001,
+        "rerun_frame_limit": 4,
+        "rerun_start": 0,
+        "rerun_strip": 0,
+        "crd": "frames.dat",
+        "box": "frames.box",
+        "rerun_output_crd": "output.dat",
+        "rerun_output_box": "output.box",
+        "pbc": False,
+        "cutoff": 999.0,
+        "skin": 2.0,
+        "mass_in_file": "mass.txt",
+        "charge_in_file": "charge.txt",
+        "coordinate_in_file": "coordinate.txt",
+        "cv_in_file": "cv.toml",
+        "write_information_interval": 1,
+        "write_trajectory_interval": 1,
         "print_zeroth_frame": False,
     }
     (output / "mdin.spg.toml").write_text(
-        "\n".join(f"{key} = {json.dumps(value)}" for key, value in settings.items())
+        "\n".join(
+            f"{key} = {json.dumps(value)}" for key, value in settings.items()
+        )
         + '\n[output.h5.trajectory]\npath = "run.spg.h5md"\n'
         + f"vds = {str(vds).lower()}\nchunk_size = 2\n"
         + '[output.h5.observable]\npath = "run.obs.spg.h5md"\n'
     )
     result = subprocess.run(
-        [str(binary), "-mdin", "mdin.spg.toml"], cwd=output,
-        env=dict(os.environ, OMP_NUM_THREADS="1"), capture_output=True,
-        text=True, timeout=120,
+        [str(binary), "-mdin", "mdin.spg.toml"],
+        cwd=output,
+        env=dict(os.environ, OMP_NUM_THREADS="1"),
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     (output / "execution.log").write_text(result.stdout + result.stderr)
     assert result.returncode == 0, result.stdout + result.stderr
@@ -66,8 +84,10 @@ def check(binary, output, vds):
             # that deposit nor prevent accumulation on the next step.
             assert len(raw) >= 3, raw.shape
             np.testing.assert_allclose(
-                raw.sum(axis=1), np.arange(1, len(raw) + 1),
-                rtol=1e-5, atol=1e-5,
+                raw.sum(axis=1),
+                np.arange(1, len(raw) + 1),
+                rtol=1e-5,
+                atol=1e-5,
             )
             assert np.isfinite(values).all()
             backup = values[..., labels.index("potential_backup")]

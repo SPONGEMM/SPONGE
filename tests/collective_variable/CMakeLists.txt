@@ -20,5 +20,5 @@ add_test(
     ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_meta_snapshot.py
     --sponge $<TARGET_FILE:SPONGE> --output
     ${CMAKE_CURRENT_BINARY_DIR}/meta_subhill_snapshot)
-set_tests_properties(test_meta_subhill_snapshot PROPERTIES
-                     LABELS "cv;regression;h5_bundle" TIMEOUT 300)
+set_tests_properties(test_meta_subhill_snapshot
+                     PROPERTIES LABELS "cv;regression;h5_bundle" TIMEOUT 300)
