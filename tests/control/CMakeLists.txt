@@ -253,3 +253,8 @@ set_tests_properties(test_thermal_components_runtime PROPERTIES LABELS "dynamics
 add_test(NAME test_generic_analysis COMMAND ${Python3_EXECUTABLE}
   ${PROJECT_ROOT_DIR}/tests/nonequilibrium/test_generic_analysis.py)
 set_tests_properties(test_generic_analysis PROPERTIES LABELS "dynamics;analysis;contract" TIMEOUT 60 SKIP_RETURN_CODE 77)
+
+add_test(NAME test_water_cosine_validation_math COMMAND ${Python3_EXECUTABLE}
+  ${PROJECT_ROOT_DIR}/tests/nonequilibrium/test_water_cosine_validation.py)
+set_tests_properties(test_water_cosine_validation_math PROPERTIES
+  LABELS "dynamics;numerics;water;analysis" TIMEOUT 30 SKIP_RETURN_CODE 77)
