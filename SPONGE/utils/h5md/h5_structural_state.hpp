@@ -37,6 +37,8 @@ struct RestartDynamicState
     std::map<std::string, std::string> rng_state_text;
     std::map<std::string, RestartRngState> rng_states;
     std::map<std::string, std::string> integrator_state_text;
+    std::map<std::string, std::vector<double>> integrator_double_states;
+    std::map<std::string, std::string> coupling_state_text;
     std::map<std::string, std::map<std::string, std::string>>
         thermostat_text_states;
     std::map<std::string, std::map<std::string, std::vector<float>>>

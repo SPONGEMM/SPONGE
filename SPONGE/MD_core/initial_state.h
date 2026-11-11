@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "../common.h"
+#include "../constrain/tangent_frame.h"
 #include "initial_velocity.h"
 
 namespace SpongeIO
@@ -79,6 +80,8 @@ class InitialStateBuilder
 
     InitialStateBindings bindings_;
     INITIAL_VELOCITY_INFORMATION initial_velocity_;
+    std::vector<SpongeDynamics::DistanceConstraint> flow_pairs_;
+    std::vector<SpongeDynamics::DistanceConstraint> nve_pairs_;
     Stage stage_ = Stage::empty;
 };
 }  // namespace SpongeRuntime

@@ -1,6 +1,10 @@
 ﻿#include "output_session.h"
 
+#include <filesystem>
+#include <set>
+
 #include "../MD_core/hmr.h"
+#include "../utils/h5md/highfive_backend.hpp"
 
 namespace SpongeIO
 {
@@ -12,7 +16,17 @@ SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
     state.integrator_state_text["step"] =
         std::to_string(runtime_.md_info.sys.steps);
     state.integrator_state_text["time"] =
-        std::to_string(runtime_.md_info.sys.Get_Current_Time());
+        SpongeDynamics::Precise_Number(runtime_.md_info.sys.Get_Current_Time());
+    state.coupling_state_text = runtime_.energy_accounting.Export_Restart();
+    if (runtime_.velocity_bias.enabled())
+        state.coupling_state_text["velocity_bias_configuration"] =
+            runtime_.velocity_bias.Configuration();
+    const auto stress = runtime_.stress_sampler.Export_Restart();
+    state.coupling_state_text.insert(stress.begin(), stress.end());
+    const auto exchange = runtime_.momentum_exchange.Export_Restart();
+    state.coupling_state_text.insert(exchange.begin(), exchange.end());
+    runtime_.constrained_middle.Export_Constrained_State(&state);
+    runtime_.rattle_nve.Export(&state);
 
     state.integrator_state_text["mass_signature"] = SpongeHMR::Mass_Signature(
         runtime_.md_info.h_mass, runtime_.md_info.atom_numbers);
@@ -54,6 +68,7 @@ SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
 
 void OutputSession::Initial()
 {
+    Initial_Samples();
     runtime_.controller.Print_First_Line_To_Mdout();
     runtime_.md_info.output.Initial_H5_Trajectory(&runtime_.controller);
     runtime_.md_info.output.Initial_H5_Observable(&runtime_.controller);
@@ -97,6 +112,187 @@ void OutputSession::Initial()
     runtime_.md_info.output.Start_H5_Swmr(&runtime_.controller);
 }
 
+void OutputSession::Check_Samples_IO(bool ok)
+{
+    if (!ok)
+        runtime_.controller.Throw_SPONGE_Error(
+            spongeErrorSimulationBreakDown, "OutputSession::Samples",
+            sample_writer_->Last_Error().c_str());
+}
+void OutputSession::Initial_Samples()
+{
+    if (!runtime_.sampling.Enabled()) return;
+    try
+    {
+        const auto& path = runtime_.sampling.output;
+        const auto target =
+            std::filesystem::weakly_canonical(std::filesystem::absolute(path));
+        if (std::filesystem::exists(path) || std::filesystem::is_symlink(path))
+            runtime_.controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "OutputSession::Samples",
+                "sample output already exists; choose a new segment path or "
+                "a fresh run directory");
+        const std::set<std::string> legacy_paths{
+            "crd", "vel", "frc", "box", "mdout", "mdinfo", "rst"};
+        for (const auto& command : runtime_.controller.commands)
+        {
+            const bool path_key =
+                command.first.find("_in_file") != std::string::npos ||
+                (command.first.size() > 5 &&
+                 command.first.compare(command.first.size() - 5, 5, "_path") ==
+                     0) ||
+                legacy_paths.count(command.first);
+            if (!path_key || command.second.empty()) continue;
+            // Protect any explicitly named input or output from this new
+            // stream.
+            if (target == std::filesystem::weakly_canonical(
+                              std::filesystem::absolute(command.second)))
+                runtime_.controller.Throw_SPONGE_Error(
+                    spongeErrorConflictingCommand, "OutputSession::Samples",
+                    "sample output collides with another input/output path");
+        }
+        for (const char* reserved : {"mdout.txt", "mdinfo.txt"})
+            if (target == std::filesystem::weakly_canonical(
+                              std::filesystem::absolute(reserved)))
+                runtime_.controller.Throw_SPONGE_Error(
+                    spongeErrorConflictingCommand, "OutputSession::Samples",
+                    "sample output collides with a default legacy output");
+        SpongeH5OutputPlan::ResolvedOutputPlan plan;
+        plan.observable.enabled = true;
+        plan.observable.path = path;
+        sample_backend_.reset(new SpongeH5MD::HighFiveBackend());
+        sample_writer_.reset(
+            new SpongeH5MD::ObservableH5Writer(sample_backend_.get()));
+        Check_Samples_IO(sample_writer_->Open(plan));
+
+        std::map<std::string, std::string> units;
+        if (runtime_.sampling.stress)
+        {
+            for (const char* key : {"pxx", "pyy", "pzz", "pxy", "pxz", "pyz"})
+                units[key] = "Pa";
+            units["temperature"] = "K";
+            units["volume"] = "nm^3";
+            for (const char* key : {"com_vx", "com_vy", "com_vz"})
+                units[key] = "nm/ps";
+            auto x = runtime_.stress_sampler.Constraint_Units();
+            units.insert(x.begin(), x.end());
+        }
+        if (runtime_.sampling.profile)
+        {
+            auto x = runtime_.profile_sampler.Units();
+            units.insert(x.begin(), x.end());
+        }
+        if (runtime_.momentum_exchange.enabled())
+        {
+            auto x = runtime_.momentum_exchange.Units();
+            units.insert(x.begin(), x.end());
+        }
+        if (runtime_.external_force.enabled() ||
+            runtime_.energy_accounting.Heat_Enabled())
+            units["coupling_work"] = "kcal/mol";
+        if (runtime_.energy_accounting.Heat_Enabled())
+            units["thermostat_heat"] = "kcal/mol";
+        std::vector<std::string> names;
+        for (const auto& kv : units) names.push_back(kv.first);
+        Check_Samples_IO(
+            sample_writer_->Define_Observable_Stream(names, names));
+        for (const auto& kv : units)
+            Check_Samples_IO(
+                sample_writer_->Set_Observable_Unit(kv.first, kv.second));
+        auto meta = [&](const std::string& key, const std::string& value)
+        {
+            Check_Samples_IO(
+                sample_writer_->Write_Provenance_String(key, value));
+        };
+        if (runtime_.energy_accounting.Heat_Enabled())
+            meta("thermostat_heat_method", "thermal_substep_v1");
+        meta("observable_contract", "sponge.observables.physical_state.v1");
+        meta("velocity_time_layer",
+             runtime_.sampling.centered ? "force_centered" : "stored");
+        meta("sampling_phase", "post_force_pre_exchange_pre_integrate");
+        meta("stress_convention",
+             "symmetric internal pressure; COM removed; external-body-force "
+             "virial excluded; instantaneous constraint reaction when present");
+        meta("dt_ps",
+             SpongeDynamics::Precise_Number(runtime_.md_info.sys.dt_in_ps));
+        meta("sample_interval", std::to_string(runtime_.sampling.interval));
+        meta("atom_count", std::to_string(runtime_.md_info.atom_numbers));
+        for (const auto& kv : runtime_.stress_sampler.Constraint_Metadata())
+            meta(kv.first, kv.second);
+        meta("profile_kind",
+             runtime_.sampling.profile
+                 ? (runtime_.sampling.mode.cosine ? "cosine" : "slab")
+                 : "none");
+        meta("bins", std::to_string(runtime_.sampling.mode.bins));
+        meta("flow", std::to_string(runtime_.sampling.mode.flow));
+        meta("gradient", std::to_string(runtime_.sampling.mode.gradient));
+        if (runtime_.momentum_exchange.enabled())
+            meta(
+                "exchange_interval",
+                std::to_string(
+                    runtime_.momentum_exchange.Parameters().exchange_interval));
+        if (runtime_.constrained_middle.Constrained())
+        {
+            meta("canonical_integrator_configuration",
+                 runtime_.constrained_middle.Constraint_Identity());
+            meta("state_precision",
+                 "float64 canonical q/s; float32 native forces");
+        }
+        std::string commands;
+        for (const auto& kv : runtime_.controller.commands)
+            commands += kv.first + "=" + kv.second + "\n";
+        meta("effective_commands", commands);
+    }
+    catch (const std::exception& e)
+    {
+        runtime_.controller.Throw_SPONGE_Error(
+            spongeErrorValueErrorCommand, "OutputSession::Samples", e.what());
+    }
+}
+void OutputSession::Write_Samples()
+{
+    if (!runtime_.sampling.Due(runtime_.md_info.sys.steps)) return;
+    std::map<std::string, double> values;
+    const double dt = runtime_.sampling.centered ? runtime_.md_info.dt : 0;
+    if (runtime_.sampling.stress)
+        values = runtime_.stress_sampler.Sample_Stress(
+            runtime_.dd.atom_numbers, runtime_.dd.vel, runtime_.dd.frc,
+            runtime_.dd.d_mass, runtime_.dd.d_virial, dt,
+            runtime_.md_info.sys.Get_Volume(), runtime_.dd.crd,
+            runtime_.dd.atom_local, runtime_.md_info.sys.box_length,
+            runtime_.constrained_middle.Constrained()
+                ? runtime_.constrained_middle.Positions()
+                : runtime_.rattle_nve.Positions(),
+            runtime_.constrained_middle.Constrained()
+                ? runtime_.constrained_middle.Velocities()
+                : runtime_.rattle_nve.Velocities());
+    if (runtime_.sampling.profile)
+    {
+        auto x = runtime_.profile_sampler.Sample(
+            runtime_.dd.atom_numbers, runtime_.dd.crd, runtime_.dd.vel,
+            runtime_.dd.frc, runtime_.dd.d_mass, dt,
+            runtime_.constrained_middle.Constrained()
+                ? runtime_.constrained_middle.View()
+                : SpongeDynamics::PhysicalStateView{});
+        values.insert(x.begin(), x.end());
+    }
+    if (runtime_.momentum_exchange.enabled())
+    {
+        auto x = runtime_.momentum_exchange.Values();
+        values.insert(x.begin(), x.end());
+    }
+    if (runtime_.external_force.enabled() ||
+        runtime_.energy_accounting.Heat_Enabled())
+        values["coupling_work"] = runtime_.energy_accounting.Coupling_Work();
+    if (runtime_.energy_accounting.Heat_Enabled())
+        values["thermostat_heat"] =
+            runtime_.energy_accounting.Thermostat_Heat();
+    Check_Samples_IO(sample_writer_->Append_Observable_Frame(
+        runtime_.md_info.sys.steps,
+        runtime_.md_info.sys.Get_Current_Time(false), values));
+    if (sample_writer_->Observable_Frame_Count() % 64 == 0)
+        Check_Samples_IO(sample_writer_->Publish());
+}
 bool OutputSession::Observables_Due()
 {
     return runtime_.md_info.output.Check_Mdout_Step();
@@ -167,7 +363,11 @@ void OutputSession::Write_Trajectory()
     runtime_.md_info.Crd_Vel_dd_to_Device(
         runtime_.dd.crd, runtime_.dd.vel, runtime_.dd.atom_local_label,
         runtime_.dd.atom_local_id, runtime_.main_stream);
-    if (runtime_.md_info.pbc.pbc)
+    // Canonical constrained integrators already publish q through double
+    // wrapping. Reimaging here would mutate the native state according to
+    // output cadence.
+    if (runtime_.md_info.pbc.pbc && !runtime_.rattle_nve.Active() &&
+        !runtime_.constrained_middle.Constrained())
     {
         runtime_.md_info.mol.Molecule_Crd_Map();
         runtime_.md_info.Crd_Vel_Device_to_dd(
@@ -235,6 +435,14 @@ void OutputSession::Publish()
 
 void OutputSession::Close()
 {
+    if (sample_writer_)
+    {
+        Check_Samples_IO(sample_writer_->Finalize());
+        Check_Samples_IO(sample_writer_->Close());
+        sample_writer_.reset();
+        sample_backend_.reset();
+    }
+
     runtime_.md_info.output.Finalize_H5_Trajectory(&runtime_.controller);
     runtime_.md_info.output.Finalize_H5_Observable(&runtime_.controller);
     if (CONTROLLER::MPI_rank == 0)

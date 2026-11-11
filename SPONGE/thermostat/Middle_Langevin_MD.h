@@ -1,8 +1,15 @@
-﻿#pragma once
+#pragma once
 
 #include "../common.h"
 #include "../control.h"
 #include "../utils/h5md/h5_structural_state.hpp"
+
+namespace SpongeDynamics
+{
+class VelocityBias;
+class ConstrainedMiddle;
+class EnergyAccounting;
+}  // namespace SpongeDynamics
 
 // 该方法的主要实现的参考文献
 // A unified thermostat scheme for efficient configurational sampling for
@@ -50,8 +57,12 @@ struct MIDDLE_Langevin_INFORMATION
                    int local_atom_numbers);  // 获取局域粒子信息
 
     // 迭代算法
-    void MD_Iteration_Leap_Frog(VECTOR* frc, VECTOR* vel, VECTOR* acc,
-                                VECTOR* crd);
+    void MD_Iteration_Leap_Frog(
+        VECTOR* frc, VECTOR* vel, VECTOR* acc, VECTOR* crd,
+        SpongeDynamics::VelocityBias* bias = nullptr,
+        const float* mass = nullptr,
+        SpongeDynamics::EnergyAccounting* energy = nullptr,
+        SpongeDynamics::ConstrainedMiddle* constrained = nullptr);
     void Set_Target_Temperature(float target_temperature_new);
     bool Export_H5_Restart_State(SpongeH5MD::RestartDynamicState* state,
                                  std::string* error_message) const;

@@ -892,7 +892,8 @@ static void Move_Crd_Nearest_From_Connectivity(
     }
 }
 
-void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
+void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller,
+                                                   bool preserve_coordinates)
 {
     if (!md_info->pbc.pbc) return;
     if (controller->Command_Exist("force_whole_output"))
@@ -901,6 +902,13 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
             "force_whole_output",
             "MD_INFORMATION::molecule_information::Initial");
     }
+    if (preserve_coordinates && force_whole_output)
+        controller->Throw_SPONGE_Error(
+            spongeErrorConflictingCommand,
+            "MD_INFORMATION::molecule_information::Initial",
+            "Canonical constrained integrators publish atom-wrapped "
+            "coordinates; force_whole_output "
+            "is unsupported");
     // 分子拓扑是一个无向图，邻接表进行描述，通过排除表形成
     CPP_ATOM_GROUP mol_atoms;
     std::vector<int> molecule_belongings(md_info->atom_numbers, 0);
@@ -910,9 +918,12 @@ void MD_INFORMATION::molecule_information::Initial(CONTROLLER* controller)
                        md_info->sys.connectivity, mol_atoms,
                        molecule_belongings);
     molecule_numbers = mol_atoms.size();
-    Move_Crd_Nearest_From_Connectivity(
-        mol_atoms, md_info->sys.connectivity, md_info->coordinate,
-        md_info->pbc.boundary, std::vector<int>());
+    // Canonical double integrators own image handling and initial projection.
+    // Even an in-box coordinate changes under the legacy float cell roundtrip.
+    if (!preserve_coordinates)
+        Move_Crd_Nearest_From_Connectivity(
+            mol_atoms, md_info->sys.connectivity, md_info->coordinate,
+            md_info->pbc.boundary, std::vector<int>());
     std::vector<int> h_periodicity =
         Check_Periodic_Molecules(mol_atoms, md_info->sys.connectivity,
                                  md_info->coordinate, md_info->pbc.boundary);

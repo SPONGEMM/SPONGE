@@ -1,9 +1,15 @@
-﻿#pragma once
+#pragma once
 #include <string>
 
 #include "../common.h"
 #include "../control.h"
 #include "../utils/h5md/h5_structural_state.hpp"
+
+namespace SpongeDynamics
+{
+class VelocityBias;
+class EnergyAccounting;
+}  // namespace SpongeDynamics
 
 // 用于记录与计算Nose-Hoover链控温相关的信息
 struct NOSE_HOOVER_CHAIN_INFORMATION
@@ -41,8 +47,11 @@ struct NOSE_HOOVER_CHAIN_INFORMATION
     void Get_Local(int* atom_local,
                    int local_atom_numbers);  // 获取局域粒子信息
 
-    void MD_Iteration_Leap_Frog(VECTOR* vel, VECTOR* crd, VECTOR* frc,
-                                VECTOR* acc, float dt, float Ek, int freedom);
+    void MD_Iteration_Leap_Frog(
+        VECTOR* vel, VECTOR* crd, VECTOR* frc, VECTOR* acc, float dt, float Ek,
+        int freedom, SpongeDynamics::VelocityBias* bias = nullptr,
+        const float* mass = nullptr,
+        SpongeDynamics::EnergyAccounting* energy = nullptr);
     void Set_Target_Temperature(float target_temperature_new);
 
     bool Apply_H5_Restart_State(const SpongeH5MD::RestartDynamicState& state,

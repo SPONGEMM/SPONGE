@@ -1,0 +1,22 @@
+md_name="two_atom_torque"
+mode="nve"
+pbc=false
+dt=0.001
+step_limit=100
+cutoff=8.0
+mass_in_file="mass.txt"
+charge_in_file="charge.txt"
+coordinate_in_file="coordinate.txt"
+velocity_in_file="velocity.txt"
+crd="crd.dat"
+vel="vel.dat"
+frc="frc.dat"
+write.interval.trajectory=10
+write.interval.mdout=10
+write.interval.information=10
+write.interval.restart=0
+
+[[external_force]]
+type="group_load"
+atoms=[0, 1]
+torque=[0.0, 0.0, 1.0]

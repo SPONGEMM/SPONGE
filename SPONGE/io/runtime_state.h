@@ -2,16 +2,25 @@
 
 #include "../Domain_decomposition/Domain_decomposition.h"
 #include "../MD_core/MD_core.h"
+#include "../MD_core/energy_accounting.h"
+#include "../MD_core/integrator/constrained_middle.h"
+#include "../MD_core/integrator/rattle_state.h"
 #include "../SITS/SITS.h"
 #include "../barostat/MC_barostat.h"
 #include "../barostat/pressure_based_barostat.h"
 #include "../bias/sinkmeta.h"
+#include "../external_force/external_force.h"
 #include "../manybody/reaxff/reaxff.h"
+#include "../momentum_exchange/momentum_exchange.h"
+#include "../observables/profile_sampler.h"
+#include "../observables/sampling.h"
+#include "../observables/stress_sampler.h"
 #include "../restrain/restrain.h"
 #include "../thermostat/Andersen_thermostat.h"
 #include "../thermostat/Bussi_thermostat.h"
 #include "../thermostat/Middle_Langevin_MD.h"
 #include "../thermostat/Nose_Hoover_Chain.h"
+#include "../thermostat/velocity_bias/velocity_bias.h"
 #include "../xponge/xponge.h"
 
 namespace SpongeIO
@@ -34,6 +43,15 @@ struct RuntimeState
     META& meta;
     SITS_INFORMATION& sits;
     REAXFF& reaxff;
+    SpongeDynamics::VelocityBias& velocity_bias;
+    SpongeDynamics::ExternalForce& external_force;
+    SpongeDynamics::EnergyAccounting& energy_accounting;
+    SpongeDynamics::ConstrainedNVEState& rattle_nve;
+    SpongeDynamics::SamplingPlan& sampling;
+    SpongeDynamics::StressSampler& stress_sampler;
+    SpongeDynamics::ProfileSampler& profile_sampler;
+    SpongeDynamics::MomentumExchangeController& momentum_exchange;
+    SpongeDynamics::ConstrainedMiddle& constrained_middle;
     deviceStream_t& main_stream;
 };
 

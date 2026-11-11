@@ -73,6 +73,23 @@ struct SHAKE_SOLVER
 // precision.
 struct SHAKE
 {
+    struct Settings
+    {
+        bool initialized = false;
+        int iterations = 0;
+        double step_length = 0, tolerance = 0;
+    };
+    Settings Get_Settings() const
+    {
+        const auto read = [](const auto& solver) -> Settings
+        {
+            return {solver.is_initialized != 0, solver.iteration_numbers,
+                    double(solver.step_length), double(solver.tolerance)};
+        };
+        if (backend.precise) return read(*backend.precise);
+        if (backend.single) return read(*backend.single);
+        return {};
+    }
     void Initial_SHAKE(CONTROLLER* controller, CONSTRAIN* constrain,
                        const char* name = nullptr);
     void Get_Local(int n);

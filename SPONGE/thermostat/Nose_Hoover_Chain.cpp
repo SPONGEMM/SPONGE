@@ -1,7 +1,8 @@
-﻿#include "Nose_Hoover_Chain.h"
+#include "Nose_Hoover_Chain.h"
 
 #include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
+#include "thermal_step.hpp"
 
 static __global__ void Nose_Hoover_Chain_Update(
     int chain_length, float* chain_crd, float* chain_vel, float chain_mass,
@@ -60,6 +61,23 @@ static __global__ void MD_Iteration_Leap_Frog_With_NHC_With_Max_Velocity(
         temp1 = Make_Vector_Not_Exceed_Value(temp1, max_vel);
         vel[i] = temp1;
         crd[i] = crd[i] + dt * temp1;
+    }
+}
+
+// Retained flow is evaluated at the native friction force time layer.
+// Force kick and position drift still use the complete laboratory velocity.
+static __global__ void MD_Iteration_NHC_Thermal(int n, float dt,
+                                                const float* inverse_mass,
+                                                VECTOR* v, VECTOR* q,
+                                                const VECTOR* f, float friction,
+                                                const VECTOR* retained)
+{
+    SIMPLE_DEVICE_FOR(i, n)
+    {
+        const VECTOR acceleration =
+            inverse_mass[i] * f[i] - friction * (v[i] - retained[i]);
+        v[i] = v[i] + dt * acceleration;
+        q[i] = q[i] + dt * v[i];
     }
 }
 
@@ -238,10 +256,21 @@ void NOSE_HOOVER_CHAIN_INFORMATION::Get_Local(int* atom_local,
 
 void NOSE_HOOVER_CHAIN_INFORMATION::MD_Iteration_Leap_Frog(
     VECTOR* vel, VECTOR* crd, VECTOR* frc, VECTOR* acc, float dt, float Ek,
-    int freedom)
+    int freedom, SpongeDynamics::VelocityBias* bias, const float* mass,
+    SpongeDynamics::EnergyAccounting* energy)
 {
     if (is_initialized)
     {
+        if (bias && bias->enabled())
+        {
+            const auto thermal =
+                bias->Prepare_State(local_atom_numbers, crd, vel, mass);
+            Ek = float(thermal.kinetic_energy);
+            freedom = thermal.degrees_of_freedom;
+            if (energy)
+                energy->Begin_Kicked_Thermal(local_atom_numbers, vel, frc, mass,
+                                             dt);
+        }
         Launch_Device_Kernel(Nose_Hoover_Chain_Update, 1, 1, 0, NULL,
                              chain_length, coordinate, velocity, h_mass, Ek,
                              kB_T, dt, freedom);
@@ -249,7 +278,15 @@ void NOSE_HOOVER_CHAIN_INFORMATION::MD_Iteration_Leap_Frog(
                      deviceMemcpyDeviceToHost);
         deviceMemcpy(h_velocity, velocity, sizeof(float) * (chain_length + 1),
                      deviceMemcpyDeviceToHost);
-        if (max_velocity <= 0)
+        if (bias && bias->enabled())
+        {
+            Launch_Device_Kernel(
+                MD_Iteration_NHC_Thermal, (local_atom_numbers + 127) / 128, 128,
+                0, nullptr, local_atom_numbers, dt, d_mass_inverse_local, vel,
+                crd, frc, h_velocity[0], bias->Retained_Velocity());
+            if (energy) energy->End_Thermal(local_atom_numbers, vel, mass);
+        }
+        else if (max_velocity <= 0)
         {
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_NHC,

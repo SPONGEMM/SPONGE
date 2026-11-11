@@ -1,0 +1,15 @@
+{
+  "source_url": "https://tsapps.nist.gov/publication/get_pdf.cfm?pub_id=928174",
+  "source_title": "Liquid Viscosity and Surface Tension of n-Hexane, n-Octane, n-Decane, and n-Hexadecane up to 573 K by Surface Light Scattering (SLS)",
+  "source_pdf_sha256": "c206751032f480927303f61a77ad0ef2f71d2ec3d67f7d03856e7da872cf6bec",
+  "table": 2,
+  "pdf_page_one_based": 11,
+  "reference_type": "original_experiment",
+  "extraction": "All eleven n-hexane rows manually transcribed and visually checked against PDF page 11; no interpolation.",
+  "temperature_expanded_uncertainty_k": 0.020,
+  "coverage_factor": 2,
+  "purity_mass_fraction_minimum": 0.99,
+  "density_role": "Literature input to the SLS evaluation; not an independent measured density in this experiment.",
+  "pressure_note": "Initial helium partial pressure approximately 0.1 MPa; authors treat measurements as saturation conditions because helium effect is negligible. These rows are not constant-total-pressure 0.1 MPa data.",
+  "uncertainty_note": "Row-specific relative expanded viscosity uncertainties; do not replace with the paper-wide mean or assume independent systematic uncertainty across temperatures."
+}

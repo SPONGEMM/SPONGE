@@ -67,11 +67,15 @@
       "anyOf": [
         {
           "type": "integer",
-          "enum": [1]
+          "enum": [
+            1
+          ]
         },
         {
           "type": "boolean",
-          "enum": [true]
+          "enum": [
+            true
+          ]
         }
       ],
       "title": "Rerun Need Box Update",
@@ -1088,11 +1092,15 @@
           "anyOf": [
             {
               "type": "integer",
-              "enum": [1]
+              "enum": [
+                1
+              ]
             },
             {
               "type": "boolean",
-              "enum": [true]
+              "enum": [
+                true
+              ]
             }
           ],
           "title": "Need Box Update",
@@ -2219,7 +2227,10 @@
     },
     "constrain_precision": {
       "type": "string",
-      "enum": ["single", "double"],
+      "enum": [
+        "single",
+        "double"
+      ],
       "default": "double",
       "description": "Internal arithmetic and work buffers for SETTLE/SHAKE/LINCS/CCMA. Global MD coordinates, velocities, forces and output stress remain float. Independent of solver tolerance/order."
     },
@@ -2229,9 +2240,10 @@
         "SETTLE",
         "SHAKE",
         "LINCS",
-        "CCMA"
+        "CCMA",
+        "RATTLE"
       ],
-      "description": "Constraint solver; SETTLE handles independent pairs/triangles first."
+      "description": "Constraint solver. RATTLE selects canonical-double, fixed-orthogonal-box, single-rank NVE with independent distances; no flow, coupling or barostat. Other solvers use the SETTLE pair/triangle prepass."
     },
     "LINCS": {
       "type": "object",
@@ -2289,6 +2301,795 @@
           "default": 128
         }
       }
+    },
+    "external_force": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "force"
+                ]
+              },
+              "atoms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "force": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "pN per atom"
+              },
+              "schedule": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "constant"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ramp"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "duration": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "duration"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "sine"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "period": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "phase": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "period"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "table"
+                        ]
+                      },
+                      "points": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "points"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Absolute time in ps. Sine start is phase origin, not activation time. Table times must strictly increase; endpoints clamp."
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "cosine"
+                    ]
+                  },
+                  "axis": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y",
+                      "z"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "type",
+                  "axis"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "force"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "acceleration"
+                ]
+              },
+              "atoms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "acceleration": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "nm/ps^2"
+              },
+              "schedule": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "constant"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ramp"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "duration": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "duration"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "sine"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "period": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "phase": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "period"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "table"
+                        ]
+                      },
+                      "points": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "points"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Absolute time in ps. Sine start is phase origin, not activation time. Table times must strictly increase; endpoints clamp."
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "cosine"
+                    ]
+                  },
+                  "axis": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y",
+                      "z"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "type",
+                  "axis"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "acceleration"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "electric_field"
+                ]
+              },
+              "atoms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "field": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "V/nm"
+              },
+              "schedule": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "constant"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ramp"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "duration": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "duration"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "sine"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "period": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "phase": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "period"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "table"
+                        ]
+                      },
+                      "points": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "points"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Absolute time in ps. Sine start is phase origin, not activation time. Table times must strictly increase; endpoints clamp."
+              },
+              "profile": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "cosine"
+                    ]
+                  },
+                  "axis": {
+                    "type": "string",
+                    "enum": [
+                      "x",
+                      "y",
+                      "z"
+                    ]
+                  },
+                  "mode": {
+                    "type": "integer",
+                    "default": 1,
+                    "minimum": 1,
+                    "maximum": 1000
+                  }
+                },
+                "required": [
+                  "type",
+                  "axis"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "field"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "group_load"
+                ]
+              },
+              "atoms": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "force": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "Group total force in pN, distributed in proportion to mass."
+              },
+              "torque": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 3,
+                "maxItems": 3,
+                "description": "Torque about the center of mass in pN nm."
+              },
+              "schedule": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "constant"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "type"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "ramp"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "duration": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "duration"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "sine"
+                        ]
+                      },
+                      "start": {
+                        "type": "number"
+                      },
+                      "period": {
+                        "type": "number",
+                        "exclusiveMinimum": 0
+                      },
+                      "phase": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "period"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "table"
+                        ]
+                      },
+                      "points": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 2,
+                          "items": {
+                            "type": "number"
+                          }
+                        }
+                      }
+                    },
+                    "required": [
+                      "type",
+                      "points"
+                    ],
+                    "additionalProperties": false
+                  }
+                ],
+                "description": "Absolute time in ps. Sine start is phase origin, not activation time. Table times must strictly increase; endpoints clamp."
+              }
+            },
+            "required": [
+              "type",
+              "atoms"
+            ],
+            "additionalProperties": false,
+            "anyOf": [
+              {
+                "required": [
+                  "force"
+                ]
+              },
+              {
+                "required": [
+                  "torque"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "description": "Independent external forces, accelerations, electric fields and group loads. Public units pN, nm/ps^2, V/nm, pN nm. Optional cosine spatial modulation. Single rank, fixed box; group loads require continuous nonperiodic coordinates."
+    },
+    "velocity_bias": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "none",
+            "com",
+            "cosine"
+          ],
+          "default": "none"
+        },
+        "flow": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "gradient": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "harmonic": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "sampling": {
+      "type": "object",
+      "properties": {
+        "stress": {
+          "type": "boolean",
+          "default": false
+        },
+        "profile": {
+          "type": "string",
+          "enum": [
+            "none",
+            "slab",
+            "cosine"
+          ],
+          "default": "none"
+        },
+        "interval": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "output": {
+          "type": "string",
+          "default": "observables.h5"
+        },
+        "flow": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "gradient": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "bins": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 4,
+          "maximum": 10000
+        },
+        "mode": {
+          "type": "integer",
+          "default": 1,
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "velocity_time_layer": {
+          "type": "string",
+          "enum": [
+            "stored",
+            "force_centered"
+          ],
+          "default": "force_centered"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "momentum_exchange": {
+      "type": "object",
+      "properties": {
+        "interval": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "bins": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 4,
+          "maximum": 10000,
+          "multipleOf": 2
+        },
+        "flow": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        },
+        "gradient": {
+          "type": "string",
+          "enum": [
+            "x",
+            "y",
+            "z"
+          ]
+        }
+      },
+      "required": [
+        "interval"
+      ],
+      "additionalProperties": false
     }
   }
 }

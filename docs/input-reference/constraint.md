@@ -13,6 +13,7 @@
 |-------|-------------|
 | `"SETTLE"` | SETTLE algorithm, specialized for rigid water molecules (triangle constraints) |
 | `"SHAKE"` | SHAKE algorithm, general bond length constraints |
+| `"RATTLE"` | Canonical double mechanical NVE; fixed orthogonal periodic box, one rank, independent distances |
 | `"LINCS"` | Experimental LINCS bond constraints |
 | `"CCMA"` | Experimental CCMA bond constraints |
 
@@ -56,6 +57,22 @@ CCMA iteration can accumulate velocity corrections after coordinates stop
 changing. Check residuals, momentum, constraint stress and NVE energy drift for
 the intended model. GPU throughput and long-time transport accuracy require
 separate validation.
+
+## RATTLE NVE
+
+RATTLE uses the same `[constrain]` selection without the SETTLE prepass.
+It adds no precision, tolerance or iteration parameters. Use `mode="nve"` and
+`pbc=true`; `[viscosity] method="green_kubo"` is optional. Native forces remain
+float, including fixed-charge PME; coordinates and incoming staggered velocities
+are held in double. The host solver supports at most 256 independent constraints
+per connected component and requires positive COM-free DOF. Explicit force,
+acceleration and fixed-charge electric-field drivers are supported, with continuous
+double-coordinate path work and dynamic restart. Driven runs cannot use equilibrium
+Green–Kubo. Group loads remain open-boundary only and cannot combine with RATTLE. Flow,
+RNEMD, barostats, bias and virtual sites are not supported by this first path.
+See [mechanical NVE details](../constrained-nve-core.md) for initial velocity,
+restart semantics and validation limits. Liquid timestep convergence remains
+required; the new selector is not a viscosity accuracy guarantee.
 
 ## SETTLE Parameters
 
@@ -148,7 +165,7 @@ a nonzero exit status at observable-output steps. This also catches failed GPU
 constraint kernels that can otherwise leave finite but stale host output. These
 checks do not establish constraint convergence or accuracy at every timestep.
 
-SETTLE handles eligible independent pairs and triangles first. LINCS/CCMA
+Except for RATTLE, SETTLE handles eligible independent pairs and triangles first. LINCS/CCMA
 support CPU and GPU execution, but coupled constraints must remain on one MPI
 rank. General coupled angle constraints and redundant rigid networks are not
 validated. Large-step and NVE configurations require validation for the chosen

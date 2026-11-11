@@ -91,6 +91,20 @@ struct SETTLE_SOLVER
 // precision.
 struct SETTLE
 {
+    struct Counts
+    {
+        int pairs = 0, triangles = 0;
+    };
+    Counts Get_Counts() const
+    {
+        if (backend.precise)
+            return {backend.precise->pair_numbers,
+                    backend.precise->triangle_numbers};
+        if (backend.single)
+            return {backend.single->pair_numbers,
+                    backend.single->triangle_numbers};
+        return {};
+    }
     void Initial(CONTROLLER* controller, CONSTRAIN* constrain, float* mass,
                  const char* name = nullptr);
     void Get_Local(const int* id, const char* label, int n);

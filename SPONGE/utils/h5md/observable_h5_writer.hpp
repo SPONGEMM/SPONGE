@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <map>
 #include <string>
@@ -117,6 +118,18 @@ class ObservableH5Writer
         return writer_.Write_Output_Stream_Descriptor(
             "observables", "thermo_frames", path::observables_all_step,
             path::observables_all_time, value_paths);
+    }
+
+    bool Set_Observable_Unit(const std::string& name, const std::string& unit)
+    {
+        if (std::find(observable_names_.begin(), observable_names_.end(),
+                      name) == observable_names_.end())
+        {
+            last_error_ = "unit refers to an undefined observable: " + name;
+            return false;
+        }
+        return writer_.Set_String_Attribute(Observable_Value_Path(name), "unit",
+                                            unit);
     }
 
     bool Append_Observable_Frame(

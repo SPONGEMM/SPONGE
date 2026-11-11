@@ -21,6 +21,7 @@ class OutputSession
     void Write_Observables();
     // Called before DD ownership or force storage can change.
     void Prepare_Force_Output();
+    void Write_Samples();
     void Write_Trajectory();
     void Write_Force();
     void Write_Restart();
@@ -32,6 +33,10 @@ class OutputSession
    private:
     SpongeH5MD::RestartDynamicState Build_H5_Dynamic_Restart_State();
     RestartOutputState Capture_Restart_State();
+    void Initial_Samples();
+    void Check_Samples_IO(bool ok);
+    std::unique_ptr<SpongeH5MD::WriterBackend> sample_backend_;
+    std::unique_ptr<SpongeH5MD::ObservableH5Writer> sample_writer_;
     RuntimeState runtime_;
 };
 }  // namespace SpongeIO

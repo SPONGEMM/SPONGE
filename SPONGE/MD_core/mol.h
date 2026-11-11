@@ -64,5 +64,5 @@ struct molecule_information
     void Molecule_Crd_Map(
         VECTOR scaler);  // 将坐标质心映射到盒子中，且如果scaler>0则乘上scaler
 
-    void Initial(CONTROLLER* controller);
+    void Initial(CONTROLLER* controller, bool preserve_coordinates = false);
 };

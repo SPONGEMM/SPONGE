@@ -1,4 +1,4 @@
-﻿#include "input_session.h"
+#include "input_session.h"
 
 #include "../MD_core/hmr.h"
 #include "../utils/float_classification.hpp"
@@ -136,6 +136,37 @@ void InputSession::Restore_Dynamic_State()
                 .c_str());
     }
     Apply_H5_Dynamic_Integrator_State(dynamic_state);
+    runtime_.constrained_middle.Restore_Constrained_State(dynamic_state);
+    runtime_.rattle_nve.Restore(dynamic_state);
+    const auto bias =
+        dynamic_state.coupling_state_text.find("velocity_bias_configuration");
+    if ((runtime_.velocity_bias.enabled() &&
+         (bias == dynamic_state.coupling_state_text.end() ||
+          bias->second != runtime_.velocity_bias.Configuration())) ||
+        (!runtime_.velocity_bias.enabled() &&
+         bias != dynamic_state.coupling_state_text.end()))
+        runtime_.controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",
+            "velocity bias restart configuration mismatch; use structural load "
+            "for a new segment");
+    for (const auto& entry : dynamic_state.coupling_state_text)
+        if (entry.first.rfind("energy_", 0) != 0 &&
+            entry.first.rfind("exchange_", 0) != 0 &&
+            entry.first != "constraint_configuration" &&
+            entry.first != "velocity_bias_configuration")
+            runtime_.controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",
+                "unknown component restart state; old checkpoints require "
+                "structural load");
+    runtime_.energy_accounting.Restore_Restart(
+        dynamic_state.coupling_state_text,
+        runtime_.md_info.sys.Get_Current_Time(false));
+    runtime_.stress_sampler.Restore_Restart(
+        dynamic_state.coupling_state_text,
+        runtime_.md_info.sys.Get_Current_Time(false));
+    runtime_.momentum_exchange.Restore_Restart(
+        dynamic_state.coupling_state_text,
+        runtime_.md_info.sys.Get_Current_Time(false));
     std::string error_message;
     if (dynamic_state.has_nose_hoover_chain)
     {

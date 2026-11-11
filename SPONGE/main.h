@@ -32,6 +32,7 @@
 #include "custom_force/pairwise_force.h"
 #include "dihedral/dihedral.h"
 #include "dihedral/improper_dihedral.h"
+#include "external_force/external_force.h"
 #include "io/input_session.h"
 #include "io/output_session.h"
 #include "manybody/eam.h"

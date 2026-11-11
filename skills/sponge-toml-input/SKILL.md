@@ -23,7 +23,7 @@ SPONGE -mdin mdin.spg.toml
 | [reference/io.md](reference/io.md) | 输入输出文件与输出控制参数 |
 | [reference/thermostat.md](reference/thermostat.md) | 恒温器参数 |
 | [reference/barostat.md](reference/barostat.md) | 恒压器参数 |
-| [reference/constraint.md](reference/constraint.md) | 约束算法参数（SETTLE / SHAKE） |
+| [reference/constraint.md](reference/constraint.md) | 约束算法参数（SETTLE / SHAKE / RATTLE NVE） |
 | [reference/neighbor_list.md](reference/neighbor_list.md) | 邻居表参数 |
 | [reference/pme.md](reference/pme.md) | PME 静电参数 |
 | [reference/enhanced_sampling.md](reference/enhanced_sampling.md) | 增强采样参数（CV、MetaD、SITS） |

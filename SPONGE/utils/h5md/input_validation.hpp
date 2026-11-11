@@ -110,13 +110,22 @@ inline bool Has_Supported_Dynamic_State(
         mc_integer_state->second.count("accept_count_int64") != 0 &&
         mc_integer_state->second.at("accept_count_int64").size() == 3;
     return state.has_nose_hoover_chain || has_integrator_state ||
-           has_bussi_state || has_pressure_state ||
-           has_portable_thermostat_rng_state || has_monte_carlo_state;
+           !state.coupling_state_text.empty() || has_bussi_state ||
+           has_pressure_state || has_portable_thermostat_rng_state ||
+           has_monte_carlo_state;
 }
 
 inline std::string Unsupported_Dynamic_State_Reason(
     const SpongeH5MD::RestartDynamicState& state)
 {
+    for (const auto& item : state.integrator_double_states)
+        if (item.first != "constrained_flow_position" &&
+            item.first != "constrained_flow_velocity" &&
+            item.first != "constrained_flow_drift_energy" &&
+            item.first != "constrained_nve_position" &&
+            item.first != "constrained_nve_velocity" &&
+            item.first != "constrained_nve_drift_energy")
+            return "unsupported integrator double state: " + item.first;
     if (state.rng_state_text.count("middle_langevin") != 0)
     {
         return "middle_langevin: Middle Langevin Philox RNG state cannot be "

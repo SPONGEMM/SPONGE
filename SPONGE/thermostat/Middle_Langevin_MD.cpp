@@ -1,5 +1,8 @@
-﻿#include "Middle_Langevin_MD.h"
+#include "Middle_Langevin_MD.h"
 
+#include "../MD_core/energy_accounting.h"
+#include "../MD_core/integrator/constrained_middle.h"
+#include "../thermostat/velocity_bias/velocity_bias.h"
 #include "../utils/float_classification.hpp"
 #include "../utils/random/restart_rng_state.hpp"
 
@@ -301,14 +304,93 @@ void MIDDLE_Langevin_INFORMATION::Get_Local(int* atom_local,
         d_sqrt_mass, d_sqrt_mass_local, d_mass_inverse, d_mass_inverse_local);
 }
 
-void MIDDLE_Langevin_INFORMATION::MD_Iteration_Leap_Frog(VECTOR* frc,
-                                                         VECTOR* vel,
-                                                         VECTOR* acc,
-                                                         VECTOR* crd)
+// Split only the flow-enabled path so the established equilibrium kernel
+// and its floating-point operation order remain unchanged.
+static __global__ void Flow_Kick_Drift(int n, VECTOR* v, VECTOR* r,
+                                       const VECTOR* f, const float* inv_mass,
+                                       float dt, float half_dt)
+{
+    SIMPLE_DEVICE_FOR(i, n)
+    {
+        v[i] = v[i] + dt * (inv_mass[i] * f[i]);
+        r[i] = r[i] + half_dt * v[i];
+    }
+}
+static __global__ void Flow_Drift(int n, VECTOR* v, VECTOR* r, float half_dt)
+{
+    SIMPLE_DEVICE_FOR(i, n) { r[i] = r[i] + half_dt * v[i]; }
+}
+static __global__ void Flow_OU(std::uint64_t seed, std::uint64_t invocation,
+                               int n, float* noise)
+{
+    const int blocks = (3 * n + 3) / 4;
+    SIMPLE_DEVICE_FOR(j, blocks)
+    {
+        SPONGE_PHILOX4X32_10 rng(seed, j, invocation * 4);
+        rng.Normal4(noise + 4 * j);
+    }
+}
+static __global__ void Flow_Apply_OU(int n, float damping,
+                                     const float* noise_scale, VECTOR* v,
+                                     const VECTOR* noise)
+{
+    SIMPLE_DEVICE_FOR(i, n)
+    {
+        v[i] = damping * v[i] + noise_scale[i] * noise[i];
+    }
+}
+void MIDDLE_Langevin_INFORMATION::MD_Iteration_Leap_Frog(
+    VECTOR* frc, VECTOR* vel, VECTOR* acc, VECTOR* crd,
+    SpongeDynamics::VelocityBias* bias, const float* mass,
+    SpongeDynamics::EnergyAccounting* energy,
+    SpongeDynamics::ConstrainedMiddle* constrained)
 {
     if (is_initialized)
     {
-        if (max_velocity <= 0)
+        if (bias && bias->enabled())
+        {
+            if (constrained && constrained->Constrained())
+            {
+                // Flow_OU depends only on seed, invocation and array index,
+                // not local state. Here its array index IS the canonical global
+                // atom index (single rank, full atom count); do not permute it
+                // with local owner IDs. The flow owner gathers forces and
+                // scatters state separately.
+                Launch_Device_Kernel(
+                    Flow_OU, (local_float4_numbers + 127) / 128, 128, 0,
+                    nullptr, random_seed, random_invocation_count,
+                    local_atom_numbers, (float*)random_force);
+                const double heat = constrained->Advance_Constraints(
+                    local_atom_numbers, crd, vel, random_force,
+                    std::exp(-double(gamma_ln) *
+                             constrained->Constrained_Time_Step()),
+                    double(CONSTANT_kB) * target_temperature);
+                if (energy) energy->Record_Host_Thermal(heat);
+            }
+            else
+            {
+                Launch_Device_Kernel(Flow_Kick_Drift,
+                                     (local_atom_numbers + 127) / 128, 128, 0,
+                                     nullptr, local_atom_numbers, vel, crd, frc,
+                                     d_mass_inverse_local, dt, half_dt);
+                if (energy) energy->Begin_Thermal(local_atom_numbers, vel);
+                bias->Remove_Bias(local_atom_numbers, crd, vel, mass);
+                Launch_Device_Kernel(
+                    Flow_OU, (local_float4_numbers + 127) / 128, 128, 0,
+                    nullptr, random_seed, random_invocation_count,
+                    local_atom_numbers, (float*)random_force);
+                Launch_Device_Kernel(Flow_Apply_OU,
+                                     (local_atom_numbers + 127) / 128, 128, 0,
+                                     nullptr, local_atom_numbers, exp_gamma,
+                                     d_sqrt_mass_local, vel, random_force);
+                bias->Restore_Bias(local_atom_numbers, crd, vel, mass);
+                if (energy) energy->End_Thermal(local_atom_numbers, vel, mass);
+                Launch_Device_Kernel(
+                    Flow_Drift, (local_atom_numbers + 127) / 128, 128, 0,
+                    nullptr, local_atom_numbers, vel, crd, half_dt);
+            }
+        }
+        else if (max_velocity <= 0)
         {
             Launch_Device_Kernel(MD_Iteration_Leap_Frog_With_LiuJian,
                                  (local_atom_numbers + 32 - 1) / 32, 32, 0,

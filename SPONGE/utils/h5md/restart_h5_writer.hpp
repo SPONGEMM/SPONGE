@@ -397,6 +397,38 @@ class RestartH5Writer
         return true;
     }
 
+    bool Write_Integrator_State_Double(const std::string& key,
+                                       const std::vector<double>& values)
+    {
+        if (!Validate_State_Component_Name(key, "integrator double state") ||
+            values.empty())
+            return Mark_Failed();
+        const std::string root =
+            std::string(path::restart_integrator_state) + "/double";
+        if (!writer_.Ensure_Group(root)) return false;
+        const std::string name = root + "/" + key;
+        const auto n = values.size();
+        if (!writer_.Create_Dataset(
+                {name, DataType::float64, {{0}, {n}, {n}}, true}) ||
+            !writer_.Append_Float64(name, values.data(), n))
+            return false;
+        state_hash_.Add_Numeric(name, {n}, values.data(), n);
+        return true;
+    }
+
+    bool Write_Coupling_State_Text(const std::string& key,
+                                   const std::string& value)
+    {
+        if (!Validate_State_Component_Name(key, "coupling state key"))
+            return Mark_Failed();
+        if (!writer_.Ensure_Group(path::restart_coupling)) return false;
+        const std::string dataset_path =
+            std::string(path::restart_coupling) + "/" + key;
+        if (!writer_.Write_String(dataset_path, value)) return false;
+        state_hash_.Add_String(dataset_path, value);
+        return true;
+    }
+
     bool Write_Thermostat_State_Text(const std::string& module_name,
                                      const std::string& state_name,
                                      const std::string& value)

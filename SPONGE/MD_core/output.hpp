@@ -298,6 +298,14 @@ bool Write_H5_Restart_Dynamic_State_If_Present(
             return false;
         }
     }
+    for (const auto& item : state->integrator_double_states)
+        if (!writer->Write_Integrator_State_Double(item.first, item.second))
+            return false;
+    for (const auto& item : state->coupling_state_text)
+    {
+        if (!writer->Write_Coupling_State_Text(item.first, item.second))
+            return false;
+    }
     for (const auto& module : state->thermostat_text_states)
     {
         for (const auto& item : module.second)

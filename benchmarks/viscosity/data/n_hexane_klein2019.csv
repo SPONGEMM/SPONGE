@@ -1,0 +1,12 @@
+temperature_k,liquid_density_kg_m3,viscosity_mpa_s,relative_expanded_uncertainty_percent,coverage_factor,source_page,state_path
+283.15,668.28,0.3495,2.1,2,11,saturation_approximation_with_helium
+293.15,659.29,0.3127,1.2,2,11,saturation_approximation_with_helium
+303.15,650.15,0.2809,1.6,2,11,saturation_approximation_with_helium
+313.15,642.24,0.2546,1.4,2,11,saturation_approximation_with_helium
+323.15,631.37,0.2340,1.5,2,11,saturation_approximation_with_helium
+348.15,606.75,0.1905,1.2,2,11,saturation_approximation_with_helium
+373.15,580.55,0.1550,1.8,2,11,saturation_approximation_with_helium
+398.15,552.18,0.1268,1.7,2,11,saturation_approximation_with_helium
+423.15,520.69,0.1026,1.9,2,11,saturation_approximation_with_helium
+448.15,484.16,0.0837,2.2,2,11,saturation_approximation_with_helium
+473.15,437.84,0.0655,3.7,2,11,saturation_approximation_with_helium

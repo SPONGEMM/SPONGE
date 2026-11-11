@@ -1,4 +1,6 @@
-﻿#include "main.h"
+#include "main.h"
+
+#include "thermostat/thermal_step.hpp"
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
@@ -52,16 +54,45 @@ EAM_INFORMATION eam;
 TERSOFF_INFORMATION tersoff;
 REAXFF reaxff;
 SPONGE_PLUGIN plugin;
+SpongeDynamics::VelocityBias velocity_bias;
+SpongeDynamics::ExternalForce external_force;
+SpongeDynamics::EnergyAccounting energy_accounting;
+SpongeDynamics::ConstrainedNVEState rattle_nve;
 
+SpongeDynamics::SamplingPlan sampling;
+SpongeDynamics::StressSampler stress_sampler;
+SpongeDynamics::ProfileSampler profile_sampler;
+SpongeDynamics::MomentumExchangeController momentum_exchange;
+SpongeDynamics::ConstrainedMiddle constrained_middle;
 deviceStream_t main_stream;
 
 namespace
 {
-SpongeIO::RuntimeState io_runtime{
-    controller, Xponge::system, md_info, dd,         middle_langevin,
-    ad_thermo,  bussi_thermo,   nhc,     press_baro, mc_baro,
-    restrain,   cv_controller,  meta,    sits,       reaxff,
-    main_stream};
+SpongeIO::RuntimeState io_runtime{controller,
+                                  Xponge::system,
+                                  md_info,
+                                  dd,
+                                  middle_langevin,
+                                  ad_thermo,
+                                  bussi_thermo,
+                                  nhc,
+                                  press_baro,
+                                  mc_baro,
+                                  restrain,
+                                  cv_controller,
+                                  meta,
+                                  sits,
+                                  reaxff,
+                                  velocity_bias,
+                                  external_force,
+                                  energy_accounting,
+                                  rattle_nve,
+                                  sampling,
+                                  stress_sampler,
+                                  profile_sampler,
+                                  momentum_exchange,
+                                  constrained_middle,
+                                  main_stream};
 SpongeIO::InputSession input_session(io_runtime);
 SpongeIO::OutputSession output_session(io_runtime);
 SpongeRuntime::InitialStateBuilder initial_state(
@@ -92,6 +123,23 @@ int main(int argc, char* argv[])
     {
         Main_Sync_Dynamic_Targets_To_Controllers();
         Main_Calculate_Force();
+        constrained_middle.Observe_Constrained(
+            dd.atom_numbers, dd.atom_local, dd.crd, dd.vel, dd.frc, dd.d_mass,
+            dd.d_virial, md_info.dt);
+        rattle_nve.Observe(dd.atom_numbers, dd.atom_local, dd.crd, dd.vel,
+                           dd.frc, dd.d_mass, dd.d_virial, md_info.dt);
+        output_session.Write_Samples();
+        energy_accounting.Begin_Step(
+            dd.atom_numbers, dd.crd, external_force.External_Force(),
+            md_info.sys.Get_Current_Time(false),
+            rattle_nve.Active() ? rattle_nve.Work_Positions()
+                                : constrained_middle.Work_Positions());
+        momentum_exchange.Begin_Step(md_info.sys.Get_Current_Time(false));
+        if (momentum_exchange.Due(md_info.sys.steps))
+            momentum_exchange.Record(
+                momentum_exchange.Apply(dd.atom_numbers, dd.atom_local, dd.crd,
+                                        dd.vel, dd.frc, md_info.dt),
+                md_info.sys.Get_Current_Time(false), md_info.sys.steps);
         controller.Get_Time_Recorder("Iteration")->Start();
         Main_Reduce_Energy();
         if (md_info.mode == md_info.RERUN)
@@ -104,6 +152,14 @@ int main(int argc, char* argv[])
             controller.Get_Time_Recorder("Iteration")->Start();
         }
         Main_Iteration();
+        energy_accounting.Complete_Step(
+            dd.atom_numbers, dd.crd,
+            external_force.Prepare_Force(dd.atom_numbers, dd.atom_local, dd.crd,
+                                         md_info.sys.Get_Current_Time()),
+            md_info.sys.Get_Current_Time(),
+            rattle_nve.Active() ? rattle_nve.Work_Positions()
+                                : constrained_middle.Work_Positions());
+        momentum_exchange.Complete_Step(md_info.sys.Get_Current_Time());
         controller.Get_Time_Recorder("Iteration")->Stop();
         if (md_info.mode != md_info.RERUN) Main_Print();
     }
@@ -114,6 +170,13 @@ int main(int argc, char* argv[])
 void Main_Initial(int argc, char* argv[])
 {
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
+    for (const auto& kv : controller.commands)
+        if (kv.first.rfind("viscosity_", 0) == 0 || kv.first == "coupling")
+            controller.Throw_SPONGE_Error(
+                spongeErrorValueErrorCommand, "Main_Initial",
+                "legacy viscosity/coupling presets belong to tools/viscosity "
+                "workflows; use external_force, velocity_bias, sampling and "
+                "momentum_exchange engine components");
     initial_state.Load_Base_State();
     controller.Step_Print_Initial("potential", "%.2f");
     controller.Step_Print_Initial("eff_pot", "%.7e");
@@ -224,6 +287,124 @@ void Main_Initial(int argc, char* argv[])
     initial_state.Distribute_State(&Main_Process_Management,
                                    &Main_Refresh_Local_State);
 
+    const bool components = external_force.enabled() ||
+                            velocity_bias.enabled() || sampling.Enabled() ||
+                            momentum_exchange.enabled() ||
+                            rattle_nve.Selected();
+    if (components &&
+        (CONTROLLER::MPI_size != 1 || vatom.is_initialized ||
+         reaxff.eeq.is_initialized || sits.is_initialized ||
+         md_info.nve.max_velocity > 0 || md_info.mode == md_info.RERUN ||
+         md_info.mode == md_info.MINIMIZATION))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "dynamics components require a single rank, positive-mass fixed "
+            "topology and ordinary dynamics without virtual atoms, SITS, "
+            "variable charges or velocity clipping");
+    if ((velocity_bias.enabled() || sampling.Enabled() ||
+         external_force.enabled()) &&
+        md_info.mode != md_info.NVE && md_info.mode != md_info.NVT)
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "components currently require fixed-box NVE/NVT; flow-aware "
+            "barostats are not enabled");
+    if (velocity_bias.enabled() && md_info.mode == md_info.NVT &&
+        !(middle_langevin.is_initialized || ad_thermo.is_initialized ||
+          bd_thermo.is_initialized || bussi_thermo.is_initialized ||
+          nhc.is_initialized))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "velocity bias requires an active supported thermostat in NVT");
+    if (velocity_bias.enabled() && controller.Command_Exist("constrain_mode") &&
+        !constrained_middle.Constrained())
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "this bias/thermostat/constraint combination is not supported; "
+            "constrained bias currently requires cosine and Middle Langevin");
+    if (velocity_bias.enabled() &&
+        (middle_langevin.max_velocity > 0 || ad_thermo.max_velocity > 0 ||
+         nhc.max_velocity > 0 ||
+         md_info.sys.target_temperature_schedule.enabled))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "velocity bias requires an unclipped, constant thermostat bath");
+    if (momentum_exchange.enabled() &&
+        (md_info.mode != md_info.NVE ||
+         controller.Command_Exist("constrain_mode") ||
+         external_force.enabled() || velocity_bias.enabled()))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "atomic momentum exchange currently requires unconstrained NVE "
+            "without other drivers");
+    if (rattle_nve.Selected() &&
+        (md_info.mode != md_info.NVE || !md_info.pbc.pbc ||
+         velocity_bias.enabled() || momentum_exchange.enabled()))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "RATTLE requires single-rank periodic fixed-box NVE without "
+            "thermal bias or momentum exchange");
+    if ((sampling.Enabled() || rattle_nve.Selected() ||
+         constrained_middle.Constrained()) &&
+        (hard_wall.is_initialized || soft_walls.is_initialized ||
+         mc_baro.is_initialized || press_baro.is_initialized ||
+         plugin.force_func_numbers > 0 || restrain.is_initialized ||
+         steer_cv.is_initialized || restrain_cv.is_initialized ||
+         meta.is_initialized))
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "physical-state sampling/integrators require fixed geometry "
+            "without walls, plugins or additional bias");
+    if (sampling.Enabled() || constrained_middle.Constrained() ||
+        rattle_nve.Active())
+    {
+        double charge = 0;
+        bool charged = false;
+        for (int i = 0; i < md_info.atom_numbers; ++i)
+        {
+            charge += md_info.h_charge[i];
+            charged |= md_info.h_charge[i] != 0;
+        }
+        if (std::abs(charge) > 1e-4 || pm.update_interval != 1)
+            controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "Main_Initial",
+                "physical stress/profile components require neutral fixed "
+                "cells and reciprocal forces every step");
+        if (charged && ((!lj.is_initialized && !lj_soft.is_initialized) ||
+                        pm.PM_MPI_size != 1 || !pm.calculate_reciprocal_part))
+            controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                          "Main_Initial",
+                                          "charged sampling requires active "
+                                          "direct and reciprocal PME paths");
+    }
+    if (sampling.Enabled() && sampling.centered && nhc.is_initialized)
+        controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Main_Initial",
+            "NHC sampling currently requires velocity_time_layer=stored; its "
+            "friction update is not a force-only centered half kick");
+    if (sampling.Enabled() && controller.Command_Exist("constrain_mode") &&
+        !sampling.centered)
+        controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                      "Main_Initial",
+                                      "constrained physical-state sampling "
+                                      "requires the force_centered layer");
+    if (sampling.profile && controller.Command_Exist("constrain_mode") &&
+        !constrained_middle.Constrained())
+        controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                      "Main_Initial",
+                                      "constrained profile sampling currently "
+                                      "requires canonical Middle integration");
+    if (constrained_middle.Constrained() && sampling.profile &&
+        (!sampling.mode.cosine ||
+         sampling.mode.flow != velocity_bias.Parameters().flow ||
+         sampling.mode.gradient != velocity_bias.Parameters().gradient ||
+         sampling.mode.wave_number != velocity_bias.Parameters().wave_number))
+        controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+                                      "Main_Initial",
+                                      "canonical constrained profile must "
+                                      "match the projected thermal mode");
+    profile_sampler.Initial(&controller, md_info.atom_numbers, md_info.h_mass,
+                            md_info.sys.box_length, sampling,
+                            constrained_middle.Constrained());
     output_session.Initial();
 }
 
@@ -241,6 +422,19 @@ void Main_Calculate_Force()
     {
         md_info.need_potential = 1;
         md_info.need_kinetic = 1;
+    }
+    if (sampling.stress)
+    {
+        md_info.need_pressure = 1;
+        md_info.need_potential = 1;
+    }
+    if (rattle_nve.Active() || constrained_middle.Constrained())
+    {
+        // Energy/virial flags select different native force specializations.
+        // Fix both flags so output cadence cannot change force rounding and
+        // therefore the canonical mechanical trajectory.
+        md_info.need_pressure = 1;
+        md_info.need_potential = 1;
     }
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
@@ -498,6 +692,8 @@ void Main_Calculate_Force()
             dd.d_virial, dd.frc,
             1.0f / (CONSTANT_kB * md_info.sys.target_temperature));
         output_session.Write_Pending_Sits();
+        external_force.Evaluate(dd.atom_numbers, dd.atom_local, dd.frc, dd.crd,
+                                md_info.sys.Get_Current_Time(false));
         vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     md_info.min.Scale_Force_For_Dynamic_Dt(dd.atom_numbers, dd.d_mass_inverse,
@@ -575,6 +771,21 @@ void Main_Reduce_Energy()
     {
         dd.Get_Ek_and_Temperature(&controller, &md_info);
     }
+    if (constrained_middle.Constrained() || rattle_nve.Active())
+    {
+        const auto& obs = rattle_nve.Active()
+                              ? rattle_nve.Observation()
+                              : constrained_middle.Constrained_Observation();
+        dd.h_ek_total = obs.equilibrium.kinetic_energy;
+        dd.temperature = 2 * obs.equilibrium.kinetic_energy /
+                         (obs.thermal_dof * CONSTANT_kB);
+        md_info.sys.h_temperature = dd.temperature;
+    }
+    velocity_bias.Sample(dd.atom_numbers, dd.crd, dd.vel, dd.d_mass);
+    if (constrained_middle.Constrained())
+        velocity_bias.Sample_Constrained(
+            constrained_middle.View().mode_fit->thermal_energy,
+            constrained_middle.View().thermal_dof);
     dd.Get_Potential(&controller, &md_info);
 }
 
@@ -593,8 +804,12 @@ void Main_Iteration()
 
             if (md_info.mode == md_info.NVE)
             {
-                md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd, dd.frc,
-                                      dd.d_mass_inverse, md_info.dt);
+                if (rattle_nve.Active())
+                    rattle_nve.Advance(dd.atom_numbers, dd.crd, dd.vel);
+                else
+                    md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
+                                          dd.frc, dd.d_mass_inverse,
+                                          md_info.dt);
             }
             else if (md_info.mode == md_info.MINIMIZATION)
             {
@@ -604,33 +819,72 @@ void Main_Iteration()
             }
             else if (middle_langevin.is_initialized)
             {
-                middle_langevin.MD_Iteration_Leap_Frog(dd.frc, dd.vel, dd.acc,
-                                                       dd.crd);
+                middle_langevin.MD_Iteration_Leap_Frog(
+                    dd.frc, dd.vel, dd.acc, dd.crd,
+                    velocity_bias.enabled() ? &velocity_bias : nullptr,
+                    dd.d_mass,
+                    energy_accounting.Heat_Enabled() ? &energy_accounting
+                                                     : nullptr,
+                    &constrained_middle);
                 constrain.v_factor = middle_langevin.exp_gamma;
                 constrain.x_factor = 0.5f * middle_langevin.exp_gamma + 0.5f;
             }
             else if (bd_thermo.is_initialized)
             {
-                bd_thermo.Record_Temperature(dd.temperature,
-                                             md_info.sys.freedom);
-                md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd, dd.frc,
-                                      dd.d_mass_inverse, md_info.dt);
-                bd_thermo.Scale_Velocity(dd.atom_numbers, dd.vel);
+                if (velocity_bias.enabled())
+                {
+                    md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
+                                          dd.frc, dd.d_mass_inverse,
+                                          md_info.dt);
+                    SpongeDynamics::Scale_Thermal(
+                        bd_thermo, velocity_bias,
+                        energy_accounting.Heat_Enabled() ? &energy_accounting
+                                                         : nullptr,
+                        dd.atom_numbers, dd.crd, dd.vel, dd.d_mass);
+                }
+                else
+                {
+                    bd_thermo.Record_Temperature(dd.temperature,
+                                                 md_info.sys.freedom);
+                    md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
+                                          dd.frc, dd.d_mass_inverse,
+                                          md_info.dt);
+                    bd_thermo.Scale_Velocity(dd.atom_numbers, dd.vel);
+                }
             }
             else if (bussi_thermo.is_initialized)
             {
-                bussi_thermo.Record_Temperature(dd.temperature,
-                                                md_info.sys.freedom);
-                md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd, dd.frc,
-                                      dd.d_mass_inverse, md_info.dt);
-                bussi_thermo.Scale_Velocity(dd.atom_numbers, dd.vel);
+                if (velocity_bias.enabled())
+                {
+                    md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
+                                          dd.frc, dd.d_mass_inverse,
+                                          md_info.dt);
+                    SpongeDynamics::Scale_Thermal(
+                        bussi_thermo, velocity_bias,
+                        energy_accounting.Heat_Enabled() ? &energy_accounting
+                                                         : nullptr,
+                        dd.atom_numbers, dd.crd, dd.vel, dd.d_mass);
+                }
+                else
+                {
+                    bussi_thermo.Record_Temperature(dd.temperature,
+                                                    md_info.sys.freedom);
+                    md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
+                                          dd.frc, dd.d_mass_inverse,
+                                          md_info.dt);
+                    bussi_thermo.Scale_Velocity(dd.atom_numbers, dd.vel);
+                }
             }
             else if (ad_thermo.is_initialized)
             {
                 if ((md_info.sys.steps - 1) % ad_thermo.update_interval == 0)
                 {
-                    ad_thermo.MD_Iteration_Leap_Frog(dd.vel, dd.crd, dd.frc,
-                                                     dd.acc, md_info.dt);
+                    ad_thermo.MD_Iteration_Leap_Frog(
+                        dd.vel, dd.crd, dd.frc, dd.acc, md_info.dt,
+                        velocity_bias.enabled() ? &velocity_bias : nullptr,
+                        dd.d_mass,
+                        energy_accounting.Heat_Enabled() ? &energy_accounting
+                                                         : nullptr);
                     settle.Project_Velocity_To_Constraint_Manifold(
                         dd.vel, dd.crd, dd.d_mass_inverse, boundary);
                     shake.Project_Velocity_To_Constraint_Manifold(
@@ -647,27 +901,37 @@ void Main_Iteration()
                     md_info.nve.Leap_Frog(dd.atom_numbers, dd.vel, dd.crd,
                                           dd.frc, dd.d_mass_inverse,
                                           md_info.dt);
+                    if (energy_accounting.Heat_Enabled())
+                        energy_accounting.Record_Host_Thermal(0.0);
                     constrain.v_factor = 1.0;
                     constrain.x_factor = 1.0;
                 }
             }
             else if (nhc.is_initialized)
             {
-                nhc.MD_Iteration_Leap_Frog(dd.vel, dd.crd, dd.frc, dd.acc,
-                                           md_info.dt, dd.h_ek_total,
-                                           md_info.sys.freedom);
+                nhc.MD_Iteration_Leap_Frog(
+                    dd.vel, dd.crd, dd.frc, dd.acc, md_info.dt, dd.h_ek_total,
+                    md_info.sys.freedom,
+                    velocity_bias.enabled() ? &velocity_bias : nullptr,
+                    dd.d_mass,
+                    energy_accounting.Heat_Enabled() ? &energy_accounting
+                                                     : nullptr);
             }
 
-            settle.Do_SETTLE(&controller, dd.atom_local, dd.d_mass, dd.crd,
-                             boundary, dd.vel, md_info.need_pressure,
-                             md_info.sys.d_stress);
-            shake.Constrain(dd.atom_numbers, dd.crd, dd.vel, dd.d_mass_inverse,
-                            dd.d_mass, boundary, md_info.need_pressure,
-                            md_info.sys.d_stress);
-            matrix_constraint.Constrain(
-                dd.atom_numbers, dd.crd, dd.vel, dd.d_mass_inverse, dd.d_mass,
-                boundary, md_info.need_pressure, md_info.sys.d_stress);
-            hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
+            if (!constrained_middle.Constrained() && !rattle_nve.Active())
+            {
+                settle.Do_SETTLE(&controller, dd.atom_local, dd.d_mass, dd.crd,
+                                 boundary, dd.vel, md_info.need_pressure,
+                                 md_info.sys.d_stress);
+                shake.Constrain(dd.atom_numbers, dd.crd, dd.vel,
+                                dd.d_mass_inverse, dd.d_mass, boundary,
+                                md_info.need_pressure, md_info.sys.d_stress);
+                matrix_constraint.Constrain(dd.atom_numbers, dd.crd, dd.vel,
+                                            dd.d_mass_inverse, dd.d_mass,
+                                            boundary, md_info.need_pressure,
+                                            md_info.sys.d_stress);
+                hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
+            }
         }
         // Capture output force with its current global-to-local mapping.
         // Pressure-driven box rebuilds and ownership exchange below may
@@ -675,13 +939,32 @@ void Main_Iteration()
         output_session.Prepare_Force_Output();
         if (md_info.need_pressure && !mc_baro.is_initialized)
         {
-            md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
-                                 dd.d_mass, dd.d_virial, main_stream);
-            md_info.sys.Get_Density();
-            press_baro.Regulate_Pressure(
-                md_info.sys.steps, md_info.sys.h_stress,
-                md_info.pbc.boundary.cell, md_info.dt,
-                md_info.sys.target_pressure, md_info.sys.target_temperature);
+            if (constrained_middle.Constrained() || rattle_nve.Active())
+            {
+                const auto& p =
+                    (rattle_nve.Active()
+                         ? rattle_nve.Observation()
+                         : constrained_middle.Constrained_Observation())
+                        .equilibrium.pressure;
+                md_info.sys.h_stress = {float(p[0]),     float(2 * p[3]),
+                                        float(p[1]),     float(2 * p[4]),
+                                        float(2 * p[5]), float(p[2])};
+                md_info.sys.h_pressure = (p[0] + p[1] + p[2]) / 3;
+                deviceMemcpy(md_info.sys.d_stress, &md_info.sys.h_stress,
+                             sizeof(LTMatrix3), deviceMemcpyHostToDevice);
+                md_info.sys.Get_Density();
+            }
+            else
+            {
+                md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
+                                     dd.d_mass, dd.d_virial, main_stream);
+                md_info.sys.Get_Density();
+                press_baro.Regulate_Pressure(
+                    md_info.sys.steps, md_info.sys.h_stress,
+                    md_info.pbc.boundary.cell, md_info.dt,
+                    md_info.sys.target_pressure,
+                    md_info.sys.target_temperature);
+            }
         }
     }
     else
@@ -775,6 +1058,8 @@ void Main_Print()
         nb14.Step_Print(&controller);
 
         controller.Step_Print("potential", dd.h_sum_ene_total);
+        energy_accounting.Step_Print();
+        velocity_bias.Step_Print();
 
         restrain.Step_Print(&controller);
         cv_controller.Step_Print();
@@ -817,6 +1102,13 @@ void Main_Print()
 void Main_Clear()
 {
     output_session.Close();
+    external_force.Clear();
+    stress_sampler.Clear();
+    profile_sampler.Clear();
+    momentum_exchange.Clear();
+    constrained_middle.Clear();
+    energy_accounting.Clear();
+    velocity_bias.Clear();
 
     controller.Final_Time_Summary(
         md_info.sys.steps, md_info.sys.speed_time_factor,

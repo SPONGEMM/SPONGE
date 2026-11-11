@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from decimal import Decimal
+import math
 import sys
 from pathlib import Path
 from typing import Any
@@ -151,10 +153,11 @@ def validate(schema: dict[str, Any], value: Any, path: str) -> None:
         for candidate in schema["anyOf"]:
             try:
                 validate(candidate, value, path)
-                return
+                break
             except ValidationError as err:
                 errors.append(str(err))
-        raise ValidationError(f"{path}: value matches none of anyOf: {errors}")
+        else:
+            raise ValidationError(f"{path}: value matches none of anyOf: {errors}")
 
     if "type" in schema and not matches_type(value, schema["type"]):
         raise ValidationError(
@@ -165,6 +168,20 @@ def validate(schema: dict[str, Any], value: Any, path: str) -> None:
         raise ValidationError(
             f"{path}: {value!r} is not in enum {schema['enum']!r}"
         )
+
+    if matches_type(value, "number"):
+        if not math.isfinite(value):
+            raise ValidationError(f"{path}: number must be finite")
+        for key, fails in (("minimum", lambda x: value < x),
+                           ("maximum", lambda x: value > x),
+                           ("exclusiveMinimum", lambda x: value <= x),
+                           ("exclusiveMaximum", lambda x: value >= x)):
+            if key in schema and fails(schema[key]):
+                raise ValidationError(f"{path}: violates {key}={schema[key]}")
+
+    if matches_type(value, "number") and "multipleOf" in schema:
+        if Decimal(str(value)) % Decimal(str(schema["multipleOf"])) != 0:
+            raise ValidationError(f"{path}: violates multipleOf={schema['multipleOf']}")
 
     if isinstance(value, dict):
         properties = schema.get("properties", {})
@@ -184,6 +201,10 @@ def validate(schema: dict[str, Any], value: Any, path: str) -> None:
         return
 
     if isinstance(value, list):
+        if len(value) < schema.get("minItems", 0) or len(value) > schema.get("maxItems", math.inf):
+            raise ValidationError(f"{path}: invalid array length")
+        if schema.get("uniqueItems") and any(item in value[:index] for index,item in enumerate(value)):
+            raise ValidationError(f"{path}: duplicate array item")
         item_schema = schema.get("items")
         if item_schema:
             for index, item in enumerate(value):
@@ -220,10 +241,36 @@ def main() -> int:
         data = tomllib.loads(toml_text)
         validate(schema, data, name)
         print(f"[PASS] {name}")
+    for invalid in (
+        {"type":"force", "force":[1,2]},
+        {"type":"force", "force":[1,2,3], "forec":[1,2,3]},
+        {"type":"force", "force":[1,2,3], "atoms":[]},
+        {"type":"force", "force":[1,2,3], "atoms":[0,0]},
+        {"type":"force", "force":[1,2,3], "schedule":{"type":"ramp", "duration":0}},
+        {"type":"force", "force":[1,2,3], "schedule":{"type":"constant", "period":1}},
+        {"type":"group_load", "atoms":[0,1]},
+    ):
+        try:
+            validate(schema, {"external_force":[invalid]}, "invalid_coupling")
+        except ValidationError:
+            continue
+        raise ValidationError(f"invalid coupling unexpectedly accepted: {invalid}")
+    print("[PASS] invalid_coupling_contracts")
+    for invalid in ({"momentum_exchange":{"interval":0}},
+                    {"momentum_exchange":{"interval":1,"bins":5}},
+                    {"sampling":{"interval":0}},
+                    {"sampling":{"profile":"gk"}},
+                    {"velocity_bias":{"mode":"invalid"}}):
+        try:
+            validate(schema, invalid, "invalid_component")
+        except ValidationError:
+            continue
+        raise ValidationError(f"invalid component unexpectedly accepted: {invalid}")
+    print("[PASS] invalid_component_contracts")
     repo_root = schema_path.parent.parent
-    examples_dir = repo_root / "examples" / "h5_input"
-    if examples_dir.exists():
-        for example_path in sorted(examples_dir.glob("*.toml")):
+    for examples_dir in (repo_root / "examples" / "h5_input",
+                         repo_root / "examples" / "nonequilibrium"):
+        for example_path in sorted(examples_dir.rglob("*.toml")):
             data = tomllib.loads(example_path.read_text())
             validate(schema, data, str(example_path.relative_to(repo_root)))
             print(f"[PASS] {example_path.relative_to(repo_root)}")

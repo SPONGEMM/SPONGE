@@ -1,8 +1,26 @@
 set(SPONGE_SOURCES
+    ${PROJECT_ROOT_DIR}/SPONGE/observables/sampling.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/observables/stress_sampler.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/observables/profile_sampler.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/momentum_exchange/momentum_exchange.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/main.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/io/input_session.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/io/output_session.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/common.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/external_force/drive_config.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/external_force/group_load.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/external_force/external_force.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/energy_accounting.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/energy_ledger.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/thermostat/velocity_bias/mode_math.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/constrain/tangent_frame.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/constrained_middle_step.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/rattle_step.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/rattle_state.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/observables/stress_math.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/momentum_exchange/exchange_math.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/thermostat/velocity_bias/velocity_bias.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/constrained_middle.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/control.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/xponge/xponge.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/MD_core.cpp

@@ -132,9 +132,18 @@ SHAKE/SETTLE velocity manifold without moving their coordinates, and rescales
 using the final system degrees of freedom. `seed` is required and must be an
 integer in `0..INT64_MAX`; it is independent of thermostat seeds. This mode is
 available for dynamical simulations, not minimization or rerun.
+For `constrain_mode="RATTLE"`, normalization follows the double tangent
+projection and uses COM-free DOF. RATTLE dynamic restart rejects explicit
+velocity regeneration; remove `[initial_velocity]` for continuation, or use
+structural loading for a new experiment. See [RATTLE NVE](../constrained-nve-core.md)
+for the distinction between staggered and physical velocities.
 
 ## Working Directory
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `workspace` | string | directory of mdin file | Working directory path, can be absolute or relative |
+
+## 驱动、速度偏置与采样
+
+当前组件输入及支持组合见 [动力学组件](../dynamics-components.md)。黏度方法预设在 `tools/viscosity/workflows/` 中展开，不再作为引擎方法开关。

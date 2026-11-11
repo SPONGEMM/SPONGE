@@ -1,7 +1,8 @@
-﻿#include "Andersen_thermostat.h"
+#include "Andersen_thermostat.h"
 
 #include "../utils/float_classification.hpp"
 #include "../utils/random/restart_rng_state.hpp"
+#include "thermal_step.hpp"
 
 static __global__ void MD_Iteration_Leap_Frog_With_Andersen(
     const std::uint64_t random_seed,
@@ -271,12 +272,64 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Get_Local(int* atom_local,
         d_factor, d_factor_local, d_mass_inverse, d_mass_inverse_local);
 }
 
+static __global__ void Bias_Kick_Half_Drift(int n, VECTOR* v, VECTOR* q,
+                                            const VECTOR* f,
+                                            const float* inverse_mass, float dt)
+{
+    SIMPLE_DEVICE_FOR(i, n)
+    {
+        v[i] = v[i] + dt * (inverse_mass[i] * f[i]);
+        q[i] = q[i] + (0.5f * dt) * v[i];
+    }
+}
+static __global__ void Bias_Andersen_Noise(std::uint64_t seed,
+                                           std::uint64_t invocation, int blocks,
+                                           float* noise)
+{
+    SIMPLE_DEVICE_FOR(i, blocks)
+    {
+        SPONGE_PHILOX4X32_10 rng(seed, i, invocation * 4);
+        rng.Normal4(noise + 4 * i);
+    }
+}
+static __global__ void Bias_Andersen_Reset(int n, VECTOR* v,
+                                           const float* factor,
+                                           const VECTOR* noise)
+{
+    SIMPLE_DEVICE_FOR(i, n) { v[i] = factor[i] * noise[i]; }
+}
+static __global__ void Bias_Half_Drift(int n, VECTOR* v, VECTOR* q, float dt)
+{
+    SIMPLE_DEVICE_FOR(i, n) { q[i] = q[i] + (0.5f * dt) * v[i]; }
+}
 void ANDERSEN_THERMOSTAT_INFORMATION::MD_Iteration_Leap_Frog(
-    VECTOR* vel, VECTOR* crd, VECTOR* frc, VECTOR* acc, float dt)
+    VECTOR* vel, VECTOR* crd, VECTOR* frc, VECTOR* acc, float dt,
+    SpongeDynamics::VelocityBias* bias, const float* mass,
+    SpongeDynamics::EnergyAccounting* energy)
 {
     if (is_initialized)
     {
-        if (max_velocity <= 0)
+        if (bias && bias->enabled())
+        {
+            const int blocks = (local_atom_numbers + 127) / 128;
+            Launch_Device_Kernel(Bias_Kick_Half_Drift, blocks, 128, 0, nullptr,
+                                 local_atom_numbers, vel, crd, frc,
+                                 d_mass_inverse_local, dt);
+            if (energy) energy->Begin_Thermal(local_atom_numbers, vel);
+            bias->Remove_Bias(local_atom_numbers, crd, vel, mass);
+            Launch_Device_Kernel(Bias_Andersen_Noise,
+                                 (local_float4_numbers + 127) / 128, 128, 0,
+                                 nullptr, random_seed, random_invocation_count,
+                                 local_float4_numbers, (float*)random_vel);
+            Launch_Device_Kernel(Bias_Andersen_Reset, blocks, 128, 0, nullptr,
+                                 local_atom_numbers, vel, d_factor_local,
+                                 random_vel);
+            bias->Restore_Bias(local_atom_numbers, crd, vel, mass);
+            if (energy) energy->End_Thermal(local_atom_numbers, vel, mass);
+            Launch_Device_Kernel(Bias_Half_Drift, blocks, 128, 0, nullptr,
+                                 local_atom_numbers, vel, crd, dt);
+        }
+        else if (max_velocity <= 0)
         {
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_Andersen,

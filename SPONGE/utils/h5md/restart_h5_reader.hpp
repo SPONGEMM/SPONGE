@@ -104,6 +104,7 @@ class RestartH5Reader
             result.has_dynamic_state =
                 Group_Has_Dataset(path::restart_rng_state) ||
                 Group_Has_Dataset(path::restart_integrator_state) ||
+                Group_Has_Dataset(path::restart_coupling) ||
                 Group_Has_Dataset(path::restart_thermostat) ||
                 Group_Has_Dataset(path::restart_barostat);
             result.has_protocol_state =
@@ -249,6 +250,31 @@ class RestartH5Reader
                     result.integrator_state_text[key] =
                         Read_String(Restart_Integrator_State_Path(key));
                 }
+                const std::string root =
+                    std::string(path::restart_integrator_state) + "/double";
+                if (Exists(root))
+                    for (const auto& key : List_Group_Children(
+                             root, HighFive::ObjectType::Dataset))
+                    {
+                        const auto name = root + "/" + key;
+                        const auto type = file_->getDataSet(name).getDataType();
+                        if (type.getClass() != HighFive::DataTypeClass::Float ||
+                            type.getSize() != sizeof(double))
+                            throw std::runtime_error(
+                                "integrator state requires float64: " + name);
+                        const auto dims = Require_Dimensions(
+                            name, {0}, "integrator double state");
+                        result.integrator_double_states[key] =
+                            Read_Required_Vector<double>(
+                                name, dims[0], "integrator double state");
+                    }
+            }
+            if (Exists(path::restart_coupling))
+            {
+                for (const auto& key : List_Group_Children(
+                         path::restart_coupling, HighFive::ObjectType::Dataset))
+                    result.coupling_state_text[key] = Read_String(
+                        std::string(path::restart_coupling) + "/" + key);
             }
             if (Exists(path::restart_thermostat))
             {

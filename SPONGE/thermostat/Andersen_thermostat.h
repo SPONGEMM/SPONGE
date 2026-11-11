@@ -1,8 +1,14 @@
-﻿#pragma once
+#pragma once
 
 #include "../common.h"
 #include "../control.h"
 #include "../utils/h5md/h5_structural_state.hpp"
+
+namespace SpongeDynamics
+{
+class VelocityBias;
+class EnergyAccounting;
+}  // namespace SpongeDynamics
 
 // 用于记录与计算Andersen控温相关的信息
 struct ANDERSEN_THERMOSTAT_INFORMATION
@@ -45,8 +51,11 @@ struct ANDERSEN_THERMOSTAT_INFORMATION
     void Get_Local(int* atom_local,
                    int local_atom_numbers);  // 获取局域粒子信息
 
-    void MD_Iteration_Leap_Frog(VECTOR* vel, VECTOR* crd, VECTOR* frc,
-                                VECTOR* acc, float dt);
+    void MD_Iteration_Leap_Frog(
+        VECTOR* vel, VECTOR* crd, VECTOR* frc, VECTOR* acc, float dt,
+        SpongeDynamics::VelocityBias* bias = nullptr,
+        const float* mass = nullptr,
+        SpongeDynamics::EnergyAccounting* energy = nullptr);
     void Set_Target_Temperature(float target_temperature_new);
     bool Export_H5_Restart_State(SpongeH5MD::RestartDynamicState* state,
                                  std::string* error_message) const;

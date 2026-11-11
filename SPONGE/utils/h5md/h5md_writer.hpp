@@ -643,6 +643,7 @@ static constexpr const char* restart_rng_state =
     "/parameters/restart/rng_state";
 static constexpr const char* restart_integrator_state =
     "/parameters/restart/integrator_state";
+static constexpr const char* restart_coupling = "/parameters/restart/coupling";
 static constexpr const char* restart_thermostat =
     "/parameters/restart/thermostat";
 static constexpr const char* restart_nhc =

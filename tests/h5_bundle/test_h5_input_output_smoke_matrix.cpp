@@ -1270,6 +1270,10 @@ PreparedCase Prepare_Rerun_Case(const std::filesystem::path& temp_root,
         "rerun_frame_limit = " + std::to_string(selection.frame_limit));
     Append_If_Missing(&mdin, "write_mdout_interval",
                       "write_mdout_interval = 1");
+    Append_If_Missing(&mdin, "rerun_output_crd",
+                      "rerun_output_crd = \"rerun-output.crd\"");
+    Append_If_Missing(&mdin, "rerun_output_box",
+                      "rerun_output_box = \"rerun-output.box\"");
     if (bundled_output)
     {
         Append_If_Missing(&mdin, "write_trajectory_interval",
