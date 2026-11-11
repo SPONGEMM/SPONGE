@@ -575,7 +575,7 @@ def audit_case(campaign, name):
                     block,
                     estimator,
                     bootstrap=1000,
-                    seed=20261111,
+                    seed=plan.get("analysis_seed", 20261111),
                 )
                 if engine == "lammps":
                     for key in list(report):
@@ -597,6 +597,8 @@ def audit_case(campaign, name):
         **{"lammps_" + k: v for k, v in lm_data.items()},
     )
     result["analysis_source_sha256"] = analysis_hash
+    result["trajectory_seed"] = plan["seed"]
+    result["analysis_seed"] = plan.get("analysis_seed", 20261111)
     result["executed_source_sha256"] = plan["source_sha256"]
     result["reanalysis_with_changed_source"] = (
         result["analysis_source_sha256"] != result["executed_source_sha256"]
@@ -627,6 +629,7 @@ def run_case(
     grid=128,
     discard=0.5,
     block=0.5,
+    analysis_seed=None,
 ):
     campaign = Path(campaign).resolve()
     if (campaign / "closure.json").exists():
@@ -660,6 +663,8 @@ def run_case(
         stride=stride,
         amplitude_nm_ps2=amplitude,
         seed=seed,
+        analysis_seed=seed if analysis_seed is None else analysis_seed,
+        physical_seed_sha256=water.digest(campaign / "physical-seed.npz"),
         grid=grid,
         discard_ps=discard,
         block_ps=block,
@@ -806,6 +811,7 @@ if __name__ == "__main__":
     p.add_argument("--grid", type=int, default=128)
     p.add_argument("--discard", type=float, default=0.5)
     p.add_argument("--block", type=float, default=0.5)
+    p.add_argument("--analysis-seed", type=int)
     p.add_argument("--audit-only", action="store_true")
     a = p.parse_args()
     r = (
@@ -822,6 +828,7 @@ if __name__ == "__main__":
             a.grid,
             a.discard,
             a.block,
+            a.analysis_seed,
         )
     )
     print(json.dumps(r, indent=2, allow_nan=False))

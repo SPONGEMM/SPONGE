@@ -88,3 +88,17 @@ python benchmarks/viscosity/water_cosine_validation.py \
 完整表格、三种估计器、原始输入/输出、失败记录、PNG/PDF 图表及哈希清单
 位于项目（仓库外）的 `notes/evidence/spce-cosine-validation-20261111/`。
 项目说明为 `notes/2026-11-11-water-cosine-validation.md`。
+
+## 2026-11-12 较长重复测试
+
+三组独立随机准备，每组 3 ps 零驱动准备后做正反向各 10 ps 双引擎测试，
+共 12 条生产轨迹；0.25 fs 步长、20 fs 采样，主窗 [2,10) ps。
+正反向在 replica 内配对，三个 replica 的响应均值先汇总，再取倒数。
+主 Fourier 估计 SPONGE 为 1.1263、LAMMPS 为 0.6569 mPa·s，条件性组间
+95% 区间分别为 [0.6981,2.9126]、[0.4139,1.5917]；平均热温度为
+301.102、300.530 K。区间来自 n=3、df=2 的条件性 t 分布假设，不能据重叠证明等价。
+
+全部数值审计和 8 项相关回归通过；时间窗敏感性仍明显，黏度尚未验收收敛。
+本轮仅增加独立的 `--analysis-seed` 及物理初态哈希记录，没有修改 MD 核心算法。
+完整档案为项目（仓库外）的 `notes/evidence/spce-cosine-replicas-20261112/`，
+项目说明为 `notes/2026-11-12-water-cosine-replicas.md`。
