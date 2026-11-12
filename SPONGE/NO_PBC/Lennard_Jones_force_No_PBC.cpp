@@ -2,14 +2,13 @@
 
 #include "../xponge/load/native/lj.hpp"
 #include "../xponge/xponge.h"
+#include "exclusions.hpp"
 
-static __global__ void LJ_Force_Device(const int atom_numbers,
-                                       const VECTOR* crd, const int* LJ_types,
-                                       const float* LJ_A, const float* LJ_B,
-                                       const int* excluded_list_start,
-                                       const int* excluded_list,
-                                       const int* excluded_atom_numbers,
-                                       const float cutoff_square, VECTOR* frc)
+static __global__ void LJ_Force_Device(
+    const int atom_numbers, const VECTOR* crd, const int* atom_local,
+    const int* LJ_types, const float* LJ_A, const float* LJ_B,
+    const int* excluded_list_start, const int* excluded_list,
+    const int* excluded_atom_numbers, const float cutoff_square, VECTOR* frc)
 {
 #ifdef USE_GPU
     int atom_i = blockDim.y * blockIdx.y + threadIdx.y;
@@ -21,13 +20,8 @@ static __global__ void LJ_Force_Device(const int atom_numbers,
         for (int atom_j = atom_i + 1; atom_j < atom_numbers; atom_j++)
 #endif
     {
-        int tocal = 1;
-        const int* start = excluded_list + excluded_list_start[atom_i];
-        for (int k = 0; tocal == 1 && k < excluded_atom_numbers[atom_i]; k += 1)
-        {
-            if (start[k] == atom_j) tocal = 0;
-        }
-        if (tocal == 1)
+        if (!No_PBC_Pair_Excluded(atom_i, atom_j, excluded_list_start,
+                                  excluded_list, excluded_atom_numbers))
         {
             VECTOR dr = crd[atom_j] - crd[atom_i];
             float dr2 = dr * dr;
@@ -38,8 +32,8 @@ static __global__ void LJ_Force_Device(const int atom_numbers,
                 float dr_6 = dr_4 * dr_2;
                 float dr_8 = dr_4 * dr_4;
 
-                int type_i = LJ_types[atom_i];
-                int type_j = LJ_types[atom_j];
+                int type_i = LJ_types[atom_local[atom_i]];
+                int type_j = LJ_types[atom_local[atom_j]];
                 int type_ij = type_i;
                 if (type_i < type_j)
                 {
@@ -62,10 +56,11 @@ static __global__ void LJ_Force_Device(const int atom_numbers,
 }
 
 static __global__ void LJ_Force_Energy_Device(
-    const int atom_numbers, const VECTOR* crd, const int* LJ_types,
-    const float* LJ_A, const float* LJ_B, const int* excluded_list_start,
-    const int* excluded_list, const int* excluded_atom_numbers,
-    const float cutoff_square, float* atom_ene, VECTOR* frc, float* this_ene)
+    const int atom_numbers, const VECTOR* crd, const int* atom_local,
+    const int* LJ_types, const float* LJ_A, const float* LJ_B,
+    const int* excluded_list_start, const int* excluded_list,
+    const int* excluded_atom_numbers, const float cutoff_square,
+    float* atom_ene, VECTOR* frc, float* this_ene)
 {
 #ifdef USE_GPU
     int atom_i = blockDim.y * blockIdx.y + threadIdx.y;
@@ -77,13 +72,8 @@ static __global__ void LJ_Force_Energy_Device(
         for (int atom_j = atom_i + 1; atom_j < atom_numbers; atom_j++)
 #endif
     {
-        int tocal = 1;
-        const int* start = excluded_list + excluded_list_start[atom_i];
-        for (int k = 0; tocal == 1 && k < excluded_atom_numbers[atom_i]; k += 1)
-        {
-            if (start[k] == atom_j) tocal = 0;
-        }
-        if (tocal == 1)
+        if (!No_PBC_Pair_Excluded(atom_i, atom_j, excluded_list_start,
+                                  excluded_list, excluded_atom_numbers))
         {
             VECTOR dr = crd[atom_j] - crd[atom_i];
             float dr2 = dr * dr;
@@ -94,8 +84,8 @@ static __global__ void LJ_Force_Energy_Device(
                 float dr_6 = dr_4 * dr_2;
                 float dr_8 = dr_4 * dr_4;
 
-                int type_i = LJ_types[atom_i];
-                int type_j = LJ_types[atom_j];
+                int type_i = LJ_types[atom_local[atom_i]];
+                int type_j = LJ_types[atom_local[atom_j]];
                 int type_ij = type_i;
                 if (type_i < type_j)
                 {
@@ -295,8 +285,8 @@ void LENNARD_JONES_NO_PBC_INFORMATION::Parameter_Host_To_Device()
 }
 
 void LENNARD_JONES_NO_PBC_INFORMATION::LJ_Force_With_Atom_Energy(
-    const int atom_numbers, const VECTOR* crd, VECTOR* frc,
-    const int need_atom_energy, float* atom_energy,
+    const int atom_numbers, const VECTOR* crd, const int* atom_local,
+    VECTOR* frc, const int need_atom_energy, float* atom_energy,
     const int* excluded_list_start, const int* excluded_list,
     const int* excluded_atom_numbers)
 {
@@ -310,16 +300,17 @@ void LENNARD_JONES_NO_PBC_INFORMATION::LJ_Force_With_Atom_Energy(
         if (!need_atom_energy)
         {
             Launch_Device_Kernel(LJ_Force_Device, gridSize, blockSize, 0, NULL,
-                                 atom_numbers, crd, d_atom_LJ_type, d_LJ_A,
-                                 d_LJ_B, excluded_list_start, excluded_list,
-                                 excluded_atom_numbers, cutoff * cutoff, frc);
+                                 atom_numbers, crd, atom_local, d_atom_LJ_type,
+                                 d_LJ_A, d_LJ_B, excluded_list_start,
+                                 excluded_list, excluded_atom_numbers,
+                                 cutoff * cutoff, frc);
         }
         else
         {
             deviceMemset(d_LJ_energy_atom, 0, sizeof(float) * atom_numbers);
             Launch_Device_Kernel(
                 LJ_Force_Energy_Device, gridSize, blockSize, 0, NULL,
-                atom_numbers, crd, d_atom_LJ_type, d_LJ_A, d_LJ_B,
+                atom_numbers, crd, atom_local, d_atom_LJ_type, d_LJ_A, d_LJ_B,
                 excluded_list_start, excluded_list, excluded_atom_numbers,
                 cutoff * cutoff, atom_energy, frc, d_LJ_energy_atom);
         }

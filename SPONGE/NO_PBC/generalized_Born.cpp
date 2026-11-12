@@ -5,7 +5,7 @@
 
 static __global__ void Effective_Born_Radii_Factor_Device(
     const int atom_numbers, const VECTOR* crd, const float cutoff_square,
-    const float* self_radius, const float* other_radius,
+    const int* atom_local, const float* self_radius, const float* other_radius,
     float* effective_radius)
 {
 #ifdef USE_GPU
@@ -25,8 +25,8 @@ static __global__ void Effective_Born_Radii_Factor_Device(
         if (dr2 < cutoff_square)
         {
             float R = sqrtf(dr2);
-            float self_radii = self_radius[atom_i];
-            float other_radii = other_radius[atom_j];
+            float self_radii = self_radius[atom_local[atom_i]];
+            float other_radii = other_radius[atom_local[atom_j]];
             float inner_distance = R - other_radii;
             float outer_distance = R + other_radii;
             float U = 1;
@@ -52,6 +52,7 @@ static __global__ void Effective_Born_Radii_Factor_Device(
 }
 
 static __global__ void Effective_Born_Radii_Device(const int atom_numbers,
+                                                   const int* atom_local,
                                                    const float* self_radius,
                                                    float* effective_radius)
 {
@@ -64,7 +65,8 @@ static __global__ void Effective_Born_Radii_Device(const int atom_numbers,
 #endif
     {
         effective_radius[atom_i] =
-            1.0 / (1.0 / self_radius[atom_i] - effective_radius[atom_i]);
+            1.0 /
+            (1.0 / self_radius[atom_local[atom_i]] - effective_radius[atom_i]);
     }
 }
 
@@ -144,7 +146,7 @@ static __global__ void GB_ieqj_Force_Energy_Device(
 
 static __global__ void GB_accumulate_Force_Energy_Device(
     const int atom_numbers, const VECTOR* crd, const float cutoff_square,
-    const float* self_radius, const float* other_radius,
+    const int* atom_local, const float* self_radius, const float* other_radius,
     const float* effective_raius, const float* de_da, VECTOR* frc)
 {
 #ifdef USE_GPU
@@ -164,8 +166,8 @@ static __global__ void GB_accumulate_Force_Energy_Device(
         if (dr2 < cutoff_square)
         {
             SADfloat<1> R(sqrtf(dr2), 0);
-            float self_radii = self_radius[atom_i];
-            float other_radii = other_radius[atom_j];
+            float self_radii = self_radius[atom_local[atom_i]];
+            float other_radii = other_radius[atom_local[atom_j]];
             SADfloat<1> inner_distance = R - other_radii;
             SADfloat<1> outer_distance = R + other_radii;
             SADfloat<1> U = 1.0f;
@@ -301,7 +303,8 @@ void GENERALIZED_BORN_INFORMATION::Initial(CONTROLLER* controller, float cutoff,
         "END INITIALIZING STANDARD GENERALIZED BORN INFORMATION\n\n");
 }
 
-void GENERALIZED_BORN_INFORMATION::Get_Effective_Born_Radius(const VECTOR* crd)
+void GENERALIZED_BORN_INFORMATION::Get_Effective_Born_Radius(
+    const VECTOR* crd, const int* atom_local)
 {
     if (is_initialized)
     {
@@ -312,23 +315,23 @@ void GENERALIZED_BORN_INFORMATION::Get_Effective_Born_Radius(const VECTOR* crd)
             CONTROLLER::device_max_thread / CONTROLLER::device_warp};
         dim3 gridSize = {(atom_numbers + blockSize.x - 1) / blockSize.x,
                          (atom_numbers + blockSize.y - 1) / blockSize.y};
-        Launch_Device_Kernel(Effective_Born_Radii_Factor_Device, gridSize,
-                             blockSize, 0, NULL, atom_numbers, crd,
-                             radii_cutoff * radii_cutoff, d_GB_self_radius,
-                             d_GB_other_radius, d_GB_effective_radius);
+        Launch_Device_Kernel(
+            Effective_Born_Radii_Factor_Device, gridSize, blockSize, 0, NULL,
+            atom_numbers, crd, radii_cutoff * radii_cutoff, atom_local,
+            d_GB_self_radius, d_GB_other_radius, d_GB_effective_radius);
 
         Launch_Device_Kernel(
             Effective_Born_Radii_Device,
             (atom_numbers + CONTROLLER::device_max_thread - 1) /
                 CONTROLLER::device_max_thread,
-            CONTROLLER::device_max_thread, 0, NULL, atom_numbers,
+            CONTROLLER::device_max_thread, 0, NULL, atom_numbers, atom_local,
             d_GB_self_radius, d_GB_effective_radius);
     }
 }
 
 void GENERALIZED_BORN_INFORMATION::GB_Force_With_Atom_Energy(
     const int atom_numbers, const VECTOR* crd, const float* charge, VECTOR* frc,
-    float* atom_energy)
+    float* atom_energy, const int* atom_local)
 {
     if (is_initialized)
     {
@@ -355,10 +358,11 @@ void GENERALIZED_BORN_INFORMATION::GB_Force_With_Atom_Energy(
             d_GB_effective_radius, 0.5 / relative_dielectric_constant - 0.5,
             cutoff * cutoff, frc, atom_energy, d_dE_da, d_GB_energy_atom);
 
-        Launch_Device_Kernel(
-            GB_accumulate_Force_Energy_Device, gridSize, blockSize, 0, NULL,
-            atom_numbers, crd, radii_cutoff * radii_cutoff, d_GB_self_radius,
-            d_GB_other_radius, d_GB_effective_radius, d_dE_da, frc);
+        Launch_Device_Kernel(GB_accumulate_Force_Energy_Device, gridSize,
+                             blockSize, 0, NULL, atom_numbers, crd,
+                             radii_cutoff * radii_cutoff, atom_local,
+                             d_GB_self_radius, d_GB_other_radius,
+                             d_GB_effective_radius, d_dE_da, frc);
     }
 }
 
