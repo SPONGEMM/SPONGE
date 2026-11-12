@@ -128,6 +128,51 @@ frames and EOF. Enable it with `SPONGE_H5_ENABLE_RUNTIME_SMOKE=1` in a runnable
 CPU/GPU environment. This focused check does not qualify PME grid boundaries
 or long-trajectory ensemble behavior.
 
+## Live MetaD potential snapshots
+
+Trajectory and observable outputs store native float32 grids under
+`/parameters/sponge/metadynamics/<name>/potential_snapshots`. Runtime snapshots
+never pass through text exports. Independent legacy text and restart exports
+retain their own formats.
+
+| Dataset | Type / shape | Meaning |
+| --- | --- | --- |
+| `layout` | fixed string | `rectilinear` grid or scattered `points` |
+| `cv_labels`, `value_labels` | static string arrays | Ordered CV and potential channel names |
+| `axes/<i>` | float32 vector | Cell-center coordinates for CV i; per-point coordinates for scattered layouts |
+| `values` | float32 `[snapshot, n0, n1, ..., channel]` | Native potentials in C order; scattered layouts use `[snapshot, point, channel]` |
+| `step`, `time` | int64, float64 vectors | Source simulation step and time in ps |
+| `committed_count` | int64 vector | Append-only publication watermark; last entry is visible snapshot count |
+
+The engine's dimension-zero-fastest storage is reordered into C order without
+text conversion or rounding. The ordered axes and channel labels are immutable
+within a run. Regular MetaD grids carry `potential_raw`, `potential_shifted` and
+`vshift`; estimated grids carry `potential_local`, `potential_backup` and, when
+available, `potential_raw`. CV coordinates retain the engine's native CV units.
+
+Single-file writers define the layout before starting SWMR. They append values,
+step and time, flush, then append and flush the committed count. Readers refresh
+the watermark first and ignore all uncommitted tails. Snapshot cadence follows
+trajectory output, but its index is independent of particle frame counters.
+In MPI runs the CV rank exports the current grid and broadcasts numeric values
+to the HDF5 writer rank.
+
+VDS writers store values only in the active segment. Once sealed, the segment's
+snapshot count joins the manifest under `stream_counts/metadynamics_grid`.
+The wrapper uses virtual datasets for values, steps and times, plus static axes
+and a global committed count. Publishing a wrapper copies mappings and metadata,
+not accumulated grid payloads. Segments with only grid snapshots are valid.
+Cloud consumers read the validated continuous prefix of finalized segments;
+segment finalization is distinct from simulation completion.
+
+The observable file is a subset of the main H5MD scientific output: matching
+snapshot records have identical axes, values, steps and times. Per-file lifecycle
+and particle counters retain their own meanings.
+
+`test_highfive_backend_io` checks non-square native grids, live single-file reads,
+segment rotation and virtual wrapper payload storage. `h5_bundle_writer_probe single_live` provides a separate-process SWMR fixture; `vds` emits two sealed
+segments with distinct grids.
+
 ## Validation
 
 With the existing CUDA development environment:

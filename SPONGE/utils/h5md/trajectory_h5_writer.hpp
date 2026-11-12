@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "utils/h5md/h5md_writer.hpp"
+#include "utils/h5md/metadynamics_potential_snapshots.hpp"
 #include "utils/h5md/module_h5_mappings.hpp"
 #include "utils/h5md/output_plan.hpp"
 
@@ -387,6 +388,19 @@ class TrajectoryH5Writer
             "metadynamics");
     }
 
+    bool Define_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid)
+    {
+        return Mark_Dirty_If(potential_snapshots_.Define(&writer_, name, grid));
+    }
+    bool Append_Metadynamics_Grid(const std::string& name,
+                                  const MetadynamicsGrid& grid, int64_t step,
+                                  double time)
+    {
+        return Mark_Dirty_If(
+            potential_snapshots_.Write(&writer_, name, grid, step, time));
+    }
+
     bool Write_Metadynamics_Diagnostic(const std::string& name,
                                        const std::string& component,
                                        const std::string& text)
@@ -504,6 +518,7 @@ class TrajectoryH5Writer
     }
 
    private:
+    MetadynamicsPotentialSnapshots potential_snapshots_;
     bool Mark_Dirty_If(bool ok)
     {
         if (ok) dirty_ = true;
