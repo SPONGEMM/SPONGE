@@ -7,10 +7,37 @@ import h5py
 import numpy as np
 import test_cosine_analysis as cos_fixture
 import test_green_kubo_analysis as gk_fixture
-from tools.viscosity.analysis import cosine, green_kubo
+import test_rnemd_analysis as rn_fixture
+from tools.viscosity.analysis import cosine, green_kubo, rnemd
 
 
 class GenericAnalysis(unittest.TestCase):
+    def test_rnemd_requires_centered_pre_exchange_samples(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "sample.h5"
+            rn_fixture.write_fixture(path, rn_fixture.fixture())
+            with h5py.File(path, "r+") as file:
+                p = file["parameters/sponge/provenance"]
+                del p["viscosity_contract"]
+                p["observable_contract"] = "sponge.observables.physical_state.v1"
+                p["profile_kind"] = "slab"
+                p["exchange_interval"] = "1"
+                p["sampling_phase"] = "post_force_pre_exchange_pre_integrate"
+                p["velocity_time_layer"] = "force_centered"
+            data, _ = rnemd.load_profile(path)
+            report, _ = rnemd.analyze(data, 0, 4, bootstrap=200)
+            self.assertAlmostEqual(report["viscosity_pa_s"], .001)
+            for key, invalid in [("sampling_phase", "post_exchange"),
+                                 ("velocity_time_layer", "stored")]:
+                with h5py.File(path, "r+") as file:
+                    p = file["parameters/sponge/provenance"]
+                    original = p[key][()]
+                    p[key][()] = invalid
+                with self.assertRaisesRegex(ValueError, "pre-exchange"):
+                    rnemd.load_profile(path)
+                with h5py.File(path, "r+") as file:
+                    file["parameters/sponge/provenance"][key][()] = original
+
     def test_cosine_uses_declared_protocol_not_a_measured_acceleration_column(
         self,
     ):

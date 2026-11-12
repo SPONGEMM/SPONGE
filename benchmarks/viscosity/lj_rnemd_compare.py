@@ -246,8 +246,11 @@ def analyze_run(output):
                          bins=plan['bins'], atoms=model['atoms'], mass=model['mass_da'], box=model['box_angstrom'], dt_ps=plan['dt_lammps_ps'],
                          ledger_stride=plan.get('impulse_ledger_interval'),kinetic_path=output/'lammps'/plan['kinetic_file'] if 'kinetic_file' in plan else None)
     version = next((line for line in (output/'lammps/run.log').read_text().splitlines() if line.startswith('LAMMPS (')), 'unknown')
+    phase = (metadata.get('sampling_phase') == 'post_force_pre_exchange_pre_integrate'
+             and metadata.get('velocity_time_layer') == 'force_centered') if 'observable_contract' in metadata else (
+                 metadata.get('sampling_convention') == 'pre-exchange integer-time velocity; momentum gained by middle slab from prior exchanges; two periodic paths')
     initial = dict(expected_lammps_version_banner=version.startswith('LAMMPS (29 Aug 2024'),
-                   phase=metadata['sampling_convention'] == 'pre-exchange integer-time velocity; momentum gained by middle slab from prior exchanges; two periodic paths',
+                   phase=phase,
                    configuration=int(metadata['exchange_interval']) == plan['exchange_interval'] and int(metadata['bins']) == plan['bins'] and int(metadata['flow']) == 0 and int(metadata['gradient']) == 2,
                    geometry=bool(np.allclose(sp['area'], lm['area'], rtol=2e-7, atol=0) and np.allclose(sp['length'], lm['length'], rtol=2e-7, atol=0)),
                    initial_kinetic_temperature=bool(np.isclose(sp['kinetic_temperature'][0], lm['kinetic_temperature'][0]*LM_KB/float(np.float32(.00198716)), rtol=2e-5, atol=1e-5)),

@@ -43,6 +43,12 @@ def load_profile(path):
             )
         ) or (not generic and provenance["viscosity_contract"] != CONTRACT):
             raise ValueError("unsupported RNEMD contract")
+        if generic and (
+            provenance.get("sampling_phase")
+            != "post_force_pre_exchange_pre_integrate"
+            or provenance.get("velocity_time_layer") != "force_centered"
+        ):
+            raise ValueError("RNEMD requires force-centered pre-exchange sampling")
         output = file["parameters/sponge/output"]
         if text(output["status"][()]) != "finalized":
             raise ValueError("profile file is not finalized")
