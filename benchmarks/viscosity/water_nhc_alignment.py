@@ -102,7 +102,7 @@ def measure_native(q, v, mass, box):
     return measured
 
 
-def audit_nhc_observables(path, expected):
+def audit_nhc_observables(path, expected, times):
     """Scalar observables include q0; native chain history starts after step 0."""
     with h5py.File(path) as file:
         journal = file["parameters/sponge/output"]
@@ -114,6 +114,9 @@ def audit_nhc_observables(path, expected):
             raise ValueError("incomplete observable output")
         group = file["observables/all"]
         np.testing.assert_array_equal(group["step"][()], expected)
+        np.testing.assert_allclose(
+            group["time"][()], times, rtol=1e-12, atol=1e-12
+        )
         scalar_count = 0
         for item in group.values():
             if isinstance(item, h5py.Group) and "value" in item:
@@ -128,6 +131,9 @@ def audit_nhc_observables(path, expected):
         chain = group["thermostat/nose_hoover_chain"]
         np.testing.assert_array_equal(
             chain["coordinate/step"][()], expected[1:]
+        )
+        np.testing.assert_array_equal(
+            chain["coordinate/time"][()], group["time"][()][1:]
         )
         for name in ("coordinate", "velocity"):
             value = chain[name + "/value"][()]
@@ -149,7 +155,7 @@ def audit_native_sponge(path, model, state, q0, v0, steps, dt, stride):
         or int(meta["thermal_dof"]) != 2 * model["atoms"] - 4
     ):
         raise ValueError("wrong NHC velocity/thermal-DOF metadata")
-    audit_nhc_observables(path / "observables.h5", expected)
+    audit_nhc_observables(path / "observables.h5", expected, expected * dt)
     n = model["atoms"]
     m = state["masses"]
     box = model["box_angstrom"]

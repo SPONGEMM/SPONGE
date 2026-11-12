@@ -1281,11 +1281,11 @@ void MD_INFORMATION::trajectory_output::Append_H5_Nose_Hoover_Chain_Frame(
             h5_trajectory_vds_enabled
                 ? h5_vds_trajectory_writer->Append_Nose_Hoover_Chain_Frame(
                       md_info->sys.steps + 1,
-                      md_info->sys.Get_Current_Time(false), coordinates,
+                      md_info->sys.Get_Current_Time(true), coordinates,
                       velocities, chain_length)
                 : h5_trajectory_writer->Append_Nose_Hoover_Chain_Frame(
                       md_info->sys.steps + 1,
-                      md_info->sys.Get_Current_Time(false), coordinates,
+                      md_info->sys.Get_Current_Time(true), coordinates,
                       velocities, chain_length);
         if (!ok)
         {
@@ -1302,7 +1302,7 @@ void MD_INFORMATION::trajectory_output::Append_H5_Nose_Hoover_Chain_Frame(
     if (h5_observable_enabled)
     {
         if (!h5_observable_writer->Append_Nose_Hoover_Chain_Frame(
-                md_info->sys.steps + 1, md_info->sys.Get_Current_Time(false),
+                md_info->sys.steps + 1, md_info->sys.Get_Current_Time(true),
                 coordinates, velocities, chain_length))
         {
             controller->Throw_SPONGE_Error(

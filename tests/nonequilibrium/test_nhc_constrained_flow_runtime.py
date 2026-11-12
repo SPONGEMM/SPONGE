@@ -18,6 +18,17 @@ class NativeNHCConstraints(unittest.TestCase):
     run_case = base.CouplingRestart.run_case
     read_state = base.CouplingRestart.read_state
 
+    def assert_chain_clock(self, path):
+        with h5py.File(path / "observables.h5") as file:
+            group = file["observables/all"]
+            chain = group["thermostat/nose_hoover_chain/coordinate"]
+            np.testing.assert_array_equal(
+                chain["step"][()], group["step"][()][1:]
+            )
+            np.testing.assert_array_equal(
+                chain["time"][()], group["time"][()][1:]
+            )
+
     def options(self):
         return {
             "pbc": True,
@@ -122,6 +133,7 @@ class NativeNHCConstraints(unittest.TestCase):
         np.testing.assert_allclose(
             native[:, 1], expected_v.reshape(2, 3)[:, 1], atol=8e-8, rtol=0
         )
+        self.assert_chain_clock(path)
 
     def test_restart_cadence_and_constraint_identity(self):
         args = self.arguments()
@@ -130,6 +142,8 @@ class NativeNHCConstraints(unittest.TestCase):
         split = self.run_case(
             "split", 23, restart=first / "checkpoint.spgr.h5", **args
         )
+        for path in (full, first, split):
+            self.assert_chain_clock(path)
         a, b = self.read_state(full), self.read_state(split)
         self.assertEqual(a[0], b[0])
         self.assertEqual(a[3], b[3])
