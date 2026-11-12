@@ -277,16 +277,16 @@ void Main_Calculate_Force()
         reaxff.Calculate_Force(&dd, &md_info, &neighbor_list);
 
         LJ_NOPBC.LJ_Force_With_Atom_Energy(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.need_potential,
-            dd.d_energy, dd.d_excluded_list_start, dd.d_excluded_list,
-            dd.d_excluded_numbers);
+            dd.atom_numbers, dd.crd, dd.atom_local, dd.frc,
+            md_info.need_potential, dd.d_energy, dd.d_excluded_list_start,
+            dd.d_excluded_list, dd.d_excluded_numbers);
         CF_NOPBC.Coulomb_Force_With_Atom_Energy(
             dd.atom_numbers, dd.crd, dd.d_charge, dd.frc,
             md_info.need_potential, dd.d_energy, dd.d_excluded_list_start,
             dd.d_excluded_list, dd.d_excluded_numbers);
-        gb.Get_Effective_Born_Radius(dd.crd);
+        gb.Get_Effective_Born_Radius(dd.crd, dd.atom_local);
         gb.GB_Force_With_Atom_Energy(dd.atom_numbers, dd.crd, dd.d_charge,
-                                     dd.frc, dd.d_energy);
+                                     dd.frc, dd.d_energy, dd.atom_local);
 
         if (!use_reaxff_eeq)
         {
