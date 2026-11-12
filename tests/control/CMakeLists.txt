@@ -186,6 +186,7 @@ add_test(NAME test_constraint_stress COMMAND test_constraint_stress)
 set_tests_properties(test_constraint_stress PROPERTIES
   LABELS "nonequilibrium;numerics;constraints" TIMEOUT 30)
 add_executable(test_constrained_flow test_constrained_flow.cpp
+  ${PROJECT_ROOT_DIR}/SPONGE/constrain/thermal_frame.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/constrained_middle_step.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/constrain/tangent_frame.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/observables/stress_math.cpp
@@ -200,6 +201,7 @@ add_test(NAME test_constrained_flow_covariance COMMAND ${Python3_EXECUTABLE}
 set_tests_properties(test_constrained_flow_covariance PROPERTIES
   LABELS "nonequilibrium;numerics;constraints" TIMEOUT 60 SKIP_RETURN_CODE 77)
 add_executable(test_constrained_flow_step test_constrained_flow_step.cpp
+  ${PROJECT_ROOT_DIR}/SPONGE/constrain/thermal_frame.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/constrained_middle_step.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/constrain/tangent_frame.cpp
   ${PROJECT_ROOT_DIR}/SPONGE/observables/stress_math.cpp)
@@ -258,3 +260,9 @@ add_test(NAME test_water_cosine_validation_math COMMAND ${Python3_EXECUTABLE}
   ${PROJECT_ROOT_DIR}/tests/nonequilibrium/test_water_cosine_validation.py)
 set_tests_properties(test_water_cosine_validation_math PROPERTIES
   LABELS "dynamics;numerics;water;analysis" TIMEOUT 30 SKIP_RETURN_CODE 77)
+
+add_test(NAME test_nhc_constrained_flow_runtime COMMAND ${Python3_EXECUTABLE}
+  ${PROJECT_ROOT_DIR}/tests/nonequilibrium/test_nhc_constrained_flow_runtime.py
+  --sponge $<TARGET_FILE:SPONGE>)
+set_tests_properties(test_nhc_constrained_flow_runtime PROPERTIES
+  LABELS "dynamics;constraints;integration" TIMEOUT 60 SKIP_RETURN_CODE 77)

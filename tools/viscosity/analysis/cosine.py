@@ -71,9 +71,16 @@ def load_profile(path):
                 or provenance.get("profile_kind") != "cosine"
             ):
                 raise ValueError("unsupported observable cosine profile")
-            if provenance.get("velocity_time_layer") != "force_centered":
+            if provenance.get(
+                "velocity_time_layer"
+            ) != "force_centered" and not (
+                provenance.get("velocity_time_layer") == "stored"
+                and provenance.get("profile_velocity_convention")
+                == "native_nhc_stored_v1"
+                and "canonical_integrator_configuration" not in provenance
+            ):
                 raise ValueError(
-                    "cosine workflow requires force-centered velocity"
+                    "cosine workflow requires force-centered velocity or declared native NHC stored convention"
                 )
             contract = (
                 CONSTRAINED_CONTRACT

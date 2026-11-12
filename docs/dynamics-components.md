@@ -10,6 +10,7 @@
 | `SPONGE/thermostat/velocity_bias/` | 质量加权 COM/余弦模式；热动能、热 DOF、保留速度 | 坐标推进、约束积分状态、采样文件 |
 | `SPONGE/thermostat/thermal_step.hpp` | Berendsen/Bussi 的共同热速度缩放边界 | 包装整个 MD 步 |
 | `SPONGE/constrain/tangent_frame.*` | 距离约束切空间、瞬时反力和联合模式投影的数学基元 | GK 工作流 |
+| `SPONGE/constrain/thermal_frame.*` | 固定几何下的联合热子空间及投影 OU；由 Middle、NHC 和观测共同调用 | 选择积分器、保存链状态 |
 | `SPONGE/MD_core/integrator/` | canonical q/s 的唯一 owner；受约束 Middle、RATTLE NVE 推进和重启 | 外力配置、文件写入 |
 | `SPONGE/MD_core/energy_*` | 外力路径功、控温子步热量及补偿求和 | 内势能、外力施加 |
 | `SPONGE/momentum_exchange/` | 原子交换、调度、实际写入动量与守恒诊断 | 剖面拟合、黏度估计 |
@@ -102,11 +103,15 @@ python -m tools.viscosity.workflows.config workflow.toml mdin.spg.toml
 - Berendsen/Bussi：完整 kick/drift 后，使用该几何处的热动能与热 DOF 计算缩放因子，仅缩放 c；Bussi 随机因子使用相同 DOF。
 - NHC：在原有摩擦求值点估计 b、热动能与 DOF；链反馈使用热动能，摩擦项为 `-xi*(v-b)`，坐标推进仍用完整速度。链状态仍由 NHC 保存。
 
-无约束 COM 模式热 DOF 为 `3N-3`，额外独立余弦模式为 `3N-4`；秩亏模式报错。受约束 Middle 使用联合切空间投影与实际秩，不把几次顺序投影当作等价算法。随机噪声投影到同一热子空间，因此不会把热浴噪声注入被保留模式。
+无约束 COM 模式热 DOF 为 `3N-3`，额外独立余弦模式为 `3N-4`；秩亏模式报错。受约束 Middle 和原生 NHC 使用同一个联合切空间热速度定义：先将完整速度投影到距离约束切空间，再扣除三个平移模式及投影后的余弦模式。热 DOF 为 `3N-约束秩-4`，不把几次顺序投影当作等价算法。Middle 的随机噪声投影到同一热子空间，因此不会把热浴噪声注入被保留模式。
+
+NHC 保留其原生 SHAKE 推进与链更新。它的存储速度可能含约束法向分量；摩擦只作用于上述切空间热速度，法向修正仍由原生约束积分负责。剖面的 Fourier/拟合与 bin 动量读取完整存储速度，只有热温度使用切空间投影。这样不会把温度的投影误用到输运动量测量上。原生 NHC+SHAKE 路径不是 canonical Middle 的连续 double 状态，也不套用其能量漂移账本。
 
 外力路径功是梯形力与实际位移的内积；热量是热浴子步前后的动能差。NHC 单独扣除 force kick 后再测摩擦引起的动能变化。受约束 canonical 路径保留原有连续 double 坐标和漂移诊断，不将数值漂移冒充热量。
 
 `sampling.velocity_time_layer` 默认 `force_centered`：对原有 staggered 速度只读地补半 kick，并按需做约束切空间观测。可选 `stored` 直接观察引擎存储层。NHC 当前只开放 `stored`，因为其摩擦推进不能宣称等价于力独立的半 kick。约束应力要求 `force_centered`。
+
+受约束 cosine 流使用原生 NHC 时，需要显式 `constrain.mode="SHAKE"`、`settle_disable=true` 和 `sampling.velocity_time_layer="stored"`。显式关闭 SETTLE 防止水约束自动分流改变预期的 SHAKE 算法。链长由现有 `nose_hoover_chain.length` 配置；不同软件的 `tau` 定义不一定相同，跨软件比较需要匹配实际链质量，不能只复制参数数值。
 
 采样阶段固定为 force 后、exchange 与 integrate 前。普通输出与采样拥有各自 cadence；应力需求固定每步请求相同力/能量/维里分支，改变采样间隔不改变积分轨迹。应力采用对称内部压力约定、去 COM 动能及瞬时约束反力；外部 body-force virial 不加入内部应力。热温度不会替换动量通量的动能项。
 
@@ -123,7 +128,7 @@ python -m tools.viscosity.workflows.config workflow.toml mdin.spg.toml
 | 组合 | 当前边界 |
 | --- | --- |
 | 无约束 COM/cosine bias | 五种控温器，固定盒 NVT；NVE 可只作观测 |
-| 约束与 bias | cosine + Middle + SETTLE/SHAKE；canonical host 路径 |
+| 约束与 bias | cosine + Middle + SETTLE/SHAKE（canonical host）；或 cosine + 原生 NHC + SHAKE（stored 剖面、无应力） |
 | 约束应力 | SETTLE/SHAKE/RATTLE，正交固定盒；瞬时反力观察者 |
 | RATTLE | 独立距离约束、canonical double、固定周期盒 NVE |
 | 原子交换 | 无约束、无其他驱动的固定正交周期盒 NVE；偶数 bins |

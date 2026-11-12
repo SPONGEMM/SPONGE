@@ -140,6 +140,24 @@ void InputSession::Restore_Dynamic_State()
     runtime_.rattle_nve.Restore(dynamic_state);
     const auto bias =
         dynamic_state.coupling_state_text.find("velocity_bias_configuration");
+    const auto constraint_bias = dynamic_state.coupling_state_text.find(
+        "velocity_bias_constraint_configuration");
+    if (runtime_.nhc.is_initialized && runtime_.velocity_bias.enabled() &&
+        runtime_.controller.Command_Choice("constrain_mode", "SHAKE"))
+    {
+        if (constraint_bias == dynamic_state.coupling_state_text.end())
+            runtime_.controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",
+                "missing NHC constrained bias configuration; use structural "
+                "load");
+        runtime_.velocity_bias.Expect_Constraint_Identity(
+            constraint_bias->second);
+    }
+    else if (constraint_bias != dynamic_state.coupling_state_text.end())
+        runtime_.controller.Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",
+            "constraint bias restart configuration mismatch; use structural "
+            "load");
     if ((runtime_.velocity_bias.enabled() &&
          (bias == dynamic_state.coupling_state_text.end() ||
           bias->second != runtime_.velocity_bias.Configuration())) ||
@@ -153,6 +171,7 @@ void InputSession::Restore_Dynamic_State()
         if (entry.first.rfind("energy_", 0) != 0 &&
             entry.first.rfind("exchange_", 0) != 0 &&
             entry.first != "constraint_configuration" &&
+            entry.first != "velocity_bias_constraint_configuration" &&
             entry.first != "velocity_bias_configuration")
             runtime_.controller.Throw_SPONGE_Error(
                 spongeErrorConflictingCommand, "Apply_H5_Dynamic_Restart_State",

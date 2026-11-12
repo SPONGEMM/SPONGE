@@ -140,7 +140,9 @@ void InitialStateBuilder::Initialize_Dynamics(float (*box_updater)(LTMatrix3,
                             md_info.sys.box_length, md_info.sys.box_angle,
                             md_info.pbc.pbc, identity);
     r.constrained_middle.Initial(&controller, md_info.atom_numbers,
-                                 r.velocity_bias.Parameters());
+                                 r.middle_langevin.is_initialized
+                                     ? r.velocity_bias.Parameters()
+                                     : SpongeDynamics::SpatialMode{});
     r.sampling.Initial(&controller, md_info.sys.box_length,
                        md_info.sys.box_angle, md_info.pbc.pbc);
     r.stress_sampler.Initial(&controller, md_info.atom_numbers, r.sampling,
@@ -377,23 +379,62 @@ void InitialStateBuilder::Distribute_State(void (*prepare_processes)(),
             controller.Command_Exist("constrain_mode"))
         {
             if (CONTROLLER::MPI_size != 1 || md_info.mode != md_info.NVT ||
-                !bindings_.runtime.middle_langevin.is_initialized ||
+                !(bindings_.runtime.middle_langevin.is_initialized ||
+                  bindings_.runtime.nhc.is_initialized) ||
                 (!controller.Command_Choice("constrain_mode", "SETTLE") &&
                  !controller.Command_Choice("constrain_mode", "SHAKE")))
                 controller.Throw_SPONGE_Error(
                     spongeErrorConflictingCommand, "Distribute_State",
                     "constrained cosine requires single-rank NVT "
-                    "middle_langevin and SETTLE/SHAKE distance topology");
-            md_info.Crd_Vel_dd_to_Device(dd.crd, dd.vel, dd.atom_local_label,
-                                         dd.atom_local_id,
-                                         bindings_.runtime.main_stream);
-            bindings_.runtime.constrained_middle.Configure_Constraints(
-                md_info.h_mass, std::move(flow_pairs_), md_info.sys.box_length,
-                md_info.dt, md_info.crd, md_info.vel);
-            md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
-                                         dd.atom_local_id,
-                                         bindings_.runtime.main_stream);
-            refresh_local_state(false);
+                    "Middle/NHC and SETTLE/SHAKE distance topology");
+            if (bindings_.runtime.nhc.is_initialized)
+            {
+                if (!controller.Command_Choice("constrain_mode", "SHAKE"))
+                    controller.Throw_SPONGE_Error(
+                        spongeErrorConflictingCommand, "Distribute_State",
+                        "native NHC constrained cosine currently requires "
+                        "SHAKE");
+                const auto settle_counts = bindings_.settle.Get_Counts();
+                if (settle_counts.pairs || settle_counts.triangles)
+                    controller.Throw_SPONGE_Error(
+                        spongeErrorConflictingCommand, "Distribute_State",
+                        "native NHC cosine+SHAKE requires settle_disable=true "
+                        "so SHAKE owns all distances");
+                const auto settings = bindings_.shake.Get_Settings();
+                const auto& nhc = bindings_.runtime.nhc;
+                const auto identity =
+                    std::string("SHAKE;precision=") +
+                    (bindings_.constrain.precision ==
+                             ConstraintPrecision::Double
+                         ? "double"
+                         : "single") +
+                    ";iterations=" + std::to_string(settings.iterations) +
+                    ";tolerance=" +
+                    SpongeDynamics::Precise_Number(settings.tolerance) +
+                    ";step_length=" +
+                    SpongeDynamics::Precise_Number(settings.step_length) +
+                    ";dt=" + SpongeDynamics::Precise_Number(md_info.dt) +
+                    ";nhc_length=" + std::to_string(nhc.chain_length) +
+                    ";nhc_mass=" + SpongeDynamics::Precise_Number(nhc.h_mass) +
+                    ";kBT=" + SpongeDynamics::Precise_Number(nhc.kB_T);
+                bindings_.runtime.velocity_bias.Configure_Constraints(
+                    md_info.h_mass, std::move(flow_pairs_),
+                    md_info.sys.box_length, identity);
+            }
+            else
+            {
+                md_info.Crd_Vel_dd_to_Device(
+                    dd.crd, dd.vel, dd.atom_local_label, dd.atom_local_id,
+                    bindings_.runtime.main_stream);
+                bindings_.runtime.constrained_middle.Configure_Constraints(
+                    md_info.h_mass, std::move(flow_pairs_),
+                    md_info.sys.box_length, md_info.dt, md_info.crd,
+                    md_info.vel);
+                md_info.Crd_Vel_Device_to_dd(
+                    dd.crd, dd.vel, dd.atom_local_label, dd.atom_local_id,
+                    bindings_.runtime.main_stream);
+                refresh_local_state(false);
+            }
         }
         plugin.Set_Domain_Information(&dd);
     }

@@ -8,7 +8,7 @@ class ProfileSampler
 {
    public:
     void Initial(CONTROLLER*, int, const float*, VECTOR, const SamplingPlan&,
-                 bool);
+                 bool, const ConstraintStressPlan* = nullptr);
     bool enabled() const { return parameters_.enabled; }
     std::map<std::string, double> Sample(int, const VECTOR*, const VECTOR*,
                                          const VECTOR*, const float*, double,
@@ -34,6 +34,8 @@ class ProfileSampler
     int count_ = 0, thermal_dof_ = 0;
     double density_ = 0;
     bool constrained_ = false;
+    const ConstraintStressPlan* constraint_plan_ = nullptr;
+    Vec3 constraint_box_{};
     PhysicalStateView view_;
     std::vector<VECTOR> h_crd_, h_vel_, h_force_;
     std::vector<float> h_mass_;

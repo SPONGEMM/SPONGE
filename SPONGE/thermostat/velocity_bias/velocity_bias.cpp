@@ -74,6 +74,7 @@ void VelocityBias::Initial(CONTROLLER* c, int count, const float* mass,
             ";gradient=" + std::to_string(parameters_.gradient) +
             ";k=" + Precise_Number(parameters_.wave_number) + ";" + identity;
         count_ = count;
+        thermal_dof_ = 3 * count - (parameters_.cosine ? 4 : 3);
         parameters_.enabled = true;
         h_crd_.resize(count);
         h_vel_.resize(count);
@@ -94,6 +95,39 @@ void VelocityBias::Initial(CONTROLLER* c, int count, const float* mass,
         c->Throw_SPONGE_Error(spongeErrorValueErrorCommand,
                               "VelocityBias::Initial", e.what());
     }
+}
+void VelocityBias::Configure_Constraints(const float* mass,
+                                         std::vector<DistanceConstraint> pairs,
+                                         VECTOR box, const std::string& solver)
+{
+    if (!enabled() || !parameters_.cosine || !mass || pairs.empty())
+        throw std::runtime_error(
+            "constraint-aware bias requires a cosine mode and distance "
+            "topology");
+    std::vector<double> masses(count_);
+    constraint_identity_ = "native_nhc_constraint_bias_v1;" + solver;
+    for (double x : {double(box.x), double(box.y), double(box.z)})
+        constraint_identity_ += ";box=" + Precise_Number(x);
+    for (int i = 0; i < count_; ++i)
+    {
+        masses[i] = mass[i];
+        constraint_identity_ += ";m=" + Precise_Number(masses[i]);
+    }
+    for (const auto& p : pairs)
+        constraint_identity_ += ";p=" + std::to_string(p.a) + "," +
+                                std::to_string(p.b) + "," +
+                                Precise_Number(p.length);
+    thermal_dof_ = 3 * count_ - int(pairs.size()) - 4;
+    if (thermal_dof_ <= 0)
+        throw std::runtime_error("nonpositive constrained thermal DOF");
+    constraint_plan_.reset(
+        new ConstraintStressPlan(std::move(masses), std::move(pairs)));
+    constraint_box_ = {box.x, box.y, box.z};
+    if (!expected_constraint_identity_.empty() &&
+        expected_constraint_identity_ != constraint_identity_)
+        throw std::runtime_error(
+            "NHC constraint/thermostat restart configuration mismatch; use "
+            "structural load");
 }
 void VelocityBias::Sample_Constrained(double energy, int dof)
 {
@@ -130,6 +164,11 @@ void VelocityBias::Clear()
     positions_.clear();
     velocities_.clear();
     masses_.clear();
+    constraint_plan_.reset();
+    constraint_identity_.clear();
+    expected_constraint_identity_.clear();
+    constraint_thermal_.clear();
+    thermal_dof_ = 0;
 }
 void VelocityBias::Load_Host(int count, const VECTOR* crd, const VECTOR* vel,
                              const float* mass)
@@ -154,8 +193,28 @@ CosineFit VelocityBias::Fit(int count, const VECTOR* crd, const VECTOR* vel,
 {
     Load_Host(count, crd, vel, mass);
     if (parameters_.cosine)
-        return Fit_Cosine(masses_, positions_, velocities_, parameters_.flow,
-                          parameters_.gradient, parameters_.wave_number);
+    {
+        auto fit =
+            Fit_Cosine(masses_, positions_, velocities_, parameters_.flow,
+                       parameters_.gradient, parameters_.wave_number);
+        if (Constrained())
+        {
+            std::vector<double> cosine(count);
+            for (int i = 0; i < count; ++i)
+                cosine[i] = std::cos(parameters_.wave_number *
+                                     positions_[i][parameters_.gradient]);
+            ConstrainedFlowFrame frame(
+                constraint_plan_->Prepare(positions_, constraint_box_, 1e-4),
+                cosine, parameters_.flow);
+            constraint_thermal_ = frame.Thermal(velocities_);
+            thermal_dof_ = frame.Thermal_Degrees_Of_Freedom();
+            fit.thermal_energy = 0;
+            for (int i = 0; i < count; ++i)
+                for (double v : constraint_thermal_[i])
+                    fit.thermal_energy += .5 * masses_[i] * v * v;
+        }
+        return fit;
+    }
     CosineFit fit;
     for (int i = 0; i < count; ++i)
     {
@@ -185,11 +244,21 @@ ThermalState VelocityBias::Prepare_State(int count, const VECTOR* crd,
 {
     thermal_fit_ = Fit(count, crd, vel, mass);
     state_ = {thermal_fit_.thermal_energy,
-              2 * thermal_fit_.thermal_energy /
-                  ((3 * count - (parameters_.cosine ? 4 : 3)) * CONSTANT_kB),
-              3 * count - (parameters_.cosine ? 4 : 3), "thermostat_substep"};
+              2 * thermal_fit_.thermal_energy / (thermal_dof_ * CONSTANT_kB),
+              thermal_dof_, "thermostat_substep"};
     for (int i = 0; i < count; ++i)
     {
+        if (Constrained())
+        {
+            // Only the tangent thermal part receives friction. Keep both the
+            // collective mode and the stored SHAKE velocity's normal part;
+            // the existing constraint integrator owns the latter correction.
+            h_retained_[i] = {
+                float(velocities_[i][0] - constraint_thermal_[i][0]),
+                float(velocities_[i][1] - constraint_thermal_[i][1]),
+                float(velocities_[i][2] - constraint_thermal_[i][2])};
+            continue;
+        }
         double mode = parameters_.cosine
                           ? thermal_fit_.amplitude *
                                 (std::cos(parameters_.wave_number *
@@ -226,8 +295,7 @@ void VelocityBias::Sample(int count, const VECTOR* crd, const VECTOR* vel,
     {
         sample_ = Fit(count, crd, vel, mass);
         reported_temperature_ =
-            2 * sample_.thermal_energy /
-            ((3 * count - (parameters_.cosine ? 4 : 3)) * CONSTANT_kB);
+            2 * sample_.thermal_energy / (thermal_dof_ * CONSTANT_kB);
     }
     catch (const std::exception& e)
     {

@@ -14,6 +14,7 @@ set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/energy_ledger.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/thermostat/velocity_bias/mode_math.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/constrain/tangent_frame.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/constrain/thermal_frame.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/constrained_middle_step.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/rattle_step.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/MD_core/integrator/rattle_state.cpp

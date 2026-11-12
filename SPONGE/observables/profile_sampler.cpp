@@ -3,18 +3,22 @@
 #include <cmath>
 #include <stdexcept>
 
+#include "../constrain/thermal_frame.h"
 #include "../utils/float_classification.hpp"
 namespace SpongeDynamics
 {
 void ProfileSampler::Initial(CONTROLLER* c, int count, const float* mass,
                              VECTOR box, const SamplingPlan& p,
-                             bool constrained)
+                             bool constrained,
+                             const ConstraintStressPlan* constraint_plan)
 {
     Clear();
     controller_ = c;
     parameters_ = p.mode;
     count_ = count;
     constrained_ = constrained;
+    constraint_plan_ = constraint_plan;
+    constraint_box_ = {box.x, box.y, box.z};
     if (!enabled()) return;
     if (count < 2)
         throw std::runtime_error("profile requires positive thermal DOF");
@@ -237,6 +241,27 @@ std::map<std::string, double> ProfileSampler::Cosine_Profile(
             }
             fit = Fit_Cosine(masses_, positions_, velocities_, parameters_.flow,
                              parameters_.gradient, parameters_.wave_number);
+            if (constraint_plan_)
+            {
+                if (dt != 0)
+                    throw std::runtime_error(
+                        "native NHC constraint profile requires stored "
+                        "velocity");
+                std::vector<double> cosine(count);
+                for (int i = 0; i < count; ++i)
+                    cosine[i] = std::cos(parameters_.wave_number *
+                                         positions_[i][parameters_.gradient]);
+                ConstrainedFlowFrame frame(
+                    constraint_plan_->Prepare(positions_, constraint_box_,
+                                              1e-4),
+                    cosine, parameters_.flow);
+                const auto thermal = frame.Thermal(velocities_);
+                thermal_dof_ = frame.Thermal_Degrees_Of_Freedom();
+                fit.thermal_energy = 0;
+                for (int i = 0; i < count; ++i)
+                    for (double v : thermal[i])
+                        fit.thermal_energy += .5 * masses_[i] * v * v;
+            }
         }
         const double conversion = CONSTANT_TIME_CONVERTION / 10.0;
         std::map<std::string, double> values{

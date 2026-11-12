@@ -2,6 +2,8 @@
 
 本轮验证对象为 `feature/dynamics-components` 的 CPU 引擎（架构提交 `62a25d5`），参考为锁定的 LAMMPS 29 Aug 2024 CPU 程序。参考包通过项目内 `benchmarks/viscosity/reference-env/pixi.lock` 恢复；未修改系统库或驱动。当前 GPU 驱动不可用，未做 GPU 验收。
 
+下文首轮及较长重复测试保留其原始 Middle/NHC 方案与结论；新的两边 NHC＋SHAKE 对照见末节。
+
 ## 运行分层
 
 1. **同帧模型与静电门禁**：逐原子力、势能、六应力分量分别比较 LJ、Coulomb、full，尾项单独计量。先后检查 PME 64/128 与 128/256 网格；64 最大力误差超过原有门槛，保留失败；128/256 在同一门槛下通过。
@@ -102,3 +104,31 @@ python benchmarks/viscosity/water_cosine_validation.py \
 本轮仅增加独立的 `--analysis-seed` 及物理初态哈希记录，没有修改 MD 核心算法。
 完整档案为项目（仓库外）的 `notes/evidence/spce-cosine-replicas-20261112/`，
 项目说明为 `notes/2026-11-12-water-cosine-replicas.md`。
+
+## 2026-11-12 统一 NHC＋SHAKE
+
+SPONGE 原本支持 NHC＋SHAKE。本次补齐新组件框架中的 constrained cosine velocity bias、正确热 DOF 和原生 stored 剖面接口，保持原生链更新与 SHAKE 推进。原生 NHC 不使用 Middle 的力独立半 kick 观测，也不借用其 canonical 能量漂移账本。
+
+入口为 `benchmarks/viscosity/water_nhc_alignment.py`。两边使用长度 1 的 NHC、三条水内 SHAKE 距离约束和相同 native 初始 q/v。显式关闭 SPONGE 的自动 SETTLE 分流。温度均定义在距离约束切空间内，再扣除三个 COM 和投影后的 cosine 模式；648 原子的热 DOF 为 1292。Fourier 和空间动量测量保留原始存储速度。
+
+LAMMPS 原有 `viscosity/cos` 温度不等于上述联合切空间温度。因此参考侧增加独立 `temp/water/cos/tangent` compute 插件，继续使用原生 NHC、SHAKE、`accelerate/cos` 和原始 Fourier 观测。插件限定本例单 rank、正交周期盒、连续 OHH 编号的固定水拓扑，不是通用 LAMMPS 扩展。
+
+两软件对热浴时间参数的定义不同。SPONGE 的 `Q=tau_internal²*T/(4π²)`；LAMMPS 第一链为 `Q=g*kBT*Tdamp²`。本例读取 SPONGE 实际 float 链质量 `3222.667724609375` native，反解 LAMMPS 的 `Tdamp=100.00083337318351 fs`；对应 SPONGE `tau=1.0067636765862924 ps`。有效 `kBT` 相同，目标温度因单位常数约定分别输入 300 和 299.9929569825844 K。物理时间以各自单位常数换算，使用相同 native 步长，名义 0.25 fs 的换算差约 8 ppm。
+
+独立质量加权 QR 温度检查与热速度 √2 缩放检查通过，缩放最大误差 `8.88e-16` native。相同 0.064 ps 短程中，0.5/0.25/0.125 fs 的两引擎位置 RMS 差分别为 0.002253/0.001129/0.000566 Å，存储速度 RMS 差为 0.009234/0.004609/0.002312 native，随步长近似线性减小。初始力最大差 `3.91e-4` native，低于预定 `0.002` 门槛。它们验证参数/投影和有限步差异，不能代替黏度的步长收敛。
+
+CPU 回归 94 项，89 通过、5 项按配置跳过。新增短程检查覆盖热 DOF、摩擦反馈、连续/分段重启、采样间隔不改变轨迹，以及不兼容约束配置的拒绝；常规 CI 没有增加长程 MD。
+
+生产设计沿用前轮三个冻结准备初态，正反向各 10 ps，名义 0.25 fs、20 fs 采样、主窗 [2,10) ps；链状态为零初始化，生产为确定性动力学。证据位于项目（仓库外）`notes/evidence/spce-nhc-shake-alignment-20261112/`，项目说明为 `notes/2026-11-12-water-nhc-shake-alignment.md`。原生有限步积分和 float/double 存储差异仍需保留，不能要求长轨迹逐帧相同。
+
+全部 12 条生产轨迹完成，每条数值审计、独立统计复核及档案哈希核验通过。
+主 Fourier 黏度点估计 SPONGE 为 **0.5490**、LAMMPS 为 **0.6582 mPa·s**；
+条件性三组 t 区间分别为 **[0.4402,0.7292]**、**[0.3719,2.8614]**。
+配对平均热温度分别为 **300.100**、**300.013 K**。
+响应差的条件性区间包含零，说明当前精度未检出差异，不能证明等价。
+SPONGE 在 [2,5)、[2,10)、[5,10) ps 的点估计分别为 0.4293、0.5490、
+0.6593 mPa·s；时间窗敏感性和 LAMMPS 的组间区间仍明显，黏度尚未验收收敛。
+
+封档同时记录了原有辅助 NHC 链历史的时间标签问题：step 为 n，time 却为
+(n−1)dt。主 observables/profile 时钟正确，本轮黏度未使用辅助链历史时间。
+旧 H5 不改写，辅助标签偏移按原样核验并披露；对应输出修复与短程验证单独记录。

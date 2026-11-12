@@ -21,6 +21,9 @@ SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
     if (runtime_.velocity_bias.enabled())
         state.coupling_state_text["velocity_bias_configuration"] =
             runtime_.velocity_bias.Configuration();
+    if (runtime_.velocity_bias.Constrained())
+        state.coupling_state_text["velocity_bias_constraint_configuration"] =
+            runtime_.velocity_bias.Constraint_Identity();
     const auto stress = runtime_.stress_sampler.Export_Restart();
     state.coupling_state_text.insert(stress.begin(), stress.end());
     const auto exchange = runtime_.momentum_exchange.Export_Restart();
@@ -209,6 +212,16 @@ void OutputSession::Initial_Samples()
         meta("observable_contract", "sponge.observables.physical_state.v1");
         meta("velocity_time_layer",
              runtime_.sampling.centered ? "force_centered" : "stored");
+        if (runtime_.sampling.profile && runtime_.nhc.is_initialized)
+            meta("profile_velocity_convention", "native_nhc_stored_v1");
+        if (runtime_.velocity_bias.Constrained())
+        {
+            meta("constraint_profile_configuration",
+                 runtime_.velocity_bias.Constraint_Identity());
+            meta("thermal_dof",
+                 std::to_string(
+                     runtime_.velocity_bias.Thermal_Degrees_Of_Freedom()));
+        }
         meta("sampling_phase", "post_force_pre_exchange_pre_integrate");
         meta("stress_convention",
              "symmetric internal pressure; COM removed; external-body-force "

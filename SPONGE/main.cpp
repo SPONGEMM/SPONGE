@@ -316,11 +316,11 @@ void Main_Initial(int argc, char* argv[])
             spongeErrorConflictingCommand, "Main_Initial",
             "velocity bias requires an active supported thermostat in NVT");
     if (velocity_bias.enabled() && controller.Command_Exist("constrain_mode") &&
-        !constrained_middle.Constrained())
+        !constrained_middle.Constrained() && !velocity_bias.Constrained())
         controller.Throw_SPONGE_Error(
             spongeErrorConflictingCommand, "Main_Initial",
             "this bias/thermostat/constraint combination is not supported; "
-            "constrained bias currently requires cosine and Middle Langevin");
+            "constrained bias requires cosine with Middle or native NHC+SHAKE");
     if (velocity_bias.enabled() &&
         (middle_langevin.max_velocity > 0 || ad_thermo.max_velocity > 0 ||
          nhc.max_velocity > 0 ||
@@ -382,18 +382,21 @@ void Main_Initial(int argc, char* argv[])
             "NHC sampling currently requires velocity_time_layer=stored; its "
             "friction update is not a force-only centered half kick");
     if (sampling.Enabled() && controller.Command_Exist("constrain_mode") &&
-        !sampling.centered)
+        !sampling.centered &&
+        !(nhc.is_initialized && velocity_bias.Constrained() &&
+          sampling.profile && !sampling.stress))
         controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
                                       "Main_Initial",
                                       "constrained physical-state sampling "
                                       "requires the force_centered layer");
     if (sampling.profile && controller.Command_Exist("constrain_mode") &&
-        !constrained_middle.Constrained())
+        !constrained_middle.Constrained() && !velocity_bias.Constrained())
         controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
                                       "Main_Initial",
                                       "constrained profile sampling currently "
                                       "requires canonical Middle integration");
-    if (constrained_middle.Constrained() && sampling.profile &&
+    if ((constrained_middle.Constrained() || velocity_bias.Constrained()) &&
+        sampling.profile &&
         (!sampling.mode.cosine ||
          sampling.mode.flow != velocity_bias.Parameters().flow ||
          sampling.mode.gradient != velocity_bias.Parameters().gradient ||
@@ -404,7 +407,8 @@ void Main_Initial(int argc, char* argv[])
                                       "match the projected thermal mode");
     profile_sampler.Initial(&controller, md_info.atom_numbers, md_info.h_mass,
                             md_info.sys.box_length, sampling,
-                            constrained_middle.Constrained());
+                            constrained_middle.Constrained(),
+                            velocity_bias.Constraint_Plan());
     output_session.Initial();
 }
 
