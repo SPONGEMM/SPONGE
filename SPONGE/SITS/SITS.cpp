@@ -550,13 +550,13 @@ static __global__ void SITS_For_Enhanced_Force_Protein_Water_Device(
     const int atom_numbers, VECTOR* md_frc, const VECTOR* enhancing_frc,
     float* md_ene, const float* bias, const int need_pressure,
     LTMatrix3* md_virial, const LTMatrix3* virial_enhancing,
-    const float factor_minus_one)
+    const float factor_minus_one, const float bias_strength)
 {
 #ifdef USE_GPU
     if (blockIdx.x == 0 && threadIdx.x == 0)
 #endif
     {
-        md_ene[0] = md_ene[0] + bias[0];
+        md_ene[0] = md_ene[0] + bias_strength * bias[0];
         if (need_pressure)
         {
             md_virial[0] =
@@ -1451,6 +1451,16 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                 "conditions; NOPBC supports only full-system ITS/ALL\n");
         }
 
+        if (controller->Command_Exist(module_name, "bias_strength"))
+        {
+            controller->Check_Float(module_name, "bias_strength",
+                                    "SITS_INFORMATION::Initial");
+            bias_strength =
+                atof(controller->Command(module_name, "bias_strength"));
+            if (!(bias_strength >= 0 && bias_strength <= 1))
+                throw std::runtime_error(
+                    "SITS bias_strength must be between 0 and 1");
+        }
         classic_sits.Initial(controller, this);
 
         h_factor = 1.0f;
@@ -1702,13 +1712,15 @@ void SITS_INFORMATION::Update_And_Enhance(const int step,
         }
     }
     classic_sits.SITS_Update_Fb(beta0, step);
+    if (bias_strength == 0) return;
     Launch_Device_Kernel(SITS_For_Enhanced_Force_Protein_Water_Device,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, atom_numbers,
                          frc, pw_select.select_force[0], d_total_potential,
                          classic_sits.d_bias, need_pressure, d_total_virial,
-                         pw_select.select_virial_tensor[0], h_factor - 1);
+                         pw_select.select_virial_tensor[0],
+                         bias_strength * (h_factor - 1), bias_strength);
 }
 
 void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
@@ -1859,8 +1871,9 @@ void SITS_INFORMATION::Step_Print(CONTROLLER* controller, const float beta0)
     deviceMemcpy(&h_enhancing_energy, pw_select.select_energy[0], sizeof(float),
                  deviceMemcpyDeviceToHost);
     controller->Step_Print(print_aa_kab_name, h_enhancing_energy);
-    controller->Step_Print(print_bias_name, bias);
-    controller->Step_Print(print_fb_name, h_factor);
+    controller->Step_Print(print_bias_name, bias_strength * bias);
+    controller->Step_Print(print_fb_name,
+                           1.0f + bias_strength * (h_factor - 1.0f));
 }
 
 static __global__ void Check_Solvent_Atom_Included(int atom_numbers,
