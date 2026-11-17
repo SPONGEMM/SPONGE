@@ -129,3 +129,21 @@ behavior, H5 input validation and RAW/H5 rerun energy/force parity.
 `tests/numerics/test_nb14_softcore_repeated.py --sponge /path/to/SPONGE --output /new/result/directory` compares legacy input, an explicit zero offset and a nonzero offset. Defaults are 256 independent pairs, 500 iterations at dt=0, three repetitions with rotated mode order. It checks analytic forces and first/last-frame invariance and records executable SHA256, total process time and the engine Calculate_Force timer. CPU and CUDA are separate runs.
 
 The timer covers the complete force region, not isolated nb14 latency. This zero-time-step diagnostic does not measure MD throughput, moving-domain decomposition, shared-atom accumulation contention or FEP convergence. Physical charged coincidences remain singular; the extension softens LJ only. No support for finite unsoftened Coulomb at r=0 is claimed.
+
+## Shared atoms and local pair packing
+
+`tests/numerics/test_nb14_shared_runtime.py --sponge /path/to/SPONGE`
+checks shared-atom accumulation, nonzero native14 electrostatics, input atom/pair
+permutations, and all six RAW pressure components against a double
+finite-difference energy oracle. An otherwise identical zero-nb14 control
+removes ordinary/PME forces and pressure; tolerances are fixed in the fixture.
+It uses 10 zero-time-step iterations, not equilibrium sampling. CPU and CUDA
+are separate runs. Pass `--output /new/directory` to retain evidence.
+
+`python tests/numerics/test_nb14_local_remap.py --build-dir build-cpu`
+uses that CPU build's compile flags and directly exercises the production
+local-pair packing function. It checks home/ghost filtering, atom indices,
+C12/C6/charge-scale/delta row identity, repeated order/parameter updates, absent
+softcore fields, and an empty domain. This optional ELF-toolchain fixture does
+not simulate MPI communication or GPU packing. It complements the actual
+CPU/CUDA force tests; input permutations alone are not DD validation.

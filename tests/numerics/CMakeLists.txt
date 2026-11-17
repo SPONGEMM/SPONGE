@@ -113,3 +113,14 @@ set_tests_properties(
   test_ordinary_restoration_h5_runtime
   PROPERTIES LABELS "numerics;fep;exclusions;h5;runtime" TIMEOUT 180
              ENVIRONMENT "OMP_NUM_THREADS=1;MKL_NUM_THREADS=1")
+
+add_test(
+  NAME test_nb14_shared_runtime
+  COMMAND
+    ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test_nb14_shared_runtime.py --sponge
+    $<TARGET_FILE:SPONGE>)
+set_tests_properties(
+  test_nb14_shared_runtime
+  PROPERTIES LABELS "numerics;nb14;softcore;runtime" TIMEOUT 180 ENVIRONMENT
+             "OMP_NUM_THREADS=1;MKL_NUM_THREADS=1")
