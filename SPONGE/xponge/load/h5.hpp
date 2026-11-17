@@ -59,7 +59,7 @@ inline void Materialize_H5_Native_Topology_Core(System& system,
     const auto& state = *payload;
     if (!state.has_mass && !state.has_charge && !state.has_exclusions &&
         !state.has_bonds && !state.has_angles && !state.has_dihedrals &&
-        !state.has_impropers && !state.has_lj && !state.has_nb14 &&
+        !state.has_impropers && !state.has_lj && !state.has_nb14 && !state.has_fep_core_ordinary &&
         !state.has_gb && !state.has_virtual_atoms && !state.has_urey_bradley &&
         !state.has_cmap && !state.has_lj_soft_core)
     {
@@ -141,9 +141,17 @@ inline void Materialize_H5_Native_Topology_Core(System& system,
             "LJ_in_file is also set. Native H5 topology data and legacy text "
             "topology input cannot both own LJ parameters\n");
     }
+    if (state.has_fep_core_ordinary &&
+        (controller.commands.count("fep_core_ordinary_extra_in_file") ||
+         controller.commands.count("fep_core_ordinary_in_file") ||
+         controller.commands.count("fep_core_ordinary_softcore_in_file")))
+        controller.Throw_SPONGE_Error(spongeErrorConflictingCommand,
+            "Materialize_H5_Native_Topology_Core",
+            "H5 and RAW cannot both own fep_core_ordinary parameters");
     if (state.has_nb14 &&
         (controller.commands.count("nb14_in_file") != 0 ||
-         controller.commands.count("nb14_extra_in_file") != 0))
+         controller.commands.count("nb14_extra_in_file") != 0 ||
+         controller.commands.count("nb14_softcore_in_file") != 0))
     {
         controller.Throw_SPONGE_Error(
             spongeErrorConflictingCommand,
@@ -196,6 +204,7 @@ inline void Materialize_H5_Native_Topology_Core(System& system,
     }
     if (state.has_lj_soft_core &&
         (controller.commands.count("LJ_soft_core_in_file") != 0 ||
+         controller.commands.count("LJ_soft_core_independent_sterics_in_file") != 0 ||
          controller.commands.count("subsys_division_in_file") != 0))
     {
         controller.Throw_SPONGE_Error(
@@ -236,7 +245,7 @@ inline void Materialize_H5_Native_Topology_Forcefield(
     const auto& state = *payload;
     if (!state.has_exclusions && !state.has_bonds && !state.has_angles &&
         !state.has_dihedrals && !state.has_impropers && !state.has_lj &&
-        !state.has_nb14 && !state.has_gb && !state.has_virtual_atoms &&
+        !state.has_nb14 && !state.has_fep_core_ordinary && !state.has_gb && !state.has_virtual_atoms &&
         !state.has_urey_bradley && !state.has_cmap && !state.has_lj_soft_core)
     {
         return;
@@ -322,6 +331,16 @@ inline void Materialize_H5_Native_Topology_Forcefield(
         system.classical_force_field.lj.atom_type_numbers =
             state.lj.atom_type_numbers;
     }
+    if (state.has_fep_core_ordinary)
+    {
+        system.classical_force_field.has_fep_core_ordinary = true;
+        auto& target = system.classical_force_field.fep_core_ordinary;
+        target.atom_a = state.fep_core_ordinary.atom_a;
+        target.atom_b = state.fep_core_ordinary.atom_b;
+        target.A = state.fep_core_ordinary.A;
+        target.B = state.fep_core_ordinary.B;
+        target.cf_scale_factor = state.fep_core_ordinary.cf_scale_factor;
+    }
     if (state.has_nb14)
     {
         system.classical_force_field.nb14.atom_a = state.nb14.atom_a;
@@ -330,6 +349,8 @@ inline void Materialize_H5_Native_Topology_Forcefield(
         system.classical_force_field.nb14.B = state.nb14.B;
         system.classical_force_field.nb14.cf_scale_factor =
             state.nb14.cf_scale_factor;
+        system.classical_force_field.nb14.softcore_delta =
+            state.nb14.softcore_delta;
     }
     if (state.has_gb)
     {
@@ -388,6 +409,8 @@ inline void Materialize_H5_Native_Topology_Forcefield(
     }
     if (state.has_lj_soft_core)
     {
+        system.classical_force_field.lj_soft_core.independent_sterics =
+            state.lj_soft_core.independent_sterics;
         system.classical_force_field.lj_soft_core.atom_numbers =
             state.lj_soft_core.atom_numbers;
         system.classical_force_field.lj_soft_core.atom_type_numbers_A =

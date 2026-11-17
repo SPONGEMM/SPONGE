@@ -26,6 +26,10 @@ struct NON_BOND_14
     float* d_B = NULL;
     float* h_cf_scale_factor = NULL;
     float* d_cf_scale_factor = NULL;
+    bool has_softcore = false;
+    float* h_softcore_delta = NULL;
+    float* d_softcore_delta = NULL;
+    float* d_softcore_delta_local = NULL;
 
     float* d_nb14_cf_energy = NULL;
     float* d_nb14_lj_energy = NULL;
@@ -44,7 +48,8 @@ struct NON_BOND_14
     void Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
         const VECTOR* crd, const float* charge, Boundary boundary, VECTOR* frc,
         int need_atom_energy, float* atom_energy, int need_virial,
-        LTMatrix3* atom_virial);
+        LTMatrix3* atom_virial, float ordinary_cutoff = 0.0f,
+        float pme_beta = 0.0f);
 
     /*
         以下用于区域分解

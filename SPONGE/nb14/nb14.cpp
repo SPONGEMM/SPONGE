@@ -2,16 +2,20 @@
 
 #include "../xponge/load/native/nb14.hpp"
 #include "../xponge/xponge.h"
+#include "softcore.h"
+#include "ordinary.h"
 #define TINY 1e-10
 
+template <bool softcore, bool ordinary = false>
 static __global__ void
 Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
     const int dihedral_14_numbers, const VECTOR* crd, Boundary boundary,
     const int local_atom_numbers, const int* a_14, const int* b_14,
     const float* cf_scale_factor, const float* charge, const float* lj_A,
-    const float* lj_B, VECTOR* frc, int need_atom_energy, float* atom_energy,
-    int need_virial, LTMatrix3* atom_virial, float* nb14_cf_ene,
-    float* nb14_lj_ene)
+    const float* lj_B, const float* softcore_delta, VECTOR* frc,
+    int need_atom_energy, float* atom_energy, int need_virial,
+    LTMatrix3* atom_virial, float* nb14_cf_ene, float* nb14_lj_ene,
+    float ordinary_cutoff, float pme_beta)
 {
 #ifdef USE_GPU
     int dihedral_14_i = blockDim.x * blockIdx.x + threadIdx.x;
@@ -45,24 +49,55 @@ Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
 
         dr2 = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
 
-        dr_2 = 1.0 / dr2;
-        dr_4 = dr_2 * dr_2;
-        dr_8 = dr_4 * dr_4;
-        dr_14 = dr_8 * dr_4 * dr_2;
-        dr_abs = norm3df(dr.x, dr.y, dr.z);
-        dr_1 = 1. / dr_abs;
-        // CF
-        float charge_i = charge[atom_i];
-        if (fabs(charge_i) < TINY) charge_i = TINY;
-        float charge_j = charge[atom_j];
-        if (fabs(charge_j) < TINY) charge_j = TINY;
-        float frc_cf_abs;
-        frc_cf_abs = cf_scale_factor[dihedral_14_i] * dr_2 * dr_1;
-        frc_cf_abs = -frc_cf_abs * charge_i * charge_j;
-        // LJ
-        frc_abs = -lj_A[dihedral_14_i] * dr_14 + lj_B[dihedral_14_i] * dr_8;
+        if constexpr (ordinary)
+        {
+            NB14_Ordinary_Restoration(dr2, lj_A[dihedral_14_i], lj_B[dihedral_14_i],
+                cf_scale_factor[dihedral_14_i] * charge[atom_i] * charge[atom_j],
+                ordinary_cutoff, pme_beta, &ene_lin2, &ene_lin, &frc_abs);
+        }
+        else if constexpr (softcore)
+        {
+            NB14_Softcore_LJ(dr2, lj_A[dihedral_14_i], lj_B[dihedral_14_i],
+                             softcore_delta[dihedral_14_i], &ene_lin2,
+                             &frc_abs);
+            const float qprod = cf_scale_factor[dihedral_14_i] *
+                                charge[atom_i] * charge[atom_j];
+            ene_lin = 0.0f;
+            if (qprod != 0.0f)
+            {
+                dr_1 = 1.0f / sqrtf(dr2);
+                ene_lin = qprod * dr_1;
+                frc_abs -= ene_lin / dr2;
+            }
+        }
+        else
+        {
+            dr_2 = 1.0 / dr2;
+            dr_4 = dr_2 * dr_2;
+            dr_8 = dr_4 * dr_4;
+            dr_14 = dr_8 * dr_4 * dr_2;
+            dr_abs = norm3df(dr.x, dr.y, dr.z);
+            dr_1 = 1. / dr_abs;
+            // CF
+            float charge_i = charge[atom_i];
+            if (fabs(charge_i) < TINY) charge_i = TINY;
+            float charge_j = charge[atom_j];
+            if (fabs(charge_j) < TINY) charge_j = TINY;
+            float frc_cf_abs;
+            frc_cf_abs = cf_scale_factor[dihedral_14_i] * dr_2 * dr_1;
+            frc_cf_abs = -frc_cf_abs * charge_i * charge_j;
+            // LJ
+            frc_abs = -lj_A[dihedral_14_i] * dr_14 + lj_B[dihedral_14_i] * dr_8;
 
-        frc_abs += frc_cf_abs;
+            frc_abs += frc_cf_abs;
+            if (need_atom_energy)
+            {
+                ene_lin =
+                    cf_scale_factor[dihedral_14_i] * dr_1 * charge_i * charge_j;
+                ene_lin2 = 0.08333333 * lj_A[dihedral_14_i] * dr_4 * dr_8 -
+                           0.1666666 * lj_B[dihedral_14_i] * dr_4 * dr_2;
+            }
+        }
         temp_frc.x = frc_abs * dr.x;
         temp_frc.y = frc_abs * dr.y;
         temp_frc.z = frc_abs * dr.z;
@@ -80,12 +115,6 @@ Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
             atomicAdd(&frc[atom_i].z, temp_frc.z);
             if (need_atom_energy)
             {
-                // 能量
-                ene_lin =
-                    cf_scale_factor[dihedral_14_i] * dr_1 * charge_i * charge_j;
-                ene_lin2 = 0.08333333 * lj_A[dihedral_14_i] * dr_4 * dr_8 -
-                           0.1666666 * lj_B[dihedral_14_i] * dr_4 *
-                               dr_2;  // LJ的A,B系数已经乘以12和6因此要反乘
                 atomicAdd(atom_energy + atom_i, ene_lin + ene_lin2);
                 nb14_cf_ene[dihedral_14_i] = ene_lin;
                 nb14_lj_ene[dihedral_14_i] = ene_lin2;
@@ -129,8 +158,15 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
         nb14_to_use = &nb14;
         init_source = "Xponge::system";
     }
+    else if (strcmp(module_name, "fep_core_ordinary") == 0 &&
+             Xponge::system.classical_force_field.has_fep_core_ordinary)
+    {
+        nb14_to_use = &Xponge::system.classical_force_field.fep_core_ordinary;
+        init_source = "Xponge::system.fep_core_ordinary";
+    }
     else if (controller->Command_Exist(this->module_name, file_name_suffix) ||
-             controller->Command_Exist(this->module_name, "extra_in_file"))
+             controller->Command_Exist(this->module_name, "extra_in_file") ||
+             controller->Command_Exist(this->module_name, "softcore_in_file"))
     {
         if (!controller->Command_Exist(this->module_name, file_name_suffix))
         {
@@ -157,6 +193,13 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
                                this->module_name, file_name_suffix);
         }
         controller->printf("    non-bond 14 numbers is %d\n", nb14_numbers);
+        if (!nb14_to_use->softcore_delta.empty() &&
+            nb14_to_use->softcore_delta.size() !=
+                static_cast<size_t>(nb14_numbers))
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat, "NB14",
+                "softcore_delta length must match nb14 pairs");
+        has_softcore = !nb14_to_use->softcore_delta.empty();
         Memory_Allocate();
         for (int i = 0; i < nb14_numbers; i++)
         {
@@ -165,6 +208,8 @@ void NON_BOND_14::Initial(CONTROLLER* controller, const float* LJ_type_A,
             h_A[i] = nb14_to_use->A[i];
             h_B[i] = nb14_to_use->B[i];
             h_cf_scale_factor[i] = nb14_to_use->cf_scale_factor[i];
+            if (has_softcore)
+                h_softcore_delta[i] = nb14_to_use->softcore_delta[i];
         }
         Parameter_Host_To_Device();
         is_initialized = 1;
@@ -193,6 +238,8 @@ void NON_BOND_14::Memory_Allocate()
     Malloc_Safely((void**)&h_atom_a, sizeof(int) * nb14_numbers);
     Malloc_Safely((void**)&h_atom_b, sizeof(int) * nb14_numbers);
 
+    if (has_softcore)
+        Malloc_Safely((void**)&h_softcore_delta, sizeof(float) * nb14_numbers);
     Malloc_Safely((void**)&h_A, sizeof(float) * nb14_numbers);
     Malloc_Safely((void**)&h_B, sizeof(float) * nb14_numbers);
     Malloc_Safely((void**)&h_cf_scale_factor, sizeof(float) * nb14_numbers);
@@ -205,6 +252,15 @@ void NON_BOND_14::Memory_Allocate()
 
 void NON_BOND_14::Parameter_Host_To_Device()
 {
+    if (has_softcore)
+    {
+        Device_Malloc_Safely((void**)&d_softcore_delta,
+                             sizeof(float) * nb14_numbers);
+        Device_Malloc_Safely((void**)&d_softcore_delta_local,
+                             sizeof(float) * nb14_numbers);
+        deviceMemcpy(d_softcore_delta, h_softcore_delta,
+                     sizeof(float) * nb14_numbers, deviceMemcpyHostToDevice);
+    }
     Device_Malloc_Safely((void**)&d_atom_a, sizeof(int) * nb14_numbers);
     Device_Malloc_Safely((void**)&d_atom_b, sizeof(int) * nb14_numbers);
     Device_Malloc_Safely((void**)&d_A, sizeof(float) * nb14_numbers);
@@ -247,7 +303,8 @@ static __global__ void get_local_device(
     int nb14_numbers, int* d_atom_a, int* d_atom_b, char* atom_local_label,
     int* atom_local_id, int* d_atom_a_local, int* d_atom_b_local, float* d_A,
     float* d_B, float* d_cf_scale_factor, float* d_A_local, float* d_B_local,
-    float* d_cf_scale_factor_local, int* d_num_nb14_local)
+    float* d_cf_scale_factor_local, const float* d_softcore_delta,
+    float* d_softcore_delta_local, int* d_num_nb14_local)
 {
 #ifdef USE_GPU
     int idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -265,6 +322,9 @@ static __global__ void get_local_device(
             d_A_local[d_num_nb14_local[0]] = d_A[i];
             d_B_local[d_num_nb14_local[0]] = d_B[i];
             d_cf_scale_factor_local[d_num_nb14_local[0]] = d_cf_scale_factor[i];
+            if (d_softcore_delta != NULL)
+                d_softcore_delta_local[d_num_nb14_local[0]] =
+                    d_softcore_delta[i];
             d_num_nb14_local[0]++;
         }
     }
@@ -277,11 +337,11 @@ void NON_BOND_14::Get_Local(int* atom_local, int local_atom_numbers,
     if (!is_initialized) return;
     num_nb14_local = 0;
     this->local_atom_numbers = local_atom_numbers;
-    Launch_Device_Kernel(get_local_device, 1, 1, 0, NULL, nb14_numbers,
-                         d_atom_a, d_atom_b, atom_local_label, atom_local_id,
-                         d_atom_a_local, d_atom_b_local, d_A, d_B,
-                         d_cf_scale_factor, d_A_local, d_B_local,
-                         d_cf_scale_factor_local, d_num_nb14_local);
+    Launch_Device_Kernel(
+        get_local_device, 1, 1, 0, NULL, nb14_numbers, d_atom_a, d_atom_b,
+        atom_local_label, atom_local_id, d_atom_a_local, d_atom_b_local, d_A,
+        d_B, d_cf_scale_factor, d_A_local, d_B_local, d_cf_scale_factor_local,
+        d_softcore_delta, d_softcore_delta_local, d_num_nb14_local);
     deviceMemcpy(&num_nb14_local, d_num_nb14_local, sizeof(int),
                  deviceMemcpyDeviceToHost);
 }
@@ -289,19 +349,51 @@ void NON_BOND_14::Get_Local(int* atom_local, int local_atom_numbers,
 void NON_BOND_14::Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
     const VECTOR* crd, const float* charge, Boundary boundary, VECTOR* frc,
     int need_atom_energy, float* atom_energy, int need_virial,
-    LTMatrix3* atom_virial)
+    LTMatrix3* atom_virial, float ordinary_cutoff, float pme_beta)
 {
     if (is_initialized)
     {
-        Launch_Device_Kernel(
-            Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device,
-            (nb14_numbers + CONTROLLER::device_max_thread - 1) /
-                CONTROLLER::device_max_thread,
-            CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
-            boundary, this->local_atom_numbers, d_atom_a_local, d_atom_b_local,
-            d_cf_scale_factor_local, charge, d_A_local, d_B_local, frc,
-            need_atom_energy, atom_energy, need_virial, atom_virial,
-            d_nb14_cf_energy, d_nb14_lj_energy);
+        if (ordinary_cutoff > 0)
+        {
+            if (has_softcore)
+                throw std::runtime_error("ordinary core restoration cannot use nb14 softcore offsets");
+            Launch_Device_Kernel(
+                (Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device<false, true>),
+                (nb14_numbers + CONTROLLER::device_max_thread - 1) / CONTROLLER::device_max_thread,
+                CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
+                boundary, this->local_atom_numbers, d_atom_a_local, d_atom_b_local,
+                d_cf_scale_factor_local, charge, d_A_local, d_B_local, d_softcore_delta_local,
+                frc, need_atom_energy, atom_energy, need_virial, atom_virial,
+                d_nb14_cf_energy, d_nb14_lj_energy, ordinary_cutoff, pme_beta);
+        }
+        else if (has_softcore)
+        {
+            Launch_Device_Kernel(
+                Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device<
+                    true>,
+                (nb14_numbers + CONTROLLER::device_max_thread - 1) /
+                    CONTROLLER::device_max_thread,
+                CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
+                boundary, this->local_atom_numbers, d_atom_a_local,
+                d_atom_b_local, d_cf_scale_factor_local, charge, d_A_local,
+                d_B_local, d_softcore_delta_local, frc, need_atom_energy,
+                atom_energy, need_virial, atom_virial, d_nb14_cf_energy,
+                d_nb14_lj_energy, 0.0f, 0.0f);
+        }
+        else
+        {
+            Launch_Device_Kernel(
+                Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device<
+                    false>,
+                (nb14_numbers + CONTROLLER::device_max_thread - 1) /
+                    CONTROLLER::device_max_thread,
+                CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
+                boundary, this->local_atom_numbers, d_atom_a_local,
+                d_atom_b_local, d_cf_scale_factor_local, charge, d_A_local,
+                d_B_local, d_softcore_delta_local, frc, need_atom_energy,
+                atom_energy, need_virial, atom_virial, d_nb14_cf_energy,
+                d_nb14_lj_energy, 0.0f, 0.0f);
+        }
     }
 }
 
