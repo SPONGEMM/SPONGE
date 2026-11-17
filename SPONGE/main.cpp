@@ -1,5 +1,6 @@
-﻿#include "utils/fep_capabilities.hpp"
-#include "main.h"
+﻿#include "main.h"
+
+#include "utils/fep_capabilities.hpp"
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
@@ -126,10 +127,11 @@ void Main_Initial(int argc, char* argv[])
     initial_state.Initialize_Dynamics(&Main_Box_Change);
     pairwise_force.Initial(&controller);
 
-    if (!md_info.pbc.pbc &&
-        Xponge::system.classical_force_field.lj_soft_core.independent_sterics.enabled())
+    if (!md_info.pbc.pbc && Xponge::system.classical_force_field.lj_soft_core
+                                .independent_sterics.enabled())
         controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "Main_Initial",
-            "frozen independent sterics currently requires periodic boundaries");
+                                      "frozen independent sterics currently "
+                                      "requires periodic boundaries");
 
     if (md_info.pbc.pbc)
     {
@@ -143,7 +145,8 @@ void Main_Initial(int argc, char* argv[])
         sits.Initial(&controller, md_info.atom_numbers,
                      md_info.pbc.boundary.policy);
         if (sits.is_initialized && lj_soft.independent_sterics)
-            controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "Main_Initial",
+            controller.Throw_SPONGE_Error(
+                spongeErrorNotImplemented, "Main_Initial",
                 "SITS is not supported with frozen independent sterics");
         if (sits.is_initialized && sits.selectively_applied)
         {
@@ -173,29 +176,44 @@ void Main_Initial(int argc, char* argv[])
     if (controller.Command_Exist("fep_core_ordinary", "extra_in_file") ||
         Xponge::system.classical_force_field.has_fep_core_ordinary)
     {
-        if (!md_info.pbc.pbc || !pm.is_initialized || !pm.calculate_excluded_part ||
-            !pm.calculate_reciprocal_part || sits.is_initialized || CONTROLLER::PP_MPI_size != 1 ||
+        if (!md_info.pbc.pbc || !pm.is_initialized ||
+            !pm.calculate_excluded_part || !pm.calculate_reciprocal_part ||
+            sits.is_initialized || CONTROLLER::PP_MPI_size != 1 ||
             controller.Command_Exist("fep_core_ordinary", "in_file") ||
             controller.Command_Exist("fep_core_ordinary", "softcore_in_file"))
-            controller.Throw_SPONGE_Error(spongeErrorConflictingCommand, "FEP core ordinary pairs",
-                "ordinary restoration requires periodic PME, reciprocal and exclusion terms, no SITS, one PP rank, and an extra pair table only");
-        fep_core_ordinary.Initial(&controller, nullptr, nullptr, nullptr, "fep_core_ordinary");
+            controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "FEP core ordinary pairs",
+                "ordinary restoration requires periodic PME, reciprocal and "
+                "exclusion terms, no SITS, one PP rank, and an extra pair "
+                "table only");
+        fep_core_ordinary.Initial(&controller, nullptr, nullptr, nullptr,
+                                  "fep_core_ordinary");
         const auto& excluded = Xponge::system.exclusions.excluded_atoms;
         for (int row = 0; row < fep_core_ordinary.nb14_numbers; ++row)
         {
-            int a = fep_core_ordinary.h_atom_a[row], b = fep_core_ordinary.h_atom_b[row];
+            int a = fep_core_ordinary.h_atom_a[row],
+                b = fep_core_ordinary.h_atom_b[row];
             float weight = fep_core_ordinary.h_cf_scale_factor[row];
-            bool valid = a >= 0 && b >= 0 && a != b && a < md_info.atom_numbers && b < md_info.atom_numbers &&
-                SpongeFloat::Is_Finite(weight) && weight >= 0 && weight <= 1 &&
-                SpongeFloat::Is_Finite(fep_core_ordinary.h_A[row]) && fep_core_ordinary.h_A[row] >= 0 &&
-                SpongeFloat::Is_Finite(fep_core_ordinary.h_B[row]) && fep_core_ordinary.h_B[row] >= 0 &&
-                excluded.size() == static_cast<std::size_t>(md_info.atom_numbers);
+            bool valid = a >= 0 && b >= 0 && a != b &&
+                         a < md_info.atom_numbers && b < md_info.atom_numbers &&
+                         SpongeFloat::Is_Finite(weight) && weight >= 0 &&
+                         weight <= 1 &&
+                         SpongeFloat::Is_Finite(fep_core_ordinary.h_A[row]) &&
+                         fep_core_ordinary.h_A[row] >= 0 &&
+                         SpongeFloat::Is_Finite(fep_core_ordinary.h_B[row]) &&
+                         fep_core_ordinary.h_B[row] >= 0 &&
+                         excluded.size() ==
+                             static_cast<std::size_t>(md_info.atom_numbers);
             if (valid)
-                valid = std::find(excluded[a].begin(), excluded[a].end(), b) != excluded[a].end() ||
-                        std::find(excluded[b].begin(), excluded[b].end(), a) != excluded[b].end();
+                valid = std::find(excluded[a].begin(), excluded[a].end(), b) !=
+                            excluded[a].end() ||
+                        std::find(excluded[b].begin(), excluded[b].end(), a) !=
+                            excluded[b].end();
             if (!valid)
-                controller.Throw_SPONGE_Error(spongeErrorBadFileFormat, "FEP core ordinary pairs",
-                    "restored pairs require valid finite coefficients, charge weights in [0,1], and union exclusions");
+                controller.Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, "FEP core ordinary pairs",
+                    "restored pairs require valid finite coefficients, charge "
+                    "weights in [0,1], and union exclusions");
         }
     }
 
@@ -449,7 +467,8 @@ void Main_Calculate_Force()
             dd.d_energy, md_info.need_pressure, dd.d_virial);
         fep_core_ordinary.Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
             dd.crd, dd.d_charge, boundary, dd.frc, md_info.need_potential,
-            dd.d_energy, md_info.need_pressure, dd.d_virial, md_info.nb.cutoff, pm.beta);
+            dd.d_energy, md_info.need_pressure, dd.d_virial, md_info.nb.cutoff,
+            pm.beta);
         soft_walls.Compute_Force(dd.atom_numbers, dd.crd, dd.frc,
                                  md_info.need_potential, dd.d_energy);
         plugin.Calculate_Force();
@@ -592,8 +611,9 @@ void Main_Refresh_Local_State(bool rebuild_dd)
                        dd.atom_local_label, dd.atom_local_id);
     nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
                    dd.atom_local_label, dd.atom_local_id);
-    fep_core_ordinary.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
-                                dd.atom_local_label, dd.atom_local_id);
+    fep_core_ordinary.Get_Local(dd.atom_local, dd.atom_numbers,
+                                dd.ghost_numbers, dd.atom_local_label,
+                                dd.atom_local_id);
     restrain.Get_Local(dd.atom_local, dd.atom_numbers, dd.atom_local_label,
                        dd.atom_local_id);
     constrain.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);

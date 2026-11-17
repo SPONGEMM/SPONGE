@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include <vector>
+
 #include "../../Lennard_Jones_force/independent_sterics_input.hpp"
 
 namespace Xponge

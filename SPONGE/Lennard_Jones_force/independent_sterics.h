@@ -22,9 +22,11 @@ struct IndependentStericsResult
 // Membership codes are 0=M/environment, 1=A-only, 2=B-only. Type indices
 // and zero LJ coefficients are not membership information.
 template <typename Real>
-SPONGE_STERICS_HD inline Real Independent_Sterics_C6(
-    int branch_i, int branch_j, Real c6_a, Real c6_b,
-    Real core_mix, Real weight_a, Real weight_b)
+SPONGE_STERICS_HD inline Real Independent_Sterics_C6(int branch_i, int branch_j,
+                                                     Real c6_a, Real c6_b,
+                                                     Real core_mix,
+                                                     Real weight_a,
+                                                     Real weight_b)
 {
     int branch = branch_i | branch_j;
     if (branch == 3) return Real(0);
@@ -41,23 +43,27 @@ SPONGE_STERICS_HD inline void Independent_Sterics_LJ_Term(
     if (weight == Real(0) || (a == Real(0) && b == Real(0))) return;
     Real r4 = r2 * r2;
     Real inverse = Real(1) / (r4 * r2 + delta);
-    result->lj_energy += weight * (a * inverse / Real(12) - b / Real(6)) * inverse;
+    result->lj_energy +=
+        weight * (a * inverse / Real(12) - b / Real(6)) * inverse;
     result->force_over_r += weight * r4 * inverse * inverse * (b - a * inverse);
 }
 
 template <typename Real>
 SPONGE_STERICS_HD inline IndependentStericsResult<Real>
-Evaluate_Independent_Sterics(
-    Real r2, int branch_i, int branch_j, Real aa, Real ab, Real ba, Real bb,
-    Real core_mix, Real weight_a, Real weight_b, Real alpha, Real power,
-    Real fallback_sigma6, Real minimum_sigma6, Real charge_product, Real pme_beta)
+Evaluate_Independent_Sterics(Real r2, int branch_i, int branch_j, Real aa,
+                             Real ab, Real ba, Real bb, Real core_mix,
+                             Real weight_a, Real weight_b, Real alpha,
+                             Real power, Real fallback_sigma6,
+                             Real minimum_sigma6, Real charge_product,
+                             Real pme_beta)
 {
     IndependentStericsResult<Real> result;
     int branch = branch_i | branch_j;
     if (branch == 3) return result;
     if (branch == 0)
     {
-        Independent_Sterics_LJ_Term(r2, aa, ab, Real(1) - core_mix, Real(0), &result);
+        Independent_Sterics_LJ_Term(r2, aa, ab, Real(1) - core_mix, Real(0),
+                                    &result);
         Independent_Sterics_LJ_Term(r2, ba, bb, core_mix, Real(0), &result);
     }
     else
@@ -65,8 +71,9 @@ Evaluate_Independent_Sterics(
         Real weight = branch == 1 ? weight_a : weight_b;
         Real a = branch == 1 ? aa : ba;
         Real b = branch == 1 ? ab : bb;
-        Real sigma6 = (a == Real(0) || b == Real(0)) ? fallback_sigma6 :
-                      fmax(Real(0.5) * a / b, minimum_sigma6);
+        Real sigma6 = (a == Real(0) || b == Real(0))
+                          ? fallback_sigma6
+                          : fmax(Real(0.5) * a / b, minimum_sigma6);
         Real delta = alpha * pow(Real(1) - weight, power) * sigma6;
         Independent_Sterics_LJ_Term(r2, a, b, weight, delta, &result);
     }
@@ -79,7 +86,9 @@ Evaluate_Independent_Sterics(
         Real screened = erfc(beta_r);
         result.direct_energy = charge_product * screened / r;
         result.force_over_r -= charge_product *
-            (screened + Real(1.1283791670955125739) * beta_r * exp(-beta_r * beta_r)) / (r2 * r);
+                               (screened + Real(1.1283791670955125739) *
+                                               beta_r * exp(-beta_r * beta_r)) /
+                               (r2 * r);
     }
     return result;
 }

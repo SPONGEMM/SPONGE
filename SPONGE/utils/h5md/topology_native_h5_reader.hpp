@@ -15,9 +15,9 @@
 #include <type_traits>
 #include <vector>
 
-#include "nb14_softcore_h5.hpp"
 #include "../float_classification.hpp"
 #include "independent_sterics_h5.hpp"
+#include "nb14_softcore_h5.hpp"
 
 namespace SpongeH5MD
 {
@@ -881,29 +881,35 @@ class TopologyNativeH5Reader
         if (!Exists(root)) return true;
         if (!Exists(root + "/atoms") || !Exists(root + "/params") ||
             Exists(root + "/softcore_delta"))
-            return Fail("fep_core_ordinary requires atoms and params; softcore_delta is not supported");
+            return Fail(
+                "fep_core_ordinary requires atoms and params; softcore_delta "
+                "is not supported");
         if (file_->getDataSet(root + "/atoms").getDataType().getClass() !=
             HighFive::DataTypeClass::Integer)
             return Fail("fep_core_ordinary atom indices require integer dtype");
-        const auto atoms = Read_Matrix<int>(root + "/atoms", 2, "ordinary core atoms");
-        const auto params = Read_Matrix<float>(root + "/params", 3, "ordinary core params");
+        const auto atoms =
+            Read_Matrix<int>(root + "/atoms", 2, "ordinary core atoms");
+        const auto params =
+            Read_Matrix<float>(root + "/params", 3, "ordinary core params");
         const std::size_t count = atoms.size() / 2;
         if (params.size() != count * 3)
-            return Fail("fep_core_ordinary atoms and params row counts must match");
+            return Fail(
+                "fep_core_ordinary atoms and params row counts must match");
         auto& pairs = state->fep_core_ordinary;
         for (std::size_t i = 0; i < count; ++i)
         {
-            const float c12 = params[3*i], c6 = params[3*i+1], weight = params[3*i+2];
+            const float c12 = params[3 * i], c6 = params[3 * i + 1],
+                        weight = params[3 * i + 2];
             if (!SpongeFloat::Is_Finite(c12) || !SpongeFloat::Is_Finite(c6) ||
                 !SpongeFloat::Is_Finite(weight) || c12 < 0 || c6 < 0 ||
-                weight < 0 || weight > 1 || atoms[2*i] < 0 || atoms[2*i+1] < 0 ||
-                atoms[2*i] == atoms[2*i+1])
+                weight < 0 || weight > 1 || atoms[2 * i] < 0 ||
+                atoms[2 * i + 1] < 0 || atoms[2 * i] == atoms[2 * i + 1])
                 return Fail("invalid fep_core_ordinary pair or coefficients");
             // H5 params are weighted physical C12/C6, matching the RAW table.
-            pairs.atom_a.push_back(atoms[2*i]);
-            pairs.atom_b.push_back(atoms[2*i+1]);
-            pairs.A.push_back(12.0f*c12);
-            pairs.B.push_back(6.0f*c6);
+            pairs.atom_a.push_back(atoms[2 * i]);
+            pairs.atom_b.push_back(atoms[2 * i + 1]);
+            pairs.A.push_back(12.0f * c12);
+            pairs.B.push_back(6.0f * c6);
             pairs.cf_scale_factor.push_back(weight);
         }
         state->has_fep_core_ordinary = true;
@@ -1154,7 +1160,9 @@ class TopologyNativeH5Reader
             !Exists("/forcefield/lj_soft_core/atom_type_B"))
         {
             if (Exists("/forcefield/lj_soft_core/independent_sterics"))
-                return Fail("independent sterics requires native LJ soft-core parameters");
+                return Fail(
+                    "independent sterics requires native LJ soft-core "
+                    "parameters");
             return true;
         }
         if (!Exists("/forcefield/lj_soft_core/atom_type_A") ||
@@ -1183,7 +1191,8 @@ class TopologyNativeH5Reader
         lj_soft.LJ_BB = Read_Float_Vector("/forcefield/lj_soft_core/pair_BB",
                                           "LJ soft pair BB");
         lj_soft.atom_numbers = static_cast<int>(lj_soft.atom_LJ_type_A.size());
-        lj_soft.independent_sterics = Read_Independent_Sterics_H5(*file_, lj_soft.atom_numbers);
+        lj_soft.independent_sterics =
+            Read_Independent_Sterics_H5(*file_, lj_soft.atom_numbers);
         if (lj_soft.atom_LJ_type_B.size() !=
             static_cast<std::size_t>(lj_soft.atom_numbers))
         {
@@ -1412,9 +1421,11 @@ class TopologyNativeH5Reader
     bool Validate_Atom_Indices(const NativeTopologyCoreState& state)
     {
         if (state.has_fep_core_ordinary &&
-            (!Validate_Index_Vector(state.fep_core_ordinary.atom_a, state.atom_count,
+            (!Validate_Index_Vector(state.fep_core_ordinary.atom_a,
+                                    state.atom_count,
                                     "/forcefield/fep_core_ordinary/atoms") ||
-             !Validate_Index_Vector(state.fep_core_ordinary.atom_b, state.atom_count,
+             !Validate_Index_Vector(state.fep_core_ordinary.atom_b,
+                                    state.atom_count,
                                     "/forcefield/fep_core_ordinary/atoms")))
             return false;
 

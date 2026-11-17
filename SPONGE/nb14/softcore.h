@@ -8,8 +8,8 @@
 #define SPONGE_NB14_HD
 #endif
 template <typename Real>
-SPONGE_NB14_HD inline void NB14_Softcore_LJ(
-    Real r2, Real A, Real B, Real delta, Real* energy, Real* force_over_r)
+SPONGE_NB14_HD inline void NB14_Softcore_LJ(Real r2, Real A, Real B, Real delta,
+                                            Real* energy, Real* force_over_r)
 {
     *energy = Real(0);
     *force_over_r = Real(0);

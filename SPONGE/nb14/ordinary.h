@@ -39,7 +39,9 @@ SPONGE_ORDINARY_HD inline void NB14_Ordinary_Restoration(
             const Real screen = erf(x);
             *cf_energy = scaled_charge * screen * inverse_r;
             *force_over_r += scaled_charge *
-                (Real(1.1283791670955125739) * beta * exp(-x*x) - screen * inverse_r) / r2;
+                             (Real(1.1283791670955125739) * beta * exp(-x * x) -
+                              screen * inverse_r) /
+                             r2;
         }
     }
 }

@@ -2,8 +2,8 @@
 
 #include "../xponge/load/native/nb14.hpp"
 #include "../xponge/xponge.h"
-#include "softcore.h"
 #include "ordinary.h"
+#include "softcore.h"
 #define TINY 1e-10
 
 template <bool softcore, bool ordinary = false>
@@ -51,8 +51,10 @@ Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device(
 
         if constexpr (ordinary)
         {
-            NB14_Ordinary_Restoration(dr2, lj_A[dihedral_14_i], lj_B[dihedral_14_i],
-                cf_scale_factor[dihedral_14_i] * charge[atom_i] * charge[atom_j],
+            NB14_Ordinary_Restoration(
+                dr2, lj_A[dihedral_14_i], lj_B[dihedral_14_i],
+                cf_scale_factor[dihedral_14_i] * charge[atom_i] *
+                    charge[atom_j],
                 ordinary_cutoff, pme_beta, &ene_lin2, &ene_lin, &frc_abs);
         }
         else if constexpr (softcore)
@@ -356,15 +358,20 @@ void NON_BOND_14::Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
         if (ordinary_cutoff > 0)
         {
             if (has_softcore)
-                throw std::runtime_error("ordinary core restoration cannot use nb14 softcore offsets");
+                throw std::runtime_error(
+                    "ordinary core restoration cannot use nb14 softcore "
+                    "offsets");
             Launch_Device_Kernel(
-                (Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device<false, true>),
-                (nb14_numbers + CONTROLLER::device_max_thread - 1) / CONTROLLER::device_max_thread,
+                (Dihedral_14_LJ_CF_Force_With_Atom_Energy_And_Virial_Device<
+                    false, true>),
+                (nb14_numbers + CONTROLLER::device_max_thread - 1) /
+                    CONTROLLER::device_max_thread,
                 CONTROLLER::device_max_thread, 0, NULL, num_nb14_local, crd,
-                boundary, this->local_atom_numbers, d_atom_a_local, d_atom_b_local,
-                d_cf_scale_factor_local, charge, d_A_local, d_B_local, d_softcore_delta_local,
-                frc, need_atom_energy, atom_energy, need_virial, atom_virial,
-                d_nb14_cf_energy, d_nb14_lj_energy, ordinary_cutoff, pme_beta);
+                boundary, this->local_atom_numbers, d_atom_a_local,
+                d_atom_b_local, d_cf_scale_factor_local, charge, d_A_local,
+                d_B_local, d_softcore_delta_local, frc, need_atom_energy,
+                atom_energy, need_virial, atom_virial, d_nb14_cf_energy,
+                d_nb14_lj_energy, ordinary_cutoff, pme_beta);
         }
         else if (has_softcore)
         {

@@ -215,7 +215,8 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
     float* atom_du_dlambda_direct, const float lambda, const float alpha,
     const float p, const float input_sigma_6, const float input_sigma_6_min,
     float* this_energy, float* atom_energy_intersys,
-    float* atom_energy_intrasys, const int* branch, float weight_a, float weight_b)
+    float* atom_energy_intrasys, const int* branch, float weight_a,
+    float weight_b)
 {
     float lambda_ = 1.0 - lambda;
     float alpha_lambda_p = alpha * powf(lambda, p);
@@ -262,26 +263,32 @@ static __global__ void Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA(
                 if (independent)
                 {
                     const auto pair = Evaluate_Independent_Sterics(
-                        dr_abs * dr_abs, branch[atom_i], branch[atom_j],
-                        AA, AB, BA, BB, lambda, weight_a, weight_b, alpha, p,
+                        dr_abs * dr_abs, branch[atom_i], branch[atom_j], AA, AB,
+                        BA, BB, lambda, weight_a, weight_b, alpha, p,
                         input_sigma_6, input_sigma_6_min,
                         need_coulomb ? r1.charge * r2.charge : 0.0f, pme_beta);
                     if (need_force)
                     {
                         VECTOR force = pair.force_over_r * dr;
                         frc_record = frc_record + force;
-                        if (atom_j < atom_numbers) atomicAdd(frc + atom_j, -force);
+                        if (atom_j < atom_numbers)
+                            atomicAdd(frc + atom_j, -force);
                         if (need_virial)
-                            virial_record = virial_record - ij_factor *
-                                Get_Virial_From_Force_Dis(force, dr);
+                            virial_record =
+                                virial_record -
+                                ij_factor *
+                                    Get_Virial_From_Force_Dis(force, dr);
                     }
                     if (need_energy)
                     {
                         const float energy = ij_factor * pair.lj_energy;
                         energy_lj += energy;
-                        if (r1.mask == r2.mask) energy_lj_intrasys += energy;
-                        else energy_lj_intersys += energy;
-                        if (need_coulomb) energy_coulomb += ij_factor * pair.direct_energy;
+                        if (r1.mask == r2.mask)
+                            energy_lj_intrasys += energy;
+                        else
+                            energy_lj_intersys += energy;
+                        if (need_coulomb)
+                            energy_coulomb += ij_factor * pair.direct_energy;
                     }
                     continue;
                 }
@@ -606,44 +613,58 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
                 !SpongeFloat::Is_Finite(p) || p < 1 ||
                 !SpongeFloat::Is_Finite(sigma) || sigma <= 0 ||
                 !SpongeFloat::Is_Finite(sigma_min) || sigma_min < 0)
-                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
-                    "LJ_SOFT_CORE::Initial", "invalid independent sterics soft-core parameters");
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, "LJ_SOFT_CORE::Initial",
+                    "invalid independent sterics soft-core parameters");
             const auto& charges = Xponge::system.atoms.charge;
             if (charges.size() != static_cast<std::size_t>(atom_numbers))
-                controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
-                    "LJ_SOFT_CORE::Initial", "independent sterics requires explicit current charges");
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, "LJ_SOFT_CORE::Initial",
+                    "independent sterics requires explicit current charges");
             for (int i = 0; i < atom_numbers; ++i)
             {
                 int branch = independent_input.atom_branch[i];
                 if (!SpongeFloat::Is_Finite(charges[i]) ||
                     (charges[i] != 0 && ((branch == 1 && weight_a != 1) ||
                                          (branch == 2 && weight_b != 1))))
-                    controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
-                        "LJ_SOFT_CORE::Initial", "a charged branch requires full sterics");
+                    controller->Throw_SPONGE_Error(
+                        spongeErrorBadFileFormat, "LJ_SOFT_CORE::Initial",
+                        "a charged branch requires full sterics");
             }
             const auto& excluded = Xponge::system.exclusions.excluded_atoms;
             std::vector<int> branch_a, branch_b;
             for (int i = 0; i < atom_numbers; ++i)
             {
-                if (independent_input.atom_branch[i] == 1) branch_a.push_back(i);
-                if (independent_input.atom_branch[i] == 2) branch_b.push_back(i);
+                if (independent_input.atom_branch[i] == 1)
+                    branch_a.push_back(i);
+                if (independent_input.atom_branch[i] == 2)
+                    branch_b.push_back(i);
             }
             for (int a : branch_a)
-            for (int b : branch_b)
-            {
-                bool found = false;
-                if (excluded.size() == static_cast<std::size_t>(atom_numbers))
-                    found = std::find(excluded[a].begin(), excluded[a].end(), b) != excluded[a].end() ||
-                            std::find(excluded[b].begin(), excluded[b].end(), a) != excluded[b].end();
-                if (!found)
-                    controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
-                        "LJ_SOFT_CORE::Initial", "independent A-B pairs must be excluded, including PME");
-            }
-            Device_Malloc_Safely((void**)&d_atom_branch, sizeof(int) * atom_numbers);
+                for (int b : branch_b)
+                {
+                    bool found = false;
+                    if (excluded.size() ==
+                        static_cast<std::size_t>(atom_numbers))
+                        found =
+                            std::find(excluded[a].begin(), excluded[a].end(),
+                                      b) != excluded[a].end() ||
+                            std::find(excluded[b].begin(), excluded[b].end(),
+                                      a) != excluded[b].end();
+                    if (!found)
+                        controller->Throw_SPONGE_Error(
+                            spongeErrorBadFileFormat, "LJ_SOFT_CORE::Initial",
+                            "independent A-B pairs must be excluded, including "
+                            "PME");
+                }
+            Device_Malloc_Safely((void**)&d_atom_branch,
+                                 sizeof(int) * atom_numbers);
             deviceMemcpy(d_atom_branch, independent_input.atom_branch.data(),
-                sizeof(int) * atom_numbers, deviceMemcpyHostToDevice);
-            Device_Malloc_Safely((void**)&d_atom_branch_local, sizeof(int) * atom_numbers);
-            controller->printf("    Frozen independent sterics: A=%g B=%g\n", weight_a, weight_b);
+                         sizeof(int) * atom_numbers, deviceMemcpyHostToDevice);
+            Device_Malloc_Safely((void**)&d_atom_branch_local,
+                                 sizeof(int) * atom_numbers);
+            controller->printf("    Frozen independent sterics: A=%g B=%g\n",
+                               weight_a, weight_b);
         }
         atom_type_numbers_A = lj_soft_to_use->atom_type_numbers_A;
         atom_type_numbers_B = lj_soft_to_use->atom_type_numbers_B;
@@ -734,7 +755,8 @@ void LJ_SOFT_CORE::Initial(CONTROLLER* controller, float cutoff,
 
         dim3 gridSize = {4, 4};
         dim3 blockSize = {32, 32};
-        auto c6_kernel = independent_sterics ? Total_C6_Get<true> : Total_C6_Get<false>;
+        auto c6_kernel =
+            independent_sterics ? Total_C6_Get<true> : Total_C6_Get<false>;
         Launch_Device_Kernel(c6_kernel, gridSize, blockSize, 0, NULL,
                              atom_numbers, d_atom_LJ_type_A, d_atom_LJ_type_B,
                              d_LJ_AB, d_LJ_BB, d_factor, this->lambda,
@@ -906,13 +928,17 @@ void LJ_SOFT_CORE::LJ_Soft_Core_PME_Direct_Force_With_Atom_Energy_And_Virial(
         if (independent_sterics)
         {
             if (!need_atom_energy && !need_virial)
-                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<true, false, false, true, false, true>;
+                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<
+                    true, false, false, true, false, true>;
             else if (need_atom_energy && !need_virial)
-                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<true, true, false, true, false, true>;
+                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<
+                    true, true, false, true, false, true>;
             else if (!need_atom_energy && need_virial)
-                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<true, false, true, true, false, true>;
+                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<
+                    true, false, true, true, false, true>;
             else
-                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<true, true, true, true, false, true>;
+                f = Lennard_Jones_And_Direct_Coulomb_Soft_Core_CUDA<
+                    true, true, true, true, false, true>;
         }
         Launch_Device_Kernel(
             f, gridSize, blockSize, 0, NULL, local_atom_numbers,
@@ -931,7 +957,9 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
     const float pme_beta, const int charge_perturbated)
 {
     if (independent_sterics)
-        throw std::runtime_error("frozen independent sterics does not define a scalar TI derivative");
+        throw std::runtime_error(
+            "frozen independent sterics does not define a scalar TI "
+            "derivative");
     if (is_initialized)
     {
         Launch_Device_Kernel(
@@ -968,8 +996,8 @@ float LJ_SOFT_CORE::Get_Partial_H_Partial_Lambda_With_Columb_Direct(
             solvent_numbers, nl, crd_with_LJ_parameters_local, boundary,
             d_LJ_AA, d_LJ_AB, d_LJ_BA, d_LJ_BB, cutoff, NULL, pme_beta, NULL,
             NULL, NULL, d_sigma_of_dH_dlambda_lj, d_sigma_of_dH_dlambda_direct,
-            lambda, alpha, p, sigma_6, sigma_6_min, NULL, NULL, NULL,
-            NULL, 0.0f, 0.0f);
+            lambda, alpha, p, sigma_6, sigma_6_min, NULL, NULL, NULL, NULL,
+            0.0f, 0.0f);
 
         deviceMemcpy(h_sigma_of_dH_dlambda_lj, d_sigma_of_dH_dlambda_lj,
                      sizeof(float), deviceMemcpyDeviceToHost);
@@ -1063,10 +1091,15 @@ static __global__ void get_local_device(
     }
 }
 
-static __global__ void Get_Local_Sterics_Branch(
-    const int* atom_local, int count, const int* global_branch, int* local_branch)
+static __global__ void Get_Local_Sterics_Branch(const int* atom_local,
+                                                int count,
+                                                const int* global_branch,
+                                                int* local_branch)
 {
-    SIMPLE_DEVICE_FOR(i, count) { local_branch[i] = global_branch[atom_local[i]]; }
+    SIMPLE_DEVICE_FOR(i, count)
+    {
+        local_branch[i] = global_branch[atom_local[i]];
+    }
 }
 
 void LJ_SOFT_CORE::Get_Local(int* atom_local, int local_atom_numbers,
@@ -1077,10 +1110,12 @@ void LJ_SOFT_CORE::Get_Local(int* atom_local, int local_atom_numbers,
     this->ghost_numbers = ghost_numbers;
     if (independent_sterics)
         Launch_Device_Kernel(Get_Local_Sterics_Branch,
-            (local_atom_numbers + ghost_numbers + CONTROLLER::device_max_thread - 1) /
-                CONTROLLER::device_max_thread,
-            CONTROLLER::device_max_thread, 0, NULL, atom_local,
-            local_atom_numbers + ghost_numbers, d_atom_branch, d_atom_branch_local);
+                             (local_atom_numbers + ghost_numbers +
+                              CONTROLLER::device_max_thread - 1) /
+                                 CONTROLLER::device_max_thread,
+                             CONTROLLER::device_max_thread, 0, NULL, atom_local,
+                             local_atom_numbers + ghost_numbers, d_atom_branch,
+                             d_atom_branch_local);
     Launch_Device_Kernel(get_local_device,
                          (local_atom_numbers + ghost_numbers +
                           CONTROLLER::device_max_thread - 1) /
