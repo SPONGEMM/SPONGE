@@ -11,6 +11,11 @@ static void Native_Load_LJ_Soft_Core(LJSoftCore* lj_soft,
 {
     if (!controller->Command_Exist(module_name, "in_file"))
     {
+        if (controller->Command_Exist(module_name,
+                                      "independent_sterics_in_file"))
+            controller->Throw_SPONGE_Error(
+                spongeErrorMissingCommand, "Xponge::Native_Load_LJ_Soft_Core",
+                "independent sterics requires LJ soft-core parameters\n");
         return;
     }
 
@@ -87,6 +92,28 @@ static void Native_Load_LJ_Soft_Core(LJSoftCore* lj_soft,
         }
     }
     fclose(fp);
+
+    if (controller->Command_Exist(module_name, "independent_sterics_in_file"))
+    {
+        Open_File_Safely(
+            &fp,
+            controller->Command(module_name, "independent_sterics_in_file"),
+            "r");
+        try
+        {
+            lj_soft->independent_sterics =
+                Read_Independent_Sterics_Raw(fp, lj_soft->atom_numbers);
+        }
+        catch (const std::exception& error)
+        {
+            fclose(fp);
+            controller->Throw_SPONGE_Error(spongeErrorBadFileFormat,
+                                           "Xponge::Native_Load_LJ_Soft_Core",
+                                           error.what());
+            return;
+        }
+        fclose(fp);
+    }
 
     if (controller->Command_Exist("subsys_division_in_file"))
     {

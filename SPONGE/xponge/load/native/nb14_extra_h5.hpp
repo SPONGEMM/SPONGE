@@ -10,6 +10,8 @@
 #include <string>
 #include <vector>
 
+#include "../../../utils/h5md/nb14_softcore_h5.hpp"
+
 namespace SpongeH5MD
 {
 struct NativeNB14ExtraState
@@ -20,6 +22,7 @@ struct NativeNB14ExtraState
     std::vector<float> A;
     std::vector<float> B;
     std::vector<float> cf_scale_factor;
+    std::vector<float> softcore_delta;
 };
 
 class NativeNB14ExtraH5Reader
@@ -109,6 +112,8 @@ class NativeNB14ExtraH5Reader
                 Read_Matrix<float>("/forcefield/nb14_extra/params",
                                    param_dimensions, "nb14_extra params");
             const std::size_t record_count = atom_dimensions[0];
+            result.softcore_delta = Read_NB14_Softcore_Delta(
+                *file_, "/forcefield/nb14_extra", record_count);
             result.atom_a.resize(record_count);
             result.atom_b.resize(record_count);
             result.A.resize(record_count);

@@ -16,6 +16,8 @@ REQUIRED_INPUT_SEMANTIC_CONTRACTS = frozenset(
         "input.topology.lj",
         "input.topology.nb14",
         "input.topology.nb14_extra",
+        "input.topology.nb14_softcore",
+        "input.topology.independent_sterics",
         "input.topology.bond",
         "input.topology.angle",
         "input.topology.dihedral",

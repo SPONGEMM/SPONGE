@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "../../Lennard_Jones_force/independent_sterics_input.hpp"
+
 namespace Xponge
 {
 
@@ -49,6 +51,8 @@ struct NB14
     std::vector<float> A;
     std::vector<float> B;
     std::vector<float> cf_scale_factor;
+    std::vector<float>
+        softcore_delta;  // optional, length^6, already frozen per window
 };
 
 struct LennardJones
@@ -88,6 +92,7 @@ struct UreyBradley
 
 struct LJSoftCore
 {
+    IndependentStericsInput independent_sterics;
     int atom_numbers = 0;
     int atom_type_numbers_A = 0;
     int atom_type_numbers_B = 0;
@@ -127,6 +132,8 @@ struct ClassicalForceField
     Torsions dihedrals;
     Torsions impropers;
     NB14 nb14;
+    bool has_fep_core_ordinary = false;
+    NB14 fep_core_ordinary;
     LennardJones lj;
     CMap cmap;
     UreyBradley urey_bradley;

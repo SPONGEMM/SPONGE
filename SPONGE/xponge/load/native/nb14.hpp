@@ -1,5 +1,6 @@
 ﻿#pragma once
 
+#include "../../../utils/float_classification.hpp"
 #include "../common.hpp"
 
 namespace Xponge
@@ -44,7 +45,7 @@ static void Native_Load_NB14(NB14* nb14, const int* atom_type,
     {
         Open_File_Safely(
             &fp_extra, controller->Command(module_name, "extra_in_file"), "r");
-        if (fscanf(fp_extra, "%d", &extra_numbers) != 1)
+        if (fscanf(fp_extra, "%d", &extra_numbers) != 1 || extra_numbers < 0)
         {
             controller->Throw_SPONGE_Error(
                 spongeErrorBadFileFormat, "Xponge::Native_Load_NB14",
@@ -53,7 +54,8 @@ static void Native_Load_NB14(NB14* nb14, const int* atom_type,
     }
 
     int total_numbers = nb14_numbers + extra_numbers;
-    if (total_numbers == 0)
+    if (total_numbers == 0 &&
+        !controller->Command_Exist(module_name, "softcore_in_file"))
     {
         if (fp != NULL) fclose(fp);
         if (fp_extra != NULL) fclose(fp_extra);
@@ -101,6 +103,41 @@ static void Native_Load_NB14(NB14* nb14, const int* atom_type,
         }
         nb14->A[i] *= 12.0f;
         nb14->B[i] *= 6.0f;
+    }
+
+    // Rows follow the actual native order: extra pairs, then type-table pairs.
+    // Repeating atom identities makes an accidentally reordered sidecar fail.
+    nb14->softcore_delta.clear();
+    if (controller->Command_Exist(module_name, "softcore_in_file"))
+    {
+        FILE* soft = NULL;
+        Open_File_Safely(
+            &soft, controller->Command(module_name, "softcore_in_file"), "r");
+        int count = -1;
+        if (fscanf(soft, "%d", &count) != 1 || count != total_numbers)
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat, "Native_Load_NB14",
+                "nb14 softcore count must match all native pairs");
+        nb14->softcore_delta.resize(total_numbers);
+        for (int i = 0; i < total_numbers; ++i)
+        {
+            int a = -1, b = -1;
+            float delta = -1.0f;
+            if (fscanf(soft, "%d %d %f", &a, &b, &delta) != 3 ||
+                a != nb14->atom_a[i] || b != nb14->atom_b[i] ||
+                !SpongeFloat::Is_Finite(delta) || delta < 0.0f)
+                controller->Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, "Native_Load_NB14",
+                    "nb14 softcore requires matching atom rows and finite "
+                    "nonnegative delta");
+            nb14->softcore_delta[i] = delta;
+        }
+        char extra;
+        if (fscanf(soft, " %c", &extra) == 1)
+            controller->Throw_SPONGE_Error(
+                spongeErrorBadFileFormat, "Native_Load_NB14",
+                "unexpected trailing nb14 softcore data");
+        fclose(soft);
     }
 
     if (fp != NULL) fclose(fp);

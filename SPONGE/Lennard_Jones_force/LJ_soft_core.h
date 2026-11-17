@@ -174,6 +174,12 @@ struct LJ_SOFT_CORE
     int pair_type_numbers_A = 0;
     int pair_type_numbers_B = 0;
 
+    bool independent_sterics = false;
+    float weight_a = 0;
+    float weight_b = 0;
+    int* d_atom_branch = NULL;
+    int* d_atom_branch_local = NULL;
+
     int* h_atom_LJ_type_A = NULL;
     int* h_atom_LJ_type_B = NULL;
     int* d_atom_LJ_type_A = NULL;

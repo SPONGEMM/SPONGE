@@ -105,6 +105,10 @@ void Materialize_H5_Native_NB14_Extra(CONTROLLER* controller,
     {
         return;
     }
+    if (controller->Command_Exist("nb14_softcore_in_file"))
+        controller->Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, "Materialize_H5_Native_NB14_Extra",
+            "Native H5 nb14_extra cannot be mixed with a RAW softcore table");
     if (controller->Command_Exist("nb14_in_file") ||
         controller->Command_Exist("nb14_extra_in_file"))
     {
@@ -117,6 +121,7 @@ void Materialize_H5_Native_NB14_Extra(CONTROLLER* controller,
     nb14.A = state.A;
     nb14.B = state.B;
     nb14.cf_scale_factor = state.cf_scale_factor;
+    nb14.softcore_delta = state.softcore_delta;
 }
 
 void Load_H5_Native_Positional_Restraint(CONTROLLER* controller,

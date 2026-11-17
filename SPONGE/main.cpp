@@ -1,5 +1,7 @@
 ﻿#include "main.h"
 
+#include "utils/fep_capabilities.hpp"
+
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
 CONTROLLER controller;
@@ -25,6 +27,7 @@ CMAP cmap;
 DIHEDRAL dihedral;
 IMPROPER_DIHEDRAL improper;
 NON_BOND_14 nb14;
+NON_BOND_14 fep_core_ordinary;
 RESTRAIN_INFORMATION restrain;
 CONSTRAIN constrain;
 SETTLE settle;
@@ -86,6 +89,7 @@ void Reject_Open_Boundary_Module(const bool is_initialized,
 
 int main(int argc, char* argv[])
 {
+    if (Print_FEP_Capabilities_If_Requested(argc, argv)) return 0;
     Main_Initial(argc, argv);
     initial_state.Finalize_Run_Range();
     for (; md_info.sys.steps <= md_info.sys.step_limit; md_info.sys.steps++)
@@ -123,6 +127,12 @@ void Main_Initial(int argc, char* argv[])
     initial_state.Initialize_Dynamics(&Main_Box_Change);
     pairwise_force.Initial(&controller);
 
+    if (!md_info.pbc.pbc && Xponge::system.classical_force_field.lj_soft_core
+                                .independent_sterics.enabled())
+        controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "Main_Initial",
+                                      "frozen independent sterics currently "
+                                      "requires periodic boundaries");
+
     if (md_info.pbc.pbc)
     {
         lj.Initial(&controller, md_info.nb.cutoff);
@@ -134,6 +144,10 @@ void Main_Initial(int argc, char* argv[])
 
         sits.Initial(&controller, md_info.atom_numbers,
                      md_info.pbc.boundary.policy);
+        if (sits.is_initialized && lj_soft.independent_sterics)
+            controller.Throw_SPONGE_Error(
+                spongeErrorNotImplemented, "Main_Initial",
+                "SITS is not supported with frozen independent sterics");
         if (sits.is_initialized && sits.selectively_applied)
         {
             sits_dihedral.Initial(&controller, "sits_dihedral");
@@ -157,6 +171,50 @@ void Main_Initial(int argc, char* argv[])
                      LJ_NOPBC.h_atom_LJ_type);
         sits.Initial(&controller, md_info.atom_numbers,
                      md_info.pbc.boundary.policy);
+    }
+
+    if (controller.Command_Exist("fep_core_ordinary", "extra_in_file") ||
+        Xponge::system.classical_force_field.has_fep_core_ordinary)
+    {
+        if (!md_info.pbc.pbc || !pm.is_initialized ||
+            !pm.calculate_excluded_part || !pm.calculate_reciprocal_part ||
+            sits.is_initialized || CONTROLLER::PP_MPI_size != 1 ||
+            controller.Command_Exist("fep_core_ordinary", "in_file") ||
+            controller.Command_Exist("fep_core_ordinary", "softcore_in_file"))
+            controller.Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, "FEP core ordinary pairs",
+                "ordinary restoration requires periodic PME, reciprocal and "
+                "exclusion terms, no SITS, one PP rank, and an extra pair "
+                "table only");
+        fep_core_ordinary.Initial(&controller, nullptr, nullptr, nullptr,
+                                  "fep_core_ordinary");
+        const auto& excluded = Xponge::system.exclusions.excluded_atoms;
+        for (int row = 0; row < fep_core_ordinary.nb14_numbers; ++row)
+        {
+            int a = fep_core_ordinary.h_atom_a[row],
+                b = fep_core_ordinary.h_atom_b[row];
+            float weight = fep_core_ordinary.h_cf_scale_factor[row];
+            bool valid = a >= 0 && b >= 0 && a != b &&
+                         a < md_info.atom_numbers && b < md_info.atom_numbers &&
+                         SpongeFloat::Is_Finite(weight) && weight >= 0 &&
+                         weight <= 1 &&
+                         SpongeFloat::Is_Finite(fep_core_ordinary.h_A[row]) &&
+                         fep_core_ordinary.h_A[row] >= 0 &&
+                         SpongeFloat::Is_Finite(fep_core_ordinary.h_B[row]) &&
+                         fep_core_ordinary.h_B[row] >= 0 &&
+                         excluded.size() ==
+                             static_cast<std::size_t>(md_info.atom_numbers);
+            if (valid)
+                valid = std::find(excluded[a].begin(), excluded[a].end(), b) !=
+                            excluded[a].end() ||
+                        std::find(excluded[b].begin(), excluded[b].end(), a) !=
+                            excluded[b].end();
+            if (!valid)
+                controller.Throw_SPONGE_Error(
+                    spongeErrorBadFileFormat, "FEP core ordinary pairs",
+                    "restored pairs require valid finite coefficients, charge "
+                    "weights in [0,1], and union exclusions");
+        }
     }
 
     bond.Initial(&controller, &md_info.sys.connectivity,
@@ -407,6 +465,10 @@ void Main_Calculate_Force()
         nb14.Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
             dd.crd, dd.d_charge, boundary, dd.frc, md_info.need_potential,
             dd.d_energy, md_info.need_pressure, dd.d_virial);
+        fep_core_ordinary.Non_Bond_14_LJ_CF_Force_With_Atom_Energy_And_Virial(
+            dd.crd, dd.d_charge, boundary, dd.frc, md_info.need_potential,
+            dd.d_energy, md_info.need_pressure, dd.d_virial, md_info.nb.cutoff,
+            pm.beta);
         soft_walls.Compute_Force(dd.atom_numbers, dd.crd, dd.frc,
                                  md_info.need_potential, dd.d_energy);
         plugin.Calculate_Force();
@@ -549,6 +611,9 @@ void Main_Refresh_Local_State(bool rebuild_dd)
                        dd.atom_local_label, dd.atom_local_id);
     nb14.Get_Local(dd.atom_local, dd.atom_numbers, dd.ghost_numbers,
                    dd.atom_local_label, dd.atom_local_id);
+    fep_core_ordinary.Get_Local(dd.atom_local, dd.atom_numbers,
+                                dd.ghost_numbers, dd.atom_local_label,
+                                dd.atom_local_id);
     restrain.Get_Local(dd.atom_local, dd.atom_numbers, dd.atom_local_label,
                        dd.atom_local_id);
     constrain.Get_Local(dd.atom_local_id, dd.atom_local_label, dd.atom_numbers);
@@ -773,6 +838,7 @@ void Main_Print()
         dihedral.Step_Print(&controller);
         improper.Step_Print(&controller);
         nb14.Step_Print(&controller);
+        fep_core_ordinary.Step_Print(&controller);
 
         controller.Step_Print("potential", dd.h_sum_ene_total);
 

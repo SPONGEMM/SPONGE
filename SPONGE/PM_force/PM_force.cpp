@@ -1801,12 +1801,25 @@ static __global__ void MPI_PME_Excluded_Force_With_Atom_Energy_Correction(
                 r2 = crd[local_j];
                 charge_j = charge[local_j];
 
+                // Decoupled A/B atoms can coincide. Do not evaluate 0/r or
+                // 0/r^3 for an exactly zero electrostatic interaction.
+                if (charge_i == 0.0f || charge_j == 0.0f) continue;
+
                 dr = Get_Displacement<BoundaryPolicy::Periodic>(r2, r1,
                                                                 boundary);
                 dr2 = dr.x * dr.x + dr.y * dr.y + dr.z * dr.z;
                 // 假设剔除表中的原子对距离总是小于cutoff的，正常体系
 
                 dr_abs = sqrtf(dr2);
+                if (dr2 == 0.0f)
+                {
+                    // -q_i*q_j*erf(beta*r)/r has a finite r -> 0 limit;
+                    // its Cartesian force and virial vanish at coincidence.
+                    if (need_energy)
+                        ene_lin -= factor * charge_i * charge_j *
+                                   TWO_DIVIDED_BY_SQRT_PI * pme_beta;
+                    continue;
+                }
                 beta_dr = pme_beta * dr_abs;
                 frc_abs = beta_dr * TWO_DIVIDED_BY_SQRT_PI *
                               expf(-beta_dr * beta_dr) +
