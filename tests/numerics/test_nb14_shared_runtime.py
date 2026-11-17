@@ -7,9 +7,10 @@ Input permutations exercise atom/pair identity; they are not an MPI/DD test.
 import argparse
 import hashlib
 import json
-from pathlib import Path
 import subprocess
 import tempfile
+from pathlib import Path
+
 import numpy as np
 
 PAIRS = [(0, 1), (0, 2), (0, 3), (2, 3)]

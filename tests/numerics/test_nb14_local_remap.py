@@ -7,10 +7,10 @@ included directly from production nb14.cpp, not reimplemented in this test.
 
 import argparse
 import json
-from pathlib import Path
 import shlex
 import subprocess
 import tempfile
+from pathlib import Path
 
 
 def main():
