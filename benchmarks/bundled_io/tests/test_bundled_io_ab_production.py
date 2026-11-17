@@ -509,6 +509,12 @@ INPUT_SEMANTIC_SPECS_BY_CASE = {
         InputSemanticSpec("input.protocol.steering", ("steer_cv",), 1.0e-6),
         InputSemanticSpec("input.protocol.cv", ("steer_cv",), 1.0e-6),
     ),
+    "normal_native_nb14_softcore": (
+        InputSemanticSpec("input.topology.nb14_softcore", ("nb14_LJ",), 1.0e-6),
+    ),
+    "normal_independent_sterics": (
+        InputSemanticSpec("input.topology.independent_sterics", ("LJ_soft_short",), 1.0e-6),
+    ),
     "normal_lj_soft_core_nonzero": (
         InputSemanticSpec("input.topology.lj_soft_core", ("LJ_soft",), 1.0e-6),
     ),
@@ -1626,6 +1632,50 @@ def _cases_for_profile() -> list[AbCase]:
             contract_ids=(
                 "output.legacy.mdout",
                 "input.topology.improper.native_runtime",
+            ),
+            assertion_ids=(
+                "mdout_deterministic_equivalence",
+                "input_semantic_equivalence",
+            ),
+            normal_step_limit=1,
+            normal_interval=1,
+            normal_dt=0.0,
+            input_behavior_only=True,
+        ),
+        AbCase(
+            name="normal_native_nb14_softcore",
+            fixture_case='focused_native_nb14_softcore',
+            legacy_subdir="generated_legacy",
+            bundled_subdir="generated_bundled",
+            mode="normal",
+            vds=False,
+            statistical_md=False,
+            restart_load_policy="structural",
+            contract_ids=(
+                "output.legacy.mdout",
+                "input.topology.nb14_softcore",
+            ),
+            assertion_ids=(
+                "mdout_deterministic_equivalence",
+                "input_semantic_equivalence",
+            ),
+            normal_step_limit=1,
+            normal_interval=1,
+            normal_dt=0.0,
+            input_behavior_only=True,
+        ),
+        AbCase(
+            name="normal_independent_sterics",
+            fixture_case='focused_independent_sterics',
+            legacy_subdir="generated_legacy",
+            bundled_subdir="generated_bundled",
+            mode="normal",
+            vds=False,
+            statistical_md=False,
+            restart_load_policy="structural",
+            contract_ids=(
+                "output.legacy.mdout",
+                "input.topology.independent_sterics",
             ),
             assertion_ids=(
                 "mdout_deterministic_equivalence",
@@ -6974,6 +7024,10 @@ def _prepare_case_pair(
             )
         if case.fixture_case == FOCUSED_IMPROPER_NATIVE_FIXTURE:
             return _prepare_focused_improper_native_pair(case_root)
+        if case.fixture_case in {"focused_native_nb14_softcore", "focused_independent_sterics"}:
+            return _prepare_focused_fep_softcore_pair(
+                case_root, nb14=case.fixture_case == "focused_native_nb14_softcore"
+            )
         if case.fixture_case == FOCUSED_LJ_SOFT_CORE_FIXTURE:
             return _prepare_focused_lj_soft_core_pair(case_root)
         if case.fixture_case == FOCUSED_SUBSYSTEM_DIVISION_FIXTURE:
@@ -10410,6 +10464,82 @@ def _validate_focused_improper_native_routes(
         )
 
 
+def _prepare_focused_fep_softcore_pair(
+    case_root: Path, *, nb14: bool
+) -> tuple[Path, Path]:
+    # Convert the existing base fixture, then materialize the frozen-window
+    # extension explicitly. This tests engine inputs, not converter support.
+    legacy, bundled = _prepare_focused_lj_soft_core_pair(case_root)
+    key = "nb14_softcore_in_file" if nb14 else "LJ_soft_core_independent_sterics_in_file"
+    with h5py.File(bundled / "topology.spgt.h5", "r+") as topology:
+        if nb14:
+            (legacy / "lj_soft_core.txt").write_text(
+                "2 1 1\n0\n0\n0\n0\n0 0\n0 0\n", encoding="utf-8"
+            )
+            for name in ("pair_AA", "pair_AB", "pair_BA", "pair_BB"):
+                topology[f"/forcefield/lj_soft_core/{name}"][...] = 0.0
+            (legacy / "fep_nb14.txt").write_text(
+                "1\n0 1 100 20 0.5\n", encoding="utf-8"
+            )
+            (legacy / "fep_delta.txt").write_text("1\n0 1 4\n", encoding="utf-8")
+            group = topology.create_group("/forcefield/nb14_extra")
+            group.create_dataset("atoms", data=[[0, 1]], dtype="i4")
+            group.create_dataset("params", data=[[100., 20., 0.5]])
+            group.create_dataset("softcore_delta", data=[4.])
+            extra = 'nb14_extra_in_file = "fep_nb14.txt"\nnb14_softcore_in_file = "fep_delta.txt"\n'
+        else:
+            (legacy / "fep_sterics.txt").write_text(
+                "2 0.8 0.7\n0 0\n1 2\n", encoding="utf-8"
+            )
+            group = topology.create_group("/forcefield/lj_soft_core/independent_sterics")
+            group.create_dataset("atom_branch", data=[0, 2], dtype="i4")
+            group.create_dataset("weights", data=[0.8, 0.7])
+            extra = 'LJ_soft_core_independent_sterics_in_file = "fep_sterics.txt"\n'
+    # RAW execution has no topology input to supply restart lineage.
+    with h5py.File(bundled / "topology.spgt.h5", "r") as topology:
+        for dataset, key in (
+            ("/topology/topology_hash", "output_h5_restart_topology_hash"),
+            ("/topology/atom_order_hash", "output_h5_restart_atom_order_hash"),
+        ):
+            value = topology[dataset][()]
+            value = value.decode() if isinstance(value, bytes) else str(value)
+            extra += f'{key} = "{value}"\n'
+    mdin = legacy / "mdin.spg.toml"
+    mdin.write_text(mdin.read_text(encoding="utf-8") + extra, encoding="utf-8")
+    for path in (mdin, bundled / "mdin.bundled.spg.toml"):
+        text = _remove_key_lines(path.read_text(encoding="utf-8"), {"soft_core_powfer", "solvent_LJ"})
+        path.write_text(text.rstrip() + "\nsoft_core_powfer = 2.0\nsolvent_LJ = false\n", encoding="utf-8")
+    assert _has_key_line(mdin.read_text(encoding="utf-8"), key)
+    assert not _has_key_line((bundled / "mdin.bundled.spg.toml").read_text(encoding="utf-8"), key)
+    return legacy, bundled
+
+
+def _compare_focused_fep_softcore_forces(
+    case: AbCase, run: AbRun
+) -> dict[str, object]:
+    nb14 = case.fixture_case == "focused_native_nb14_softcore"
+    distance = 1.5
+    c12, c6, delta = (100., 20., 4.) if nb14 else (
+        0.7 * 2., 0.7 * 1.5, 0.5 * (1. - 0.7)**2 * (2. / 1.5)
+    )
+    denominator = distance**6 + delta
+    radial = distance**5 * (6*c6/denominator**2 - 12*c12/denominator**3)
+    expected = [radial, 0., 0., -radial, 0., 0.]
+    observed = []
+    for directory in (run.legacy_dir, run.bundled_dir):
+        values = _read_native_float32_file(directory / "output" / "legacy.frc")
+        assert len(values) % 6 == 0 and values
+        _assert_numeric_sequences_close(
+            f"{case.name} analytic force", expected * (len(values)//6), values,
+            relative_tolerance=3.e-4, absolute_tolerance=0.003,
+        )
+        observed.append(values)
+    result = _assert_nontrivial_equivalent_forces(case.name, *observed)
+    result.update(analytic_radial_force=radial, delta=delta,
+                  physical_coefficients=[c12, c6])
+    return result
+
+
 def _prepare_focused_lj_soft_core_pair(case_root: Path) -> tuple[Path, Path]:
     legacy_source = case_root / "focused_lj_soft_core_source"
     legacy_dir = case_root / "legacy"
@@ -13278,6 +13408,8 @@ def _compare_input_semantics(
                 replica_result["oracle"] = _compare_focused_sits_typed_config(
                     case, run
                 )
+            elif spec.contract_id in {"input.topology.nb14_softcore", "input.topology.independent_sterics"}:
+                replica_result["oracle"] = _compare_focused_fep_softcore_forces(case, run)
             elif spec.contract_id == "input.topology.lj_soft_core":
                 replica_result["force"] = _compare_focused_lj_soft_core_forces(
                     case, run

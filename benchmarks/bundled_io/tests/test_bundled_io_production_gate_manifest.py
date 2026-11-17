@@ -354,6 +354,8 @@ def test_ab_production_harness_has_executable_contract_coverage():
         "normal_improper_converted_alias_nonzero",
         "normal_improper_native_nonzero",
         "normal_lj_soft_core_nonzero",
+        "normal_native_nb14_softcore",
+        "normal_independent_sterics",
         "normal_subsystem_division_partition",
         "normal_virtual_atoms_all_types",
         "normal_virtual_atoms_pbc_boundary",
@@ -794,10 +796,10 @@ def test_input_only_contracts_have_evolution_or_reviewed_single_point_reason():
     contracts = load_contract_registry()
     cases = _cases_for_profile()
     audit = audit_input_evolution_contracts(contracts, cases)
-    assert audit["audited_contract_count"] == 23
-    assert len(audit["raw_audit"]["input_behavior_only"]) == 23
-    assert len(audit["raw_audit"]["single_step_only"]) == 23
-    assert len(audit["raw_audit"]["zero_dt_only"]) == 21
+    assert audit["audited_contract_count"] == 25
+    assert len(audit["raw_audit"]["input_behavior_only"]) == 25
+    assert len(audit["raw_audit"]["single_step_only"]) == 25
+    assert len(audit["raw_audit"]["zero_dt_only"]) == 23
     assert set(audit["dynamic_contracts"]) == {
         "input.protocol.sits",
         "input.protocol.sits.nk_typed_restart",
@@ -805,7 +807,7 @@ def test_input_only_contracts_have_evolution_or_reviewed_single_point_reason():
         "input.topology.residue.sidecar",
         "input.manybody.edip",
     }
-    assert len(audit["single_point_justifications"]) == 18
+    assert len(audit["single_point_justifications"]) == 20
     assert audit["unresolved_contracts"] == ()
     assert audit["cohorts"] == [
         "manybody_custom",

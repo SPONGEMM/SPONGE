@@ -30,6 +30,8 @@
       "rst"
     ],
     "topology_sidecar_keys": [
+      "nb14_softcore_in_file",
+      "LJ_soft_core_independent_sterics_in_file",
       "pairwise_force_in_file",
       "listed_forces_in_file",
       "mass_in_file",
@@ -1271,6 +1273,44 @@
       "case_ids": [],
       "assertion_ids": [],
       "reason": "The VDS writer does not implement an append/resume open mode."
+    },
+    {
+      "contract_id": "input.topology.nb14_softcore",
+      "direction": "input",
+      "component": "nb14_softcore",
+      "status": "supported",
+      "minimum_evidence": "E3",
+      "legacy_surface": "nb14_softcore_in_file",
+      "bundled_surface": "/forcefield/nb14_extra/softcore_delta",
+      "single_point_justification": "Frozen-window coefficients are frame-local; the fixture compares RAW/H5 nonzero module energy and forces against an analytic soft-core pair oracle. Multi-window and small-distance scans are additionally covered in tests/numerics.",
+      "case_ids": [
+        "normal_native_nb14_softcore"
+      ],
+      "assertion_ids": [
+        "input_semantic_equivalence"
+      ],
+      "inventory_refs": [
+        "topology_sidecar_keys:nb14_softcore_in_file"
+      ]
+    },
+    {
+      "contract_id": "input.topology.independent_sterics",
+      "direction": "input",
+      "component": "independent_sterics",
+      "status": "supported",
+      "minimum_evidence": "E3",
+      "legacy_surface": "LJ_soft_core_independent_sterics_in_file",
+      "bundled_surface": "/forcefield/lj_soft_core/independent_sterics",
+      "single_point_justification": "Frozen-window coefficients are frame-local; the fixture compares RAW/H5 nonzero module energy and forces against an analytic soft-core pair oracle. Multi-window and small-distance scans are additionally covered in tests/numerics.",
+      "case_ids": [
+        "normal_independent_sterics"
+      ],
+      "assertion_ids": [
+        "input_semantic_equivalence"
+      ],
+      "inventory_refs": [
+        "topology_sidecar_keys:LJ_soft_core_independent_sterics_in_file"
+      ]
     }
   ]
 }
