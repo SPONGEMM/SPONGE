@@ -1,4 +1,4 @@
-#include <cmath>
+﻿#include <cmath>
 #include <iostream>
 #include <stdexcept>
 #include "../../SPONGE/nb14/softcore.h"

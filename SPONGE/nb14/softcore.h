@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 // A=12*C12 and B=6*C6 already include the window's LJ weight.
 // delta has units of length^6. No Coulomb softening is performed here.

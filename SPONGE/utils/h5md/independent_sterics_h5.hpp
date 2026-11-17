@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <highfive/highfive.hpp>
 #include "../../Lennard_Jones_force/independent_sterics_input.hpp"

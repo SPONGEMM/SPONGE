@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <cmath>
 
 #if defined(__CUDACC__) || defined(__HIPCC__)
