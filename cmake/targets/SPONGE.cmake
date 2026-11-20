@@ -1,5 +1,7 @@
 set(SPONGE_SOURCES
     ${PROJECT_ROOT_DIR}/SPONGE/main.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/replica_exchange/client.cpp
+    ${PROJECT_ROOT_DIR}/SPONGE/replica_exchange/fixed.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/io/input_session.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/io/output_session.cpp
     ${PROJECT_ROOT_DIR}/SPONGE/common.cpp

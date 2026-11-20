@@ -115,6 +115,8 @@ inline bool PRESSURE_BASED_BAROSTAT_INFORMATION::Export_H5_Restart_State(
     }
     state->barostat_float_states[module]["g"] =
         H5_Restart_LTMatrix3_To_Vector(g);
+    state->barostat_float_states[module]["reference_volume_and_piston_mass"] = {
+        V0, piston_mass_inverse};
     return true;
 }
 
@@ -154,6 +156,22 @@ inline bool PRESSURE_BASED_BAROSTAT_INFORMATION::Apply_H5_Restart_State(
                 "matrix";
         }
         return false;
+    }
+    const auto piston =
+        module_floats->second.find("reference_volume_and_piston_mass");
+    if (piston != module_floats->second.end())
+    {
+        const auto& values = piston->second;
+        if (values.size() != 2 || !SpongeFloat::Is_Finite(values[0]) ||
+            !SpongeFloat::Is_Finite(values[1]) || values[0] <= 0 ||
+            values[1] <= 0)
+        {
+            if (error_message != nullptr)
+                *error_message = "Invalid pressure-based barostat piston state";
+            return false;
+        }
+        V0 = values[0];
+        piston_mass_inverse = values[1];
     }
     const auto typed_rng = state.rng_states.find(module);
     const auto legacy_rng = state.rng_state_text.find(module);
