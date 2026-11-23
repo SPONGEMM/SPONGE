@@ -1,7 +1,7 @@
 ﻿#include "main.h"
 
-#include "utils/fep_capabilities.hpp"
 #include "replica_exchange/client.h"
+#include "utils/fep_capabilities.hpp"
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
