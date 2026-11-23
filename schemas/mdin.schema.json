@@ -527,6 +527,18 @@
       "description": "Input file path for nb14.",
       "default": ""
     },
+    "nb14_softcore_in_file": {
+      "type": "string",
+      "description": "Optional native nb14 softcore offsets: count, then atom_i atom_j delta (length^6) in extra-then-regular pair order. LJ coefficients must already include the window weight."
+    },
+    "LJ_soft_core_independent_sterics_in_file": {
+      "type": "string",
+      "description": "Frozen ordinary LJ branch weights: header atom_count weight_A weight_B, then ordered atom_index branch rows (0=core/environment, 1=A-only, 2=B-only). Requires LJ_soft_core_in_file."
+    },
+    "fep_core_ordinary_extra_in_file": {
+      "type": "string",
+      "description": "Restore union-excluded ordinary core pairs: pair count then atom_i atom_j weighted_C12 weighted_C6 Coulomb_weight. Requires periodic PME exclusion correction."
+    },
     "nb14_extra_in_file": {
       "type": "string",
       "title": "NB14 Extra In File",

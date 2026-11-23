@@ -184,6 +184,15 @@ void SOLVENT_LENNARD_JONES::Initial(CONTROLLER* controller,
 #else
     enable = false;
 #endif
+    if (lj_soft->independent_sterics)
+    {
+        // The water specialization uses endpoint A tables only. Keep all pairs
+        // on the explicitly labelled path until this specialization is
+        // validated.
+        enable = false;
+        controller->printf(
+            "    Frozen independent sterics uses the general pair kernel\n");
+    }
     if (enable)
     {
         controller->printf("START INITIALIZING SOLVENT LJ:\n");
