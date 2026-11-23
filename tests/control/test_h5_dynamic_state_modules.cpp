@@ -92,6 +92,8 @@ static void Test_Pressure_Barostat_H5_Restart_State_Round_Trips()
 {
     PRESSURE_BASED_BAROSTAT_INFORMATION source;
     source.is_initialized = 1;
+    source.V0 = 64000.0f;
+    source.piston_mass_inverse = 0.002f;
     source.g.a11 = 1.0f;
     source.g.a21 = 2.0f;
     source.g.a22 = 3.0f;
@@ -120,6 +122,8 @@ static void Test_Pressure_Barostat_H5_Restart_State_Round_Trips()
     Require(std::fabs(target.g.a31 - 4.0f) < 1.0e-6f);
     Require(std::fabs(target.g.a32 - 5.0f) < 1.0e-6f);
     Require(std::fabs(target.g.a33 - 6.0f) < 1.0e-6f);
+    Require(target.V0 == source.V0);
+    Require(target.piston_mass_inverse == source.piston_mass_inverse);
     Require(target.random_seed == source.random_seed);
     Require(target.random_invocation_count == source.random_invocation_count);
     Require(!target.use_legacy_rng);
@@ -129,6 +133,8 @@ static void Test_Pressure_Barostat_H5_Restart_Requires_Rng()
 {
     PRESSURE_BASED_BAROSTAT_INFORMATION source;
     source.is_initialized = true;
+    source.V0 = 64000.0f;
+    source.piston_mass_inverse = 0.002f;
     source.g = {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
     source.random_seed = 24680;
 
@@ -155,8 +161,12 @@ static void Test_Pressure_Barostat_Legacy_Text_Rng_Remains_Read_Compatible()
 
     PRESSURE_BASED_BAROSTAT_INFORMATION target;
     target.is_initialized = true;
+    target.V0 = 27000.0f;
+    target.piston_mass_inverse = 0.001f;
     std::string error;
     Require(target.Apply_H5_Restart_State(state, &error));
+    Require(target.V0 == 27000.0f);
+    Require(target.piston_mass_inverse == 0.001f);
     Require(target.use_legacy_rng);
     Require(target.generator() == expected());
 

@@ -1,6 +1,7 @@
 ﻿#include "main.h"
 
 #include "utils/fep_capabilities.hpp"
+#include "replica_exchange/client.h"
 
 #define SUBPACKAGE_HINT \
     "SPONGE, for general-purpose molecular dynamics simulations"
@@ -60,6 +61,11 @@ deviceStream_t main_stream;
 
 namespace
 {
+#if defined(__linux__)
+sponge_exchange::Client replica_exchange;
+
+#endif
+
 SpongeIO::RuntimeState io_runtime{
     controller, Xponge::system, md_info, dd,         middle_langevin,
     ad_thermo,  bussi_thermo,   nhc,     press_baro, mc_baro,
@@ -92,12 +98,71 @@ int main(int argc, char* argv[])
     if (Print_FEP_Capabilities_If_Requested(argc, argv)) return 0;
     Main_Initial(argc, argv);
     initial_state.Finalize_Run_Range();
+#if defined(__linux__)
+    replica_exchange.Initialize();
+    sponge_exchange::Window exchange_window{};
+    if (replica_exchange.Enabled())
+    {
+        const bool npt = md_info.mode == md_info.NPT;
+        if (CONTROLLER::MPI_size != 1 ||
+            (!npt && md_info.mode != md_info.NVT) ||
+            !middle_langevin.is_initialized ||
+            md_info.sys.target_temperature_schedule.enabled ||
+            md_info.sys.target_pressure_schedule.enabled ||
+            meta.is_initialized || steer_cv.is_initialized ||
+            plugin.plugin_numbers || hard_wall.is_initialized ||
+            reaxff.is_initialized ||
+            md_info.no_direct_interaction_virtual_atom_numbers ||
+            (sits.is_initialized &&
+             (sits.sits_mode != SITS_MODE_PRODUCTION ||
+              !sits.classic_sits.nk_fix || sits.classic_sits.fb_interval != 1)))
+            throw std::runtime_error(
+                "exchange requires single-rank NVT/NPT, middle Langevin "
+                "and static, compatible force parameters");
+        if (npt)
+        {
+            const auto angles = md_info.sys.box_angle;
+            const bool mc = mc_baro.is_initialized &&
+                            mc_baro.couple_dimension == mc_baro.XYZ &&
+                            !sits.is_initialized;
+            const bool bussi = press_baro.is_initialized &&
+                               press_baro.Algorithm == press_baro.Bussi &&
+                               press_baro.Isotropy == press_baro.Isotropic &&
+                               press_baro.target_surface_tension == 0;
+            if (!md_info.pbc.pbc || angles.x != 90 || angles.y != 90 ||
+                angles.z != 90 || (!mc && !bussi) ||
+                restrain.refcoord_scaling != restrain.REFCOORD_SCALING_NO)
+                throw std::runtime_error(
+                    "NPT exchange requires orthogonal boxes, isotropic "
+                    "Bussi or XYZ Monte Carlo without SITS, and fixed "
+                    "restraint references");
+        }
+        if (replica_exchange.Checkpoints_Enabled() &&
+            (!md_info.output.h5_restart_enabled ||
+             !controller.Command_Exist("input_h5_topology_path")))
+            throw std::runtime_error(
+                "group checkpoints require H5 topology and restart output");
+        exchange_window = sponge_exchange::Make_Window(
+            md_info, dd, constrain, sits, &Main_Install_Box_From_System,
+            []
+            {
+                Main_Refresh_Local_State(false);
+                Main_Calculate_Force();
+                Main_Reduce_Energy();
+            });
+        replica_exchange.Handshake(exchange_window);
+    }
+#endif
     for (; md_info.sys.steps <= md_info.sys.step_limit; md_info.sys.steps++)
     {
         Main_Sync_Dynamic_Targets_To_Controllers();
         Main_Calculate_Force();
         controller.Get_Time_Recorder("Iteration")->Start();
         Main_Reduce_Energy();
+#if defined(__linux__)
+        if (replica_exchange.Due(md_info.sys.steps))
+            replica_exchange.Exchange(md_info.sys.steps, exchange_window);
+#endif
         if (md_info.mode == md_info.RERUN)
         {
             output_session.Prepare_Force_Output();
@@ -110,6 +175,15 @@ int main(int argc, char* argv[])
         Main_Iteration();
         controller.Get_Time_Recorder("Iteration")->Stop();
         if (md_info.mode != md_info.RERUN) Main_Print();
+#if defined(__linux__)
+        if (replica_exchange.Checkpoint_Due(md_info.sys.steps))
+        {
+            const auto path =
+                replica_exchange.Checkpoint_Path(md_info.sys.steps);
+            output_session.Write_Exchange_Checkpoint(path.string());
+            replica_exchange.Acknowledge_Checkpoint(md_info.sys.steps);
+        }
+#endif
     }
     Main_Clear();
     return 0;
@@ -118,6 +192,19 @@ int main(int argc, char* argv[])
 void Main_Initial(int argc, char* argv[])
 {
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
+#if defined(__linux__)
+    if (std::getenv("SPONGE_EXCHANGE_FD"))
+    {
+        if (const char* path = std::getenv("SPONGE_EXCHANGE_RESUME_PATH"))
+        {
+            const char* load = "dynamic";
+            controller.commands["input_h5_restart_path"] = path;
+            controller.original_commands["input_h5_restart_path"] = path;
+            controller.commands["input_h5_restart_load"] = load;
+            controller.original_commands["input_h5_restart_load"] = load;
+        }
+    }
+#endif
     initial_state.Load_Base_State();
     controller.Step_Print_Initial("potential", "%.2f");
     controller.Step_Print_Initial("eff_pot", "%.7e");
@@ -293,6 +380,9 @@ void Main_Calculate_Force()
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
+#if defined(__linux__)
+    if (replica_exchange.Due(md_info.sys.steps)) md_info.need_potential = 1;
+#endif
     // The final force evaluation must be checked even when no mdout frame
     // is due. Request fresh reductions rather than checking stale host data.
     if (md_info.sys.steps == md_info.sys.step_limit)
@@ -759,7 +849,7 @@ void Main_Iteration()
                                      dd.atom_local_id, main_stream);
         if (box_changed)
         {
-            Main_Rerun_Box_Change();
+            Main_Install_Box_From_System();
         }
     }
 
@@ -928,7 +1018,7 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
     return md_info.sys.Get_Volume();
 }
 
-void Main_Rerun_Box_Change()
+void Main_Install_Box_From_System()
 {
     // The loaded geometry is authoritative; a strain round trip can change it.
     md_info.pbc.boundary.cell =

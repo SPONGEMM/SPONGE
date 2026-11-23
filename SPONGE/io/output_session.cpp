@@ -327,6 +327,28 @@ RestartOutputState OutputSession::Capture_Restart_State()
     return state;
 }
 
+void OutputSession::Write_Exchange_Checkpoint(const std::string& path)
+{
+    auto& output = runtime_.md_info.output;
+    if (!output.h5_restart_enabled)
+        throw std::runtime_error("replica exchange requires H5 restart output");
+    std::string checkpoint_path = path;
+    checkpoint_path.swap(output.h5_output_plan.restart.path);
+    try
+    {
+        output.Export_H5_Restart_File(&runtime_.controller,
+                                      Capture_Restart_State());
+    }
+    catch (...)
+    {
+        checkpoint_path.swap(output.h5_output_plan.restart.path);
+        throw;
+    }
+    checkpoint_path.swap(output.h5_output_plan.restart.path);
+    if (!output.h5_restart_enabled)
+        throw std::runtime_error("failed to publish replica H5 checkpoint");
+}
+
 void OutputSession::Write_Restart()
 {
     auto& output = runtime_.md_info.output;

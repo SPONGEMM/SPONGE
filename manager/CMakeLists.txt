@@ -1,0 +1,11 @@
+cmake_minimum_required(VERSION 3.24)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(SPONGE_MANAGER LANGUAGES CXX)
+endif()
+if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  message(FATAL_ERROR "SPONGE_MANAGER currently requires Linux")
+endif()
+add_executable(SPONGE_MANAGER main.cpp process_group.cpp session.cpp
+                              exchange.cpp checkpoint.cpp)
+target_compile_features(SPONGE_MANAGER PRIVATE cxx_std_17)
+install(TARGETS SPONGE_MANAGER RUNTIME DESTINATION bin)

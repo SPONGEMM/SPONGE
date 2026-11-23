@@ -1162,6 +1162,7 @@ class RestartH5Reader
     static bool Dynamic_State_Name_Is_Float(const std::string& state_name)
     {
         return state_name == "g" || state_name == "lambda" ||
+               state_name == "reference_volume_and_piston_mass" ||
                state_name == "delta_box_length_max" ||
                state_name == "total_count" || state_name == "accept_count" ||
                state_name == "accept_rate";
