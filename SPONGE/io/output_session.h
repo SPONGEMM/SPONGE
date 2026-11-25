@@ -19,9 +19,12 @@ class OutputSession
     void Write_Reaxff();
     void Write_Metadynamics_Scalars();
     void Write_Observables();
+    // Called before DD ownership or force storage can change.
+    void Prepare_Force_Output();
     void Write_Trajectory();
     void Write_Force();
     void Write_Restart();
+    void Write_Exchange_Checkpoint(const std::string& path);
     void Write_Metadynamics_Hills();
     void Write_Pending_Sits();
     void Publish();
@@ -31,5 +34,6 @@ class OutputSession
     SpongeH5MD::RestartDynamicState Build_H5_Dynamic_Restart_State();
     RestartOutputState Capture_Restart_State();
     RuntimeState runtime_;
+    bool native_meta_grid_enabled_ = false;
 };
 }  // namespace SpongeIO

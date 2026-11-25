@@ -36,35 +36,31 @@ frames or claim to eliminate every H5 open in the program.
 
 ## Rerun frame ownership and cell reconstruction
 
-During ordinary MD, domain-decomposed (DD) coordinates and velocities are the
-live state. A large-box rebuild gathers them into the global arrays before
-recreating the decomposition. Rerun reverses the data flow: `rerun.Iteration()`
-loads the next frame into the global arrays. `Main_Iteration()` must therefore
-copy that frame into the current owned DD slots **before** invoking box-change
-handling. Otherwise the rebuild gathers the previous frame over the newly read
-coordinates and velocities. This ordering applies to both classical and plugin
-force calculations; it is not a model-specific correction.
+Ordinary MD advances the domain-decomposed (DD) state; rerun loads a frame
+into the global arrays. Before a box rebuild can gather DD state back into
+those arrays, copy the loaded coordinates and velocities into the owned DD
+slots. Otherwise the previous frame can overwrite the newly read frame.
 
-For periodic rerun, `rerun.Iteration()` returns whether the box changed and
-prepares the deformation matrix `g` only in that case. The caller must use that return value as well as
-`rerun_need_box_update`. Applying the saved `g` to a following unchanged box
-would repeat the preceding deformation. The existing box-change detection
-thresholds are retained.
+Use the loaded cell directly for rerun, updating its inverse and domain/PM
+geometry, instead of reconstructing it through a strain and a time step.
+Every selected frame supplies its own cell; there is no mutable box-update
+policy. Only a newly loaded, changed box triggers this path. The deprecated
+`rerun_need_box_update` key accepts only `1`/`true`, with a migration warning;
+disabling values and malformed values are rejected before opening the
+trajectory. Explicit 90-degree
+angles construct an exact diagonal cell; other angles retain their geometric
+tilt. Ordinary pressure-driven strain updates remain unchanged. Local-MP invalidates its borrowed graph
+at this direct cell-installation boundary as well as at pressure-driven box
+updates, before any domain or neighbor storage can be rebuilt.
 
-`periodic_box_condition_information::Get_Cell()` converts lengths and angles
-for rerun geometry and H5 box output. When all three input angles are exactly
-90 degrees, it constructs a diagonal matrix directly: evaluating `cos(90°)`
-would otherwise introduce nonzero roundoff tilts and cause an explicitly
-orthogonal frame to fail the local-MP graph's strict orthogonal-cell check.
-All other input angles use the original formula. No tilt tolerance is applied
-here, and this does not extend local-MP support to triclinic cells or change
-the initialization normalization rules.
-
-When changing this ordering, verify that the force calculation consumes the
-loaded frame across fixed, small and large box changes, including a following
-unchanged box on one and multiple particle ranks. Check exact orthogonal cell
-construction separately from nonorthogonal geometry. These replay checks do
-not establish long-trajectory MD or ensemble correctness.
+Reduce the evaluated frame's energy and publish its outputs before loading
+the next frame. Broadcast the frame counter when input frames are skipped,
+so every rank participates in the same output events. Rerun retains its last
+selected frame even when the corresponding ordinary-MD schedule would skip
+the final trajectory or restart write. H5 rerun outputs use the evaluated
+frame's absolute input time, without adding an integration step or the frame
+index times `dt`. Legacy trajectories have no stored timestamps and retain
+the existing derived clock. Ordinary MD retains its output phase and clock.
 
 ## Output events
 
@@ -87,6 +83,34 @@ Simulation orchestration invokes events where their source data is ready:
 Streams retain their original `steps`/`steps + 1` and time conventions. Moving
 all module output to one end-of-step callback would change those semantics.
 
+Force capture is separate from writing. On a scheduled force-output step,
+`Prepare_Force_Output()` uses the existing DD force-gather routine to populate
+the host buffer while the current atom mapping is still valid. Ordinary MD
+calls it after integration, thermostat and constraint processing, before a
+pressure-driven box rebuild or ownership exchange can
+replace DD force storage or change the global-to-local map. Rerun calls it
+before publishing the current frame and loading the next one. Gathering after
+migration would associate old force slots with new atom identities.
+
+The standalone force writer and H5 trajectory writer consume this same host
+snapshot; neither gathers again. The capture condition uses the output plan
+shared by all ranks, rather than the H5 writer state owned by rank zero, so
+all particle ranks enter the same force collective even when the standalone
+and H5 schedules differ. No additional force buffer or force evaluation is
+needed. Coordinate/velocity writes, timestamps and schedules are unchanged;
+this does not make ordinary MD forces and post-integration coordinates refer
+to the same integrator stage. Changes here require checking migration on a
+force-output step, H5/standalone schedules, pressure-driven DD rebuilds and
+rerun frame alignment.
+
+The force gather applies the atom mapping even with one particle rank.
+Domain decomposition packs atoms by update group even in a single domain;
+groups such as `(0,2)` and `(1,3)` produce local order `0,2,1,3`. A direct copy
+would silently permute force records while coordinate and velocity output
+already use the correct mapping. Reuse the existing gather kernel and wait
+for its stream before copying the result to the host; no MPI reduction is
+needed for one particle rank.
+
 `RestartOutputState` owns NHC, dynamic, SITS, MetaD, restraint and CV module
 payloads and replaces the positional restart export argument list. Capturing
 these payloads is gated by H5 restart output and MPI rank 0. Structural
@@ -96,6 +120,60 @@ trajectory and observable streams keep their existing publication protocol.
 
 All operations remain synchronous. There is no output queue or background
 writer, and `RestartOutputState` is not a complete asynchronous checkpoint.
+
+The `test_rerun_cells` runtime test covers legacy and H5 trajectories with no
+box-update key, deprecated enabling values, and rejected disabling/malformed
+values. Analytic two-atom LJ energies and forces check the effective periodic
+geometry; the long-range dispersion correction checks volume. Cases include
+sub-1e-4 cell changes, large changes, repeated cells, tilted cells, selected
+frames and EOF. Enable it with `SPONGE_H5_ENABLE_RUNTIME_SMOKE=1` in a runnable
+CPU/GPU environment. This focused check does not qualify PME grid boundaries
+or long-trajectory ensemble behavior.
+
+## Live MetaD potential snapshots
+
+Trajectory and observable outputs store native float32 grids under
+`/parameters/sponge/metadynamics/<name>/potential_snapshots`. Runtime snapshots
+never pass through text exports. Independent legacy text and restart exports
+retain their own formats.
+
+| Dataset | Type / shape | Meaning |
+| --- | --- | --- |
+| `layout` | fixed string | `rectilinear` grid or scattered `points` |
+| `cv_labels`, `value_labels` | static string arrays | Ordered CV and potential channel names |
+| `axes/<i>` | float32 vector | Cell-center coordinates for CV i; per-point coordinates for scattered layouts |
+| `values` | float32 `[snapshot, n0, n1, ..., channel]` | Native potentials in C order; scattered layouts use `[snapshot, point, channel]` |
+| `step`, `time` | int64, float64 vectors | Source simulation step and time in ps |
+| `committed_count` | int64 vector | Append-only publication watermark; last entry is visible snapshot count |
+
+The engine's dimension-zero-fastest storage is reordered into C order without
+text conversion or rounding. The ordered axes and channel labels are immutable
+within a run. Regular MetaD grids carry `potential_raw`, `potential_shifted` and
+`vshift`; estimated grids carry `potential_local`, `potential_backup` and, when
+available, `potential_raw`. CV coordinates retain the engine's native CV units.
+
+Single-file writers define the layout before starting SWMR. They append values,
+step and time, flush, then append and flush the committed count. Readers refresh
+the watermark first and ignore all uncommitted tails. Snapshot cadence follows
+trajectory output, but its index is independent of particle frame counters.
+In MPI runs the CV rank exports the current grid and broadcasts numeric values
+to the HDF5 writer rank.
+
+VDS writers store values only in the active segment. Once sealed, the segment's
+snapshot count joins the manifest under `stream_counts/metadynamics_grid`.
+The wrapper uses virtual datasets for values, steps and times, plus static axes
+and a global committed count. Publishing a wrapper copies mappings and metadata,
+not accumulated grid payloads. Segments with only grid snapshots are valid.
+Cloud consumers read the validated continuous prefix of finalized segments;
+segment finalization is distinct from simulation completion.
+
+The observable file is a subset of the main H5MD scientific output: matching
+snapshot records have identical axes, values, steps and times. Per-file lifecycle
+and particle counters retain their own meanings.
+
+`test_highfive_backend_io` checks non-square native grids, live single-file reads,
+segment rotation and virtual wrapper payload storage. `h5_bundle_writer_probe single_live` provides a separate-process SWMR fixture; `vds` emits two sealed
+segments with distinct grids.
 
 ## Validation
 

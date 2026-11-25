@@ -69,7 +69,6 @@ vel = "traj.vel"
 frame_limit = 1000
 rerun_start = 0
 rerun_strip = 0
-rerun_need_box_update = 0
 ```
 
 | Parameter | Scope | Type | Default | Description |
@@ -81,10 +80,22 @@ rerun_need_box_update = 0
 | `rerun_frame_limit` | `top-level` | int | alias of `frame_limit` | Compatibility alias |
 | `rerun_start` | `top-level` | int | `0` | Starting frame offset |
 | `rerun_strip` | `top-level` | int | `0` | Number of frames skipped between processed frames |
-| `rerun_need_box_update` | `top-level` | int | `0` | Whether to update the box deformation tensor during rerun |
+| `rerun_need_box_update` | `top-level` | int/bool | omitted | Deprecated: only `1`/`true` is accepted with a warning; `0`/`false` and other values are errors |
 
 The current source uses flat `rerun_*` keys rather than a `[rerun]` TOML
 section.
+
+Rerun always uses the coordinates and complete box of each selected trajectory
+frame. Changed cells update boundary geometry, volume, domains and PME;
+unchanged cells avoid a redundant geometry update. No box-update switch is
+needed. Remove `rerun_need_box_update` from new inputs; the enabling value is
+accepted only to help migrate old inputs.
+
+Rerun output is written for the evaluated frame before the next trajectory
+frame is loaded. This keeps coordinates, box, energy, and forces together
+when a box change rebuilds the domain buffers. The final evaluated frame,
+including one at an explicit frame limit, remains eligible for the configured
+output intervals. Ordinary MD retains its output after integration.
 
 ## Wall Constraints
 

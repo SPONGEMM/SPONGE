@@ -1196,7 +1196,7 @@ def test_rerun_boundary_matrix_covers_semantic_axes_and_eof_boundaries():
         (1, 1),
     }
     assert {case.rerun_frame_limit for case in cases} == {1, 2, 3, None}
-    assert {case.rerun_need_box_update for case in cases} == {False, True}
+    assert {case.rerun_box_update_compat for case in cases} == {False, True}
     assert {case.rerun_velocity_present for case in cases} == {False, True}
     assert {case.trajectory_particle_stream for case in cases} == {
         "all",
@@ -1246,7 +1246,7 @@ def test_restart_absent_case_requires_same_bootstrap_and_behavior_outputs():
     assert case.restart_load_policy == "absent"
     assert case.statistical_md is False
     assert case.rerun_frame_limit == 2
-    assert case.rerun_need_box_update is False
+    assert case.rerun_box_update_compat is False
     assert "input.restart_load.structural" not in case.contract_ids
     assert {
         "input.restart_load.absent",

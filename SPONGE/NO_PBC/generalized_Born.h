@@ -46,12 +46,14 @@ struct GENERALIZED_BORN_INFORMATION
     // 分配内存
     void Malloc();
 
-    void Get_Effective_Born_Radius(const VECTOR* crd);
+    // Coordinates, effective radii and derivatives use local order.
+    // atom_local maps local indices to the immutable global input radii.
+    void Get_Effective_Born_Radius(const VECTOR* crd, const int* atom_local);
 
     // 可以根据外界传入的need_atom_energ选择性计算能量
     void GB_Force_With_Atom_Energy(const int atom_numbers, const VECTOR* crd,
                                    const float* charge, VECTOR* frc,
-                                   float* atom_energy);
+                                   float* atom_energy, const int* atom_local);
 
     void Step_Print(CONTROLLER* controller);
 };

@@ -3,6 +3,7 @@
 #include <exception>
 
 #include "local_mp/local_mp_service.h"
+#include "replica_exchange/client.h"
 #include "utils/mlip_geometry.hpp"
 
 #define SUBPACKAGE_HINT \
@@ -149,6 +150,7 @@ bool Has_Classic_Neighbor_Consumer()
 
 // Shared ghost rows also serve listed/bonded/constraint consumers which do
 // not request a spatial neighbor table. Keep this separate from table gating.
+// All constraint solvers share the initialized CONSTRAIN topology.
 bool Has_Shared_Classic_Halo_Consumer()
 {
     return Has_Classic_Neighbor_Consumer() || bond.is_initialized ||
@@ -156,9 +158,8 @@ bool Has_Shared_Classic_Halo_Consumer()
            dihedral.is_initialized || improper.is_initialized ||
            cmap.is_initialized || nb14.is_initialized ||
            listed_forces.is_initialized || constrain.is_initialized ||
-           settle.is_initialized || shake.is_initialized ||
-           matrix_constraint.is_initialized || restrain.is_initialized ||
-           vatom.is_initialized || sits.is_initialized;
+           restrain.is_initialized || vatom.is_initialized ||
+           sits.is_initialized;
 }
 
 bool Should_Update_Classic_Neighbors()
@@ -271,6 +272,10 @@ void Update_Mlip_Neighbors()
                                       "Update_Mlip_Neighbors", error.what());
     }
 }
+#if defined(__linux__)
+sponge_exchange::Client replica_exchange;
+
+#endif
 
 SpongeIO::RuntimeState io_runtime{
     controller, Xponge::system, md_info, dd,         middle_langevin,
@@ -303,12 +308,92 @@ int main(int argc, char* argv[])
 {
     Main_Initial(argc, argv);
     initial_state.Finalize_Run_Range();
+#if defined(__linux__)
+    replica_exchange.Initialize();
+    sponge_exchange::Window exchange_window{};
+    if (replica_exchange.Enabled())
+    {
+        const bool npt = md_info.mode == md_info.NPT;
+        if (CONTROLLER::MPI_size != 1 ||
+            (!npt && md_info.mode != md_info.NVT) ||
+            !middle_langevin.is_initialized ||
+            md_info.sys.target_temperature_schedule.enabled ||
+            md_info.sys.target_pressure_schedule.enabled ||
+            meta.is_initialized || steer_cv.is_initialized ||
+            plugin.plugin_numbers || hard_wall.is_initialized ||
+            reaxff.is_initialized ||
+            md_info.no_direct_interaction_virtual_atom_numbers ||
+            (sits.is_initialized &&
+             (sits.sits_mode != SITS_MODE_PRODUCTION ||
+              !sits.classic_sits.nk_fix || sits.classic_sits.fb_interval != 1)))
+            throw std::runtime_error(
+                "exchange requires single-rank NVT/NPT, middle Langevin "
+                "and static, compatible force parameters");
+        if (npt)
+        {
+            const auto angles = md_info.sys.box_angle;
+            const bool mc = mc_baro.is_initialized &&
+                            mc_baro.couple_dimension == mc_baro.XYZ &&
+                            !sits.is_initialized;
+            const bool bussi = press_baro.is_initialized &&
+                               press_baro.Algorithm == press_baro.Bussi &&
+                               press_baro.Isotropy == press_baro.Isotropic &&
+                               press_baro.target_surface_tension == 0;
+            if (!md_info.pbc.pbc || angles.x != 90 || angles.y != 90 ||
+                angles.z != 90 || (!mc && !bussi) ||
+                restrain.refcoord_scaling != restrain.REFCOORD_SCALING_NO)
+                throw std::runtime_error(
+                    "NPT exchange requires orthogonal boxes, isotropic "
+                    "Bussi or XYZ Monte Carlo without SITS, and fixed "
+                    "restraint references");
+        }
+        if (replica_exchange.Checkpoints_Enabled() &&
+            (!md_info.output.h5_restart_enabled ||
+             !controller.Command_Exist("input_h5_topology_path")))
+            throw std::runtime_error(
+                "group checkpoints require H5 topology and restart output");
+        exchange_window = sponge_exchange::Make_Window(
+            md_info, dd, constrain, sits, &Main_Install_Box_From_System,
+            []
+            {
+                Main_Refresh_Local_State(false);
+                Main_Calculate_Force();
+                Main_Reduce_Energy();
+            });
+        replica_exchange.Handshake(exchange_window);
+    }
+#endif
     for (; md_info.sys.steps <= md_info.sys.step_limit; md_info.sys.steps++)
     {
         Main_Sync_Dynamic_Targets_To_Controllers();
         Main_Calculate_Force();
+        controller.Get_Time_Recorder("Iteration")->Start();
+        Main_Reduce_Energy();
+#if defined(__linux__)
+        if (replica_exchange.Due(md_info.sys.steps))
+            replica_exchange.Exchange(md_info.sys.steps, exchange_window);
+#endif
+        if (md_info.mode == md_info.RERUN)
+        {
+            output_session.Prepare_Force_Output();
+            // Publish this frame before loading the next one can replace its
+            // coordinates or rebuild the domain buffers holding its forces.
+            controller.Get_Time_Recorder("Iteration")->Stop();
+            Main_Print();
+            controller.Get_Time_Recorder("Iteration")->Start();
+        }
         Main_Iteration();
-        Main_Print();
+        controller.Get_Time_Recorder("Iteration")->Stop();
+        if (md_info.mode != md_info.RERUN) Main_Print();
+#if defined(__linux__)
+        if (replica_exchange.Checkpoint_Due(md_info.sys.steps))
+        {
+            const auto path =
+                replica_exchange.Checkpoint_Path(md_info.sys.steps);
+            output_session.Write_Exchange_Checkpoint(path.string());
+            replica_exchange.Acknowledge_Checkpoint(md_info.sys.steps);
+        }
+#endif
     }
     Main_Clear();
     return 0;
@@ -317,7 +402,19 @@ int main(int argc, char* argv[])
 void Main_Initial(int argc, char* argv[])
 {
     controller.Initial(argc, argv, SUBPACKAGE_HINT);
-
+#if defined(__linux__)
+    if (std::getenv("SPONGE_EXCHANGE_FD"))
+    {
+        if (const char* path = std::getenv("SPONGE_EXCHANGE_RESUME_PATH"))
+        {
+            const char* load = "dynamic";
+            controller.commands["input_h5_restart_path"] = path;
+            controller.original_commands["input_h5_restart_path"] = path;
+            controller.commands["input_h5_restart_load"] = load;
+            controller.original_commands["input_h5_restart_load"] = load;
+        }
+    }
+#endif
     initial_state.Load_Base_State();
     if (Native_Pure_Mlip())
     {
@@ -399,6 +496,9 @@ void Main_Initial(int argc, char* argv[])
     Reject_Open_Boundary_Module(eam.is_initialized, "EAM");
     Reject_Open_Boundary_Module(tersoff.is_initialized, "TERSOFF");
     Reject_Open_Boundary_Module(reaxff.is_initialized, "REAXFF");
+    if (md_info.hmr_enabled && reaxff.is_initialized)
+        controller.Throw_SPONGE_Error(spongeErrorNotImplemented, "HMR",
+                                      "HMR requires fixed bond topology");
 
     if (Xponge::system.positional_restraint.present)
     {
@@ -455,6 +555,16 @@ void Main_Calculate_Force()
         md_info.atom_numbers +
         md_info.no_direct_interaction_virtual_atom_numbers;
     md_info.MD_Reset_Atom_Energy_And_Virial_And_Force();
+#if defined(__linux__)
+    if (replica_exchange.Due(md_info.sys.steps)) md_info.need_potential = 1;
+#endif
+    // The final force evaluation must be checked even when no mdout frame
+    // is due. Request fresh reductions rather than checking stale host data.
+    if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        md_info.need_potential = 1;
+        md_info.need_kinetic = 1;
+    }
     if (md_info.mode == md_info.MINIMIZATION && md_info.min.dynamic_dt)
     {
         md_info.need_potential = 1;
@@ -495,16 +605,16 @@ void Main_Calculate_Force()
         reaxff.Calculate_Force(&dd, &md_info, &neighbor_list);
 
         LJ_NOPBC.LJ_Force_With_Atom_Energy(
-            dd.atom_numbers, dd.crd, dd.frc, md_info.need_potential,
-            dd.d_energy, dd.d_excluded_list_start, dd.d_excluded_list,
-            dd.d_excluded_numbers);
+            dd.atom_numbers, dd.crd, dd.atom_local, dd.frc,
+            md_info.need_potential, dd.d_energy, dd.d_excluded_list_start,
+            dd.d_excluded_list, dd.d_excluded_numbers);
         CF_NOPBC.Coulomb_Force_With_Atom_Energy(
             dd.atom_numbers, dd.crd, dd.d_charge, dd.frc,
             md_info.need_potential, dd.d_energy, dd.d_excluded_list_start,
             dd.d_excluded_list, dd.d_excluded_numbers);
-        gb.Get_Effective_Born_Radius(dd.crd);
+        gb.Get_Effective_Born_Radius(dd.crd, dd.atom_local);
         gb.GB_Force_With_Atom_Energy(dd.atom_numbers, dd.crd, dd.d_charge,
-                                     dd.frc, dd.d_energy);
+                                     dd.frc, dd.d_energy, dd.atom_local);
 
         if (!use_reaxff_eeq)
         {
@@ -671,12 +781,6 @@ void Main_Calculate_Force()
             pm.Send_Recv_Force(&controller, md_info.frc, dd.frc,
                                dd.atom_numbers);
         }
-        sits.Update_And_Enhance(
-            md_info.sys.steps, md_info.sys.d_potential, md_info.need_pressure,
-            dd.d_virial, dd.frc,
-            1.0f / (CONSTANT_kB * md_info.sys.target_temperature));
-        output_session.Write_Pending_Sits();
-        vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     else if (CONTROLLER::MPI_rank == CONTROLLER::CV_MPI_rank)
     {
@@ -710,6 +814,22 @@ void Main_Calculate_Force()
         vatom.Force_Redistribute_CV(pm.g_crd, boundary, pm.g_frc);
         pm.add_force_g_to_l(md_info.frc);
         pm.Send_Recv_Force(&controller, md_info.frc, dd.frc, dd.atom_numbers);
+    }
+    // Full-system ITS needs this step's energy before updating its weights and
+    // forces. Include reciprocal/CV contributions and enter the reduction on
+    // every MPI rank, not only the particle ranks.
+    if (sits.is_initialized && !sits.selectively_applied)
+    {
+        dd.Get_Potential(&controller, &md_info);
+    }
+    if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+    {
+        sits.Update_And_Enhance(
+            md_info.sys.steps, md_info.sys.d_potential, md_info.need_pressure,
+            dd.d_virial, dd.frc,
+            1.0f / (CONSTANT_kB * md_info.sys.target_temperature));
+        output_session.Write_Pending_Sits();
+        vatom.Force_Redistribute(dd.crd, boundary, dd.frc);
     }
     md_info.min.Scale_Force_For_Dynamic_Dt(dd.atom_numbers, dd.d_mass_inverse,
                                            dd.frc, dd.vel, dd.acc);
@@ -788,15 +908,18 @@ void Main_Refresh_Local_State(bool rebuild_dd)
     Record_Mlip_Halo();
 }
 
-void Main_Iteration()
+void Main_Reduce_Energy()
 {
-    const Boundary& boundary = md_info.pbc.boundary;
-    controller.Get_Time_Recorder("Iteration")->Start();
     if (md_info.need_potential || md_info.need_pressure || md_info.need_kinetic)
     {
         dd.Get_Ek_and_Temperature(&controller, &md_info);
     }
     dd.Get_Potential(&controller, &md_info);
+}
+
+void Main_Iteration()
+{
+    const Boundary& boundary = md_info.pbc.boundary;
     if (md_info.mode != md_info.RERUN)
     {
         Main_MC_Barostat();
@@ -885,6 +1008,10 @@ void Main_Iteration()
                 boundary, md_info.need_pressure, md_info.sys.d_stress);
             hard_wall.Reflect(dd.atom_numbers, dd.crd, dd.vel);
         }
+        // Capture output force with its current global-to-local mapping.
+        // Pressure-driven box rebuilds and ownership exchange below may
+        // replace or reorder DD slots without preserving their force values.
+        output_session.Prepare_Force_Output();
         if (md_info.need_pressure && !mc_baro.is_initialized)
         {
             md_info.Get_pressure(&controller, dd.atom_numbers, dd.vel,
@@ -905,10 +1032,9 @@ void Main_Iteration()
         // frame.
         md_info.Crd_Vel_Device_to_dd(dd.crd, dd.vel, dd.atom_local_label,
                                      dd.atom_local_id, main_stream);
-        // Iteration only prepares g when the trajectory box actually changes.
-        if (md_info.rerun.need_box_update && box_changed)
+        if (box_changed)
         {
-            Main_Box_Change(md_info.rerun.g, 1, 0, 0);
+            Main_Install_Box_From_System();
         }
     }
 
@@ -963,7 +1089,6 @@ void Main_Iteration()
                      true, true, true);
         controller.Get_Time_Recorder("Communication")->Stop();
     }
-    controller.Get_Time_Recorder("Iteration")->Stop();
 }
 
 void Main_Print()
@@ -1017,7 +1142,17 @@ void Main_Print()
         meta.Step_Print(&controller);
         output_session.Write_Metadynamics_Scalars();
         soft_walls.Step_Print(&controller);
+        // A failed asynchronous kernel can leave finite but stale host values.
+        // Check both device status and the reduced observables before
+        // publishing.
+        controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
         output_session.Write_Observables();
+    }
+    else if (md_info.sys.steps == md_info.sys.step_limit)
+    {
+        controller.Check_Error(dd.h_sum_ene_total);
+        controller.Check_Error(dd.h_ek_total);
     }
 
     if (output_session.Trajectory_Due())
@@ -1093,6 +1228,34 @@ float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel)
         }
     }
     return md_info.sys.Get_Volume();
+}
+
+void Main_Install_Box_From_System()
+{
+    // Direct rerun cell installation bypasses the pressure-driven box path.
+    plugin.Invalidate_Mlip_Neighbor_View();
+    // The loaded geometry is authoritative; a strain round trip can change it.
+    md_info.pbc.boundary.cell =
+        md_info.pbc.Get_Cell(md_info.sys.box_length, md_info.sys.box_angle);
+    md_info.pbc.boundary.rcell =
+        Invert_Lower_Triangular_Cell(md_info.pbc.boundary.cell);
+    if (md_info.pbc.Check_Change_Large())
+    {
+        Main_Box_Change_Largely();
+    }
+    else
+    {
+        if (CONTROLLER::MPI_rank < CONTROLLER::PP_MPI_size)
+        {
+            dd.Set_Box(md_info.sys.box_length);
+        }
+        if (CONTROLLER::PM_MPI_rank < CONTROLLER::PM_MPI_size &&
+            CONTROLLER::PM_MPI_rank != -1)
+        {
+            pm.Set_Box(md_info.pbc.boundary, md_info.sys.box_length);
+        }
+    }
+    md_info.sys.Get_Volume();
 }
 
 void Main_Box_Change_Largely()
@@ -1269,8 +1432,8 @@ void Main_Process_Management()
                                       "unsupported in the short-range runtime");
     }
 
-    // SITS consumes energy before the world reduction and does not yet
-    // include the separate model virial in its enhancement path.
+    // Local-MP outputs are separate from the classic energy/virial buffers
+    // used by SITS; their enhanced derivatives have not been integrated.
     if (sits.is_initialized && plugin.Has_Local_MP_Provider())
     {
         controller.Throw_SPONGE_Error(

@@ -1,5 +1,7 @@
 ﻿#include "Coulomb_Force_No_PBC.h"
 
+#include "exclusions.hpp"
+
 static __global__ void Coulomb_Force_Device(
     const int atom_numbers, const VECTOR* crd, const float* charge,
     const int* excluded_list_start, const int* excluded_list,
@@ -15,13 +17,8 @@ static __global__ void Coulomb_Force_Device(
         for (int atom_j = atom_i + 1; atom_j < atom_numbers; atom_j++)
 #endif
     {
-        int tocal = 1;
-        const int* start = excluded_list + excluded_list_start[atom_i];
-        for (int k = 0; tocal == 1 && k < excluded_atom_numbers[atom_i]; k += 1)
-        {
-            if (start[k] == atom_j) tocal = 0;
-        }
-        if (tocal == 1)
+        if (!No_PBC_Pair_Excluded(atom_i, atom_j, excluded_list_start,
+                                  excluded_list, excluded_atom_numbers))
         {
             VECTOR dr = crd[atom_j] - crd[atom_i];
             float dr2 = dr * dr;
@@ -61,13 +58,8 @@ static __global__ void Coulomb_Force_Energy_Device(
         for (int atom_j = atom_i + 1; atom_j < atom_numbers; atom_j++)
 #endif
     {
-        int tocal = 1;
-        const int* start = excluded_list + excluded_list_start[atom_i];
-        for (int k = 0; tocal == 1 && k < excluded_atom_numbers[atom_i]; k += 1)
-        {
-            if (start[k] == atom_j) tocal = 0;
-        }
-        if (tocal == 1)
+        if (!No_PBC_Pair_Excluded(atom_i, atom_j, excluded_list_start,
+                                  excluded_list, excluded_atom_numbers))
         {
             VECTOR dr = crd[atom_j] - crd[atom_i];
             float dr2 = dr * dr;

@@ -147,8 +147,10 @@ void InitialStateBuilder::Build_Constraints_And_Velocities()
     auto& initial_velocity = initial_velocity_;
     if (controller.Command_Exist("constrain_mode"))
     {
-        constrain.Initial_List(&controller, md_info.sys.connected_distance,
-                               md_info.h_mass);
+        constrain.Initial_List(
+            &controller, md_info.sys.connected_distance, md_info.h_mass, NULL,
+            md_info.hmr_enabled ? Xponge::system.atoms.mass.data()
+                                : md_info.h_mass);
         constrain.Initial_Constrain(&controller, md_info.atom_numbers,
                                     md_info.dt, md_info.sys.box_length,
                                     md_info.h_mass, &md_info.sys.freedom);
@@ -184,10 +186,12 @@ void InitialStateBuilder::Build_Constraints_And_Velocities()
             constrain.x_factor = 0.5 * (1. + middle_langevin.exp_gamma);
         }
     }
-    vatom.Initial(&controller, &cv_controller, md_info.atom_numbers,
-                  md_info.no_direct_interaction_virtual_atom_numbers,
-                  cv_controller.cv_vatom_name, md_info.h_mass,
-                  &md_info.sys.freedom, &md_info.sys.connectivity);
+    vatom.Initial(
+        &controller, &cv_controller, md_info.atom_numbers,
+        md_info.no_direct_interaction_virtual_atom_numbers,
+        cv_controller.cv_vatom_name,
+        md_info.hmr_enabled ? Xponge::system.atoms.mass.data() : md_info.h_mass,
+        &md_info.sys.freedom, &md_info.sys.connectivity);
     vatom.Coordinate_Refresh(md_info.crd, md_info.pbc.boundary);
     initial_velocity.Initial(&controller, &md_info);
 

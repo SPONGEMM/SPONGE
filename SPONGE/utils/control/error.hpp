@@ -162,6 +162,9 @@ inline void CONTROLLER::Check_Error(float energy)
 {
 #ifdef GPU_ARCH_NAME
     deviceError_t device_error = deviceGetLastError();
+    // Observe asynchronous execution failures as well as launch failures.
+    // Preserve the first launch error instead of replacing it with sync status.
+    if (device_error == 0) device_error = deviceStreamSynchronize(NULL);
     if (device_error == deviceErrorInvalidConfiguration ||
         device_error == deviceErrorInvalidValue ||
         device_error == deviceErrorLaunchOutOfResources)

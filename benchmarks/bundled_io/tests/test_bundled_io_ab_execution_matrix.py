@@ -1062,7 +1062,7 @@ def _as_ab_case(case: MatrixRuntimeCase) -> AbCase:
             return replace(
                 source,
                 mode="rerun",
-                rerun_need_box_update=True,
+                rerun_box_update_compat=True,
                 input_behavior_only=False,
                 contract_ids=("runtime.rerun",),
                 assertion_ids=(

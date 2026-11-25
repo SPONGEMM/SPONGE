@@ -591,7 +591,8 @@ class AbCase:
     rerun_start: int = 0
     rerun_strip: int = 0
     rerun_frame_limit: int | None = 2
-    rerun_need_box_update: bool = False
+    # Emit the deprecated enabling key; both paths always use frame cells.
+    rerun_box_update_compat: bool = False
     rerun_velocity_present: bool = True
     rerun_force_output: bool = True
     trajectory_particle_stream: str = "all"
@@ -2202,7 +2203,7 @@ def _rerun_boundary_cases() -> list[AbCase]:
                 "h5_rerun_semantic_equivalence",
             ),
             rerun_frame_limit=2,
-            rerun_need_box_update=False,
+            rerun_box_update_compat=False,
         ),
         AbCase(
             name="rerun_boundary_start0_strip0_limit1_vds_off",
@@ -2230,7 +2231,7 @@ def _rerun_boundary_cases() -> list[AbCase]:
             assertion_ids=shared_assertions,
             rerun_start=1,
             rerun_frame_limit=None,
-            rerun_need_box_update=True,
+            rerun_box_update_compat=True,
             rerun_velocity_present=False,
             rerun_force_output=False,
             trajectory_file_name="trajectory.no_velocity.spg.h5md",
@@ -2255,7 +2256,7 @@ def _rerun_boundary_cases() -> list[AbCase]:
                 "h5_rerun_semantic_equivalence",
             ),
             rerun_frame_limit=2,
-            rerun_need_box_update=False,
+            rerun_box_update_compat=False,
             rerun_velocity_present=False,
             rerun_force_output=False,
             trajectory_file_name="trajectory.no_velocity.spg.h5md",
@@ -2323,7 +2324,7 @@ def _rerun_boundary_cases() -> list[AbCase]:
                 "h5_rerun_semantic_equivalence",
             ),
             rerun_frame_limit=2,
-            rerun_need_box_update=True,
+            rerun_box_update_compat=True,
         ),
         AbCase(
             name="rerun_boundary_start1_strip1_limit1_selected_no_velocity_vds_off",
@@ -11921,11 +11922,12 @@ def _prepare_mdin(
         additions = [
             f"rerun_start = {case.rerun_start}",
             f"rerun_strip = {case.rerun_strip}",
-            f"rerun_need_box_update = {1 if case.rerun_need_box_update else 0}",
             "write_mdout_interval = 1",
             "write_trajectory_interval = 1",
             "write_restart_file_interval = 0",
         ]
+        if case.rerun_box_update_compat:
+            additions.append("rerun_need_box_update = 1")
         if case.rerun_frame_limit is not None:
             additions.append(f"rerun_frame_limit = {case.rerun_frame_limit}")
         if branch == "legacy":
@@ -13121,7 +13123,7 @@ def _compare_rerun_selection(case: AbCase, run: AbRun) -> dict[str, object]:
         "selected_indices": expected_indices,
         "selected_frames": expected_frames,
         "branch_frames": branch_frames,
-        "box_update": case.rerun_need_box_update,
+        "box_update": True,
         "velocity_present": case.rerun_velocity_present,
         "particle_stream": case.trajectory_particle_stream,
     }
@@ -19507,24 +19509,6 @@ def _read_h5_virtual_atoms(topology: Path) -> list[H5VirtualAtomRecord]:
     return records
 
 
-def _rerun_updates_box(case_dir: Path) -> bool:
-    mdin_path = case_dir / _mdin_name(case_dir)
-    for raw_line in mdin_path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.split("#", 1)[0].strip()
-        if not line or "=" not in line:
-            continue
-        key, value = (part.strip() for part in line.split("=", 1))
-        if key != "rerun_need_box_update":
-            continue
-        normalized = value.strip("\"'").lower()
-        if normalized in {"1", "true", "yes", "on"}:
-            return True
-        if normalized in {"0", "false", "no", "off"}:
-            return False
-        raise AssertionError(f"invalid rerun_need_box_update value: {value!r}")
-    return False
-
-
 def _lower_triangular_periodic_displacement(
     left: Sequence[float], right: Sequence[float], box_edges: Sequence[float]
 ) -> tuple[float, float, float]:
@@ -19664,21 +19648,11 @@ def _rerun_expected_position_values(
     position_width = math.prod(input_position_shape[1:])
     box_width = math.prod(input_box_shape[1:])
     records = _read_h5_virtual_atoms(run.bundled_dir / "topology.spgt.h5")
-    use_trajectory_box = _rerun_updates_box(run.bundled_dir)
-    if use_trajectory_box:
-        restart_box = []
-    else:
-        restart_box = _rerun_bootstrap_box_values(run, box_width)
-
     expected = []
     for frame_index in matching_indices:
         position_begin = frame_index * position_width
         box_begin = frame_index * box_width
-        frame_box = (
-            input_boxes[box_begin : box_begin + box_width]
-            if use_trajectory_box
-            else restart_box
-        )
+        frame_box = input_boxes[box_begin : box_begin + box_width]
         expected.extend(
             _canonicalize_virtual_atom_positions(
                 input_positions[
@@ -19708,51 +19682,6 @@ def _rerun_expected_box_values(
             frame_index * box_width : (frame_index + 1) * box_width
         ]
     ]
-
-
-def _rerun_bootstrap_box_values(run: AbRun, box_width: int) -> list[float]:
-    restart_path = run.bundled_dir / "restart.spgr.h5"
-    if restart_path.exists():
-        values = _h5_numeric_values(
-            restart_path, "/particles/all/box/edges/value"
-        )
-    else:
-        coordinate_path = run.bundled_dir / "coordinate.txt"
-        lines = [
-            line.strip()
-            for line in coordinate_path.read_text(encoding="utf-8").splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        ]
-        atom_count = int(lines[0].split()[0])
-        box_fields = lines[1 + atom_count :]
-        if len(box_fields) != 1 or len(box_fields[0].split()) != 6:
-            raise AssertionError(
-                "restart-absent coordinate bootstrap requires one six-value box row"
-            )
-        length_x, length_y, length_z, alpha, beta, gamma = (
-            float(value) for value in box_fields[0].split()
-        )
-        if not all(
-            math.isclose(angle, 90.0, rel_tol=0.0, abs_tol=1.0e-6)
-            for angle in (alpha, beta, gamma)
-        ):
-            raise AssertionError(
-                "restart-absent coordinate bootstrap must be orthogonal"
-            )
-        values = [
-            length_x,
-            0.0,
-            0.0,
-            0.0,
-            length_y,
-            0.0,
-            0.0,
-            0.0,
-            length_z,
-        ]
-    if len(values) != box_width:
-        raise AssertionError("rerun bootstrap box has an invalid shape")
-    return values
 
 
 def _compare_h5_outputs_statistically(

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <highfive/highfive.hpp>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 #include "h5_input_matrix_fixture.hpp"
 #include "test_shell.hpp"
 #include "utils/h5md/h5md_writer.hpp"
+#include "utils/h5md/restart_file_rotation.hpp"
 #include "utils/h5md/restart_h5_reader.hpp"
 #include "utils/random/restart_rng_state.hpp"
 
@@ -696,6 +698,53 @@ PreparedCase Prepare_Restart_Load_Case(
     PreparedCase prepared;
     prepared.root = temp_root / name;
     Copy_Directory_Contents(source_dir, prepared.root);
+    // The full-contract matrix exercises parsing with repeated atom indices.
+    // Its two atoms cannot form runtime angles, dihedrals, CMAPs or the
+    // synthetic virtual site; retain those records only in the parser tests.
+    {
+        HighFive::File topology((prepared.root / "topology.spgt.h5").string(),
+                                HighFive::File::ReadWrite);
+        for (const char* object_path :
+             {"/forcefield/angle", "/forcefield/urey_bradley",
+              "/forcefield/dihedral", "/forcefield/cmap",
+              "/forcefield/virtual_atom"})
+        {
+            if (topology.exist(object_path))
+                H5Ldelete(topology.getId(), object_path, H5P_DEFAULT);
+        }
+        // Remove the matching fallback bindings too, or the legacy loader
+        // would reintroduce the same parsing-only records.
+        const auto keys_path = SpongeH5MD::path::legacy_sidecar_keys;
+        const auto paths_path = SpongeH5MD::path::legacy_sidecar_paths;
+        if (topology.exist(keys_path))
+        {
+            std::vector<std::string> keys, paths, runtime_keys, runtime_paths;
+            topology.getDataSet(keys_path).read(keys);
+            topology.getDataSet(paths_path).read(paths);
+            REQUIRE_EQ(keys.size(), paths.size());
+            for (std::size_t i = 0; i < keys.size(); ++i)
+            {
+                if (keys[i] == "angle_in_file" ||
+                    keys[i] == "urey_bradley_in_file" ||
+                    keys[i] == "dihedral_in_file" ||
+                    keys[i] == "cmap_in_file" ||
+                    keys[i] == "virtual_atom_in_file")
+                    continue;
+                runtime_keys.push_back(keys[i]);
+                runtime_paths.push_back(paths[i]);
+            }
+            H5Ldelete(topology.getId(), keys_path, H5P_DEFAULT);
+            H5Ldelete(topology.getId(), paths_path, H5P_DEFAULT);
+            topology
+                .createDataSet<std::string>(
+                    keys_path, HighFive::DataSpace::From(runtime_keys))
+                .write(runtime_keys);
+            topology
+                .createDataSet<std::string>(
+                    paths_path, HighFive::DataSpace::From(runtime_paths))
+                .write(runtime_paths);
+        }
+    }
     // The synthetic funcfl fixture has one element; type 1 is out of range.
     // Match the native runtime fixture's {0, 0} types in legacy/sidecar input.
     for (const auto& relative :
@@ -1092,6 +1141,237 @@ void Require_Runtime_Smoke_Enabled()
     }
 }
 
+void Require_Retention_VDS_Trajectory(const std::filesystem::path& wrapper_path)
+{
+    HighFive::File wrapper(wrapper_path.string(), HighFive::File::ReadOnly);
+    std::string status;
+    wrapper.getDataSet(SpongeH5MD::path::output_status).read(status);
+    REQUIRE_EQ(status, std::string("finalized"));
+    wrapper.getDataSet(SpongeH5MD::path::output_vds_status).read(status);
+    REQUIRE_EQ(status, std::string("particle, observable, and module virtual "
+                                   "datasets materialized"));
+    const auto position = wrapper.getDataSet(SpongeH5MD::path::position_value);
+    const hid_t properties = H5Dget_create_plist(position.getId());
+    REQUIRE_TRUE(properties >= 0);
+    const auto layout = H5Pget_layout(properties);
+    H5Pclose(properties);
+    REQUIRE_EQ(layout, H5D_VIRTUAL);
+
+    std::vector<std::string> paths, statuses;
+    std::vector<int64_t> frame_counts, frame_starts, wrapper_steps,
+        output_count;
+    std::vector<double> wrapper_times;
+    wrapper.getDataSet(SpongeH5MD::path::shard_manifest_path).read(paths);
+    wrapper.getDataSet(SpongeH5MD::path::shard_manifest_status).read(statuses);
+    wrapper.getDataSet(SpongeH5MD::path::shard_manifest_frame_count)
+        .read(frame_counts);
+    wrapper.getDataSet(SpongeH5MD::path::shard_manifest_frame_start)
+        .read(frame_starts);
+    wrapper.getDataSet(SpongeH5MD::path::particles_all_step)
+        .read(wrapper_steps);
+    wrapper.getDataSet(SpongeH5MD::path::particles_all_time)
+        .read(wrapper_times);
+    wrapper.getDataSet(SpongeH5MD::path::output_frame_count).read(output_count);
+    REQUIRE_TRUE(paths.size() >= 2);
+    REQUIRE_EQ(statuses.size(), paths.size());
+    REQUIRE_EQ(frame_counts.size(), paths.size());
+    REQUIRE_EQ(frame_starts.size(), paths.size());
+    REQUIRE_TRUE(!output_count.empty());
+    REQUIRE_EQ(output_count.back(), static_cast<int64_t>(wrapper_steps.size()));
+    REQUIRE_EQ(wrapper_times.size(), wrapper_steps.size());
+
+    std::vector<int64_t> steps;
+    std::vector<double> times;
+    std::vector<float> positions, boxes;
+    for (std::size_t index = 0; index < paths.size(); ++index)
+    {
+        REQUIRE_EQ(statuses[index], std::string("complete"));
+        REQUIRE_EQ(frame_starts[index], static_cast<int64_t>(steps.size()));
+        REQUIRE_TRUE(frame_counts[index] > 0);
+        auto shard_path = std::filesystem::path(paths[index]);
+        if (shard_path.is_relative())
+        {
+            const auto local = wrapper_path.parent_path() / shard_path;
+            shard_path =
+                std::filesystem::exists(local)
+                    ? local
+                    : wrapper_path.parent_path().parent_path() / shard_path;
+        }
+        HighFive::File shard(shard_path.string(), HighFive::File::ReadOnly);
+        std::vector<int64_t> shard_steps;
+        std::vector<double> shard_times;
+        shard.getDataSet(SpongeH5MD::path::particles_all_step)
+            .read(shard_steps);
+        shard.getDataSet(SpongeH5MD::path::particles_all_time)
+            .read(shard_times);
+        REQUIRE_EQ(shard_steps.size(),
+                   static_cast<std::size_t>(frame_counts[index]));
+        REQUIRE_EQ(shard_times.size(), shard_steps.size());
+        steps.insert(steps.end(), shard_steps.begin(), shard_steps.end());
+        times.insert(times.end(), shard_times.begin(), shard_times.end());
+        const auto shard_positions =
+            Read_H5_Float_Dataset(shard_path, SpongeH5MD::path::position_value);
+        const auto shard_boxes = Read_H5_Float_Dataset(
+            shard_path, SpongeH5MD::path::box_edges_value);
+        Require_Finite_Values(shard_positions);
+        Require_Finite_Values(shard_boxes);
+        positions.insert(positions.end(), shard_positions.begin(),
+                         shard_positions.end());
+        boxes.insert(boxes.end(), shard_boxes.begin(), shard_boxes.end());
+    }
+    REQUIRE_EQ(steps, wrapper_steps);
+    REQUIRE_EQ(times, wrapper_times);
+    Require_Float_Container_Close(
+        positions,
+        Read_H5_Float_Dataset(wrapper_path, SpongeH5MD::path::position_value));
+    Require_Float_Container_Close(
+        boxes,
+        Read_H5_Float_Dataset(wrapper_path, SpongeH5MD::path::box_edges_value));
+}
+
+void Run_Restart_Retention_Runtime_Case(const std::filesystem::path& executable,
+                                        const std::filesystem::path& temp_root,
+                                        const std::filesystem::path& source,
+                                        bool vds)
+{
+    auto prepared = Prepare_Restart_Load_Case(
+        temp_root, vds ? "restart_retention_vds" : "restart_retention_single",
+        source, "dynamic", true, false, false, false, false);
+    std::string mdin = Read_Text(prepared.mdin);
+    Replace_All(&mdin, "input_h5_restart_load = \"dynamic\"",
+                "input_h5_restart_load = \"structural\"");
+    Replace_All(&mdin, "step_limit = 1",
+                "step_limit = 6\nmax_restart_export_count = 3");
+    Replace_All(&mdin, "write_trajectory_interval = 0",
+                "write_trajectory_interval = 1");
+    if (!vds)
+        Replace_All(&mdin, "output_h5_trajectory_vds = true",
+                    "output_h5_trajectory_vds = false");
+    Write_Text(prepared.mdin, mdin);
+    Run_SPONGE(executable, prepared);
+    auto require_retention = [&]()
+    {
+        if (vds)
+            Require_Retention_VDS_Trajectory(prepared.root / "out" /
+                                             "traj.spg.h5md");
+        const auto generation =
+            SpongeH5MD::Read_Restart_File_Generation(prepared.h5_restart);
+        REQUIRE_TRUE(generation >= 3);
+        const auto history =
+            SpongeH5MD::List_Restart_History(prepared.h5_restart.string());
+        REQUIRE_EQ(history.size(), std::size_t(2));
+        for (std::size_t index = 0; index < history.size(); ++index)
+        {
+            REQUIRE_EQ(
+                SpongeH5MD::Read_Restart_File_Generation(history[index].path),
+                generation - 2 + static_cast<int64_t>(index));
+            SpongeH5MD::RestartH5Reader reader;
+            REQUIRE_TRUE(reader.Open(history[index].path.string()));
+            SpongeH5MD::RestartStructuralState structural;
+            SpongeH5MD::RestartDynamicState dynamic;
+            REQUIRE_TRUE(reader.Read_Structural_State(&structural));
+            REQUIRE_TRUE(reader.Read_Dynamic_State(&dynamic));
+            REQUIRE_TRUE(dynamic.has_nose_hoover_chain);
+        }
+        REQUIRE_TRUE(
+            !std::filesystem::exists(prepared.h5_restart.string() + ".tmp"));
+        return generation;
+    };
+    const auto first_generation = require_retention();
+
+    // A second process writing the same output must continue its generations.
+    Run_SPONGE(executable, prepared);
+    REQUIRE_TRUE(require_retention() > first_generation);
+
+    // Recover dynamic state from an older history file, not just from latest.
+    const auto history =
+        SpongeH5MD::List_Restart_History(prepared.h5_restart.string());
+    std::filesystem::copy_file(
+        history.front().path, prepared.root / "restart.spgr.h5",
+        std::filesystem::copy_options::overwrite_existing);
+    std::string resumed_mdin = mdin;
+    Replace_All(&resumed_mdin, "input_h5_restart_load = \"structural\"",
+                "input_h5_restart_load = \"dynamic\"");
+    Replace_All(&resumed_mdin, "step_limit = 6", "step_limit = 12");
+    Write_Text(prepared.mdin, resumed_mdin);
+    Run_SPONGE(executable, prepared);
+    require_retention();
+
+    for (const auto& invalid :
+         {"0", "-1", "2147483648", "999999999999999999999999999999"})
+    {
+        auto invalid_mdin = mdin;
+        Replace_All(
+            &invalid_mdin, "max_restart_export_count = 3",
+            std::string("max_restart_export_count = \"") + invalid + "\"");
+        Write_Text(prepared.mdin, invalid_mdin);
+        Run_SPONGE_Expect_Failure(executable, prepared,
+                                  "max_restart_export_count must be an integer "
+                                  "between 1 and INT_MAX");
+    }
+    // Lowering the limit prunes history only after a successful publication.
+    Replace_All(&mdin, "max_restart_export_count = 3",
+                "max_restart_export_count = 1");
+    Write_Text(prepared.mdin, mdin);
+    Run_SPONGE(executable, prepared);
+    REQUIRE_TRUE(
+        SpongeH5MD::List_Restart_History(prepared.h5_restart.string()).empty());
+}
+
+// Exercise the actual module upload/gather and checkpoint export, beyond the
+// host parser: the main coordinates deliberately differ from these references.
+void Run_Text_Reference_Runtime_Cases(const std::filesystem::path& executable,
+                                      const std::filesystem::path& temp_root,
+                                      const std::filesystem::path& source)
+{
+    const std::vector<float> expected = {1.25f, -2.5f,  3.75f,
+                                         10.5f, 20.25f, -30.75f};
+    const std::vector<std::string> files = {
+        "2\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2 0.0000000000\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2 0.0000000000 4999\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "title\n2\n1.25 -2.5 3.75 10.5 20.25 -30.75\n100 100 100 90 90 90\n",
+        "title\n2 7.5\n1.25 -2.5 3.75 10.5 20.25 -30.75\n"
+        "0 0 0 0 0 0\n100 100 100 90 90 90\n",
+        "3\n1.25 -2.5 3.75\n10.5 20.25 -30.75\n",
+        "2\n1.25 -2.5\n10.5 20.25 -30.75\n",
+        "2\n1.25 -2.5 nan\n10.5 20.25 -30.75\n"};
+    for (std::size_t index = 0; index < files.size(); ++index)
+    {
+        const auto prepared = Prepare_Restart_Load_Case(
+            temp_root, "text_reference_" + std::to_string(index), source,
+            "structural", true, true, true, false, false);
+        Isolate_Positional_Restraint_Runtime_Inputs(prepared.root);
+        Delete_H5_Object_If_Exists(prepared.root / "restart.spgr.h5",
+                                   SpongeH5MD::path::restart_protocol_sidecars);
+        Write_Text(prepared.root / "reference.txt", files[index]);
+        Write_Text(prepared.root / "atom_id.txt", "0\n1\n");
+        std::string mdin =
+            Remove_Key_Lines(Read_Text(prepared.mdin),
+                             {"custom_pair_in_file", "custom_bond_in_file"});
+        mdin +=
+            "\n[restrain]\natom_id = \"atom_id.txt\"\n"
+            "single_weight = 20\nrefcoord_scaling = \"no\"\n";
+        mdin += (index == 3 || index == 4)
+                    ? "amber_rst7 = \"reference.txt\"\n"
+                    : "coordinate_in_file = \"reference.txt\"\n";
+        Write_Text(prepared.mdin, mdin);
+        if (index >= 5)
+        {
+            const std::vector<std::string> errors = {"reference atom count",
+                                                     "expected one XYZ triple",
+                                                     "non-finite coordinate"};
+            Run_SPONGE_Expect_Failure(executable, prepared, errors[index - 5]);
+            continue;
+        }
+        Run_SPONGE(executable, prepared);
+        const auto actual = Read_H5_Float_Dataset(
+            prepared.h5_restart,
+            SpongeH5MD::Restart_Restraint_Reference_Coordinate_Path("default"));
+        REQUIRE_EQ(actual, expected);
+    }
+}
+
 void Run_Restart_Load_Runtime_Closure(
     const std::filesystem::path& sponge_executable)
 {
@@ -1103,6 +1383,13 @@ void Run_Restart_Load_Runtime_Closure(
     const auto pure_source = full / "bundled_input" / "bundle";
     const auto sidecar_source =
         full / "bundled_input_with_legacy_sidecar" / "bundle";
+
+    Run_Text_Reference_Runtime_Cases(sponge_executable, temp_root, pure_source);
+
+    Run_Restart_Retention_Runtime_Case(sponge_executable, temp_root,
+                                       pure_source, false);
+    Run_Restart_Retention_Runtime_Case(sponge_executable, temp_root,
+                                       pure_source, true);
 
     const auto protocol_sits = Prepare_Restart_Load_Case(
         temp_root, "restart_load_protocol_sidecar_sits_only", sidecar_source,
@@ -1357,6 +1644,41 @@ void Run_Restart_Load_Runtime_Closure(
     const auto output_restraint_reference = Read_H5_Float_Dataset(
         protocol_restraint.h5_restart, restraint_reference_path);
     REQUIRE_EQ(input_restraint_reference, output_restraint_reference);
+
+    // The canonical protocol restart reference is applied after native module
+    // initialization. Reject bad state here as well as in the native reader.
+    Write_Text(protocol_restraint.root / "atom_id.txt", "0\n1\n");
+    Write_Text(protocol_restraint.root / "valid_reference.txt",
+               "2\n1 2 3\n4 5 6\n");
+    Write_Text(
+        protocol_restraint.mdin,
+        Read_Text(protocol_restraint.mdin) +
+            "\n[restrain]\nsingle_weight = 20\natom_id = \"atom_id.txt\"\n"
+            "coordinate_in_file = \"valid_reference.txt\"\n");
+    for (int variant = 0; variant < 2; ++variant)
+    {
+        {
+            HighFive::File restart(
+                (protocol_restraint.root / "restart.spgr.h5").string(),
+                HighFive::File::ReadWrite);
+            REQUIRE_TRUE(H5Ldelete(restart.getId(),
+                                   restraint_reference_path.c_str(),
+                                   H5P_DEFAULT) >= 0);
+            auto values = input_restraint_reference;
+            if (variant == 0)
+                values[0] = std::numeric_limits<float>::quiet_NaN();
+            else
+                values.resize(3);
+            auto dataset = restart.createDataSet<float>(
+                restraint_reference_path,
+                HighFive::DataSpace({values.size() / 3, 3}));
+            REQUIRE_TRUE(H5Dwrite(dataset.getId(), H5T_NATIVE_FLOAT, H5S_ALL,
+                                  H5S_ALL, H5P_DEFAULT, values.data()) >= 0);
+        }
+        Run_SPONGE_Expect_Failure(
+            sponge_executable, protocol_restraint,
+            variant == 0 ? "non-finite coordinate" : "reference atom count");
+    }
 
     const auto native_cv = Prepare_Restart_Load_Case(
         temp_root, "restart_load_protocol_native_cv", pure_source, "protocol",

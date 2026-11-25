@@ -253,9 +253,9 @@ The admitted path is CUDA+MPI, fully periodic orthogonal cells, the native DD
 rank/geometry limits, finite-range/depth models, and fixed-width atom-associated
 features. Variable directed-edge hidden-state exchange, long-range operators,
 iterative solvers and MLIP with the MC barostat are not supplied. Local-MP with
-an enabled SITS module is rejected at initialization: SITS currently consumes
-total energy before the world reduction, and its enhancement does not include
-the separate model virial. This covers every SITS mode; supporting selected
+an enabled SITS module is rejected at initialization: the separate model
+energy/virial buffers and their enhanced derivatives are not integrated into
+SITS. This covers every SITS mode; supporting selected
 model energy additionally requires its complete force and virial derivatives.
 The check does not change the existing classical SITS path. Native edge
 force assembly does not imply support for edge hidden-state communication.

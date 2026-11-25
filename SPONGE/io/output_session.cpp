@@ -1,5 +1,7 @@
 ﻿#include "output_session.h"
 
+#include "../MD_core/hmr.h"
+
 namespace SpongeIO
 {
 SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
@@ -11,6 +13,9 @@ SpongeH5MD::RestartDynamicState OutputSession::Build_H5_Dynamic_Restart_State()
         std::to_string(runtime_.md_info.sys.steps);
     state.integrator_state_text["time"] =
         std::to_string(runtime_.md_info.sys.Get_Current_Time());
+
+    state.integrator_state_text["mass_signature"] = SpongeHMR::Mass_Signature(
+        runtime_.md_info.h_mass, runtime_.md_info.atom_numbers);
 
     std::string error_message;
     if (!runtime_.bussi_thermo.Export_H5_Restart_State(&state, &error_message))
@@ -89,6 +94,17 @@ void OutputSession::Initial()
             &runtime_.controller, runtime_.meta.h5_object_name.c_str(),
             "direct_export", runtime_.meta.write_directly_file_name);
     }
+    int grid_enabled = runtime_.meta.is_initialized &&
+                       (runtime_.md_info.output.h5_trajectory_enabled ||
+                        runtime_.md_info.output.h5_observable_enabled);
+#ifdef USE_MPI
+    MPI_Bcast(&grid_enabled, 1, MPI_INT, 0, MPI_COMM_WORLD);
+#endif
+    native_meta_grid_enabled_ = grid_enabled != 0;
+    if (native_meta_grid_enabled_)
+        runtime_.md_info.output.Write_H5_Metadynamics_Grid(
+            &runtime_.controller, runtime_.meta.h5_object_name,
+            runtime_.meta.Export_H5_Grid(false), true);
     runtime_.md_info.output.Start_H5_Swmr(&runtime_.controller);
 }
 
@@ -142,6 +158,21 @@ void OutputSession::Write_Observables()
     runtime_.controller.Print_To_Screen_And_Mdout();
 }
 
+void OutputSession::Prepare_Force_Output()
+{
+    const auto& output = runtime_.md_info.output;
+    // Use the shared plan: H5 writer state is initialized only on rank zero,
+    // but gathering force requires every particle rank to participate.
+    if (Force_Due() ||
+        (Trajectory_Due() && output.h5_output_plan.trajectory.enabled &&
+         output.is_frc_traj))
+    {
+        runtime_.md_info.Frc_dd_to_Host(
+            runtime_.dd.frc, runtime_.dd.atom_local_label,
+            runtime_.dd.atom_local_id, runtime_.main_stream);
+    }
+}
+
 void OutputSession::Write_Trajectory()
 {
     runtime_.md_info.Crd_Vel_dd_to_Device(
@@ -157,22 +188,16 @@ void OutputSession::Write_Trajectory()
     runtime_.md_info.output.Append_Crd_Traj_File();
     runtime_.md_info.output.Append_Vel_Traj_File();
     runtime_.md_info.output.Append_Box_Traj_File();
-    if (runtime_.md_info.output.h5_trajectory_force_enabled)
-    {
-        runtime_.md_info.Frc_dd_to_Host(
-            runtime_.dd.frc, runtime_.dd.atom_local_label,
-            runtime_.dd.atom_local_id, runtime_.main_stream);
-    }
     runtime_.md_info.output.Append_H5_Trajectory_Frame(&runtime_.controller);
     runtime_.meta.Write_Potential();
 #ifdef USE_MPI
     MPI_Barrier(MPI_COMM_WORLD);
 #endif
-    if (runtime_.meta.is_initialized)
+    if (native_meta_grid_enabled_)
     {
-        runtime_.md_info.output.Write_H5_Metadynamics_Diagnostic_File(
-            &runtime_.controller, runtime_.meta.h5_object_name.c_str(),
-            "potential_export", runtime_.meta.write_potential_file_name);
+        runtime_.md_info.output.Write_H5_Metadynamics_Grid(
+            &runtime_.controller, runtime_.meta.h5_object_name,
+            runtime_.meta.Export_H5_Grid(true), false);
     }
     runtime_.nhc.Save_Trajectory_File();
     if (runtime_.nhc.is_initialized)
@@ -185,9 +210,6 @@ void OutputSession::Write_Trajectory()
 
 void OutputSession::Write_Force()
 {
-    runtime_.md_info.Frc_dd_to_Host(
-        runtime_.dd.frc, runtime_.dd.atom_local_label,
-        runtime_.dd.atom_local_id, runtime_.main_stream);
     runtime_.md_info.output.Append_Frc_Traj_File();
 }
 
@@ -303,6 +325,28 @@ RestartOutputState OutputSession::Capture_Restart_State()
         state.restraint_name = restrain.h5_restraint_name;
     state.cv_references = runtime_.cv_controller.protocol_cv_reference;
     return state;
+}
+
+void OutputSession::Write_Exchange_Checkpoint(const std::string& path)
+{
+    auto& output = runtime_.md_info.output;
+    if (!output.h5_restart_enabled)
+        throw std::runtime_error("replica exchange requires H5 restart output");
+    std::string checkpoint_path = path;
+    checkpoint_path.swap(output.h5_output_plan.restart.path);
+    try
+    {
+        output.Export_H5_Restart_File(&runtime_.controller,
+                                      Capture_Restart_State());
+    }
+    catch (...)
+    {
+        checkpoint_path.swap(output.h5_output_plan.restart.path);
+        throw;
+    }
+    checkpoint_path.swap(output.h5_output_plan.restart.path);
+    if (!output.h5_restart_enabled)
+        throw std::runtime_error("failed to publish replica H5 checkpoint");
 }
 
 void OutputSession::Write_Restart()

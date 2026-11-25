@@ -1,7 +1,9 @@
 ﻿#include "toml.h"
 
+#include <charconv>
 #include <sstream>
 
+#include "../../utils/float_classification.hpp"
 #include "toml_decode.hpp"
 
 namespace sponge::toml_wrap
@@ -11,6 +13,21 @@ namespace
 using DecodeNode = sponge::toml_decode::node;
 using DecodeArray = sponge::toml_decode::array;
 using DecodeTable = sponge::toml_decode::table;
+
+std::string FloatingValueToString(double value)
+{
+    char buffer[64];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value,
+                                      std::chars_format::general);
+    if (result.ec != std::errc{})
+        throw std::runtime_error("cannot serialize TOML floating point value");
+    std::string text(buffer, result.ptr);
+    // Preserve both the binary64 value and the TOML scalar type on round-trip.
+    if (SpongeFloat::Is_Finite(value) &&
+        text.find_first_of(".eE") == std::string::npos)
+        text += ".0";
+    return text;
+}
 
 std::string CanonicalCommandKey(const std::string& full_key)
 {
@@ -150,9 +167,7 @@ std::string SerializeNodeCompact(const DecodeNode& node)
     }
     if (const auto* val = node.as_floating())
     {
-        std::ostringstream oss;
-        oss << *val;
-        return oss.str();
+        return FloatingValueToString(*val);
     }
     if (const auto* val = node.as_bool())
     {
@@ -183,9 +198,7 @@ std::string NodeValueToString(const DecodeNode& node,
     }
     if (const auto* val = node.as_floating())
     {
-        std::ostringstream oss;
-        oss << *val;
-        return oss.str();
+        return FloatingValueToString(*val);
     }
     if (const auto* val = node.as_bool())
     {

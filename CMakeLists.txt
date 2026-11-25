@@ -72,3 +72,8 @@ install(
   FILES_MATCHING
   PATTERN "*.json"
   PATTERN "*.toml")
+
+option(SPONGE_BUILD_REPLICA_MANAGER "Build the standalone replica manager" OFF)
+if(SPONGE_BUILD_REPLICA_MANAGER)
+  add_subdirectory(manager)
+endif()

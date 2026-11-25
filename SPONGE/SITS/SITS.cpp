@@ -2,6 +2,7 @@
 
 #include "../utils/float_classification.hpp"
 #include "../utils/h5md/input_assembler.hpp"
+#include "sits_accumulator.hpp"
 #include "sits_h5_input.hpp"
 
 template <bool need_force, bool need_energy, bool need_virial,
@@ -72,16 +73,19 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
                     VECTOR frc_lin = frc_abs * dr;
                     frc_record = frc_record + frc_lin;
                     if (atom_j < local_atom_numbers)
+                    {
                         atomicAdd(frc + atom_j, -frc_lin);
-                    frc_lin = factor * frc_lin;
-                    frc_enhancing_record = frc_enhancing_record + frc_lin;
+                        atomicAdd(frc_enhancing + atom_j, -factor * frc_lin);
+                    }
+                    frc_enhancing_record =
+                        frc_enhancing_record + factor * frc_lin;
                     if (need_virial)
                     {
                         LTMatrix3 virial0 =
                             Get_Virial_From_Force_Dis(frc_lin, dr);
-                        virial_record = virial_record + ij_factor * virial0;
+                        virial_record = virial_record - ij_factor * virial0;
                         virial_enhancing =
-                            virial_enhancing + ij_factor * factor * virial0;
+                            virial_enhancing - ij_factor * factor * virial0;
                     }
                 }
                 if (need_coulomb && need_energy)
@@ -104,18 +108,17 @@ static __global__ void Selective_Lennard_Jones_And_Direct_Coulomb_Device(
             Warp_Sum_To(frc + atom_i, frc_record, warpSize);
             Warp_Sum_To(frc_enhancing + atom_i, frc_enhancing_record, warpSize);
         }
-        if (need_coulomb && need_energy)
-        {
-            Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
-                        warpSize);
-        }
         if (need_energy)
         {
-            Warp_Sum_To(atom_energy + atom_i, energy_lj, warpSize);
-#ifdef USE_GPU
-            if (threadIdx.x == 0)
-#endif
-                atomicAdd(atom_ene_LJ + atom_i, energy_lj);
+            // Form the total before Warp_Sum_To modifies its inputs in place.
+            float energy_with_coulomb = energy_lj + energy_coulomb;
+            Warp_Sum_To(atom_energy + atom_i, energy_with_coulomb, warpSize);
+            Warp_Sum_To(atom_ene_LJ + atom_i, energy_lj, warpSize);
+            if (need_coulomb)
+            {
+                Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
+                            warpSize);
+            }
             Warp_Sum_To(atom_energy_enhancing + atom_i, energy_enhancing,
                         warpSize);
         }
@@ -227,9 +230,9 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
                         {
                             LTMatrix3 virial0 =
                                 Get_Virial_From_Force_Dis(frc_lin, dr);
-                            virial_record = virial_record + ij_factor * virial0;
+                            virial_record = virial_record - ij_factor * virial0;
                             virial_enhancing =
-                                virial_enhancing + ij_factor * factor * virial0;
+                                virial_enhancing - ij_factor * factor * virial0;
                         }
                     }
                     if (need_coulomb && need_energy)
@@ -301,9 +304,9 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
                         {
                             LTMatrix3 virial0 =
                                 Get_Virial_From_Force_Dis(frc_lin, dr);
-                            virial_record = virial_record + ij_factor * virial0;
+                            virial_record = virial_record - ij_factor * virial0;
                             virial_enhancing =
-                                virial_enhancing + ij_factor * factor * virial0;
+                                virial_enhancing - ij_factor * factor * virial0;
                         }
                     }
                     if (need_coulomb && need_energy)
@@ -369,18 +372,17 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
             Warp_Sum_To(frc + atom_i, frc_record, warpSize);
             Warp_Sum_To(frc_enhancing + atom_i, frc_enhancing_record, warpSize);
         }
-        if (need_coulomb && need_energy)
-        {
-            Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
-                        warpSize);
-        }
         if (need_energy)
         {
-            Warp_Sum_To(atom_energy + atom_i, energy_total, warpSize);
-#ifdef USE_GPU
-            if (threadIdx.x == 0)
-#endif
-                atomicAdd(atom_ene_LJ + atom_i, energy_total);
+            // Form the total before Warp_Sum_To modifies its inputs in place.
+            float energy_with_coulomb = energy_total + energy_coulomb;
+            Warp_Sum_To(atom_energy + atom_i, energy_with_coulomb, warpSize);
+            Warp_Sum_To(atom_ene_LJ + atom_i, energy_total, warpSize);
+            if (need_coulomb)
+            {
+                Warp_Sum_To(atom_direct_cf_energy + atom_i, energy_coulomb,
+                            warpSize);
+            }
             Warp_Sum_To(atom_energy_enhancing + atom_i, energy_enhancing,
                         warpSize);
         }
@@ -402,10 +404,7 @@ Selective_Lennard_Jones_And_Direct_Coulomb_Soft_Core_Device(
     }
 }
 
-static __device__ float log_add_log(float a, float b)
-{
-    return fmaxf(a, b) + logf(1.0 + expf(-fabsf(a - b)));
-}
+using SitsAccumulator::Log_Add;
 
 static __global__ void SITS_Record_Ene_Device(float* ene_record,
                                               const float* enhancing_energy,
@@ -438,7 +437,7 @@ static __global__ void SITS_Update_gfsum_Device(const int kn, float* gfsum,
     float temp = -FLT_MAX;
     for (int i = 0; i < kn; i = i + 1)
     {
-        temp = log_add_log(temp, gf[i]);
+        temp = Log_Add(temp, gf[i]);
     }
     gfsum[0] = temp;
 }
@@ -456,10 +455,7 @@ static __global__ void SITS_Update_log_pk_Device(const int kn, float* log_pk,
     for (int i = 0; i < kn; i++)
 #endif
     {
-        float gfi = gf[i];
-        log_pk[i] =
-            ((float)reset) * gfi +
-            ((float)(1 - reset)) * log_add_log(log_pk[i], gfi - gfsum[0]);
+        SitsAccumulator::Accumulate(log_pk[i], gf[i], gfsum[0], reset != 0);
     }
 }
 
@@ -478,11 +474,11 @@ static __global__ void SITS_Update_log_mk_inverse_Device(
         log_weight[i] = (log_pk[i] + log_pk[i + 1]) * 0.5;
         log_mk_inverse[i] = log_nk[i] - log_nk[i + 1];
         log_norm_old[i] = log_norm[i];
-        log_norm[i] = log_add_log(log_norm[i], log_weight[i]);
+        log_norm[i] = Log_Add(log_norm[i], log_weight[i]);
         log_mk_inverse[i] =
-            log_add_log(log_mk_inverse[i] + log_norm_old[i] - log_norm[i],
-                        log_pk[i + 1] - log_pk[i] + log_mk_inverse[i] +
-                            log_weight[i] - log_norm[i]);
+            Log_Add(log_mk_inverse[i] + log_norm_old[i] - log_norm[i],
+                    log_pk[i + 1] - log_pk[i] + log_mk_inverse[i] +
+                        log_weight[i] - log_norm[i]);
     }
 }
 
@@ -540,8 +536,8 @@ static __global__ void SITS_For_Enhanced_Force_Sum_Of_Above_And_Below_Device(
     float below = -FLT_MAX;
     for (int i = 0; i < k_numbers; i++)
     {
-        above = log_add_log(above, logf(beta_k[i]) + nkexpbetaku[i]);
-        below = log_add_log(below, nkexpbetaku[i]);
+        above = Log_Add(above, logf(beta_k[i]) + nkexpbetaku[i]);
+        below = Log_Add(below, nkexpbetaku[i]);
     }
     sum_of_above[0] = above;
     sum_of_below[0] = below;
@@ -554,13 +550,13 @@ static __global__ void SITS_For_Enhanced_Force_Protein_Water_Device(
     const int atom_numbers, VECTOR* md_frc, const VECTOR* enhancing_frc,
     float* md_ene, const float* bias, const int need_pressure,
     LTMatrix3* md_virial, const LTMatrix3* virial_enhancing,
-    const float factor_minus_one)
+    const float factor_minus_one, const float bias_strength)
 {
 #ifdef USE_GPU
     if (blockIdx.x == 0 && threadIdx.x == 0)
 #endif
     {
-        md_ene[0] = md_ene[0] + bias[0];
+        md_ene[0] = md_ene[0] + bias_strength * bias[0];
         if (need_pressure)
         {
             md_virial[0] =
@@ -1114,16 +1110,14 @@ void CLASSIC_SITS_INFORMATION::Memory_Allocate()
     Device_Malloc_Safely((void**)&log_weight, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_mk_inverse, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_norm_old, sizeof(float) * k_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&log_norm, log_norm_record_cpu,
-                                  sizeof(float) * k_numbers);
+    Device_Malloc_Safely((void**)&log_norm, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_pk, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_nk_inverse, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&log_nk, sizeof(float) * k_numbers);
 
     Device_Malloc_Safely((void**)&beta_k, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&NkExpBetakU, sizeof(float) * k_numbers);
-    Device_Malloc_And_Copy_Safely((void**)&Nk, nk_record_cpu,
-                                  sizeof(float) * k_numbers);
+    Device_Malloc_Safely((void**)&Nk, sizeof(float) * k_numbers);
     Device_Malloc_Safely((void**)&sum_a, sizeof(float));
     Device_Malloc_Safely((void**)&sum_b, sizeof(float));
     Device_Malloc_And_Copy_Safely((void**)&factor, &sits_controller->h_factor,
@@ -1457,6 +1451,16 @@ void SITS_INFORMATION::Initial(CONTROLLER* controller, int atom_numbers_,
                 "conditions; NOPBC supports only full-system ITS/ALL\n");
         }
 
+        if (controller->Command_Exist(module_name, "bias_strength"))
+        {
+            controller->Check_Float(module_name, "bias_strength",
+                                    "SITS_INFORMATION::Initial");
+            bias_strength =
+                atof(controller->Command(module_name, "bias_strength"));
+            if (!(bias_strength >= 0 && bias_strength <= 1))
+                throw std::runtime_error(
+                    "SITS bias_strength must be between 0 and 1");
+        }
         classic_sits.Initial(controller, this);
 
         h_factor = 1.0f;
@@ -1692,8 +1696,14 @@ void SITS_INFORMATION::Update_And_Enhance(const int step,
                          sizeof(float), deviceMemcpyDeviceToDevice);
         }
     }
-    if (sits_mode != SITS_MODE_OBSERVATION && !classic_sits.nk_fix &&
-        step % classic_sits.record_interval == 0)
+    // Observation only records the selected energy. Even a zero enhancement
+    // factor cannot neutralize NaNs in unused enhancement buffers.
+    if (sits_mode == SITS_MODE_OBSERVATION)
+    {
+        deviceMemset(classic_sits.d_bias, 0, sizeof(float));
+        return;
+    }
+    if (!classic_sits.nk_fix && step % classic_sits.record_interval == 0)
     {
         classic_sits.SITS_Update_Common(beta0);
         if (classic_sits.record_count % classic_sits.update_interval == 0)
@@ -1701,17 +1711,16 @@ void SITS_INFORMATION::Update_And_Enhance(const int step,
             classic_sits.SITS_Update_Nk();
         }
     }
-    if (sits_mode != SITS_MODE_OBSERVATION)
-    {
-        classic_sits.SITS_Update_Fb(beta0, step);
-    }
+    classic_sits.SITS_Update_Fb(beta0, step);
+    if (bias_strength == 0) return;
     Launch_Device_Kernel(SITS_For_Enhanced_Force_Protein_Water_Device,
                          (atom_numbers + CONTROLLER::device_max_thread - 1) /
                              CONTROLLER::device_max_thread,
                          CONTROLLER::device_max_thread, 0, NULL, atom_numbers,
                          frc, pw_select.select_force[0], d_total_potential,
                          classic_sits.d_bias, need_pressure, d_total_virial,
-                         pw_select.select_virial_tensor[0], h_factor - 1);
+                         pw_select.select_virial_tensor[0],
+                         bias_strength * (h_factor - 1), bias_strength);
 }
 
 void SITS_INFORMATION::SITS_LJ_Direct_CF_Force_With_Atom_Energy_And_Virial(
@@ -1862,8 +1871,9 @@ void SITS_INFORMATION::Step_Print(CONTROLLER* controller, const float beta0)
     deviceMemcpy(&h_enhancing_energy, pw_select.select_energy[0], sizeof(float),
                  deviceMemcpyDeviceToHost);
     controller->Step_Print(print_aa_kab_name, h_enhancing_energy);
-    controller->Step_Print(print_bias_name, bias);
-    controller->Step_Print(print_fb_name, h_factor);
+    controller->Step_Print(print_bias_name, bias_strength * bias);
+    controller->Step_Print(print_fb_name,
+                           1.0f + bias_strength * (h_factor - 1.0f));
 }
 
 static __global__ void Check_Solvent_Atom_Included(int atom_numbers,
