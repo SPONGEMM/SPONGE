@@ -103,3 +103,9 @@ pixi run -e dev-cuda13 perf-nonortho     # non-orthogonal box
 ```
 
 For new benchmarks, follow the existing structure in the `benchmarks/` directory.
+
+## Local message-passing interface
+
+For changes to the distributed local-MP path, see the
+[maintainer design guide](local-mp-design.md) for module ownership, runtime
+invariants and the reasons for changes to neighbor and domain handling.

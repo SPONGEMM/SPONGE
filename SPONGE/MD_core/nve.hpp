@@ -35,6 +35,7 @@ void MD_INFORMATION::NVE_iteration::Leap_Frog(const int atom_numbers,
                                               const float* inverse_mass,
                                               const float dt)
 {
+    if (atom_numbers == 0) return;
     if (max_velocity <= 0)
     {
         Launch_Device_Kernel(

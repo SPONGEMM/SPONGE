@@ -263,6 +263,7 @@ void ANDERSEN_THERMOSTAT_INFORMATION::Get_Local(int* atom_local,
     if (!is_initialized) return;
     this->local_atom_numbers = local_atom_numbers;
     this->local_float4_numbers = (local_atom_numbers * 3 + 3) / 4;
+    if (local_atom_numbers == 0) return;
     Launch_Device_Kernel(
         device_get_local,
         (local_atom_numbers + CONTROLLER::device_max_thread - 1) /
@@ -276,12 +277,16 @@ void ANDERSEN_THERMOSTAT_INFORMATION::MD_Iteration_Leap_Frog(
 {
     if (is_initialized)
     {
+        // Invocation state advances even when this domain currently owns no
+        // atoms.
+        const auto invocation_count = random_invocation_count++;
+        if (local_atom_numbers == 0) return;
         if (max_velocity <= 0)
         {
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_Andersen,
                 (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
-                random_invocation_count, (float*)random_vel, local_atom_numbers,
+                invocation_count, (float*)random_vel, local_atom_numbers,
                 0.5f * dt, dt, d_mass_inverse_local, d_factor_local, vel, crd,
                 frc, acc, random_vel);
         }
@@ -290,11 +295,10 @@ void ANDERSEN_THERMOSTAT_INFORMATION::MD_Iteration_Leap_Frog(
             Launch_Device_Kernel(
                 MD_Iteration_Leap_Frog_With_Andersen_With_Max_Velocity,
                 (local_atom_numbers + 32 - 1) / 32, 32, 0, NULL, random_seed,
-                random_invocation_count, (float*)random_vel, local_atom_numbers,
+                invocation_count, (float*)random_vel, local_atom_numbers,
                 0.5f * dt, dt, d_mass_inverse_local, d_factor_local, vel, crd,
                 frc, acc, random_vel, max_velocity);
         }
-        random_invocation_count += 1;
     }
 }
 

@@ -169,6 +169,8 @@ static __global__ void Scale_List_Device(const int element_numbers, float* list,
 void Scale_List(float* list, const float scaler, const int element_numbers,
                 int threads)
 {
+    // Empty local domains have no entries to scale; CUDA forbids a zero grid.
+    if (element_numbers == 0) return;
     Launch_Device_Kernel(Scale_List_Device,
                          (element_numbers + threads - 1) / threads, threads, 0,
                          NULL, element_numbers, list, scaler);

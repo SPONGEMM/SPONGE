@@ -49,7 +49,9 @@ policy. Only a newly loaded, changed box triggers this path. The deprecated
 disabling values and malformed values are rejected before opening the
 trajectory. Explicit 90-degree
 angles construct an exact diagonal cell; other angles retain their geometric
-tilt. Ordinary pressure-driven strain updates remain unchanged.
+tilt. Ordinary pressure-driven strain updates remain unchanged. Local-MP invalidates its borrowed graph
+at this direct cell-installation boundary as well as at pressure-driven box
+updates, before any domain or neighbor storage can be rebuilt.
 
 Reduce the evaluated frame's energy and publish its outputs before loading
 the next frame. Broadcast the frame counter when input frames are skipped,

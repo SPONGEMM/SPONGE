@@ -27,3 +27,15 @@ add_test(
           ${CMAKE_CURRENT_SOURCE_DIR}/test_boundary_source_contract.cmake)
 set_tests_properties(test_boundary_source_contract
                      PROPERTIES LABELS "boundary;contract")
+
+add_executable(test_initial_coordinate test_initial_coordinate.cpp)
+target_link_libraries(test_initial_coordinate PRIVATE common_libraries)
+target_include_directories(test_initial_coordinate
+                           PRIVATE ${PROJECT_ROOT_DIR}/SPONGE)
+if(PARALLEL_BACKEND STREQUAL "cuda")
+  set_source_files_properties(test_initial_coordinate.cpp PROPERTIES LANGUAGE
+                                                                     CUDA)
+endif()
+add_test(NAME test_initial_coordinate COMMAND test_initial_coordinate)
+set_tests_properties(test_initial_coordinate PROPERTIES LABELS
+                                                        "boundary;regression")

@@ -1,5 +1,9 @@
 ﻿#include "control.h"
 
+#include <limits>
+
+#include "third_party/toml/toml_decode.hpp"
+
 #define SPONGE_VERSION "v" SPONGE_VERSION_STR
 
 static const char* SPONGE_ASCII_ART = R"( ____  ____   ___  _   _  ____ _____
@@ -443,6 +447,8 @@ void CONTROLLER::Commands_From_In_File(int argc, char** argv,
         commands["md_name"] = "Default SPONGE MD Task Name";
     }
 
+    mdin_directory = mdin_dir.string();
+
     // Resolve workspace after mdin has been parsed so mdin-provided workspace
     // is honored. Workspace is resolved relative to mdin directory if present,
     // otherwise relative to startup cwd.
@@ -582,6 +588,245 @@ void CONTROLLER::Set_Command(const char* Flag, const char* Value, int Check,
     command_check[key] = Check;
 }
 
+static void Read_Structure_Request(const sponge::toml_decode::node& value,
+                                   CONTROLLER* controller)
+{
+    const char* error_by = "CONTROLLER::Configure_Mlip";
+    const auto fail = [&](const char* reason)
+    {
+        controller->Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                                       reason);
+    };
+    if (const auto* path = value.as_string())
+    {
+        controller->structure_path = *path;
+        controller->command_check["structure"] = 0;
+    }
+    else if (const auto* table = value.as_table())
+    {
+        const auto file = table->find("file");
+        if (file == table->end() || file->second.as_string() == nullptr)
+        {
+            fail("structure.file is required and must be a string");
+        }
+        controller->structure_path = *file->second.as_string();
+        for (const auto& [key, item] : *table)
+        {
+            controller->command_check["structure_" + key] = 0;
+            if (key == "file") continue;
+            if (key == "format")
+            {
+                const auto* format = item.as_string();
+                if (format == nullptr ||
+                    (*format != "xyz" && *format != "extxyz" &&
+                     *format != "vasp" && *format != "cif"))
+                {
+                    fail("structure.format must be xyz, extxyz, vasp or cif");
+                }
+                controller->structure_format = *format;
+            }
+            else if (key == "frame")
+            {
+                const auto* frame = item.as_integer();
+                if (frame == nullptr ||
+                    *frame < std::numeric_limits<int>::min() ||
+                    *frame > std::numeric_limits<int>::max())
+                {
+                    fail("structure.frame must be a single int32 frame index");
+                }
+                controller->structure_frame = static_cast<int>(*frame);
+            }
+            else if (key == "cell" || key == "pbc")
+            {
+                const auto* values = item.as_array();
+                if (values == nullptr || values->size() != 3)
+                {
+                    fail("structure.cell and structure.pbc require 3 entries");
+                }
+                for (const auto& entry : *values)
+                {
+                    if (key == "cell")
+                    {
+                        if (const auto* number = entry.as_floating())
+                        {
+                            controller->structure_cell.push_back(*number);
+                        }
+                        else if (const auto* number = entry.as_integer())
+                        {
+                            controller->structure_cell.push_back(*number);
+                        }
+                        else
+                        {
+                            fail("structure.cell entries must be numbers in A");
+                        }
+                    }
+                    else
+                    {
+                        const auto* flag = entry.as_bool();
+                        if (flag == nullptr)
+                        {
+                            fail("structure.pbc entries must be booleans");
+                        }
+                        controller->structure_pbc.push_back(*flag ? 1 : 0);
+                    }
+                }
+            }
+            else
+            {
+                fail(
+                    "structure accepts only file, format, frame, cell and pbc");
+            }
+        }
+    }
+    else
+    {
+        fail("structure must be a file path string or a table");
+    }
+    if (controller->structure_path.empty())
+    {
+        fail("structure file path must not be empty");
+    }
+    controller->structure_path =
+        Resolve_Path_With_Base(controller->structure_path,
+                               controller->mdin_directory)
+            .string();
+}
+
+void CONTROLLER::Configure_Mlip()
+{
+    structure_path.clear();
+    structure_format.clear();
+    structure_frame = 0;
+    structure_cell.clear();
+    structure_pbc.clear();
+    native_mlip = Command_Exist("mlip", "model") ||
+                  Command_Exist("mlip", "types") ||
+                  Command_Exist("mlip", "mode");
+    sponge::toml_decode::table root;
+    if (mdin_is_toml)
+    {
+        root = sponge::toml_decode::detail::parse_toml_string(
+            mdin_toml_content, mdin_toml_source_path);
+        native_mlip = native_mlip || root.count("mlip") != 0;
+        const auto structure = root.find("structure");
+        if (structure != root.end())
+        {
+            Read_Structure_Request(structure->second, this);
+        }
+    }
+    const char* error_by = "CONTROLLER::Configure_Mlip";
+    if (!structure_path.empty() && !native_mlip)
+    {
+        Throw_SPONGE_Error(spongeErrorMissingCommand, error_by,
+                           "structure requires a native [mlip] deployment");
+    }
+    if (!native_mlip) return;
+    if (!Command_Exist("mlip", "model") ||
+        (structure_path.empty() && !Command_Exist("mlip", "types")))
+    {
+        Throw_SPONGE_Error(
+            spongeErrorMissingCommand, error_by,
+            "[mlip] requires model and, without structure, types");
+    }
+#ifndef SPONGE_ENABLE_MLIP
+    Throw_SPONGE_Error(
+        spongeErrorValueErrorCommand, error_by,
+        "Native [mlip] requires a Linux CUDA+MPI build configured with "
+        "-DSPONGE_ENABLE_MLIP=ON -DPARALLEL=cuda -DMPI=ON. "
+        "The advanced plugin+py entry remains available separately.");
+#endif
+    const char* py_env = std::getenv("SPONGE_PRIPS_PY");
+    if (Command_Exist("plugin") || Command_Exist("py") ||
+        (py_env != nullptr && py_env[0] != '\0'))
+    {
+        Throw_SPONGE_Error(
+            spongeErrorConflictingCommand, error_by,
+            "Native [mlip] cannot be combined with plugin, py or "
+            "SPONGE_PRIPS_PY; use mlip.mode=hybrid for classical forces.");
+    }
+    // Read native TOML strings as data, preserving spaces and literal '#'.
+    if (mdin_is_toml)
+    {
+        const auto section = root.find("mlip");
+        if (section != root.end() && section->second.as_table() != nullptr)
+        {
+            for (const char* key : {"model", "types", "mode"})
+            {
+                const auto& table = *section->second.as_table();
+                const auto value = table.find(key);
+                if (value == table.end()) continue;
+                const auto* text = value->second.as_string();
+                if (text == nullptr)
+                {
+                    Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                                       "mlip model/types/mode must be strings");
+                }
+                original_commands[std::string("mlip_") + key] = *text;
+            }
+        }
+    }
+    if (Command_Exist("mlip", "mode"))
+    {
+        const std::string mode = Original_Command("mlip", "mode");
+        if (mode != "pure" && mode != "hybrid")
+        {
+            Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                               "mlip.mode must be pure or hybrid");
+        }
+        mlip_pure = mode == "pure";
+    }
+    if (!structure_path.empty())
+    {
+        if (!mlip_pure || Command_Exist("mlip", "types"))
+        {
+            Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, error_by,
+                "structure requires mlip.mode=pure and supplies its own types; "
+                "use the traditional input with JSON types for hybrid mode");
+        }
+        for (const char* key :
+             {"default_in_file_prefix", "coordinate_in_file", "mass_in_file",
+              "velocity_in_file", "amber_parm7", "amber_rst7", "gromacs_top",
+              "gromacs_gro", "input_h5_topology_path", "input_h5_restart_path",
+              "input_h5_trajectory_path"})
+        {
+            if (commands.count(key) != 0)
+            {
+                const std::string reason =
+                    std::string(
+                        "structure owns the initial state and cannot "
+                        "be combined with ") +
+                    key;
+                Throw_SPONGE_Error(spongeErrorConflictingCommand, error_by,
+                                   reason.c_str());
+            }
+        }
+        if (Command_Choice("mode", "rerun"))
+        {
+            Throw_SPONGE_Error(
+                spongeErrorConflictingCommand, error_by,
+                "structure does not support restart/rerun input; use the "
+                "traditional input with explicit JSON types");
+        }
+    }
+    for (const char* key : {"model", "types"})
+    {
+        if (!Command_Exist("mlip", key)) continue;
+        const std::string raw_path = Original_Command("mlip", key);
+        if (raw_path.empty())
+        {
+            Throw_SPONGE_Error(spongeErrorValueErrorCommand, error_by,
+                               "mlip model/types paths must not be empty");
+        }
+        const std::string resolved =
+            Resolve_Path_With_Base(raw_path, mdin_directory).string();
+        const std::string command = std::string("mlip_") + key;
+        // The existing plugin command API now returns the complete path.
+        commands[command] = resolved;
+        original_commands[command] = resolved;
+    }
+}
+
 void CONTROLLER::Default_Set()
 {
     srand(0);
@@ -668,6 +913,18 @@ neither equal to the size of MPI ranks (%d) nor 1\n",
     }
     int count;
     deviceGetDeviceCount(&count);
+#if defined(SPONGE_ENABLE_MLIP) && defined(USE_MPI)
+    if (native_mlip && !Command_Exist("device"))
+    {
+        MPI_Comm local_comm;
+        MPI_Comm_split_type(MPI_COMM_WORLD, MPI_COMM_TYPE_SHARED, MPI_rank,
+                            MPI_INFO_NULL, &local_comm);
+        int local_rank;
+        MPI_Comm_rank(local_comm, &local_rank);
+        MPI_Comm_free(&local_comm);
+        working_device = count == 1 ? 0 : local_rank;
+    }
+#endif
     printf("        %d device(s) found:\n", count);
 
     deviceProp prop;
@@ -874,6 +1131,7 @@ void CONTROLLER::Initial(int argc, char** argv, const char* subpackage_hint)
     warn_of_initialization = 1;
     Arguments_Parse(argc, argv);
     Commands_From_In_File(argc, argv, subpackage_hint);
+    Configure_Mlip();
     printf("START INITIALIZING CONTROLLER\n");
     Default_Set();
     Init_Device();
