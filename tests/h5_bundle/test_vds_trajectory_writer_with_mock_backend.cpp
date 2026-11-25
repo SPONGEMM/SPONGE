@@ -1117,11 +1117,61 @@ static void Test_Vds_Chunk_Boundary_Frame_Counts()
     }
 }
 
+static void Test_Potential_Shard_Failure_Does_Not_Commit_Wrapper()
+{
+    MockBackendFactory factory;
+    VdsTrajectoryH5Writer writer(&factory);
+    REQUIRE_TRUE(writer.Open(Make_Vds_Plan()));
+    REQUIRE_TRUE(writer.Define_Particle_Datasets(1, false, false));
+    float position[3] = {0, 0, 0};
+    float box[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    REQUIRE_TRUE(writer.Append_Particle_Frame(10, 0.1, position, box));
+    MetadynamicsGrid grid;
+    grid.shape = {1};
+    grid.axes = {{0}};
+    grid.cv_labels = {"phi"};
+    grid.value_labels = {"potential_raw"};
+    grid.values = {1};
+    REQUIRE_TRUE(writer.Define_Metadynamics_Grid("meta", grid));
+    factory.logs[1]->fail_next_append = true;
+    REQUIRE_TRUE(!writer.Append_Metadynamics_Grid("meta", grid, 10, 0.1));
+    const std::string commit = Metadynamics_Diagnostic_Root("meta") +
+                               "/potential_snapshots/committed_count";
+    REQUIRE_EQ(factory.logs[0]->append_counts[commit], 0);
+    REQUIRE_EQ(factory.logs[1]->append_counts[commit], 0);
+}
+
+static void Test_Grid_Only_Shard_Does_Not_Copy_Payload_To_Wrapper()
+{
+    MockBackendFactory factory;
+    VdsTrajectoryH5Writer writer(&factory);
+    REQUIRE_TRUE(writer.Open(Make_Vds_Plan()));
+    MetadynamicsGrid grid;
+    grid.shape = {2};
+    grid.axes = {{0, 1}};
+    grid.cv_labels = {"phi"};
+    grid.value_labels = {"potential_raw"};
+    grid.values = {1, 2};
+    REQUIRE_TRUE(writer.Define_Metadynamics_Grid("meta", grid));
+    for (int step = 0; step < 100; ++step)
+        REQUIRE_TRUE(
+            writer.Append_Metadynamics_Grid("meta", grid, step, step * 0.1));
+    REQUIRE_TRUE(writer.Finalize());
+    REQUIRE_EQ(writer.Manifest().size(), 1u);
+    REQUIRE_EQ(writer.Manifest()[0].frame_count, 0);
+    REQUIRE_EQ(writer.Manifest()[0].metadynamics_grid_frame_count, 100);
+    const auto root = MetadynamicsPotentialSnapshots::Root("meta");
+    REQUIRE_EQ(factory.logs[0]->append_counts[root + "/values"], 0);
+    REQUIRE_EQ(factory.logs[1]->append_counts[root + "/values"], 200);
+}
+
 int main()
 {
     return Run_Test(
         []
         {
+            Test_Potential_Shard_Failure_Does_Not_Commit_Wrapper();
+            Test_Grid_Only_Shard_Does_Not_Copy_Payload_To_Wrapper();
             Test_Vds_Wrapper_And_Module_Virtual_Datasets();
             Test_Vds_Optional_Particle_Fields_Disabled();
             Test_Vds_Shard_Filename_Sequence_Uses_Six_Digit_Padding();

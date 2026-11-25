@@ -45,9 +45,12 @@ struct LENNARD_JONES_NO_PBC_INFORMATION
 
     float cutoff = 10.0;
 
+    // crd/frc use local order; atom_local maps each local atom to immutable
+    // global LJ parameters. Required even for single-rank constrained runs.
     // 可以根据外界传入的need_atom_energ选择性计算能量
     void LJ_Force_With_Atom_Energy(const int atom_numbers, const VECTOR* crd,
-                                   VECTOR* frc, const int need_atom_energy,
+                                   const int* atom_local, VECTOR* frc,
+                                   const int need_atom_energy,
                                    float* atom_energy,
                                    const int* excluded_list_start,
                                    const int* excluded_list,

@@ -25,6 +25,7 @@ class OutputSession
     void Write_Trajectory();
     void Write_Force();
     void Write_Restart();
+    void Write_Exchange_Checkpoint(const std::string& path);
     void Write_Metadynamics_Hills();
     void Write_Pending_Sits();
     void Publish();
@@ -38,5 +39,6 @@ class OutputSession
     std::unique_ptr<SpongeH5MD::WriterBackend> sample_backend_;
     std::unique_ptr<SpongeH5MD::ObservableH5Writer> sample_writer_;
     RuntimeState runtime_;
+    bool native_meta_grid_enabled_ = false;
 };
 }  // namespace SpongeIO

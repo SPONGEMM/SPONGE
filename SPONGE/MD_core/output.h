@@ -91,6 +91,10 @@ struct trajectory_output
                                                const char* module_name,
                                                const char* component,
                                                const char* file_name);
+    void Write_H5_Metadynamics_Grid(CONTROLLER* controller,
+                                    const std::string& name,
+                                    const SpongeH5MD::MetadynamicsGrid& grid,
+                                    bool define);
     void Publish_Output(CONTROLLER* controller);
     void Publish_H5_Output(CONTROLLER* controller);
     void Finalize_H5_Trajectory(CONTROLLER* controller);

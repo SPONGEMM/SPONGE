@@ -144,6 +144,7 @@ struct SITS_INFORMATION
 
     float pwwp_enhance_factor = 0.5;
     float h_factor = 1.0;
+    float bias_strength = 1.0f;
 
     float h_enhancing_energy;
 

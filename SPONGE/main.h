@@ -67,7 +67,7 @@ void Main_Refresh_Local_State(bool rebuild_dd);
 
 void Main_MC_Barostat();
 float Main_Box_Change(LTMatrix3 g, int scale_box, int scale_crd, int scale_vel);
-void Main_Rerun_Box_Change();
+void Main_Install_Box_From_System();
 void Main_Box_Change_Largely();
 
 #endif
